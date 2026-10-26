@@ -1,0 +1,19 @@
+node_modules/
+dist/
+build/
+.env
+.env.local
+.env.*.local
+.data/
+coverage/
+*.log
+.DS_Store
+.vite/
+apps/web/android/app/build/
+apps/web/android/build/
+apps/web/android/.gradle/
+apps/web/ios/
+*.tsbuildinfo
+
+# Local sandbox overrides; test settings are declared in vitest.config.ts
+.env.test

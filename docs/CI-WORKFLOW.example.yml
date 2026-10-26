@@ -1,0 +1,73 @@
+name: CI
+
+on:
+  push:
+    branches: [main, "arena/**"]
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  api:
+    name: API — typecheck, tests, build
+    runs-on: ubuntu-latest
+    env:
+      NODE_ENV: test
+      DB_DRIVER: sqlite
+      SQLITE_FILE: ./.data/ci.db
+      RATE_LIMIT_PER_MINUTE: '100000'
+      APP_ENCRYPTION_KEY: '0123456789abcdef0123456789abcdef'
+      SESSION_COOKIE: pishkan_ci
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+      - run: npm ci
+      - name: Typecheck API
+        run: npm run typecheck --workspace apps/api
+      - name: Run API tests
+        run: npm run test --workspace apps/api
+      - name: Run requirements regression acceptance
+        run: npm exec --workspace apps/api -- vitest run --config audit.config.ts
+      - name: Build API
+        run: npm run build --workspace apps/api
+
+  web:
+    name: Web — typecheck, tests, build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+      - run: npm ci
+      - name: Typecheck web
+        run: npm run typecheck --workspace apps/web
+      - name: Run web tests
+        run: npm run test --workspace apps/web
+      - name: Build web
+        run: npm run build --workspace apps/web
+      - uses: actions/upload-artifact@v4
+        with:
+          name: web-dist
+          path: apps/web/dist
+          retention-days: 7
+
+  shell:
+    name: Scripts — shellcheck
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install shellcheck
+        run: sudo apt-get update && sudo apt-get install -y shellcheck
+      - name: Lint installer and CLI
+        run: shellcheck -S warning scripts/install.sh scripts/pishkan scripts/lib/common.sh

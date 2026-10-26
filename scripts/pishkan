@@ -1,0 +1,500 @@
+#!/usr/bin/env bash
+# ---------------------------------------------------------------------------
+# pishkan — lifecycle management for a Pishkan installation
+#
+#   pishkan status | health | version
+#   pishkan logs [api|nginx] [-f]
+#   pishkan restart
+#   pishkan update [--ref <git-ref>] [--no-backup]
+#   pishkan rollback [--to <release-id>]
+#   pishkan backup [--dest <dir>] [--quiet]
+#   pishkan restore <backup-file> [--yes]
+#   pishkan migrate | seed [--catalog-only] | reset-admin
+#   pishkan doctor
+#
+# Customer, invoice, transaction, settings and administrator data are never
+# deleted by update/rollback/migrate. Only `restore` replaces data, and it
+# requires an explicit typed confirmation plus a pre-restore safety backup.
+# ---------------------------------------------------------------------------
+
+set -Eeuo pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+if [ -f "${SCRIPT_DIR}/lib/common.sh" ]; then
+  # shellcheck source=lib/common.sh
+  . "${SCRIPT_DIR}/lib/common.sh"
+else
+  # shellcheck source=/dev/null
+  . /opt/pishkan/current/scripts/lib/common.sh
+fi
+
+BACKUP_KEEP_DAYS="${BACKUP_KEEP_DAYS:-14}"
+
+usage() {
+  cat <<'EOF'
+سامانه پشکان — مدیریت نصب
+
+  pishkan status                 وضعیت سرویس، نسخه و سلامت API
+  pishkan health                 بررسی سلامت (کد خروج ۰ یعنی سالم)
+  pishkan version                نسخه نصب‌شده و شناسه نسخه (commit)
+  pishkan logs [api|nginx] [-f]  مشاهده لاگ‌ها
+  pishkan restart                راه‌اندازی مجدد سرویس API
+  pishkan update [--ref REF]     به‌روزرسانی امن؛ در صورت خطا خودکار بازمی‌گردد
+  pishkan rollback [--to ID]     بازگشت به نسخه قبلی
+  pishkan backup [--dest DIR]    پشتیبان‌گیری از پایگاه داده و مدارک
+  pishkan restore FILE [--yes]   بازیابی (نیازمند تأیید صریح)
+  pishkan migrate                اجرای مهاجرت‌های نسخه‌بندی‌شده
+  pishkan seed [--catalog-only]  بارگذاری/به‌روزرسانی کاتالوگ نمونه
+  pishkan reset-admin            رمز جدید برای مدیر کل (نمایش یک‌باره)
+  pishkan doctor                 بررسی کامل پیش‌نیازها و تنظیمات
+EOF
+}
+
+cmd_version() {
+  if ! is_installed; then
+    err "Pishkan روی این سرور نصب نشده است."
+    exit 1
+  fi
+  local release version commit
+  release="$(current_release)"
+  version="$(read_env_value APP_VERSION)"
+  commit="$(cat "${release}/.release-commit" 2>/dev/null || git -C "$release" rev-parse --short HEAD 2>/dev/null || echo 'نامشخص')"
+  printf 'Pishkan %s\nنسخه فعال: %s\nشناسه نسخه: %s\nمسیر: %s\n' "${version:-?}" "$(basename "$release")" "$commit" "$release"
+}
+
+cmd_health() {
+  local url
+  url="$(health_url)"
+  if ! command -v curl >/dev/null 2>&1; then
+    err "curl نصب نیست؛ بررسی سلامت ممکن نیست."
+    return 1
+  fi
+  local response
+  if response="$(curl -fsS --max-time 5 "$url")"; then
+    ok "API سالم است: $url"
+    printf '%s\n' "$response"
+    return 0
+  fi
+  err "API پاسخ سالم نداد: $url"
+  return 1
+}
+
+cmd_status() {
+  heading "وضعیت سامانه پشکان"
+  cmd_version || true
+  echo
+  if service_active; then ok "سرویس ${SERVICE_NAME}: فعال"; else err "سرویس ${SERVICE_NAME}: غیرفعال"; fi
+  systemctl is-enabled --quiet "$SERVICE_NAME" 2>/dev/null && ok "راه‌اندازی خودکار: فعال" || warn "راه‌اندازی خودکار: غیرفعال"
+  echo
+  if command -v nginx >/dev/null 2>&1; then
+    if systemctl is-active --quiet nginx; then ok "Nginx: فعال"; else err "Nginx: غیرفعال"; fi
+  fi
+  if command -v psql >/dev/null 2>&1; then
+    if systemctl is-active --quiet postgresql; then ok "PostgreSQL: فعال"; else err "PostgreSQL: غیرفعال"; fi
+  fi
+  echo
+  cmd_health || true
+  echo
+  local backup_count latest
+  backup_count="$(find "$BACKUP_DIR" -maxdepth 1 -name 'pishkan-backup-*.tar.gz' 2>/dev/null | wc -l | tr -d ' ')"
+  latest="$(ls -1t "${BACKUP_DIR}"/pishkan-backup-*.tar.gz 2>/dev/null | head -1 || true)"
+  if [ -n "$latest" ]; then
+    ok "پشتیبان‌ها: ${backup_count} نسخه • آخرین: $(basename "$latest") ($(date -r "$latest" '+%Y-%m-%d %H:%M'))"
+  else
+    warn "هیچ نسخه پشتیبانی ایجاد نشده است. «pishkan backup» را اجرا کنید."
+  fi
+  if systemctl is-active --quiet pishkan-backup.timer 2>/dev/null; then
+    ok "پشتیبان‌گیری خودکار: فعال (روزانه ۰۲:۳۰)"
+  else
+    warn "پشتیبان‌گیری خودکار: غیرفعال (systemctl enable --now pishkan-backup.timer)"
+  fi
+}
+
+cmd_logs() {
+  local target="api" follow=0
+  for arg in "$@"; do
+    case "$arg" in
+      -f|--follow) follow=1 ;;
+      api|nginx) target="$arg" ;;
+      *) die "پارامتر نامعتبر برای logs: $arg" ;;
+    esac
+  done
+  case "$target" in
+    nginx) if [ "$follow" = "1" ]; then journalctl -u nginx -f; else journalctl -u nginx -n 100 --no-pager; fi ;;
+    api|""|"*") if [ "$follow" = "1" ]; then journalctl -u "$SERVICE_NAME" -f
+               else journalctl -u "$SERVICE_NAME" -n 150 --no-pager; fi ;;
+    *) die "هدف لاگ نامعتبر است. از api یا nginx استفاده کنید." ;;
+  esac
+}
+
+cmd_restart() {
+  require_root
+  log "راه‌اندازی مجدد ${SERVICE_NAME}…"
+  systemctl restart "$SERVICE_NAME"
+  if wait_for_health 60; then ok "سرویس با موفقیت راه‌اندازی شد."; else die "سرویس پس از راه‌اندازی پاسخ نداد. journalctl -u ${SERVICE_NAME} -n 100"; fi
+}
+
+# ---------------------------------------------------------------------------
+# backup / restore
+# ---------------------------------------------------------------------------
+
+cmd_backup() {
+  local quiet=0 dest=""
+  while [ $# -gt 0 ]; do
+    case "$1" in
+      --quiet) quiet=1 ;;
+      --dest) shift; dest="${1:-}" ;;
+      *) die "پارامتر ناشناخته برای backup: $1" ;;
+    esac
+    shift
+  done
+  dest="${dest:-$BACKUP_DIR}"
+  mkdir -p "$dest"
+
+  local stamp file workdir driver
+  stamp="$(date -u +%Y%m%dT%H%M%SZ)"
+  file="${dest}/pishkan-backup-${stamp}.tar.gz"
+  workdir="$(mktemp -d)"
+  driver="$(read_env_value DB_DRIVER)"
+
+  [ "$quiet" = "1" ] || log "پشتیبان‌گیری از پایگاه داده (${driver:-postgres})…"
+  if [ "$driver" = "sqlite" ]; then
+    local sqlite_file
+    sqlite_file="$(read_env_value SQLITE_FILE)"
+    [ -f "$sqlite_file" ] || die "فایل SQLite یافت نشد: ${sqlite_file:-تنظیم نشده}"
+    # Use the SQLite backup-safe copy: dump via sqlite3 when available.
+    if command -v sqlite3 >/dev/null 2>&1; then
+      sqlite3 "$sqlite_file" ".backup '${workdir}/database.sqlite'"
+    else
+      die 'sqlite3 نصب نیست؛ کپی خام دیتابیس زنده ناامن است و پشتیبان‌گیری لغو شد.'
+    fi
+  else
+    PGPASSWORD="$(read_env_value DB_PASSWORD)" pg_dump \
+      --host "$DB_HOST" --port "$DB_PORT" --username "$DB_USER" --dbname "$DB_NAME" \
+      --format=custom --no-owner --no-privileges --file "${workdir}/database.dump"
+  fi
+
+  if [ -d "$UPLOAD_DIR" ]; then
+    [ "$quiet" = "1" ] || log "پشتیبان‌گیری از مدارک و فایل‌ها…"
+    tar -C "$UPLOAD_DIR" -czf "${workdir}/uploads.tar.gz" . || die "آرشیو مدارک ناقص است؛ پشتیبان‌گیری ناموفق بود."
+  fi
+
+  cat >"${workdir}/manifest.json" <<EOF
+{
+  "createdAt": "${stamp}",
+  "appVersion": "$(read_env_value APP_VERSION)",
+  "commit": "$(cat "$(current_release)/.release-commit" 2>/dev/null || echo unknown)",
+  "driver": "${driver:-postgres}",
+  "database": "${DB_NAME}",
+  "release": "$(basename "$(current_release)")",
+  "hostname": "$(hostname)"
+}
+EOF
+
+  tar -C "$workdir" -czf "$file" .
+  sha256sum "$file" >"${file}.sha256"
+  chmod 0600 "$file" "${file}.sha256"
+  rm -rf "$workdir"
+
+  [ "$quiet" = "1" ] || ok "نسخه پشتیبان ساخته شد: $file ($(du -h "$file" | cut -f1))"
+
+  # Retention is local-only; long-term copies must live off the server.
+  find "$dest" -maxdepth 1 -name 'pishkan-backup-*.tar.gz' -mtime "+${BACKUP_KEEP_DAYS}" -delete 2>/dev/null || true
+  find "$dest" -maxdepth 1 -name 'pishkan-backup-*.tar.gz.sha256' -mtime "+${BACKUP_KEEP_DAYS}" -delete 2>/dev/null || true
+
+  if [ "$quiet" != "1" ]; then
+    warn "این نسخه روی همان سرور است. برای محافظت واقعی، آن را به مقصد خارج از سرور منتقل کنید:"
+    warn "  rsync -av ${file}* backup-host:/backups/pishkan/    یا    rclone copy ${file}* remote:pishkan"
+  fi
+}
+
+safe_extract() {
+  command -v python3 >/dev/null 2>&1 || die "python3 برای اعتبارسنجی آرشیو لازم است."
+  python3 - "$1" "$2" <<'PYARCHIVE'
+import sys, tarfile, pathlib
+archive, target = sys.argv[1:]
+root = pathlib.Path(target).resolve()
+with tarfile.open(archive, 'r:gz') as tar:
+    for member in tar.getmembers():
+        dest = (root / member.name).resolve()
+        if (not member.isfile() and not member.isdir()) or not dest.is_relative_to(root):
+            raise SystemExit('Unsafe archive member: extraction aborted')
+    tar.extractall(root, filter='data')
+PYARCHIVE
+}
+
+cmd_restore() {
+  require_root
+  local file="" assume_yes=0
+  while [ $# -gt 0 ]; do
+    case "$1" in
+      --yes) assume_yes=1 ;;
+      -*) die "پارامتر ناشناخته: $1" ;;
+      *) file="$1" ;;
+    esac
+    shift
+  done
+  [ -n "$file" ] || die "مسیر فایل پشتیبان را وارد کنید: pishkan restore /var/backups/pishkan/pishkan-backup-…tar.gz"
+  [ -f "$file" ] || die "فایل پشتیبان یافت نشد: $file"
+
+  if [ -f "${file}.sha256" ]; then
+    log "بررسی صحت فایل پشتیبان…"
+    ( cd "$(dirname "$file")" && sha256sum -c "$(basename "$file").sha256" >/dev/null ) \
+      || die "چک‌سام مطابقت ندارد. فایل پشتیبان ناقص یا تغییر یافته است."
+    ok "چک‌سام تأیید شد."
+  else
+    die "فایل چک‌سام یافت نشد؛ بازیابی بدون تأیید صحت مجاز نیست."
+  fi
+
+  warn "بازیابی، داده‌های فعلی (مشتریان، فاکتورها، تراکنش‌ها، تنظیمات) را با محتوای این نسخه جایگزین می‌کند."
+  if [ "$assume_yes" != "1" ]; then
+    confirm_phrase RESTORE "برای ادامه عبارت RESTORE را تایپ کنید: " || die "بازیابی لغو شد."
+  fi
+
+  log "ایجاد نسخه پشتیبان ایمنی از وضعیت فعلی…"
+  cmd_backup --quiet || die "ایجاد نسخه ایمنی ناموفق بود؛ بازیابی لغو شد."
+
+  local workdir driver
+  workdir="$(mktemp -d)"
+  safe_extract "$file" "$workdir"
+  [ -f "${workdir}/manifest.json" ] || die "ساختار فایل پشتیبان معتبر نیست."
+
+  driver="$(read_env_value DB_DRIVER)"
+  if [ -f "${workdir}/database.dump" ]; then
+    log "بازیابی پایگاه داده…"
+    systemctl stop "$SERVICE_NAME" || die "توقف سرویس ناموفق بود؛ بازیابی لغو شد."
+    PGPASSWORD="$(read_env_value DB_PASSWORD)" pg_restore \
+      --host "$DB_HOST" --port "$DB_PORT" --username "$DB_USER" --dbname "$DB_NAME" \
+      --single-transaction --exit-on-error --clean --if-exists --no-owner --no-privileges "${workdir}/database.dump" \
+      || die "pg_restore ناموفق بود؛ تراکنش بازیابی برگشت داده شد و سرویس متوقف است. از پشتیبان ایمنی استفاده کنید."
+  elif [ -f "${workdir}/database.sqlite" ]; then
+    log "بازیابی پایگاه داده SQLite…"
+    systemctl stop "$SERVICE_NAME" || die "توقف سرویس ناموفق بود؛ بازیابی لغو شد."
+    local sqlite_target
+    sqlite_target="$(read_env_value SQLITE_FILE)"
+    rm -f "${sqlite_target}-wal" "${sqlite_target}-shm"
+    cp "${workdir}/database.sqlite" "$sqlite_target"
+    chown "$APP_USER:$APP_GROUP" "$sqlite_target"
+    chmod 0600 "$sqlite_target"
+  else
+    rm -rf "$workdir"
+    die "پایگاه داده‌ای در فایل پشتیبان یافت نشد."
+  fi
+
+  if [ -f "${workdir}/uploads.tar.gz" ]; then
+    log "بازیابی مدارک و فایل‌ها…"
+    mkdir -p "$UPLOAD_DIR"
+    rm -rf "${UPLOAD_DIR:?}"/* 2>/dev/null || true
+    safe_extract "${workdir}/uploads.tar.gz" "$UPLOAD_DIR"
+    chown -R "$APP_USER:$APP_GROUP" "$UPLOAD_DIR"
+  fi
+  rm -rf "$workdir"
+
+  systemctl start "$SERVICE_NAME"
+  if wait_for_health 90; then
+    ok "بازیابی با موفقیت انجام شد."
+  else
+    die "سرویس پس از بازیابی پاسخ نداد. نسخه ایمنی در ${BACKUP_DIR} موجود است."
+  fi
+  [ "$driver" = "sqlite" ] && warn "در محیط SQLite، لاگ‌های WAL ممکن است نیاز به راه‌اندازی مجدد داشته باشند."
+  return 0
+}
+
+# ---------------------------------------------------------------------------
+# update / rollback
+# ---------------------------------------------------------------------------
+
+cmd_update() {
+  require_root
+  local ref="$REPO_BRANCH" no_backup=0
+  while [ $# -gt 0 ]; do
+    case "$1" in
+      --ref) shift; ref="${1:-$REPO_BRANCH}" ;;
+      --no-backup) no_backup=1 ;;
+      *) die "پارامتر ناشناخته برای update: $1" ;;
+    esac
+    shift
+  done
+
+  is_installed || die "Pishkan نصب نشده است."
+  local old_release new_dir commit
+  old_release="$(current_release)"
+  new_dir="${RELEASES_DIR}/$(date -u +%Y%m%d%H%M%S)"
+
+  heading "به‌روزرسانی پشکان (${ref})"
+  if [ "$no_backup" != "1" ]; then
+    log "پشتیبان‌گیری پیش از به‌روزرسانی…"
+    cmd_backup --quiet || die "پشتیبان‌گیری ناموفق بود؛ به‌روزرسانی متوقف شد."
+  else
+    warn "پشتیبان‌گیری پیش از به‌روزرسانی با درخواست شما رد شد."
+  fi
+
+  log "دریافت نسخه جدید…"
+  git clone --depth 1 --branch "$ref" "$REPO_URL" "$new_dir" >/dev/null
+  commit="$(git -C "$new_dir" rev-parse --short HEAD)"
+  printf '%s\n' "$commit" >"${new_dir}/.release-commit"
+  chown -R "$APP_USER:$APP_GROUP" "$new_dir"
+  ok "نسخه جدید: $commit"
+
+  log "نصب وابستگی‌ها و ساخت…"
+  run_as_app "$new_dir" npm ci --no-audit --no-fund >/dev/null
+
+  local failed=0
+  run_as_app "$new_dir" npm run build --workspace apps/api >/dev/null || failed=1
+  run_as_app "$new_dir" npm run build --workspace apps/web >/dev/null || failed=1
+  if [ "$failed" = "1" ]; then
+    err "ساخت نسخه جدید ناموفق بود. نسخه فعلی دست‌نخورده باقی ماند."
+    rm -rf "$new_dir"
+    exit 1
+  fi
+
+  log "اجرای مهاجرت‌ها…"
+  if ! run_cli_script "$new_dir" migrate; then
+    err "مهاجرت ناموفق بود. نسخه فعلی حفظ شد (داده‌ها تغییر نکردند)."
+    rm -rf "$new_dir"
+    exit 1
+  fi
+
+  log "فعال‌سازی نسخه جدید…"
+  ln -sfn "$old_release" "${APP_ROOT}/previous"
+  ln -sfn "$new_dir" "$CURRENT_LINK"
+  install -m 0644 "${CURRENT_LINK}/deploy/systemd/pishkan-api.service" "/etc/systemd/system/${SERVICE_NAME}.service"
+  systemctl daemon-reload
+  systemctl restart "$SERVICE_NAME"
+
+  if wait_for_health 90; then
+    ok "به‌روزرسانی انجام شد (نسخه ${commit})."
+    install -m 0755 "${CURRENT_LINK}/scripts/pishkan" /usr/local/bin/pishkan
+    install -m 0644 "${CURRENT_LINK}/deploy/systemd/pishkan-backup.service" /etc/systemd/system/ 2>/dev/null || true
+  else
+    err "سرویس جدید سالم نبود؛ بازگشت به نسخه قبلی…"
+    ln -sfn "$old_release" "$CURRENT_LINK"
+    systemctl restart "$SERVICE_NAME"
+    if wait_for_health 60; then
+      err "بازگشت انجام شد. نسخه جدید در ${new_dir} برای بررسی باقی ماند."
+    else
+      err "بازگشت خودکار ناموفق بود. بررسی دستی لازم است: journalctl -u ${SERVICE_NAME} -n 200"
+    fi
+    exit 1
+  fi
+}
+
+cmd_rollback() {
+  require_root
+  local target=""
+  while [ $# -gt 0 ]; do
+    case "$1" in
+      --to) shift; target="${1:-}" ;;
+      *) die "پارامتر ناشناخته برای rollback: $1" ;;
+    esac
+    shift
+  done
+  is_installed || die "Pishkan نصب نشده است."
+
+  [ -n "$target" ] || target="$(previous_release)"
+  [ -n "$target" ] || die "نسخه قبلی موجود نیست."
+  local target_dir="${RELEASES_DIR}/${target}"
+  [ -d "$target_dir" ] || die "نسخه ${target} یافت نشد."
+
+  warn "بازگشت به نسخه ${target}. پایگاه داده بازگردانی نمی‌شود؛ فقط کد تغییر می‌کند."
+  warn "اگر نسخه جدید مهاجرت داده انجام داده باشد، ممکن است کد قدیمی با ساختار جدید سازگار نباشد."
+  confirm_phrase ROLLBACK "برای ادامه عبارت ROLLBACK را تایپ کنید: " || die "بازگشت لغو شد."
+
+  ln -sfn "$(current_release)" "${APP_ROOT}/previous"
+  ln -sfn "$target_dir" "$CURRENT_LINK"
+  systemctl restart "$SERVICE_NAME"
+  if wait_for_health 60; then ok "بازگشت به ${target} انجام شد."; else die "سرویس پاسخ نداد؛ journalctl را بررسی کنید."; fi
+}
+
+# ---------------------------------------------------------------------------
+# maintenance helpers
+# ---------------------------------------------------------------------------
+
+cmd_migrate() {
+  require_root
+  local release
+  release="$(current_release)"
+  is_installed || die "Pishkan نصب نشده است."
+  run_cli_script "$release" migrate
+  ok "مهاجرت‌ها اجرا شدند."
+}
+
+cmd_seed() {
+  require_root
+  local release
+  release="$(current_release)"
+  run_cli_script "$release" seed "$@"
+  ok "داده‌های اولیه/کاتالوگ به‌روزرسانی شد."
+}
+
+cmd_reset_admin() {
+  require_root
+  local release
+  release="$(current_release)"
+  command -v psql >/dev/null 2>&1 || die "psql در دسترس نیست."
+  local username="${1:-admin}"
+  log "تعیین رمز جدید برای مدیر کل «${username}»…"
+  run_cli_script "$release" reset-password --username "$username" --generate --unlock
+  warn "رمز نمایش‌داده‌شده فقط یک بار قابل مشاهده است. آن را در جای امن ذخیره کنید."
+}
+
+cmd_doctor() {
+  heading "بررسی سلامت نصب"
+  local problems=0
+  is_installed && ok "نصب شناسایی شد: $(current_release)" || { err "نصب شناسایی نشد."; problems=$((problems + 1)); }
+
+  [ -f "$ENV_FILE" ] && ok "فایل تنظیمات: $ENV_FILE" || { err "فایل تنظیمات وجود ندارد."; problems=$((problems + 1)); }
+  if [ -f "$ENV_FILE" ]; then
+    local perms
+    perms="$(stat -c '%a' "$ENV_FILE")"
+    if [ "$perms" = "640" ] || [ "$perms" = "600" ]; then ok "دسترسی فایل تنظیمات: $perms"; else warn "دسترسی فایل تنظیمات $perms است (بهتر است 640)."; fi
+    if grep -qE '^APP_ENCRYPTION_KEY=.{32,}' "$ENV_FILE"; then ok "کلید رمزنگاری تنظیم شده است."; else err "APP_ENCRYPTION_KEY تنظیم نشده است؛ اعتبارنامه‌ها رمزنگاری نمی‌شوند."; problems=$((problems + 1)); fi
+    if [ "$(read_env_value COOKIE_SECURE)" = "true" ]; then ok "کوکی نشست روی HTTPS محدود است."; else warn "COOKIE_SECURE=false است؛ در محیط عملیاتی با HTTPS باید true باشد."; fi
+  fi
+
+  service_active && ok "سرویس ${SERVICE_NAME} فعال است." || { err "سرویس ${SERVICE_NAME} فعال نیست."; problems=$((problems + 1)); }
+  cmd_health >/dev/null 2>&1 && ok "API سالم است." || { err "API پاسخ سالم نمی‌دهد."; problems=$((problems + 1)); }
+
+  if command -v psql >/dev/null 2>&1; then
+    if PGPASSWORD="$(read_env_value DB_PASSWORD)" psql -h "$DB_HOST" -U "$DB_USER" -d "$DB_NAME" -tAc 'SELECT 1' >/dev/null 2>&1; then
+      ok "اتصال به پایگاه داده برقرار است."
+    else
+      err "اتصال به پایگاه داده ناموفق بود."
+      problems=$((problems + 1))
+    fi
+  fi
+
+  if nginx -t >/dev/null 2>&1; then ok "پیکربندی Nginx معتبر است."; else warn "پیکربندی Nginx ایراد دارد."; fi
+  if systemctl is-active --quiet pishkan-backup.timer; then ok "پشتیبان‌گیری خودکار فعال است."; else warn "پشتیبان‌گیری خودکار غیرفعال است."; fi
+
+  local free_gb
+  free_gb="$(df -Pm "$STATE_DIR" 2>/dev/null | awk 'NR==2 {printf "%d", $4/1024}')"
+  if [ -n "$free_gb" ] && [ "$free_gb" -lt 2 ]; then warn "فضای دیسک کم است: ${free_gb}GB آزاد."; fi
+
+  echo
+  if [ "$problems" -eq 0 ]; then ok "همه بررسی‌ها بدون مشکل گذشتند."; else err "${problems} مورد نیازمند بررسی است."; exit 1; fi
+}
+
+# ---------------------------------------------------------------------------
+
+CMD="${1:-help}"
+shift || true
+
+case "$CMD" in
+  status)   require_root; cmd_status ;;
+  health)   cmd_health ;;
+  version)  cmd_version ;;
+  logs)     require_root; cmd_logs "$@" ;;
+  restart)  cmd_restart ;;
+  update)   cmd_update "$@" ;;
+  upgrade)  cmd_update "$@" ;;
+  rollback) cmd_rollback "$@" ;;
+  backup)   require_root; cmd_backup "$@" ;;
+  restore)  cmd_restore "$@" ;;
+  migrate)  cmd_migrate ;;
+  seed)     cmd_seed "$@" ;;
+  reset-admin) cmd_reset_admin "$@" ;;
+  doctor)   require_root; cmd_doctor ;;
+  help|-h|--help) usage ;;
+  *) err "دستور ناشناخته: $CMD"; echo; usage; exit 1 ;;
+esac

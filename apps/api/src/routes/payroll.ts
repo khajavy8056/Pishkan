@@ -1,0 +1,18 @@
+import { Router } from 'express';
+import { z } from 'zod';
+import { asyncRoute,requireAuth } from '../http/middleware.js';
+import { forbidden } from '../http/errors.js';
+import { officeScope } from '../lib/scope.js';
+import { compensation,createContract,accrueMonth,settle } from '../modules/payroll/service.js';
+import { created,ok } from '../http/respond.js';
+import { q } from '../db/index.js';
+export const payrollRouter=Router();
+payrollRouter.use(requireAuth,(req,_res,next)=>{if(req.auth!.user.kind==='customer')return next(forbidden());next()});
+payrollRouter.get('/me',asyncRoute(async(req,res)=>{ok(res,await compensation(req.auth!.user.id))}));
+payrollRouter.use((req,_res,next)=>{if(!officeScope(req.auth!))return next(forbidden('دسترسی به حقوق دیگران مجاز نیست.'));next()});
+payrollRouter.get('/staff',asyncRoute(async(_req,res)=>{ok(res,await q("SELECT id,full_name FROM users WHERE kind IN ('staff','admin') ORDER BY full_name"))}));
+payrollRouter.get('/staff/:id',asyncRoute(async(req,res)=>{ok(res,await compensation(String(req.params.id)))}));
+const date=z.string().date();
+payrollRouter.post('/contracts',asyncRoute(async(req,res)=>{const b=z.object({userId:z.string(),kind:z.enum(['monthly','commission']),monthlyAmount:z.number().int().min(0).max(1e12).default(0),commissionPercent:z.number().int().min(0).max(100).default(0),startsOn:date,endsOn:date.optional()}).parse(req.body);created(res,await createContract(b,req.auth!.user.id))}));
+payrollRouter.post('/accrue',asyncRoute(async(req,res)=>{const b=z.object({month:z.string().regex(/^20\d{2}-(0[1-9]|1[0-2])$/)}).parse(req.body);ok(res,await accrueMonth(b.month,req.auth!.user.id))}));
+payrollRouter.post('/settlements',asyncRoute(async(req,res)=>{const b=z.object({userId:z.string(),amount:z.number().int().positive().max(1e12),idempotencyKey:z.string().min(12).max(120),note:z.string().min(3).max(500)}).parse(req.body);created(res,await settle(b.userId,b.amount,b.idempotencyKey,b.note,req.auth!.user.id))}));
