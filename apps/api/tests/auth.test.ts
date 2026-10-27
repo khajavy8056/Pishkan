@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import request from 'supertest';
-import { ADMIN, CUSTOMER, adminSession, app, customerSession, login } from './helpers.js';
+import { ADMIN, CUSTOMER, adminSession, app, createStaff, customerSession, login } from './helpers.js';
 
 describe('authentication', () => {
   it('logs an admin in and exposes permissions', async () => {
@@ -64,6 +64,16 @@ describe('authentication', () => {
     await request(server).post('/api/auth/logout').set('Cookie', session.cookie).expect(200);
     const me = await request(server).get('/api/auth/me').set('Cookie', session.cookie);
     expect(me.status).toBe(401);
+  });
+
+  it('only permits users to revoke their own sessions through the session endpoint', async () => {
+    const server = await app();
+    const first = await createStaff('service_expert', { username: `session_one_${Date.now()}`, password: 'Session#12345', fullName: 'کارمند نشست یک' });
+    const second = await createStaff('service_expert', { username: `session_two_${Date.now()}`, password: 'Session#12345', fullName: 'کارمند نشست دو' });
+    const firstSessionId = (await request(server).get('/api/auth/me').set('Cookie', first.cookie)).body.data.sessionId;
+    const secondSessionId = (await request(server).get('/api/auth/me').set('Cookie', second.cookie)).body.data.sessionId;
+    await request(server).delete(`/api/auth/sessions/${secondSessionId}`).set('Cookie', first.cookie).expect(403);
+    await request(server).delete(`/api/auth/sessions/${firstSessionId}`).set('Cookie', first.cookie).expect(200);
   });
 
   it('never exposes password hashes or MFA secrets', async () => {

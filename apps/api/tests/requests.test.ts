@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import request from 'supertest';
 import { app, createStaff, customerSession, adminSession, EXPERT } from './helpers.js';
 import { updateSettings } from '../src/modules/settings/service.js';
+import { validateFormData } from '../src/modules/requests/service.js';
 
 async function serviceIdBySlug(slug: string) {
   const server = await app();
@@ -14,7 +15,7 @@ function validForm(service: any) {
   for (const field of service.form) {
     if (!field.required) continue;
     switch (field.type) {
-      case 'national_id': data[field.key] = '0012345678'; break;
+      case 'national_id': data[field.key] = '0013546295'; break;
       case 'tel': data[field.key] = '09121234567'; break;
       case 'iban': data[field.key] = 'IR062960000000100324200001'; break;
       case 'postal_code': data[field.key] = '1234567890'; break;
@@ -30,6 +31,77 @@ function validForm(service: any) {
 }
 
 describe('request lifecycle', () => {
+  it('strictly validates national IDs, IBAN checksums, and localized numbers', () => {
+    const service = { form: [
+      { key: 'national_id', label: 'کد ملی', type: 'national_id', required: true },
+      { key: 'iban', label: 'شبا', type: 'iban', required: true },
+      { key: 'amount', label: 'مبلغ', type: 'money', required: true },
+    ] } as any;
+    expect(validateFormData(service, { national_id: '0013546295', iban: 'IR062960000000100324200001', amount: '۱,۲۵۰' }))
+      .toEqual({ national_id: '0013546295', iban: 'IR062960000000100324200001', amount: 1250 });
+    expect(() => validateFormData(service, { national_id: '0012345678', iban: 'IR062960000000100324200001', amount: '1250' })).toThrow();
+    expect(() => validateFormData(service, { national_id: 'abc0013546295', iban: 'IR062960000000100324200001', amount: '1250' })).toThrow();
+    expect(() => validateFormData(service, { national_id: '0013546295', iban: 'IR062960000000100324200002', amount: '1250' })).toThrow();
+    expect(() => validateFormData(service, { national_id: '0013546295', iban: 'IR062960000000100324200001', amount: 'abc10' })).toThrow();
+  });
+
+  it('requires a required checkbox to be affirmatively checked', () => {
+    const service = { form: [{ key: 'consent', label: 'رضایت', type: 'checkbox', required: true }] } as any;
+    try {
+      validateFormData(service, { consent: false });
+      throw new Error('Expected unchecked required consent to fail');
+    } catch (error: any) {
+      expect(error.details).toEqual([{ field: 'consent', message: '«رضایت» باید تأیید شود.' }]);
+    }
+    expect(validateFormData(service, { consent: true })).toEqual({ consent: true });
+  });
+
+  it('rotates round-robin assignments and leaves queue-strategy requests unassigned', async () => {
+    const admin = await adminSession();
+    const customer = await customerSession();
+    const server = await app();
+    await updateSettings({ 'workforce.auto_assign_on_shift': false, 'services.auto_assign': true }, { id: 'system', name: 'test-routing' });
+    const firstStaff = await createStaff('service_expert', { username: 'rotation_one', password: 'Rotation#12345', fullName: 'کارشناس چرخشی یک' });
+    const secondStaff = await createStaff('service_expert', { username: 'rotation_two', password: 'Rotation#12345', fullName: 'کارشناس چرخشی دو' });
+    const firstId = (await request(server).get('/api/auth/me').set('Cookie', firstStaff.cookie)).body.data.id;
+    const secondId = (await request(server).get('/api/auth/me').set('Cookie', secondStaff.cookie)).body.data.id;
+    const service = (await request(server).get('/api/public/services/social-security-receipt')).body.data;
+    const originalRule = (await request(server).get(`/api/staff/meta/service-assignments/${service.id}`).set('Cookie', admin.cookie)).body.data;
+    await request(server).put(`/api/staff/meta/service-assignments/${service.id}`).set('Cookie', admin.cookie)
+      .send({ staffIds: [firstId, secondId], strategy: 'round_robin' }).expect(200);
+    const makeRequest = async () => request(server).post('/api/requests').set('Cookie', customer.cookie)
+      .send({ serviceId: service.id, formData: validForm(service) });
+    const first = await makeRequest();
+    const second = await makeRequest();
+    expect(first.status).toBe(201);
+    expect(second.status).toBe(201);
+    expect(first.body.data.assignedTo).not.toBe(second.body.data.assignedTo);
+
+    await request(server).put(`/api/staff/meta/service-assignments/${service.id}`).set('Cookie', admin.cookie)
+      .send({ staffIds: [firstId, secondId], strategy: 'queue' }).expect(200);
+    const queued = await makeRequest();
+    expect(queued.status).toBe(201);
+    expect(queued.body.data.assignedTo).toBeNull();
+    await request(server).put(`/api/staff/meta/service-assignments/${service.id}`).set('Cookie', admin.cookie)
+      .send({ staffIds: originalRule.rule?.staffIds ?? [], strategy: originalRule.rule?.strategy ?? 'least_loaded', maxLoad: originalRule.rule?.maxLoad ?? 0 }).expect(200);
+  });
+  it('aggregates payment status across every active invoice on a request', async () => {
+    const customer = await customerSession();
+    const admin = await adminSession();
+    const server = await app();
+    const service = (await request(server).get('/api/public/services/insurance-history')).body.data;
+    const created = await request(server).post('/api/requests').set('Cookie', customer.cookie)
+      .send({ serviceId: service.id, formData: validForm(service) }).expect(201);
+    const invoice = created.body.data.invoices[0];
+    await request(server).post('/api/accounting/invoices').set('Cookie', admin.cookie)
+      .send({ customerId: created.body.data.customerId, requestId: created.body.data.id, serviceId: service.id,
+        title: 'هزینه تکمیلی', items: [{ title: 'هزینه تکمیلی', qty: 1, unitPrice: 10000 }] }).expect(201);
+    await request(server).post('/api/accounting/payments').set('Cookie', admin.cookie)
+      .send({ customerId: created.body.data.customerId, invoiceId: invoice.id, amount: invoice.total, method: 'cash' }).expect(201);
+    const detail = await request(server).get(`/api/requests/${created.body.data.id}`).set('Cookie', customer.cookie);
+    expect(detail.body.data.paymentStatus).toBe('partial');
+  });
+
   it('creates a request with tracking code, snapshot and invoice', async () => {
     const customer = await customerSession();
     const server = await app();

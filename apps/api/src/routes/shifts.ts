@@ -5,7 +5,7 @@ import { z } from 'zod';
 import { asyncRoute, requireAuth, requirePermission } from '../http/middleware.js';
 import { badRequest, conflict, forbidden, notFound } from '../http/errors.js';
 import { created, ok, pagination } from '../http/respond.js';
-import { one, q, run, nowIso, jsonParse, jsonStringify } from '../db/index.js';
+import { one, q, run, tx, nowIso, jsonParse, jsonStringify } from '../db/index.js';
 import { id } from '../lib/crypto.js';
 import { writeAudit } from '../modules/audit/service.js';
 import { getBool, getNumber } from '../modules/settings/service.js';
@@ -17,6 +17,25 @@ shiftsRouter.use(requireAuth);
 
 const TIME_RE = /^([01]\d|2[0-3]):[0-5]\d$/;
 const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
+const dateValue = z.string().refine((value) => {
+  if (!DATE_RE.test(value)) return false;
+  const parsed = new Date(`${value}T00:00:00.000Z`);
+  return !Number.isNaN(parsed.getTime()) && parsed.toISOString().slice(0, 10) === value;
+}, 'تاریخ معتبر نیست.');
+
+function validateShiftTime(start: string, end: string) {
+  if (start >= end) throw badRequest('ساعت پایان باید بعد از ساعت شروع باشد؛ شیفت شبانه پشتیبانی نمی‌شود.');
+}
+
+async function assertNoShiftOverlap(userId: string, date: string, start: string, end: string, excludeId?: string) {
+  const sql = excludeId
+    ? `SELECT id FROM shifts WHERE user_id = ? AND shift_date = ? AND status NOT IN ('leave','absent')
+       AND start_time < ? AND end_time > ? AND id <> ? LIMIT 1`
+    : `SELECT id FROM shifts WHERE user_id = ? AND shift_date = ? AND status NOT IN ('leave','absent')
+       AND start_time < ? AND end_time > ? LIMIT 1`;
+  const args = excludeId ? [userId, date, end, start, excludeId] : [userId, date, end, start];
+  if (await one(sql, args)) throw conflict('این شیفت با برنامه دیگری از همین کارمند هم‌پوشانی دارد.');
+}
 
 function mapShift(row: any) {
   return {
@@ -53,6 +72,7 @@ shiftsRouter.post('/templates', requirePermission('shifts.create'), asyncRoute(a
     capacity: z.number().int().min(1).max(200).optional(),
     color: z.string().max(20).optional(),
   }).parse(req.body);
+  validateShiftTime(body.startTime, body.endTime);
   const templateId = id('shftpl');
   const ts = nowIso();
   await run(
@@ -105,27 +125,38 @@ function hasAnyShiftPermission(permissions: string[] | '*'): boolean {
 shiftsRouter.post('/', requirePermission('shifts.create'), asyncRoute(async (req, res) => {
   const body = z.object({
     userId: z.string().min(3),
-    date: z.string().regex(DATE_RE),
+    date: dateValue,
     startTime: z.string().regex(TIME_RE),
     endTime: z.string().regex(TIME_RE),
     templateId: z.string().optional(),
     note: z.string().max(500).optional(),
     repeat: z.object({
-      until: z.string().regex(DATE_RE),
+      until: dateValue,
       weekdays: z.array(z.number().int().min(0).max(6)).default([0, 1, 2, 3, 4, 5, 6]),
     }).optional(),
   }).parse(req.body);
+  validateShiftTime(body.startTime, body.endTime);
 
   const staff = await one<any>('SELECT id, full_name FROM users WHERE id = ? AND kind IN (?, ?)', [body.userId, 'staff', 'admin']);
   if (!staff) throw badRequest('کارمند انتخابی معتبر نیست.');
+  const template = body.templateId ? await one<any>('SELECT * FROM shift_templates WHERE id = ? AND is_active = 1', [body.templateId]) : null;
+  if (body.templateId && !template) throw badRequest('الگوی شیفت فعال انتخابی معتبر نیست.');
 
   const ts = nowIso();
   const createdIds: string[] = [];
   const createOne = async (date: string) => {
-    const duplicate = await one(
-      'SELECT id FROM shifts WHERE user_id = ? AND shift_date = ? AND start_time = ?', [body.userId, date, body.startTime],
+    const duplicate = await one<any>(
+      "SELECT id, end_time FROM shifts WHERE user_id = ? AND shift_date = ? AND start_time = ? AND status NOT IN ('leave','absent')", [body.userId, date, body.startTime],
     );
-    if (duplicate) return;
+    if (duplicate) {
+      if (duplicate.end_time === body.endTime) return;
+      throw conflict('برای این کارمند در همین ساعت شیفت دیگری ثبت شده است.');
+    }
+    await assertNoShiftOverlap(body.userId, date, body.startTime, body.endTime);
+    if (template) {
+      const count = await one<any>("SELECT COUNT(*) AS c FROM shifts WHERE template_id=? AND shift_date=? AND status NOT IN ('leave','absent')", [template.id, date]);
+      if (Number(count?.c ?? 0) >= Number(template.capacity)) throw conflict('ظرفیت این الگوی شیفت در تاریخ انتخابی تکمیل است.');
+    }
     const shiftId = id('shf');
     await run(
       `INSERT INTO shifts (id, template_id, user_id, shift_date, start_time, end_time, status, note, created_by, created_at, updated_at)
@@ -135,20 +166,22 @@ shiftsRouter.post('/', requirePermission('shifts.create'), asyncRoute(async (req
     createdIds.push(shiftId);
   };
 
-  if (body.repeat) {
-    const start = new Date(`${body.date}T00:00:00Z`);
-    const end = new Date(`${body.repeat.until}T00:00:00Z`);
-    if (end < start) throw badRequest('تاریخ پایان تکرار نامعتبر است.');
-    if ((end.getTime() - start.getTime()) / 86_400_000 > 120) throw badRequest('بازه تکرار حداکثر ۱۲۰ روز است.');
-    for (let d = new Date(start); d <= end; d.setUTCDate(d.getUTCDate() + 1)) {
-      // JS getUTCDay: 0=Sunday; Persian week starts Saturday (6)
-      const persianWeekday = (d.getUTCDay() + 1) % 7;
-      if (!body.repeat.weekdays.includes(persianWeekday)) continue;
-      await createOne(d.toISOString().slice(0, 10));
+  await tx(async () => {
+    if (body.repeat) {
+      const start = new Date(`${body.date}T00:00:00Z`);
+      const end = new Date(`${body.repeat.until}T00:00:00Z`);
+      if (end < start) throw badRequest('تاریخ پایان تکرار نامعتبر است.');
+      if ((end.getTime() - start.getTime()) / 86_400_000 > 120) throw badRequest('بازه تکرار حداکثر ۱۲۰ روز است.');
+      for (let d = new Date(start); d <= end; d.setUTCDate(d.getUTCDate() + 1)) {
+        // JS getUTCDay: 0=Sunday; Persian week starts Saturday (6)
+        const persianWeekday = (d.getUTCDay() + 1) % 7;
+        if (!body.repeat.weekdays.includes(persianWeekday)) continue;
+        await createOne(d.toISOString().slice(0, 10));
+      }
+    } else {
+      await createOne(body.date);
     }
-  } else {
-    await createOne(body.date);
-  }
+  });
 
   await writeAudit({
     actorId: req.auth!.user.id, actorName: req.auth!.user.fullName, action: 'shift.create',
@@ -172,6 +205,11 @@ shiftsRouter.patch('/:id', requirePermission('shifts.edit'), asyncRoute(async (r
   }).parse(req.body);
   const shift = await one<any>('SELECT * FROM shifts WHERE id = ?', [param(req, 'id')]);
   if (!shift) throw notFound('شیفت یافت نشد.');
+  if (!officeScope(req.auth!) && shift.user_id !== req.auth!.user.id) throw forbidden('ویرایش شیفت دیگران مجاز نیست.');
+  const startTime = body.startTime ?? shift.start_time;
+  const endTime = body.endTime ?? shift.end_time;
+  validateShiftTime(startTime, endTime);
+  await assertNoShiftOverlap(shift.user_id, shift.shift_date, startTime, endTime, shift.id);
   await run(
     'UPDATE shifts SET status = ?, start_time = ?, end_time = ?, note = ?, updated_at = ? WHERE id = ?',
     [body.status ?? shift.status, body.startTime ?? shift.start_time, body.endTime ?? shift.end_time, body.note ?? shift.note, nowIso(), shift.id],
@@ -180,7 +218,10 @@ shiftsRouter.patch('/:id', requirePermission('shifts.edit'), asyncRoute(async (r
 }));
 
 shiftsRouter.delete('/:id', requirePermission('shifts.delete'), asyncRoute(async (req, res) => {
-  await run('DELETE FROM shifts WHERE id = ?', [param(req, 'id')]);
+  const shift = await one<any>('SELECT * FROM shifts WHERE id = ?', [param(req, 'id')]);
+  if (!shift) throw notFound('شیفت یافت نشد.');
+  if (!officeScope(req.auth!) && shift.user_id !== req.auth!.user.id) throw forbidden('حذف شیفت دیگران مجاز نیست.');
+  await run('DELETE FROM shifts WHERE id = ?', [shift.id]);
   ok(res, { message: 'شیفت حذف شد.' });
 }));
 
@@ -238,11 +279,12 @@ shiftsRouter.post('/attendance/check-in', asyncRoute(async (req, res) => {
   }
   const userId = req.auth!.user.kind === 'customer' ? null : req.auth!.user.id;
   if (!userId) throw forbidden();
-  const today = tehranNow().date;
+  const clock = tehranNow();
+  const today = clock.date;
   const open = await one<any>('SELECT * FROM attendance WHERE user_id = ? AND check_out IS NULL', [userId]);
   if (open) throw conflict('ورود امروز قبلاً ثبت شده است.');
 
-  const shift = await one<any>('SELECT * FROM shifts WHERE user_id = ? AND shift_date = ? ORDER BY start_time ASC LIMIT 1', [userId, today]);
+  const shift = await one<any>("SELECT * FROM shifts WHERE user_id = ? AND shift_date = ? AND status = 'scheduled' AND end_time > ? ORDER BY start_time ASC LIMIT 1", [userId, today, clock.time]);
   const now = new Date();
   let minutesLate = 0;
   let status = 'present';
@@ -274,32 +316,47 @@ shiftsRouter.post('/attendance/check-out', asyncRoute(async (req, res) => {
 /* --------------------------- shift change requests ------------------------ */
 
 shiftsRouter.get('/change-requests', asyncRoute(async (req, res) => {
+  if (req.auth!.user.kind === 'customer') throw forbidden();
   const canManage = officeScope(req.auth!) && hasAnyShiftPermission(req.auth!.permissions);
   const rows = await q<any>(
-    `SELECT c.*, u.full_name AS user_name, s.shift_date, s.start_time, s.end_time
+    `SELECT c.*, u.full_name AS user_name, s.shift_date, s.start_time AS shift_start_time, s.end_time AS shift_end_time
      FROM shift_change_requests c JOIN users u ON u.id = c.user_id LEFT JOIN shifts s ON s.id = c.shift_id
      ${canManage ? '' : 'WHERE c.user_id = ?'} ORDER BY c.created_at DESC LIMIT 200`,
     canManage ? [] : [req.auth!.user.id],
   );
   ok(res, rows.map((r) => ({
-    id: r.id, userId: r.user_id, userName: r.user_name, kind: r.kind, requestedDate: r.requested_date,
+    id: r.id, userId: r.user_id, userName: r.user_name, kind: r.kind,
     reason: r.reason, status: r.status, decisionNote: r.decision_note, createdAt: r.created_at,
-    shift: r.shift_date ? { date: r.shift_date, startTime: r.start_time, endTime: r.end_time } : null,
+    requestedDate: r.requested_date, startTime: r.start_time, endTime: r.end_time,
+    shift: r.shift_date ? { date: r.shift_date, startTime: r.shift_start_time, endTime: r.shift_end_time } : null,
   })));
 }));
 
 shiftsRouter.post('/change-requests', asyncRoute(async (req, res) => {
+  if (req.auth!.user.kind === 'customer') throw forbidden();
   const body = z.object({
     kind: z.enum(['swap', 'leave', 'add']).default('leave'),
     shiftId: z.string().optional(),
-    requestedDate: z.string().regex(DATE_RE).optional(),
+    requestedDate: dateValue.optional(),
+    startTime: z.string().regex(TIME_RE).optional(),
+    endTime: z.string().regex(TIME_RE).optional(),
     reason: z.string().min(3).max(1000),
+  }).superRefine((value, ctx) => {
+    if (value.kind !== 'add' && !value.shiftId) ctx.addIssue({ code: 'custom', path: ['shiftId'], message: 'انتخاب شیفت الزامی است.' });
+    if (value.kind === 'swap' && !value.requestedDate) ctx.addIssue({ code: 'custom', path: ['requestedDate'], message: 'تاریخ جایگزین الزامی است.' });
+    if (value.kind === 'add' && (!value.requestedDate || !value.startTime || !value.endTime)) ctx.addIssue({ code: 'custom', path: ['requestedDate'], message: 'تاریخ و ساعت شیفت جدید الزامی است.' });
+    if (value.startTime && value.endTime && value.startTime >= value.endTime) ctx.addIssue({ code: 'custom', path: ['endTime'], message: 'ساعت پایان باید بعد از ساعت شروع باشد.' });
   }).parse(req.body);
+  if (body.shiftId) {
+    const shift = await one<any>('SELECT id, user_id, status FROM shifts WHERE id = ?', [body.shiftId]);
+    if (!shift || shift.user_id !== req.auth!.user.id) throw notFound('شیفت متعلق به شما یافت نشد.');
+    if (shift.status !== 'scheduled') throw conflict('فقط شیفت برنامه‌ریزی‌شده قابل تغییر است.');
+  }
   const id_ = id('shcr');
   await run(
-    `INSERT INTO shift_change_requests (id, user_id, shift_id, kind, requested_date, reason, status, created_at)
-     VALUES (?, ?, ?, ?, ?, ?, 'pending', ?)`,
-    [id_, req.auth!.user.id, body.shiftId ?? null, body.kind, body.requestedDate ?? null, body.reason, nowIso()],
+    `INSERT INTO shift_change_requests (id, user_id, shift_id, kind, requested_date, start_time, end_time, reason, status, created_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'pending', ?)`,
+    [id_, req.auth!.user.id, body.shiftId ?? null, body.kind, body.requestedDate ?? null, body.startTime ?? null, body.endTime ?? null, body.reason, nowIso()],
   );
   await writeAudit({ actorId: req.auth!.user.id, actorName: req.auth!.user.fullName, action: 'shift.request', entityType: 'shift_request', entityId: id_, after: body, ip: req.ip });
   created(res, { id: id_ });
@@ -310,22 +367,36 @@ shiftsRouter.patch('/change-requests/:id', requirePermission('shifts.approve'), 
     decision: z.enum(['approved', 'rejected']),
     note: z.string().max(500).optional(),
   }).parse(req.body);
-  const request = await one<any>('SELECT * FROM shift_change_requests WHERE id = ?', [param(req, 'id')]);
-  if (!request) throw notFound('درخواست یافت نشد.');
-  if (request.status !== 'pending') throw conflict('این درخواست قبلاً بررسی شده است.');
+  const request = await tx(async () => {
+    await run('UPDATE shift_change_requests SET status = status WHERE id = ?', [param(req, 'id')]);
+    const current = await one<any>('SELECT * FROM shift_change_requests WHERE id = ?', [param(req, 'id')]);
+    if (!current) throw notFound('درخواست یافت نشد.');
+    if (current.status !== 'pending') throw conflict('این درخواست قبلاً بررسی شده است.');
 
-  await run(
-    'UPDATE shift_change_requests SET status = ?, decided_by = ?, decided_at = ?, decision_note = ? WHERE id = ?',
-    [body.decision, req.auth!.user.id, nowIso(), body.note ?? null, request.id],
-  );
-
-  if (body.decision === 'approved') {
-    if (request.kind === 'leave' && request.shift_id) {
-      await run(`UPDATE shifts SET status = 'leave', updated_at = ? WHERE id = ?`, [nowIso(), request.shift_id]);
-    } else if (request.kind === 'swap' && request.shift_id && request.requested_date) {
-      await run('UPDATE shifts SET shift_date = ?, updated_at = ? WHERE id = ?', [request.requested_date, nowIso(), request.shift_id]);
+    if (body.decision === 'approved') {
+      if (current.kind === 'leave' && current.shift_id) {
+        const changed = await run("UPDATE shifts SET status = 'leave', updated_at = ? WHERE id = ? AND user_id = ? AND status = 'scheduled'", [nowIso(), current.shift_id, current.user_id]);
+        if (!changed.changes) throw conflict('شیفت دیگر قابل مرخصی نیست.');
+      } else if (current.kind === 'swap' && current.shift_id && current.requested_date) {
+        const shift = await one<any>('SELECT * FROM shifts WHERE id = ? AND user_id = ? AND status = \'scheduled\'', [current.shift_id, current.user_id]);
+        if (!shift) throw conflict('شیفت دیگر قابل جابه‌جایی نیست.');
+        await assertNoShiftOverlap(current.user_id, current.requested_date, shift.start_time, shift.end_time, shift.id);
+        await run('UPDATE shifts SET shift_date = ?, updated_at = ? WHERE id = ?', [current.requested_date, nowIso(), shift.id]);
+      } else if (current.kind === 'add' && current.requested_date && current.start_time && current.end_time) {
+        await assertNoShiftOverlap(current.user_id, current.requested_date, current.start_time, current.end_time);
+        const ts = nowIso();
+        await run(`INSERT INTO shifts (id, template_id, user_id, shift_date, start_time, end_time, status, note, created_by, created_at, updated_at)
+          VALUES (?, NULL, ?, ?, ?, ?, 'scheduled', ?, ?, ?, ?)`,
+          [id('shf'), current.user_id, current.requested_date, current.start_time, current.end_time, `درخواست تأییدشده: ${current.reason}`, req.auth!.user.id, ts, ts]);
+      } else {
+        throw conflict('جزئیات درخواست برای اعمال تغییر کامل نیست.');
+      }
     }
-  }
+    const changed = await run('UPDATE shift_change_requests SET status = ?, decided_by = ?, decided_at = ?, decision_note = ? WHERE id = ? AND status = \'pending\'',
+      [body.decision, req.auth!.user.id, nowIso(), body.note ?? null, current.id]);
+    if (!changed.changes) throw conflict('این درخواست قبلاً بررسی شده است.');
+    return current;
+  });
 
   await notifyUser(request.user_id, {
     title: body.decision === 'approved' ? 'درخواست شیفت تأیید شد' : 'درخواست شیفت رد شد',

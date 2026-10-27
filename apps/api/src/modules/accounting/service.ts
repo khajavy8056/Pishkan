@@ -187,14 +187,23 @@ export async function voidInvoice(invoiceId: string, reason: string, actor: { id
   const invoice = await getInvoice(invoiceId);
   if (!invoice) throw notFound('فاکتور یافت نشد.');
   if (invoice.status === 'void') throw conflict('این فاکتور قبلاً لغو شده است.');
-  if (invoice.paidAmount > 0 && !(await getBool('accounting.allow_refund'))) {
-    throw badRequest('فاکتور پرداخت‌شده است و بازپرداخت در تنظیمات غیرفعال است.');
+  const pendingPayment = await one('SELECT id FROM payments WHERE invoice_id = ? AND status = \'pending\' LIMIT 1', [invoiceId]);
+  if (pendingPayment) throw conflict('برای این فاکتور پرداختی در انتظار تأیید وجود دارد؛ ابتدا آن را تعیین تکلیف کنید.');
+  const confirmedPayment = await one('SELECT id FROM payments WHERE invoice_id = ? AND status = \'confirmed\' LIMIT 1', [invoiceId]);
+  if (invoice.paidAmount > 0 || confirmedPayment) {
+    throw conflict('ابتدا تمام پرداخت‌های این فاکتور را بازپرداخت کنید؛ لغو فاکتور به‌تنهایی وجه را بازنمی‌گرداند.');
   }
   await run('UPDATE invoices SET status = ?, voided_at = ?, updated_at = ? WHERE id = ?', ['void', nowIso(), nowIso(), invoiceId]);
-  await addLedgerEntry({
-    account: `revenue:${invoice.serviceId ?? 'other'}`, direction: 'debit', amount: invoice.total,
-    refType: 'invoice-void', refId: invoiceId, description: `لغو فاکتور ${invoice.number} — ${reason}`,
-  });
+  if (invoice.status !== 'draft' && (await getString('accounting.revenue_recognition')) === 'on_invoice') {
+    await addLedgerEntry({
+      account: `revenue:${invoice.serviceId ?? 'other'}`, direction: 'debit', amount: invoice.total,
+      refType: 'invoice-void', refId: invoiceId, description: `لغو فاکتور ${invoice.number} — ${reason}`,
+    });
+    await addLedgerEntry({
+      account: `receivable:${invoice.customerId}`, direction: 'credit', amount: invoice.total,
+      refType: 'invoice-void', refId: invoiceId, description: `برگشت حساب دریافتنی فاکتور ${invoice.number}`,
+    });
+  }
   await writeAudit({
     actorId: actor.id, actorName: actor.name, action: 'invoice.void', entityType: 'invoice',
     entityId: invoiceId, after: { reason }, ip: actor.ip,
@@ -275,6 +284,18 @@ export async function createPayment(input: {
   });
 }
 
+async function refreshRequestPaymentStatus(requestId: string, timestamp = nowIso()) {
+  const totals = await one<any>(
+    "SELECT COALESCE(SUM(total),0) AS total, COALESCE(SUM(paid_amount),0) AS paid FROM invoices WHERE request_id=? AND status NOT IN ('void','draft')",
+    [requestId],
+  );
+  const refunds = await one<any>("SELECT COUNT(*) AS c FROM payments WHERE request_id=? AND status='refunded'", [requestId]);
+  const total = Number(totals?.total ?? 0);
+  const paid = Number(totals?.paid ?? 0);
+  const status = total > 0 && paid >= total ? 'paid' : paid > 0 ? 'partial' : Number(refunds?.c ?? 0) > 0 ? 'refunded' : 'unpaid';
+  await run('UPDATE requests SET payment_status = ?, updated_at = ? WHERE id = ?', [status, timestamp, requestId]);
+}
+
 /** Applies a verified payment to the invoice, ledger and request state. */
 async function applyConfirmedPayment(paymentId: string) {
   const payment = await one<any>('SELECT * FROM payments WHERE id = ?', [paymentId]);
@@ -304,12 +325,7 @@ async function applyConfirmedPayment(paymentId: string) {
         const paid = Number(invoice.paid_amount) + amount;
         const status = paid >= Number(invoice.total) ? 'paid' : 'partially_paid';
         await db.run('UPDATE invoices SET paid_amount = ?, status = ?, updated_at = ? WHERE id = ?', [paid, status, ts, invoice.id]);
-        if (invoice.request_id) {
-          await db.run(
-            'UPDATE requests SET payment_status = ?, updated_at = ? WHERE id = ?',
-            [status === 'paid' ? 'paid' : 'partial', ts, invoice.request_id],
-          );
-        }
+        if (invoice.request_id) await refreshRequestPaymentStatus(invoice.request_id, ts);
       }
     } else if (payment.request_id) {
       await db.run('UPDATE requests SET payment_status = ?, updated_at = ? WHERE id = ?', ['paid', ts, payment.request_id]);
@@ -324,6 +340,10 @@ export async function confirmPayment(paymentId: string, actor: { id: string; nam
   if (!payment) throw notFound('تراکنش یافت نشد.');
   if (payment.status === 'confirmed') return mapPayment(payment);
   if (payment.status !== 'pending') throw conflict('این تراکنش قابل تأیید نیست.');
+  if (payment.invoice_id) {
+    const invoice = await one<any>('SELECT status FROM invoices WHERE id = ?', [payment.invoice_id]);
+    if (!invoice || invoice.status === 'void' || invoice.status === 'draft') throw conflict('فاکتور دیگر قابل پرداخت نیست؛ این تراکنش تأیید نشد.');
+  }
 
   const changed = await run("UPDATE payments SET status='confirmed',paid_at=?,confirmed_by=?,reference=?,updated_at=? WHERE id=? AND status='pending'", [nowIso(),actor.id,reference ?? payment.reference,nowIso(),paymentId]);
   if (!changed.changes) return mapPayment((await one<any>('SELECT * FROM payments WHERE id=?',[paymentId]))!);
@@ -352,16 +372,23 @@ export async function refundPayment(paymentId: string, reason: string, actor: { 
   const changed = await run('UPDATE payments SET status = ?, note = ?, updated_at = ? WHERE id = ? AND status = \'confirmed\'', ['refunded', `${payment.note ?? ''} | بازپرداخت: ${reason}`.trim(), nowIso(), paymentId]);
 
   if (!changed.changes) throw conflict('بازپرداخت قبلاً ثبت شده است.');
+  let requestId = payment.request_id as string | null;
   if (payment.invoice_id) {
     const invoice = await one<any>('SELECT * FROM invoices WHERE id = ?', [payment.invoice_id]);
     if (invoice) {
       const paid = Math.max(0, Number(invoice.paid_amount) - Number(payment.amount));
       const status = paid === 0 ? 'issued' : 'partially_paid';
       await run('UPDATE invoices SET paid_amount = ?, status = ?, updated_at = ? WHERE id = ?', [paid, status, nowIso(), invoice.id]);
+      requestId = invoice.request_id ?? requestId;
     }
   }
-  if (payment.request_id) await run("UPDATE requests SET payment_status='refunded',updated_at=? WHERE id=?",[nowIso(),payment.request_id]);
-  await addLedgerEntry({account: 'refund',direction:'debit',amount:Number(payment.amount),refType:'refund',refId:paymentId,description:reason});
+  if (requestId) await refreshRequestPaymentStatus(requestId);
+  const recognition = await getString('accounting.revenue_recognition');
+  await addLedgerEntry({
+    account: recognition === 'on_invoice' ? `receivable:${payment.customer_id}` : `revenue:${(payment.invoice_id ? (await one<any>('SELECT service_id FROM invoices WHERE id=?',[payment.invoice_id]))?.service_id : null) ?? 'other'}`,
+    direction: 'debit', amount: Number(payment.amount), refType: 'refund', refId: paymentId,
+    description: `برگشت دریافت — ${reason}`,
+  });
   await addLedgerEntry({
     account: `cash:${payment.method}`, direction: 'credit', amount: Number(payment.amount),
     refType: 'refund', refId: paymentId, description: `بازپرداخت — ${reason}`,

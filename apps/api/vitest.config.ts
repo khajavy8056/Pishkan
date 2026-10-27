@@ -20,6 +20,8 @@ export default defineConfig({
       BACKUP_DIR: `/tmp/pishkan-test-backups-${process.pid}`,
       LOG_LEVEL: 'error',
       RATE_LIMIT_PER_MINUTE: '100000',
+      AUTH_LOGIN_RATE_LIMIT: '100000',
+      AUTH_REGISTER_RATE_LIMIT: '100000',
     },
   },
 });

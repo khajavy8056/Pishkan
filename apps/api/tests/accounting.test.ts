@@ -1,6 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import request from 'supertest';
 import { ACCOUNTANT, adminSession, app, createStaff, customerSession } from './helpers.js';
+import { updateSettings } from '../src/modules/settings/service.js';
+import { q } from '../src/db/index.js';
 
 async function createInvoiceForCustomer(admin: any) {
   const server = await app();
@@ -118,6 +120,47 @@ describe('accounting', () => {
     const refreshed = await request(server).get(`/api/accounting/invoices/${invoice.id}`).set('Cookie', admin.cookie);
     expect(refreshed.body.data.status).toBe('issued');
     expect(refreshed.body.data.paidAmount).toBe(0);
+  });
+
+  it('requires pending or confirmed invoice payments to be resolved before voiding', async () => {
+    const admin = await adminSession();
+    const server = await app();
+    const { invoice, customerId } = await createInvoiceForCustomer(admin);
+    const pending = await request(server).post('/api/accounting/payments').set('Cookie', admin.cookie)
+      .send({ customerId, invoiceId: invoice.id, amount: 100000, method: 'online', gateway: 'mock' });
+    expect(pending.status).toBe(201);
+    await request(server).post(`/api/accounting/invoices/${invoice.id}/void`).set('Cookie', admin.cookie)
+      .send({ reason: 'لغو درخواست' }).expect(409);
+
+    const invoice2 = await createInvoiceForCustomer(admin);
+    const payment = await request(server).post('/api/accounting/payments').set('Cookie', admin.cookie)
+      .send({ customerId: invoice2.customerId, invoiceId: invoice2.invoice.id, amount: invoice2.invoice.total, method: 'cash' });
+    expect(payment.status).toBe(201);
+    await request(server).post(`/api/accounting/invoices/${invoice2.invoice.id}/void`).set('Cookie', admin.cookie)
+      .send({ reason: 'لغو درخواست' }).expect(409);
+    await request(server).post(`/api/accounting/payments/${payment.body.data.id}/refund`).set('Cookie', admin.cookie)
+      .send({ reason: 'لغو درخواست مشتری' }).expect(200);
+    await request(server).post(`/api/accounting/invoices/${invoice2.invoice.id}/void`).set('Cookie', admin.cookie)
+      .send({ reason: 'پس از بازپرداخت' }).expect(200);
+    const refreshed = await request(server).get(`/api/accounting/invoices/${invoice2.invoice.id}`).set('Cookie', admin.cookie);
+    expect(refreshed.body.data.status).toBe('void');
+  });
+
+  it('posts balanced reversal entries when an unpaid accrual invoice is voided', async () => {
+    await updateSettings({ 'accounting.revenue_recognition': 'on_invoice' }, { id: 'system', name: 'test-accrual' });
+    try {
+      const admin = await adminSession();
+      const server = await app();
+      const { invoice } = await createInvoiceForCustomer(admin);
+      await request(server).post(`/api/accounting/invoices/${invoice.id}/void`).set('Cookie', admin.cookie)
+        .send({ reason: 'اصلاح فاکتور' }).expect(200);
+      const entries = await q<any>("SELECT direction, SUM(amount) AS total FROM ledger_entries WHERE ref_id=? AND ref_type IN ('invoice','invoice-void') GROUP BY direction", [invoice.id]);
+      expect(entries).toHaveLength(2);
+      expect(Number(entries.find((entry) => entry.direction === 'debit')?.total)).toBe(1000000);
+      expect(Number(entries.find((entry) => entry.direction === 'credit')?.total)).toBe(1000000);
+    } finally {
+      await updateSettings({ 'accounting.revenue_recognition': 'on_payment' }, { id: 'system', name: 'test-cleanup' });
+    }
   });
 
   it('enforces financial permissions for non-accountants', async () => {

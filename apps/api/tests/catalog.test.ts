@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import request from 'supertest';
-import { adminSession, app } from './helpers.js';
+import { adminSession, app, customerSession } from './helpers.js';
 
 describe('service catalogue', () => {
   it('exposes the 30 default services in 3 categories', async () => {
@@ -100,6 +100,21 @@ describe('service catalogue', () => {
     expect(updated.body.data.acceptingRequests).toBe(false);
 
     await request(server).patch(`/api/catalog/services/${service.id}`).set('Cookie', admin.cookie).send({ acceptingRequests: true });
+  });
+
+  it('keeps unpublished services and quotes private from customers', async () => {
+    const server = await app();
+    const admin = await adminSession();
+    const customer = await customerSession();
+    const created = await request(server).post('/api/catalog/services').set('Cookie', admin.cookie)
+      .send({ title: 'پیش‌نویس محرمانه', isPublished: false, baseFee: 123456, form: [] });
+    expect(created.status).toBe(201);
+    const slug = created.body.data.slug;
+    const id = created.body.data.id;
+    await request(server).get(`/api/public/services/${slug}`).expect(404);
+    await request(server).get(`/api/public/services/${slug}`).set('Cookie', customer.cookie).expect(404);
+    await request(server).get(`/api/public/services/${slug}`).set('Cookie', admin.cookie).expect(200);
+    await request(server).get(`/api/catalog/services/${id}/quote`).set('Cookie', customer.cookie).expect(404);
   });
 
   it('blocks customers from the admin catalogue API', async () => {

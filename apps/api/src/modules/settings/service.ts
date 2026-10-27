@@ -272,8 +272,14 @@ export async function updateSettings(
     const adminWithMobile = await one<{ id: string }>(
       `SELECT id FROM users WHERE kind = 'admin' AND status = 'active' AND mobile IS NOT NULL AND mobile <> '' LIMIT 1`,
     );
-    if (provider !== 'console' && (!smsEnabled || !hasCredential)) {
-      throw badRequest('تا زمانی که پیامک فعال و اعتبارنامه آن ثبت نشده است، ورود کارکنان با رمز عبور قابل غیرفعال‌سازی نیست.');
+    if (!smsEnabled) {
+      throw badRequest('پیش از غیرفعال‌کردن ورود با رمز، ارسال پیامک باید فعال باشد.');
+    }
+    if (provider === 'console' && process.env.NODE_ENV === 'production') {
+      throw badRequest('حالت شبیه‌ساز پیامک در محیط تولید قابل استفاده برای بازیابی ورود نیست.');
+    }
+    if (provider !== 'console' && !hasCredential) {
+      throw badRequest('تا زمانی که اعتبارنامه سرویس پیامک ثبت نشده است، ورود کارکنان با رمز عبور قابل غیرفعال‌سازی نیست.');
     }
     if (!adminWithMobile) {
       throw badRequest('پیش از غیرفعال‌کردن ورود با رمز، شماره موبایل یک مدیر کل فعال را ثبت کنید تا امکان ورود باقی بماند.');

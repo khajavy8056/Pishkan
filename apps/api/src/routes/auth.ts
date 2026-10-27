@@ -81,7 +81,7 @@ authRouter.post('/otp/verify',
 /* ------------------------------ password login ----------------------------- */
 
 authRouter.post('/login',
-  rateLimit({ windowMs: 300_000, max: 15, message: 'تلاش‌های ورود بیش از حد مجاز است. کمی بعد دوباره تلاش کنید.' }),
+  rateLimit({ windowMs: 300_000, max: Number(process.env.AUTH_LOGIN_RATE_LIMIT ?? 15), message: 'تلاش‌های ورود بیش از حد مجاز است. کمی بعد دوباره تلاش کنید.' }),
   asyncRoute(async (req, res) => {
     const body = z.object({
       identifier: z.string().min(3).max(120),
@@ -121,7 +121,7 @@ authRouter.post('/mfa/verify',
 /* ------------------------------- registration ------------------------------ */
 
 authRouter.post('/register',
-  rateLimit({ windowMs: 600_000, max: 10 }),
+  rateLimit({ windowMs: 600_000, max: Number(process.env.AUTH_REGISTER_RATE_LIMIT ?? 10) }),
   asyncRoute(async (req, res) => {
     const body = z.object({
       mobile: z.string().min(10).max(20),
@@ -203,9 +203,7 @@ authRouter.get('/sessions', requireAuth, asyncRoute(async (req, res) => {
 
 authRouter.delete('/sessions/:id', requireAuth, asyncRoute(async (req, res) => {
   const session = await one<{ user_id: string }>('SELECT user_id FROM sessions WHERE id = ?', [param(req, 'id')]);
-  if (!session || (session.user_id !== req.auth!.user.id && req.auth!.user.kind === 'customer')) {
-    throw forbidden();
-  }
+  if (!session || session.user_id !== req.auth!.user.id) throw forbidden();
   await revokeSession(param(req, 'id'));
   res.json({ ok: true, data: { message: 'نشست بسته شد.' } });
 }));

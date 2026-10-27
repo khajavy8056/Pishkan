@@ -14,6 +14,18 @@ import { param } from '../http/params.js';
 export const messagesRouter = Router();
 messagesRouter.use(requireAuth);
 
+async function validateAssignee(userId: string | null) {
+  if (userId === null) return;
+  const user = await one<any>(
+    `SELECT u.kind, u.status, r.permissions FROM users u LEFT JOIN roles r ON r.id = u.role_id WHERE u.id = ?`, [userId],
+  );
+  let permissions: string[] | '*' = [];
+  try { permissions = user?.permissions === '*' ? '*' : JSON.parse(user?.permissions ?? '[]'); } catch { permissions = []; }
+  if (!user || !['staff', 'admin'].includes(user.kind) || user.status !== 'active' || !hasPermission(permissions, 'messages.view')) {
+    throw badRequest('مسئول گفت‌وگو باید کارمند فعال و دارای دسترسی پیام‌ها باشد.');
+  }
+}
+
 async function loadThread(threadId: string, req: any) {
   const thread = await one<any>(
     `SELECT t.*, u.full_name AS customer_name FROM threads t JOIN users u ON u.id = t.customer_id WHERE t.id = ?`, [threadId],
@@ -85,6 +97,8 @@ messagesRouter.post('/threads', asyncRoute(async (req, res) => {
   const customerId = auth.user.kind === 'customer' ? auth.user.id : body.customerId;
   if (!customerId) throw badRequest('برای ایجاد گفت‌وگو، مشتری را مشخص کنید.');
   if (auth.user.kind !== 'customer' && !hasPermission(auth.permissions, 'messages.create')) throw forbidden();
+  const customer = await one('SELECT id FROM users WHERE id = ? AND kind = ? AND status = \'active\'', [customerId, 'customer']);
+  if (!customer) throw badRequest('مشتری انتخاب‌شده معتبر یا فعال نیست.');
 
   if (body.requestId) {
     const request = await one<any>('SELECT id, customer_id, assigned_to FROM requests WHERE id = ?', [body.requestId]);
@@ -144,6 +158,11 @@ messagesRouter.post('/threads/:id/messages', asyncRoute(async (req, res) => {
   }).parse(req.body);
   const thread = await loadThread(param(req, 'id'), req);
   if (thread.status === 'closed') throw badRequest('این گفت‌وگو بسته شده است.');
+  if (body.fileId) {
+    const file = await one<any>('SELECT owner_id FROM files WHERE id = ?', [body.fileId]);
+    if (!file) throw badRequest('فایل پیوست‌شده یافت نشد.');
+    if (file.owner_id !== req.auth!.user.id) throw forbidden('فقط فایل بارگذاری‌شده توسط خودتان قابل ارسال است.');
+  }
 
   const messageId = id('msg');
   const ts = nowIso();
@@ -182,6 +201,7 @@ messagesRouter.patch('/threads/:id', asyncRoute(async (req, res) => {
   if (!isStaff && body.status !== 'closed') throw forbidden();
 
   if(body.assignedTo !== undefined && !officeScope(req.auth!)) throw forbidden('تغییر مسئول فقط توسط مدیریت مجاز است.');
+  if (body.assignedTo !== undefined) await validateAssignee(body.assignedTo);
   await run(
     'UPDATE threads SET status = ?, assigned_to = ?, subject = ? WHERE id = ?',
     [body.status ?? thread.status, body.assignedTo !== undefined ? body.assignedTo : thread.assigned_to,
@@ -203,6 +223,7 @@ messagesRouter.get('/unread-count', asyncRoute(async (req, res) => {
     );
     return ok(res, { unread: Number(row?.c ?? 0) });
   }
+  if (!hasPermission(auth.permissions, 'messages.view')) throw forbidden();
   const row = await one<{ c: number }>(
     `SELECT COUNT(*) AS c FROM messages m JOIN threads t ON t.id=m.thread_id WHERE m.read_at IS NULL AND m.sender_role='customer' AND (?=1 OR t.assigned_to=? OR EXISTS(SELECT 1 FROM requests r WHERE r.id=t.request_id AND r.assigned_to=?))`,[Number(officeScope(auth)),auth.user.id,auth.user.id],
   );

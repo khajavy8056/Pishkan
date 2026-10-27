@@ -8,7 +8,7 @@ import { createInvoice } from '../accounting/service.js';
 import { writeAudit } from '../audit/service.js';
 import { toPersianDigits } from '../../lib/text.js';
 
-import { requireCompleteProfile, requireCoverage } from '../profiles/service.js';
+import { requireCompleteProfile, requireCoverage, validNationalId } from '../profiles/service.js';
 
 export const STATUSES = [
   'new', 'assigned', 'in_progress', 'waiting_documents', 'waiting_customer',
@@ -78,6 +78,13 @@ async function generateTrackingCode(): Promise<string> {
   return `${prefix}-${Date.now().toString(36).toUpperCase()}`;
 }
 
+function normalizeDigits(value: string): string {
+  return value.replace(/[۰-۹٠-٩]/g, (digit) => {
+    const index = '۰۱۲۳۴۵۶۷۸۹٠١٢٣٤٥٦٧٨٩'.indexOf(digit);
+    return String(index % 10);
+  });
+}
+
 /** Validate submitted form data against the service's dynamic schema. */
 export function validateFormData(service: ServiceDTO, raw: Record<string, unknown>) {
   const errors: { field: string; message: string }[] = [];
@@ -90,36 +97,57 @@ export function validateFormData(service: ServiceDTO, raw: Record<string, unknow
       continue;
     }
     if (isEmpty) continue;
+    if (field.type === 'checkbox' && (field.required ?? false) && !(value === true || value === 'true' || value === 'on' || value === 1)) {
+      errors.push({ field: field.key, message: `«${field.label}» باید تأیید شود.` });
+      continue;
+    }
 
     switch (field.type) {
       case 'national_id': {
-        const digits = String(value).replace(/[۰-۹]/g, (d) => String('۰۱۲۳۴۵۶۷۸۹'.indexOf(d))).replace(/\D/g, '');
-        if (digits.length !== 10) errors.push({ field: field.key, message: 'کد ملی باید ۱۰ رقم باشد.' });
+        const normalized = normalizeDigits(String(value));
+        const digits = normalized.replace(/\D/g, '');
+        if (!/^[0-9\s-]+$/.test(normalized) || !validNationalId(digits)) errors.push({ field: field.key, message: 'کد ملی معتبر نیست.' });
         else clean[field.key] = digits;
         break;
       }
       case 'tel': {
-        const digits = String(value).replace(/[۰-۹]/g, (d) => String('۰۱۲۳۴۵۶۷۸۹'.indexOf(d))).replace(/\D/g, '');
-        if (digits.length < 8 || digits.length > 15) errors.push({ field: field.key, message: 'شماره تماس معتبر نیست.' });
+        const normalized = normalizeDigits(String(value));
+        const digits = normalized.replace(/\D/g, '');
+        if (!/^[0-9+()\s-]+$/.test(normalized) || digits.length < 8 || digits.length > 15) errors.push({ field: field.key, message: 'شماره تماس معتبر نیست.' });
         else clean[field.key] = digits;
         break;
       }
       case 'number':
       case 'money': {
-        const n = Number(String(value).replace(/[۰-۹]/g, (d) => String('۰۱۲۳۴۵۶۷۸۹'.indexOf(d))).replace(/[^\d.-]/g, ''));
-        if (!Number.isFinite(n)) errors.push({ field: field.key, message: 'مقدار عددی معتبر نیست.' });
-        else clean[field.key] = n;
+        const numeric = String(value)
+          .replace(/[۰-۹٠-٩]/g, (d) => String('۰۱۲۳۴۵۶۷۸۹٠١٢٣٤٥٦٧٨٩'.indexOf(d) % 10))
+          .replace(/[٬,،\s]/g, '')
+          .replace('٫', '.');
+        if (!/^-?(?:\d+(?:\.\d+)?|\.\d+)$/.test(numeric)) {
+          errors.push({ field: field.key, message: 'مقدار عددی معتبر نیست.' });
+        } else {
+          const n = Number(numeric);
+          if (!Number.isFinite(n)) errors.push({ field: field.key, message: 'مقدار عددی معتبر نیست.' });
+          else clean[field.key] = n;
+        }
         break;
       }
       case 'iban': {
         const iban = String(value).toUpperCase().replace(/\s/g, '');
-        if (!/^IR\d{24}$/.test(iban)) errors.push({ field: field.key, message: 'شماره شبا باید با IR شروع شود و ۲۴ رقم داشته باشد.' });
+        const rearranged = `${iban.slice(4)}${iban.slice(0, 4)}`;
+        let remainder = 0;
+        for (const character of rearranged) {
+          const digits = /[A-Z]/.test(character) ? String(character.charCodeAt(0) - 55) : character;
+          for (const digit of digits) remainder = (remainder * 10 + Number(digit)) % 97;
+        }
+        if (!/^IR\d{24}$/.test(iban) || remainder !== 1) errors.push({ field: field.key, message: 'شماره شبای واردشده معتبر نیست.' });
         else clean[field.key] = iban;
         break;
       }
       case 'postal_code': {
-        const code = String(value).replace(/[۰-۹]/g, (d) => String('۰۱۲۳۴۵۶۷۸۹'.indexOf(d))).replace(/\D/g, '');
-        if (code.length !== 10) errors.push({ field: field.key, message: 'کد پستی باید ۱۰ رقم باشد.' });
+        const normalized = normalizeDigits(String(value));
+        const code = normalized.replace(/\D/g, '');
+        if (!/^[0-9\s-]+$/.test(normalized) || code.length !== 10) errors.push({ field: field.key, message: 'کد پستی باید ۱۰ رقم باشد.' });
         else clean[field.key] = code;
         break;
       }
@@ -164,11 +192,16 @@ export async function candidatesForService(service: ServiceDTO): Promise<{ id: s
   const maxLoad = Number(rule?.max_load) > 0 ? Number(rule.max_load) : await getNumber('services.max_active_cases_per_staff');
 
   let staffRows: any[] = [];
-  if (strategy === 'fixed' && explicitIds.length) {
+  if (strategy === 'fixed') {
+    if (!explicitIds.length) return [];
     staffRows = await q<any>(
       `SELECT u.id, u.full_name, sp.max_active_cases, sp.accepts_new_cases, sp.specialties
-       FROM users u JOIN staff_profiles sp ON sp.user_id = u.id
-       WHERE u.id IN (${explicitIds.map(() => '?').join(',')}) AND u.status = 'active'`, explicitIds,
+       FROM users u
+       JOIN staff_profiles sp ON sp.user_id = u.id
+       JOIN roles r ON r.id = u.role_id
+       WHERE u.id IN (${explicitIds.map(() => '?').join(',')})
+         AND u.kind = 'staff' AND u.status = 'active' AND sp.accepts_new_cases = 1
+         AND r.code IN ('service_expert','operator','manager')`, explicitIds,
     );
   } else {
     staffRows = await q<any>(
@@ -204,8 +237,15 @@ export async function candidatesForService(service: ServiceDTO): Promise<{ id: s
   }
 
   if (strategy === 'least_loaded') candidates.sort((a, b) => a.load - b.load || Number(b.onShift) - Number(a.onShift));
-  else if (strategy === 'round_robin') candidates.sort((a, b) => a.load - b.load);
-  else if (strategy === 'fixed') candidates.sort((a, b) => explicitIds.indexOf(a.id) - explicitIds.indexOf(b.id));
+  else if (strategy === 'round_robin' && candidates.length) {
+    const assigned = await q<any>(
+      `SELECT assigned_to, MAX(assigned_at) AS last_assigned_at FROM requests
+       WHERE service_id = ? AND assigned_to IN (${candidates.map(() => '?').join(',')})
+       GROUP BY assigned_to`, [service.id, ...candidates.map((candidate) => candidate.id)],
+    );
+    const lastAssigned = new Map(assigned.map((row) => [row.assigned_to, row.last_assigned_at ?? '']));
+    candidates.sort((a, b) => String(lastAssigned.get(a.id) ?? '').localeCompare(String(lastAssigned.get(b.id) ?? '')) || a.id.localeCompare(b.id));
+  } else if (strategy === 'fixed') candidates.sort((a, b) => explicitIds.indexOf(a.id) - explicitIds.indexOf(b.id));
 
   return candidates;
 }
@@ -216,12 +256,16 @@ export async function autoAssign(requestId: string): Promise<string | null> {
   if (!request || request.assigned_to) return null;
   const service = await getServiceById(request.service_id);
   if (!service) return null;
+  const rule = await one<any>('SELECT strategy FROM assignment_rules WHERE service_id = ? AND is_active = 1', [service.id]);
+  const strategy = rule?.strategy ?? (await getString('services.auto_assign_strategy')) ?? 'least_loaded';
+  if (strategy === 'queue') return null;
 
   const candidates = await candidatesForService(service);
   const chosen = candidates[0];
   if (!chosen) return null;
 
-  await run('UPDATE requests SET assigned_to = ?, status = ?, updated_at = ? WHERE id = ?', [chosen.id, 'assigned', nowIso(), requestId]);
+  const assignedAt = nowIso();
+  await run('UPDATE requests SET assigned_to = ?, assigned_at = ?, status = ?, updated_at = ? WHERE id = ?', [chosen.id, assignedAt, 'assigned', assignedAt, requestId]);
   await addEvent({
     requestId, type: 'assigned', message: `پرونده به ${chosen.name} ارجاع شد.`,
     fromStatus: request.status, toStatus: 'assigned',
@@ -281,7 +325,17 @@ export async function createRequest(input: CreateRequestInput, actor?: { id: str
   const formData = validateFormData(service, input.formData ?? {});
   const fee = service.baseFee;
   const discount = pricing.discount;
-  const total = pricing.total;
+  let total = pricing.total;
+  if (input.existingInvoiceId) {
+    const existingInvoice = await one<any>('SELECT * FROM invoices WHERE id = ?', [input.existingInvoiceId]);
+    if (!existingInvoice || existingInvoice.customer_id !== input.customerId || existingInvoice.service_id !== service.id) {
+      throw badRequest('فاکتور پیش‌صدور با این مشتری و خدمت سازگار نیست.');
+    }
+    if (existingInvoice.request_id || ['void', 'draft'].includes(existingInvoice.status)) {
+      throw conflict('فاکتور پیش‌صدور دیگر برای ایجاد درخواست قابل استفاده نیست.');
+    }
+    total = Number(existingInvoice.total);
+  }
   const methods = service.paymentMethods.length ? service.paymentMethods : ['online', 'cash'];
   const method = input.paymentMethod && methods.includes(input.paymentMethod) ? input.paymentMethod : methods[0];
 
@@ -571,7 +625,8 @@ export async function assignRequest(requestId: string, staffId: string | null, a
     if (!staff) throw badRequest('کارشناس انتخابی معتبر نیست.');
   }
   const newStatus = staffId && request.status === 'new' ? 'assigned' : request.status;
-  await run('UPDATE requests SET assigned_to = ?, status = ?, updated_at = ? WHERE id = ?', [staffId, newStatus, nowIso(), requestId]);
+  const assignedAt = staffId ? nowIso() : null;
+  await run('UPDATE requests SET assigned_to = ?, assigned_at = ?, status = ?, updated_at = ? WHERE id = ?', [staffId, assignedAt, newStatus, nowIso(), requestId]);
   await addEvent({
     requestId, type: 'assigned', actorId: actor.id, actorName: actor.name,
     message: staffId ? 'پرونده به کارشناس ارجاع شد.' : 'ارجاع پرونده برداشته شد.',
@@ -708,7 +763,8 @@ export async function claimRequest(requestId:string,staffId:string,name:string){
   if(!r || r.assigned_to || r.status!=='new')throw conflict('این پرونده قبلاً پذیرفته شده یا قابل پذیرش نیست.');
   const service=await getServiceById(r.service_id);
   if(!service || !(await candidatesForService(service)).some(c=>c.id===staffId))throw forbidden('مهارت، شیفت یا ظرفیت لازم برای این خدمت را ندارید.');
-  const changed=await run("UPDATE requests SET assigned_to=?,status='assigned',updated_at=? WHERE id=? AND assigned_to IS NULL AND status='new'",[staffId,nowIso(),requestId]);
+  const assignedAt=nowIso();
+  const changed=await run("UPDATE requests SET assigned_to=?,assigned_at=?,status='assigned',updated_at=? WHERE id=? AND assigned_to IS NULL AND status='new'",[staffId,assignedAt,assignedAt,requestId]);
   if(!changed.changes)throw conflict('کارمند دیگری پرونده را پذیرفته است.');
   await addEvent({requestId,type:'assigned',actorId:staffId,actorName:name,message:`پرونده توسط ${name} پذیرفته شد.`,fromStatus:'new',toStatus:'assigned'});
   return {id:requestId};

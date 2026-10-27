@@ -6,6 +6,8 @@ import { env } from '../env.js';
 import { one } from '../db/index.js';
 import { toPersianDigits } from '../lib/text.js';
 import { param } from '../http/params.js';
+import { hasPermission } from '../lib/permissions.js';
+import { officeScope } from '../lib/scope.js';
 
 export const publicRouter = Router();
 publicRouter.get('/cities', asyncRoute(async (_req, res) => {
@@ -74,11 +76,14 @@ publicRouter.get('/services', asyncRoute(async (req, res) => {
 
 publicRouter.get('/services/:slug', asyncRoute(async (req, res) => {
   const service = await getServiceBySlug(param(req, 'slug'));
-  if (!service || (!service.isPublished && !req.auth)) {
+  const canViewAdmin = Boolean(req.auth && req.auth.user.kind !== 'customer' && hasPermission(req.auth.permissions, 'services.view'));
+  const isCustomOwner = Boolean(req.auth?.user.kind === 'customer' && service?.ownerCustomerId === req.auth.user.id);
+  const canViewPrivateCustom = Boolean(req.auth && officeScope(req.auth) && canViewAdmin);
+  if (!service || (!service.isPublished && !canViewAdmin && !isCustomOwner)) {
     return res.status(404).json({ ok: false, error: { code: 'not_found', message: 'خدمت یافت نشد.' } });
   }
-  // Custom services are private to their owner.
-  if (service.isCustom && service.ownerCustomerId !== req.auth?.user.id) {
+  // Custom services are private to their owner and authorized office staff.
+  if (service.isCustom && !isCustomOwner && !canViewPrivateCustom) {
     return res.status(404).json({ ok: false, error: { code: 'not_found', message: 'خدمت یافت نشد.' } });
   }
   res.json({

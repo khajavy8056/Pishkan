@@ -39,7 +39,7 @@ export async function createContract(input:{userId:string;kind:'monthly'|'commis
   if(!user)throw badRequest('کارمند یافت نشد.');
   await run('UPDATE users SET updated_at=updated_at WHERE id=?',[user.id]);
   if(input.endsOn && input.endsOn<input.startsOn)throw badRequest('پایان قرارداد پیش از شروع است.');
-  const overlaps=await one("SELECT id FROM compensation_contracts WHERE user_id=? AND starts_on<=? AND (ends_on IS NULL OR ends_on>=?)",[user.id,input.endsOn??'9999-12-31',input.startsOn]);
+  const overlaps=await one("SELECT id FROM compensation_contracts WHERE user_id=? AND kind=? AND starts_on<=? AND (ends_on IS NULL OR ends_on>=?)",[user.id,input.kind,input.endsOn??'9999-12-31',input.startsOn]);
   if(overlaps)throw conflict('قراردادها نباید هم‌پوشانی زمانی داشته باشند. قرارداد قبلی را با تاریخ پایان مشخص ثبت کنید.');
   const contractId=id('contract');
   await run('INSERT INTO compensation_contracts(id,user_id,kind,monthly_amount,commission_percent,starts_on,ends_on,created_by,created_at) VALUES(?,?,?,?,?,?,?,?,?)',[contractId,user.id,input.kind,input.monthlyAmount,input.commissionPercent,input.startsOn,input.endsOn??null,actorId,nowIso()]);

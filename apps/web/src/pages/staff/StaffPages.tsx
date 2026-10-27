@@ -893,6 +893,9 @@ export function StaffShifts() {
   const [kind, setKind] = useState('leave');
   const [reason, setReason] = useState('');
   const [shiftId, setShiftId] = useState('');
+  const [requestedDate, setRequestedDate] = useState('');
+  const [requestedStart, setRequestedStart] = useState('09:00');
+  const [requestedEnd, setRequestedEnd] = useState('17:00');
 
   const load = () => {
     setLoading(true);
@@ -908,10 +911,18 @@ export function StaffShifts() {
 
   const submitRequest = async () => {
     try {
-      await api.post('/api/shifts/change-requests', { kind, reason, shiftId: shiftId || undefined });
+      await api.post('/api/shifts/change-requests', {
+        kind, reason,
+        shiftId: kind === 'add' ? undefined : shiftId || undefined,
+        requestedDate: kind === 'leave' ? undefined : requestedDate || undefined,
+        startTime: kind === 'add' ? requestedStart : undefined,
+        endTime: kind === 'add' ? requestedEnd : undefined,
+      });
       notify('درخواست ثبت شد و برای بررسی ارسال گردید.', 'success');
       setRequestOpen(false);
       setReason('');
+      setShiftId('');
+      setRequestedDate('');
       load();
     } catch (err) {
       notify(err instanceof ApiFailure ? err.message : 'خطا', 'error');
@@ -990,6 +1001,7 @@ export function StaffShifts() {
                     </p>
                     <p className="mt-0.5 text-[11px] text-navy-500">{change.reason}</p>
                     {change.shift && <p className="text-[10px] text-navy-400">شیفت {faDate(change.shift.date)} • {change.shift.startTime}–{change.shift.endTime}</p>}
+                    {change.requestedDate && <p className="text-[10px] text-navy-400">درخواست برای {faDate(change.requestedDate)}{change.startTime ? ` • ${change.startTime}–${change.endTime}` : ''}</p>}
                   </div>
                   <StatusBadge status={change.status} />
                 </div>
@@ -1006,7 +1018,7 @@ export function StaffShifts() {
       </div>
 
       <Modal open={requestOpen} onClose={() => setRequestOpen(false)} title="درخواست تغییر شیفت"
-        footer={<><Button variant="ghost" onClick={() => setRequestOpen(false)}>انصراف</Button><Button onClick={submitRequest} disabled={reason.length < 3}>ثبت درخواست</Button></>}>
+        footer={<><Button variant="ghost" onClick={() => setRequestOpen(false)}>انصراف</Button><Button onClick={submitRequest} disabled={reason.length < 3 || (kind !== 'add' && !shiftId) || (kind !== 'leave' && !requestedDate) || (kind === 'add' && requestedStart >= requestedEnd)}>ثبت درخواست</Button></>}>
         <div className="space-y-3">
           <Field label="نوع درخواست">
             <Select value={kind} onChange={(e) => setKind(e.target.value)} options={[
@@ -1015,10 +1027,17 @@ export function StaffShifts() {
               { value: 'add', label: 'افزودن شیفت' },
             ]} />
           </Field>
-          <Field label="شیفت مرتبط">
-            <Select value={shiftId} onChange={(e) => setShiftId(e.target.value)} placeholder="انتخاب شیفت (اختیاری)"
-              options={shifts.map((s) => ({ value: s.id, label: `${faDate(s.date)} ${s.startTime}–${s.endTime}` }))} />
-          </Field>
+          {kind !== 'add' && <Field label="شیفت مرتبط" required>
+            <Select value={shiftId} onChange={(e) => setShiftId(e.target.value)} placeholder="انتخاب شیفت"
+              options={shifts.filter((s) => s.status === 'scheduled').map((s) => ({ value: s.id, label: `${faDate(s.date)} ${s.startTime}–${s.endTime}` }))} />
+          </Field>}
+          {kind !== 'leave' && <Field label={kind === 'swap' ? 'تاریخ جایگزین' : 'تاریخ شیفت جدید'} required>
+            <Input type="date" value={requestedDate} min={new Date().toISOString().slice(0, 10)} onChange={(e) => setRequestedDate(e.target.value)} />
+          </Field>}
+          {kind === 'add' && <div className="grid grid-cols-2 gap-3">
+            <Field label="شروع" required><Input type="time" value={requestedStart} onChange={(e) => setRequestedStart(e.target.value)} /></Field>
+            <Field label="پایان" required><Input type="time" value={requestedEnd} onChange={(e) => setRequestedEnd(e.target.value)} /></Field>
+          </div>}
           <Field label="دلیل" required><Textarea value={reason} onChange={(e) => setReason(e.target.value)} /></Field>
         </div>
       </Modal>

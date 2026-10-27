@@ -13,7 +13,7 @@ import { hasPermission } from '../lib/permissions.js';
 import { getBool, getNumber } from '../modules/settings/service.js';
 import { writeAudit } from '../modules/audit/service.js';
 import { notifyUser } from '../modules/notifications/service.js';
-import { createInvoice, getInvoice } from '../modules/accounting/service.js';
+import { createInvoice, voidInvoice } from '../modules/accounting/service.js';
 import { addEvent, createRequest, getRequest } from '../modules/requests/service.js';
 import { id } from '../lib/crypto.js';
 import { param } from '../http/params.js';
@@ -283,14 +283,14 @@ catalogRouter.get('/offers', asyncRoute(async (req, res) => {
 /** Customer accepts the offer: a request is created and the workflow starts. */
 catalogRouter.post('/offers/:id/accept', asyncRoute(async (req, res) => {
   if (req.auth!.user.kind !== 'customer') throw forbidden();
-  await tx(async()=>{
+  const result = await tx(async()=>{
   await run('UPDATE custom_service_offers SET status=status WHERE id=?',[param(req,'id')]);
   const offer = await one<any>('SELECT * FROM custom_service_offers WHERE id = ? AND customer_id = ?', [param(req, 'id'), req.auth!.user.id]);
   if (!offer) throw notFound('پیشنهاد یافت نشد.');
   if (offer.status !== 'pending') throw conflict('این پیشنهاد قبلاً بررسی شده است.');
   if (offer.expires_at && new Date(offer.expires_at).getTime() < Date.now()) {
-    await run('UPDATE custom_service_offers SET status = ? WHERE id = ?', ['expired', offer.id]);
-    throw conflict('مهلت این پیشنهاد به پایان رسیده است.');
+    await run('UPDATE custom_service_offers SET status = ? WHERE id = ? AND status = \'pending\'', ['expired', offer.id]);
+    return { expired: true as const };
   }
 
   const service = await getServiceById(offer.service_id);
@@ -320,21 +320,34 @@ catalogRouter.post('/offers/:id/accept', asyncRoute(async (req, res) => {
       actorId: req.auth!.user.id, actorName: req.auth!.user.fullName,
     });
   }
-  ok(res, { request, message: 'پیشنهاد تأیید شد و گردش کار آغاز شد.' });
+  return { expired: false as const, request };
   });
+  if (result.expired) throw conflict('مهلت این پیشنهاد به پایان رسیده است.');
+  ok(res, { request: result.request, message: 'پیشنهاد تأیید شد و گردش کار آغاز شد.' });
 }));
 
 catalogRouter.post('/offers/:id/decline', asyncRoute(async (req, res) => {
   const body = z.object({ reason: z.string().max(500).optional() }).parse(req.body ?? {});
-  const offer = await one<any>('SELECT * FROM custom_service_offers WHERE id = ?', [param(req, 'id')]);
-  if (!offer) throw notFound('پیشنهاد یافت نشد.');
-  const isOwner = req.auth!.user.kind === 'customer' && offer.customer_id === req.auth!.user.id;
-  if (!isOwner && !hasPermission(req.auth!.permissions, 'services.edit')) throw forbidden();
-  if (offer.status !== 'pending') throw conflict('این پیشنهاد قبلاً بررسی شده است.');
-
-  await run('UPDATE custom_service_offers SET status = ?, decided_at = ?, message = ? WHERE id = ?', ['declined', nowIso(), body.reason ?? offer.message, offer.id]);
-  if (offer.invoice_id) await run('UPDATE invoices SET status = ?, voided_at = ?, updated_at = ? WHERE id = ?', ['void', nowIso(), nowIso(), offer.invoice_id]);
-  await notifyUser(offer.created_by ?? offer.customer_id, {
+  const result = await tx(async () => {
+    await run('UPDATE custom_service_offers SET status = status WHERE id = ?', [param(req, 'id')]);
+    const offer = await one<any>('SELECT * FROM custom_service_offers WHERE id = ?', [param(req, 'id')]);
+    if (!offer) throw notFound('پیشنهاد یافت نشد.');
+    const isOwner = req.auth!.user.kind === 'customer' && offer.customer_id === req.auth!.user.id;
+    if (!isOwner && !hasPermission(req.auth!.permissions, 'services.edit')) throw forbidden();
+    if (offer.status !== 'pending') throw conflict('این پیشنهاد قبلاً بررسی شده است.');
+    if (offer.expires_at && new Date(offer.expires_at).getTime() < Date.now()) {
+      await run('UPDATE custom_service_offers SET status = ? WHERE id = ? AND status = \'pending\'', ['expired', offer.id]);
+      return { expired: true as const };
+    }
+    if (offer.invoice_id) await voidInvoice(offer.invoice_id, body.reason ?? 'رد پیشنهاد خدمت اختصاصی', { id: req.auth!.user.id, name: req.auth!.user.fullName, ip: req.ip });
+    const changed = await run('UPDATE custom_service_offers SET status = ?, decided_at = ?, message = ? WHERE id = ? AND status = \'pending\'', ['declined', nowIso(), body.reason ?? offer.message, offer.id]);
+    if (!changed.changes) throw conflict('این پیشنهاد قبلاً بررسی شده است.');
+    return { expired: false as const, offer, declinedByCustomer: isOwner };
+  });
+  if (result.expired) throw conflict('مهلت این پیشنهاد به پایان رسیده است.');
+  const { offer } = result;
+  const notifyId = result.declinedByCustomer ? (offer.created_by ?? offer.customer_id) : offer.customer_id;
+  await notifyUser(notifyId, {
     title: 'پیشنهاد خدمت اختصاصی رد شد',
     body: body.reason ?? '',
     kind: 'warning',
@@ -357,6 +370,12 @@ catalogRouter.get('/mine', asyncRoute(async (req, res) => {
 catalogRouter.get('/services/:id/quote', asyncRoute(async (req, res) => {
   const service = await getServiceById(param(req, 'id'));
   if (!service) throw notFound('خدمت یافت نشد.');
+  const canViewAdmin = req.auth!.user.kind !== 'customer' && hasPermission(req.auth!.permissions, 'services.view');
+  const isCustomOwner = req.auth!.user.kind === 'customer' && service.ownerCustomerId === req.auth!.user.id;
+  const canViewPrivateCustom = officeScope(req.auth!) && canViewAdmin;
+  if ((!service.isPublished && !canViewAdmin && !isCustomOwner) || (service.isCustom && !canViewPrivateCustom && !isCustomOwner)) {
+    throw notFound('خدمت یافت نشد.');
+  }
   const taxPercent = await getNumber('accounting.tax_percent');
   const tax = Math.round((service.finalFee * taxPercent) / 100);
   ok(res, {

@@ -10,7 +10,7 @@ import { badRequest, forbidden, notFound } from '../http/errors.js';
 import { ok } from '../http/respond.js';
 import { one, q, run, nowIso, jsonParse } from '../db/index.js';
 import { id } from '../lib/crypto.js';
-import { getJson, getNumber, getBool } from '../modules/settings/service.js';
+import { getJson, getNumber } from '../modules/settings/service.js';
 import { hasPermission } from '../lib/permissions.js';
 import { env } from '../env.js';
 import { writeAudit } from '../modules/audit/service.js';
@@ -114,10 +114,18 @@ filesRouter.get('/:id', requireAuth, asyncRoute(async (req, res) => {
     );
     allowed = Boolean(linked);
   }
+  if (!allowed && (auth.user.kind === 'customer' || hasPermission(auth.permissions, 'messages.view'))) {
+    const linkedMessage = auth.user.kind === 'customer'
+      ? await one('SELECT m.id FROM messages m JOIN threads t ON t.id=m.thread_id WHERE m.file_id=? AND t.customer_id=? LIMIT 1', [file.id, auth.user.id])
+      : await one(`SELECT m.id FROM messages m JOIN threads t ON t.id=m.thread_id
+          WHERE m.file_id=? AND (t.assigned_to=? OR EXISTS(SELECT 1 FROM requests r WHERE r.id=t.request_id AND r.assigned_to=?)) LIMIT 1`, [file.id, auth.user.id, auth.user.id]);
+    allowed = Boolean(linkedMessage);
+  }
   if (!allowed) throw forbidden('دسترسی به این فایل مجاز نیست.');
 
-  const absolute = path.join(env.uploadDir, file.storage_key);
-  if (!absolute.startsWith(path.resolve(env.uploadDir))) throw forbidden();
+  const absolute = path.resolve(env.uploadDir, file.storage_key);
+  const relative = path.relative(path.resolve(env.uploadDir), absolute);
+  if (relative.startsWith('..') || path.isAbsolute(relative)) throw forbidden();
   if (!fs.existsSync(absolute)) throw notFound('فایل روی سرور موجود نیست.');
 
   res.setHeader('content-type', file.mime || 'application/octet-stream');
@@ -148,8 +156,9 @@ filesRouter.delete('/:id', requireAuth, asyncRoute(async (req, res) => {
   if (used) throw badRequest('این فایل به یک پرونده متصل است و حذف نمی‌شود.');
 
   try {
-    const absolute = path.join(env.uploadDir, file.storage_key);
-    if (absolute.startsWith(path.resolve(env.uploadDir)) && fs.existsSync(absolute)) fs.unlinkSync(absolute);
+    const absolute = path.resolve(env.uploadDir, file.storage_key);
+    const relative = path.relative(path.resolve(env.uploadDir), absolute);
+    if (!relative.startsWith('..') && !path.isAbsolute(relative) && fs.existsSync(absolute)) fs.unlinkSync(absolute);
   } catch { /* file already gone */ }
 
   await run('DELETE FROM files WHERE id = ?', [file.id]);
@@ -165,6 +174,7 @@ filesRouter.get('/meta/config', requireAuth, asyncRoute(async (_req, res) => {
   ok(res, {
     maxSizeMb: Math.round(cfg.maxBytes / 1024 / 1024),
     types: cfg.types,
-    privateByDefault: !(await getBool('files.retention_days')),
+    privateByDefault: true,
+    retentionDays: await getNumber('files.retention_days'),
   });
 }));
