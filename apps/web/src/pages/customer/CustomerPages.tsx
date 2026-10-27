@@ -219,14 +219,20 @@ export function CustomerRequestDetail() {
   const [paying, setPaying] = useState(false);
   const fileInput = useRef<HTMLInputElement>(null);
 
-  const load = () => {
-    setLoading(true);
+  const load = (showLoading = true) => {
+    if (showLoading) setLoading(true);
     api.get<{ data: any }>(`/api/requests/${id}`)
-      .then((res) => setRequest(res.data))
-      .catch((err) => setError(err instanceof ApiFailure ? err.message : 'خطا'))
-      .finally(() => setLoading(false));
+      .then((res) => { setRequest(res.data); setError(''); })
+      .catch((err) => { if (showLoading) setError(err instanceof ApiFailure ? err.message : 'خطا'); })
+      .finally(() => { if (showLoading) setLoading(false); });
   };
-  useEffect(load, [id]);
+  useEffect(() => {
+    load();
+    const timer = window.setInterval(() => load(false), 20_000);
+    const refreshOnFocus = () => { if (document.visibilityState === 'visible') load(false); };
+    window.addEventListener('focus', refreshOnFocus);
+    return () => { window.clearInterval(timer); window.removeEventListener('focus', refreshOnFocus); };
+  }, [id]);
 
   const addNote = async () => {
     if (!note.trim()) return;

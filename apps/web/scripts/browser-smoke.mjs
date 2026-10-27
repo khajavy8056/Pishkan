@@ -39,8 +39,9 @@ async function login(username,password,{simulateRefreshFailure=false}={}){
 }
 async function api(method,url,body){const r=await context.request.fetch(`${base}${url}`,{method,data:body});assert(r.ok(),`${method} ${url}: ${r.status()}`);return(await r.json()).data}
 try{
- await page.goto(base);await page.getByRole('heading',{name:'ورود به سامانه',exact:true}).waitFor();await screenshot('01-home-desktop');
+ await page.goto(base);await page.getByRole('heading',{name:'ورود به سامانه',exact:true}).waitFor();await page.getByText(/اندیمشک/).first().waitFor();await screenshot('01-home-desktop');
  await login(credentials.username,credentials.password,{simulateRefreshFailure:true});
+ await page.goto(`${base}/panel`);await page.waitForURL('**/admin');
  await page.getByRole('heading',{name:'داشبورد مدیریت',exact:true}).waitFor();await screenshot('02-admin-desktop');
  const stamp=crypto.randomBytes(4).toString('hex');
  const password=`Smoke#${crypto.randomBytes(16).toString('hex')}`;
@@ -51,16 +52,17 @@ try{
   await api('POST','/api/staff',{fullName:role==='operator'?'کارمند آزمون مرورگر':role==='accountant'?'حسابدار آزمون مرورگر':'سرپرست آزمون مرورگر',mobile:`09${crypto.randomInt(100000000,999999999)}`,username,password:role==='manager'?managerPassword:password,roleCode:role});identities[role]=username;
  }
  await context.clearCookies();await login(identities.manager,managerPassword);
+ await page.goto(`${base}/panel`);await page.waitForURL('**/admin');
  await page.getByRole('heading',{name:'داشبورد مدیریت',exact:true}).waitFor();
  await api('POST','/api/catalog/services',{title:`خدمت مدیر ${stamp}`,baseFee:250000,form:[]});
  await api('POST','/api/staff',{fullName:'کارمند ایجادشده توسط مدیر',mobile:`09${crypto.randomInt(100000000,999999999)}`,username:`manager_created_${stamp}`,password,roleCode:'operator'});
  await page.goto(`${base}/admin/settings`);await page.getByRole('heading',{name:'دسترسی به این بخش مجاز نیست',exact:true}).waitFor();await screenshot('03-manager-role-restrictions');
  await context.clearCookies();await login(identities.accountant,password);
- assert(page.url().endsWith('/staff/accounting'));await page.getByRole('heading',{name:'حسابداری',exact:true}).waitFor();await screenshot('04-accountant-desktop');
+ assert(page.url().endsWith('/staff/accounting'));await page.goto(`${base}/panel`);await page.waitForURL('**/staff/accounting');await page.getByRole('heading',{name:'حسابداری',exact:true}).waitFor();await screenshot('04-accountant-desktop');
  await page.goto(`${base}/staff/payroll`);await page.getByRole('heading',{name:'حقوق و سهم کارکنان',exact:true}).waitFor();
  await page.goto(`${base}/admin/settings`);await page.waitForURL('**/staff/accounting');
  await context.clearCookies();await login(identities.operator,password);
- assert(page.url().endsWith('/staff'));await page.getByRole('heading',{name:/میز کار/}).waitFor();await screenshot('05-worker-desktop');
+ assert(page.url().endsWith('/staff'));await page.goto(`${base}/panel`);await page.waitForURL('**/staff');await page.getByRole('heading',{name:/میز کار/}).waitFor();await screenshot('05-worker-desktop');
  await page.goto(`${base}/staff/accounting`);await page.getByRole('heading',{name:'دسترسی به این بخش مجاز نیست',exact:true}).waitFor();
  await page.setViewportSize({width:390,height:844});await page.goto(`${base}/staff`);await page.getByRole('heading',{name:/میز کار/}).waitFor();await screenshot('06-worker-mobile');
  assert(await page.locator('nav.mobile-dock').isVisible(),'mobile navigation visible');

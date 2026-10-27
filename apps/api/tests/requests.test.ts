@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import request from 'supertest';
 import { app, createStaff, customerSession, adminSession, EXPERT } from './helpers.js';
+import { updateSettings } from '../src/modules/settings/service.js';
 
 async function serviceIdBySlug(slug: string) {
   const server = await app();
@@ -49,6 +50,47 @@ describe('request lifecycle', () => {
     expect(res.body.data.events[0].type).toBe('created');
   });
 
+  it('routes a customer request to staff and exposes staff status changes back to that customer', async () => {
+    const customer = await customerSession();
+    const server = await app();
+    await updateSettings({ 'workforce.auto_assign_on_shift': false }, { id: 'system', name: 'test-lifecycle' });
+    const staff = await createStaff('service_expert', { ...EXPERT, username: 'lifecycle_expert', password: 'Lifecycle#12345' });
+    const staffMe = await request(server).get('/api/auth/me').set('Cookie', staff.cookie);
+    const service = (await request(server).get('/api/public/services/social-security-receipt')).body.data;
+
+    const created = await request(server)
+      .post('/api/requests')
+      .set('Cookie', customer.cookie)
+      .send({ serviceId: service.id, formData: validForm(service) });
+    expect(created.status).toBe(201);
+    expect(created.body.data.assignedTo).toBe(staffMe.body.data.id);
+
+    const staffQueue = await request(server).get('/api/requests').set('Cookie', staff.cookie);
+    expect(staffQueue.body.data.some((item: any) => item.id === created.body.data.id)).toBe(true);
+
+    const changed = await request(server)
+      .patch(`/api/requests/${created.body.data.id}/status`)
+      .set('Cookie', staff.cookie)
+      .send({ status: 'in_progress', note: 'بررسی آغاز شد' });
+    expect(changed.status).toBe(200);
+
+    const customerDetail = await request(server)
+      .get(`/api/requests/${created.body.data.id}`)
+      .set('Cookie', customer.cookie);
+    expect(customerDetail.body.data.status).toBe('in_progress');
+    expect(customerDetail.body.data.events.some((event: any) => event.type === 'status' && event.toStatus === 'in_progress')).toBe(true);
+  });
+
+  it('includes Andimeshk as an active selectable city', async () => {
+    const server = await app();
+    const cities = await request(server).get('/api/public/cities');
+    expect(cities.status).toBe(200);
+    expect(cities.body.data).toContainEqual(expect.objectContaining({ id: 'andimeshk', province: 'خوزستان', name: 'اندیمشک' }));
+    const bootstrap = await request(server).get('/api/public/bootstrap');
+    expect(bootstrap.body.data.settings['office.city']).toBe('اندیمشک');
+    expect(bootstrap.body.data.settings['office.province']).toBe('خوزستان');
+  });
+
   it('rejects a submission with missing required fields', async () => {
     const customer = await customerSession();
     const server = await app();
@@ -71,23 +113,6 @@ describe('request lifecycle', () => {
     const res = await request(server).post('/api/requests').set('Cookie', customer.cookie).send({ serviceId, formData: form });
     expect(res.status).toBe(400);
     expect(JSON.stringify(res.body.error.details)).toContain('کد ملی');
-  });
-
-  it('auto-assigns the request to a qualified staff member', async () => {
-    const customer = await customerSession();
-    const server = await app();
-    await createStaff('service_expert', EXPERT).catch(() => null);
-    const serviceId = await serviceIdBySlug('social-security-receipt');
-    const service = (await request(server).get('/api/public/services/social-security-receipt')).body.data;
-
-    const created = await request(server)
-      .post('/api/requests')
-      .set('Cookie', customer.cookie)
-      .send({ serviceId, formData: validForm(service) });
-
-    const detail = await request(server).get(`/api/requests/${created.body.data.id}`).set('Cookie', customer.cookie);
-    expect(['assigned', 'new']).toContain(detail.body.data.status);
-    if (detail.body.data.status === 'assigned') expect(detail.body.data.assigneeName).toBeTruthy();
   });
 
   it('blocks illegal status transitions and allows legal ones', async () => {

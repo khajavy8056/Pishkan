@@ -1,7 +1,8 @@
 import { afterEach, describe, expect, it } from 'vitest';
 import { render, screen, waitFor } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
-import { AuthProvider } from '../src/lib/auth';
+import { AuthProvider, homeFor } from '../src/lib/auth';
+import { navFor } from '../src/components/shell';
 import { SiteProvider } from '../src/lib/site';
 import { ToastProvider } from '../src/components/ui';
 import { setAuthUser, fetchMock } from './setup';
@@ -107,5 +108,22 @@ describe('authenticated panels render', () => {
     await waitFor(() => expect(screen.getAllByText('تنظیمات سامانه').length).toBeGreaterThan(0));
     await waitFor(() => expect(screen.getByText('نام سامانه')).toBeTruthy());
     expect(screen.getByText('نام سامانه')).toBeTruthy();
+  });
+});
+
+
+describe('panel routing and role navigation', () => {
+  it('selects the correct entry route for each account kind and role', () => {
+    expect(homeFor(customerUser as any)).toBe('/app');
+    expect(homeFor({ ...adminUser, roleCode: 'super_admin' } as any)).toBe('/admin');
+    expect(homeFor({ ...adminUser, roleCode: 'manager' } as any)).toBe('/admin');
+    expect(homeFor({ ...adminUser, kind: 'staff', roleCode: 'accountant' } as any)).toBe('/staff/accounting');
+    expect(homeFor({ ...adminUser, kind: 'staff', roleCode: 'service_expert' } as any)).toBe('/staff');
+  });
+
+  it('provides role-specific navigation targets for customers, staff and admins', () => {
+    expect(navFor('customer').map(item => item.to)).toContain('/app/requests');
+    expect(navFor('staff').map(item => item.to)).toContain('/staff/requests');
+    expect(navFor('admin').map(item => item.to)).toContain('/admin/requests');
   });
 });

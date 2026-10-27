@@ -4,7 +4,7 @@ import { EligibleQueue } from './pages/staff/Queue';
 import { StrictMode } from 'react';
 import { createRoot } from 'react-dom/client';
 import { BrowserRouter, Navigate, Route, Routes, useLocation } from 'react-router-dom';
-import { AuthProvider } from './lib/auth';
+import { AuthProvider, useAuth, homeFor } from './lib/auth';
 import { SiteProvider } from './lib/site';
 import { ToastProvider } from './components/ui';
 import { RequireRole } from './components/shell';
@@ -39,6 +39,12 @@ const staffOnly = (node: ReactNode,permission?:string) => <RequireRole kinds={['
 const financial = (node:ReactNode,permission:string)=><RequireRole kinds={['staff','admin']} permission={permission} office>{node}</RequireRole>;
 const adminOnly = (node: ReactNode,permission?:string) => <RequireRole kinds={['admin']} permission={permission}>{node}</RequireRole>;
 
+function PanelEntry() {
+  const { user, loading } = useAuth();
+  if (loading) return <div className="grid min-h-dvh place-items-center text-sm text-navy-500">در حال بررسی دسترسی…</div>;
+  return <Navigate to={homeFor(user)} replace />;
+}
+
 function ScrollToTop() {
   const { pathname } = useLocation();
   // Reset scroll position on navigation (RTL pages can otherwise keep the old offset).
@@ -57,6 +63,7 @@ function App() {
             <Routes>
               {/* public */}
               <Route path="/" element={<HomePage />} />
+              <Route path="/panel" element={<PanelEntry />} />
               <Route path="/services" element={<ServicesPage />} />
               <Route path="/services/:slug" element={<ServiceDetailPage />} />
               <Route path="/assistant" element={<AssistantPage />} />
