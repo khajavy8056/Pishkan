@@ -1,3 +1,4 @@
+import { CaseAutomation } from '../shared/Automation';
 import { CompensationPage } from '../shared/Compensation';
 import { useEffect, useRef, useState } from 'react';
 import { Link, useParams, useSearchParams } from 'react-router-dom';
@@ -293,7 +294,8 @@ export function StaffRequests({ variant = 'staff' }: { variant?: 'staff' | 'admi
 
 export function RequestDetail({ variant = 'staff' }: { variant?: 'staff' | 'admin' }) {
   const { id } = useParams();
-  const { can } = useAuth();
+  const { can,user } = useAuth();
+  const office=['super_admin','manager','accountant'].includes(user?.roleCode??'');
   const { notify } = useToast();
   const [request, setRequest] = useState<any>(null);
   const [loading, setLoading] = useState(true);
@@ -403,7 +405,7 @@ export function RequestDetail({ variant = 'staff' }: { variant?: 'staff' | 'admi
   if (loading) return <AppShell variant={variant}><Loading /></AppShell>;
   if (error || !request) return <AppShell variant={variant}><ErrorState message={error || 'درخواست یافت نشد'} onRetry={load} /></AppShell>;
 
-  const allowed = (STATUS_OPTIONS.map((s) => s.value));
+  const allowed = request.allowedStatuses ?? STATUS_OPTIONS.map(s=>s.value).filter(s=>!['ready','completed'].includes(s)||request.canApprove);
 
   return (
     <AppShell variant={variant}>
@@ -413,8 +415,8 @@ export function RequestDetail({ variant = 'staff' }: { variant?: 'staff' | 'admi
         backTo={`${base}/requests`}
         actions={
           <div className="flex flex-wrap gap-2">
-            <Button size="sm" variant="ghost" onClick={() => { setNextStatus(request.status); setStatusModal(true); }}>تغییر وضعیت</Button>
-            <Button size="sm" variant="ghost" onClick={openAssign}><UserPlus className="size-4" /> ارجاع</Button>
+            {can('requests.edit')&&<Button size="sm" variant="ghost" onClick={() => { setNextStatus(request.status); setStatusModal(true); }}>تغییر وضعیت</Button>}
+            {office&&can('requests.edit')&&<Button size="sm" variant="ghost" onClick={openAssign}><UserPlus className="size-4" /> ارجاع مسئول</Button>}
             <Link to={`${base}/messages?request=${request.id}`} className="btn-ghost btn-sm"><MessageSquare className="size-4" /> گفت‌وگو</Link>
           </div>
         }
@@ -443,6 +445,7 @@ export function RequestDetail({ variant = 'staff' }: { variant?: 'staff' | 'admi
             )}
           </Card>
 
+          <CaseAutomation request={request} onChange={load} />
           <Card>
             <h2 className="mb-3 font-bold text-navy-900">مدارک پرونده</h2>
             {request.documents.length === 0 && <p className="text-sm text-navy-400">مدرکی پیوست نشده است.</p>}
@@ -461,7 +464,7 @@ export function RequestDetail({ variant = 'staff' }: { variant?: 'staff' | 'admi
                     <a href={`/api/files/${doc.file.id}`} target="_blank" rel="noreferrer" className="btn-ghost btn-sm">
                       <Download className="size-3.5" /> مشاهده
                     </a>
-                    {doc.status === 'pending' && can('documents.approve') && (
+                    {doc.status === 'pending' && can('documents.approve') && (doc.kind!=='staff'||office) && (
                       <>
                         <button onClick={() => reviewDoc(doc.id, 'approved')} className="btn-sm rounded-lg bg-emerald-600 px-2.5 py-1 text-xs text-white hover:bg-emerald-700">
                           <CheckCircle2 className="inline size-3.5" /> تأیید
@@ -477,9 +480,9 @@ export function RequestDetail({ variant = 'staff' }: { variant?: 'staff' | 'admi
             </div>
             <input ref={fileInput} type="file" className="hidden" accept=".jpg,.jpeg,.png,.webp,.pdf"
               onChange={(e) => e.target.files?.[0] && upload(e.target.files[0])} />
-            <Button variant="ghost" className="mt-3 w-full" onClick={() => fileInput.current?.click()}>
-              <UploadCloud className="size-4" /> پیوست مدرک از طرف مشتری
-            </Button>
+            {can('requests.edit')&&<Button variant="ghost" className="mt-3 w-full" onClick={() => fileInput.current?.click()}>
+              <UploadCloud className="size-4" /> پیوست مدرک تکمیلی (نیازمند تأیید)
+            </Button>}
           </Card>
 
           <Card>
@@ -557,7 +560,7 @@ export function RequestDetail({ variant = 'staff' }: { variant?: 'staff' | 'admi
         footer={<><Button variant="ghost" onClick={() => setStatusModal(false)}>انصراف</Button><Button loading={busy} onClick={changeStatus} disabled={!nextStatus}>ثبت تغییر</Button></>}>
         <div className="space-y-3">
           <Field label="وضعیت جدید" required>
-            <Select value={nextStatus} onChange={(e) => setNextStatus(e.target.value)} options={allowed.map((value) => ({ value, label: STATUS_LABELS[value] ?? value }))} />
+            <Select value={nextStatus} onChange={(e) => setNextStatus(e.target.value)} options={allowed.map((value:string) => ({ value, label: STATUS_LABELS[value] ?? value }))} />
           </Field>
           <Field label="توضیح (برای مشتری نمایش داده می‌شود)">
             <Textarea value={statusNote} onChange={(e) => setStatusNote(e.target.value)} placeholder="مثلاً: مدارک تأیید شد و پرونده برای ثبت ارسال شد." />

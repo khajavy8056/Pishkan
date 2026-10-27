@@ -16,7 +16,7 @@ export function LoginPage() {
   const { notify } = useToast();
   const next = params.get('next');
 
-  const [accountKind,setAccountKind]=useState<'customer'|'staff'>('customer');
+  const [accountKind,setAccountKind]=useState<'customer'|'staff'>(params.get('account')==='staff'?'staff':'customer');
   const otpEnabled = (accountKind==='staff'?site?.authMethods.staffOtp:site?.authMethods.otp) ?? true;
   const passwordEnabled = accountKind==='staff' || (site?.authMethods.password ?? false);
   const [mode, setMode] = useState<'otp' | 'password'>(otpEnabled ? 'otp' : 'password');
@@ -140,7 +140,7 @@ export function LoginPage() {
   return (
     <PublicLayout>
       <div className="mx-auto grid max-w-5xl gap-8 px-4 py-12 sm:px-6 lg:grid-cols-2">
-        <div className="hidden lg:block">
+        <div className="auth-intro hidden lg:block">
           <h1 className="text-2xl font-bold leading-9 text-navy-900">ورود به سامانه {setting('site.short_name')}</h1>
           <p className="mt-2 text-sm leading-7 text-navy-600">
             با ورود به حساب، درخواست‌های خود را ثبت و پیگیری کنید، فاکتورها را ببینید و با کارشناس دفتر در ارتباط باشید.
@@ -161,11 +161,12 @@ export function LoginPage() {
 
           <div className="mt-6 flex items-center gap-2 text-xs text-navy-500">
             <ShieldCheck className="size-4 text-emerald-600" />
-            اتصال شما رمزنگاری‌شده است و کدهای ورود پس از مدت کوتاه منقضی می‌شوند.
+            کدهای ورود پس از مدت کوتاه منقضی می‌شوند؛ از نشانی HTTPS معتبر سامانه استفاده کنید.
           </div>
         </div>
 
         <div className="card card-pad">
+          <h2 className="mb-2 text-center text-xl font-bold text-navy-900">ورود به سامانه</h2><p className="mb-5 text-center text-xs leading-6 text-navy-500">ورود مشترک کارکنان، حسابداران و مدیران؛ دسترسی‌ها از حساب شما خوانده می‌شوند.</p>
           <div className="mb-4 flex gap-2">{([['customer','ورود مشتریان'],['staff','ورود کارکنان و مدیران']] as const).map(([kind,label])=><button key={kind} onClick={()=>{setAccountKind(kind);setMode('password');setStep('request');setError('')}} className={clsx('flex-1 rounded-xl border px-3 py-3 text-xs',accountKind===kind?'border-brand-200 bg-brand-50 font-bold text-brand-800':'border-navy-100 text-navy-500')}>{label}</button>)}</div>
           <div className="mb-5 flex gap-1 rounded-xl bg-navy-50 p-1">
             {otpEnabled && (

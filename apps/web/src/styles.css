@@ -16,19 +16,19 @@
   --color-navy-900: #0b1f3a;
   --color-navy-950: #061426;
 
-  --color-brand-50: #effaf8;
-  --color-brand-100: #d3f2eb;
-  --color-brand-200: #a9e4d7;
-  --color-brand-300: #76cfbd;
-  --color-brand-400: #43b6a2;
-  --color-brand-500: #229d89;
-  --color-brand-600: #14816f;
-  --color-brand-700: #106b5d;
-  --color-brand-800: #12564c;
-  --color-brand-900: #12483f;
+  --color-brand-50: #eff6ff;
+  --color-brand-100: #dbeafe;
+  --color-brand-200: #bfdbfe;
+  --color-brand-300: #93c5fd;
+  --color-brand-400: #60a5fa;
+  --color-brand-500: #3b82f6;
+  --color-brand-600: #1675e7;
+  --color-brand-700: #0066dc;
+  --color-brand-800: #0054b6;
+  --color-brand-900: #08488e;
 
   --shadow-soft: 0 1px 2px rgb(11 31 58 / 0.04), 0 8px 24px -12px rgb(11 31 58 / 0.15);
-  --shadow-card: 0 1px 3px rgb(11 31 58 / 0.06), 0 12px 32px -16px rgb(11 31 58 / 0.18);
+  --shadow-card: 0 2px 8px rgb(11 31 58 / 0.035), 0 0 0 1px rgb(11 31 58 / .045);
   --radius-xl2: 1.25rem;
 }
 
@@ -39,7 +39,7 @@
   }
   body {
     @apply bg-[#f6f8fa] text-navy-900 antialiased;
-    background-image: radial-gradient(1200px 600px at 100% -10%, #e2f1ee 0%, transparent 60%);
+    background-image: radial-gradient(1200px 600px at 100% -10%, #eaf1fa 0%, transparent 60%);
   }
   ::selection { @apply bg-brand-200 text-navy-900; }
   /* Persian numerals look better with tabular figures in tables */
@@ -130,3 +130,19 @@
 @media (prefers-reduced-motion: no-preference) { .card { transition: box-shadow .2s ease, transform .2s ease; } }
 @media (prefers-reduced-motion: reduce) { *, *::before, *::after { animation-duration: .01ms !important; transition-duration: .01ms !important; scroll-behavior: auto !important; } }
 @media (max-width: 640px) { .btn-primary, .btn-navy, .btn-ghost, .btn-soft { min-height: 44px; } .input { min-height: 44px; font-size: 16px; } }
+
+/* Civic blue / midnight panels based on the supplied desktop and mobile references. */
+.civic-hero { background: #073b76; isolation: isolate; }
+.civic-hero::before { content:'';position:absolute;inset:0 0 0 0;z-index:-1;background:linear-gradient(90deg,rgb(5 33 62 / .34),rgb(4 55 115 / .92)),url('/images/office-hero.jpg') center 46% / cover; }
+.civic-hero::after {content:'';position:absolute;inset:auto 0 -1px;height:42px;background:#f6f8fa;z-index:-1;}
+.app-sidebar { background-image:linear-gradient(175deg,#0b3157 0%,#081e33 100%); }
+.app-sidebar .nav-link {border-radius:.65rem;font-size:.8rem;min-height:42px;}
+.app-sidebar .nav-link-active {background:#006be8;box-shadow:0 4px 12px rgb(0 102 220 / .25);}
+.app-content>.mb-6:first-child {border-bottom:1px solid #e5edf6;padding-bottom:1.2rem;}
+.app-content .card {border-radius:.85rem;}
+.table thead {background:#f4f8fe;}
+.table tbody tr:nth-child(even) {background:#fbfdff;}
+.auth-intro {background:linear-gradient(145deg,rgb(3 63 129 / .94),rgb(7 32 62 / .85)),url('/images/office-hero.jpg') center / cover;border-radius:1rem;padding:2rem;color:white;}
+.auth-intro h1,.auth-intro>p {color:white;}
+.auth-intro>div>div {background:rgb(255 255 255 / .95);}
+@media(max-width:640px){.app-content .card{border-radius:.8rem}.civic-hero h1{font-size:1.7rem}.mobile-dock svg{width:1.1rem;height:1.1rem}.mobile-dock{box-shadow:0 -3px 16px rgb(11 31 58 / .05)}.table{font-size:.75rem}}

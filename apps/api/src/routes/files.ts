@@ -110,7 +110,7 @@ filesRouter.get('/:id', requireAuth, asyncRoute(async (req, res) => {
   if (!allowed) {
     const linked = await one(
       `SELECT d.id FROM request_documents d JOIN requests r ON r.id = d.request_id
-       WHERE d.file_id = ? AND r.customer_id = ?`, [file.id, auth.user.id],
+       WHERE d.file_id = ? AND r.customer_id = ? AND (d.kind<>'staff' OR d.status='approved')`, [file.id, auth.user.id],
     );
     allowed = Boolean(linked);
   }

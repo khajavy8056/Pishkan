@@ -1,3 +1,4 @@
+import { automationRouter } from '../routes/automation.js';
 import { payrollRouter } from '../routes/payroll.js';
 import express, { type Express, type Request, type Response, type NextFunction } from 'express';
 import cookieParser from 'cookie-parser';
@@ -148,6 +149,7 @@ export async function createApp(): Promise<Express> {
   app.use(['/api/public','/api/v1/public'],publicRouter);
   app.use(['/api/auth','/api/v1/auth'],authRouter);
   app.use(['/api/catalog','/api/v1/catalog'],catalogRouter);
+  app.use(['/api/automation','/api/v1/automation'],automationRouter);
   app.use(['/api/requests','/api/v1/requests'],requestsRouter);
   app.use(['/api/customers','/api/v1/customers'],customersRouter);
   app.use(['/api/staff','/api/v1/staff'],staffRouter);

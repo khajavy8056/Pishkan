@@ -1,3 +1,4 @@
+import { handoff,deliver,handoffsForCase } from '../modules/automation/service.js';
 import { Router } from 'express';
 import { z } from 'zod';
 import { asyncRoute, requireAuth, requirePermission } from '../http/middleware.js';
@@ -5,7 +6,7 @@ import { badRequest, forbidden, notFound } from '../http/errors.js';
 import { created, dateRange, ok, pagination } from '../http/respond.js';
 import { hasPermission } from '../lib/permissions.js';
 import {
-  STATUSES, STATUS_LABELS, addNote, assignRequest, attachDocument, autoAssign, candidatesForService,
+  nextStatuses,STATUSES, STATUS_LABELS, addNote, assignRequest, attachDocument, autoAssign, candidatesForService,
   eligibleQueue,claimRequest,quoteRequest, changeStatus, createRequest, customerCancel, getRequest, listRequests, requestStats, reviewDocument,
 } from '../modules/requests/service.js';
 import { getServiceById } from '../modules/catalog/service.js';
@@ -112,7 +113,8 @@ requestsRouter.get('/:id', asyncRoute(async (req, res) => {
   ok(res, {
     ...request,
     canManage: req.auth!.user.kind !== 'customer' && hasPermission(req.auth!.permissions, 'requests.edit'),
-    canApprove: req.auth!.user.kind !== 'customer' && hasPermission(req.auth!.permissions, 'requests.approve'),
+    canApprove: officeScope(req.auth!) && hasPermission(req.auth!.permissions, 'requests.approve'),
+    allowedStatuses:nextStatuses(request.status).filter(s=>!['completed','ready'].includes(s)||(officeScope(req.auth!)&&hasPermission(req.auth!.permissions,'requests.approve'))),
   });
 }));
 
@@ -155,13 +157,17 @@ requestsRouter.post('/',
     created(res, request);
   }));
 
+requestsRouter.get('/:id/handoffs',asyncRoute(async(req,res)=>{ok(res,await handoffsForCase(param(req,'id'),req.auth!))}));
+requestsRouter.post('/:id/handoffs',asyncRoute(async(req,res)=>{const b=z.object({department:z.enum(['management','accounting']),reason:z.string().trim().min(5).max(2000)}).parse(req.body);created(res,await handoff(param(req,'id'),b.department,b.reason,req.auth!))}));
+requestsRouter.post('/:id/deliver',asyncRoute(async(req,res)=>{const b=z.object({files:z.array(z.object({fileId:z.string(),title:z.string().trim().min(2).max(200)})).min(1).max(10),summary:z.string().trim().min(5).max(2000)}).parse(req.body);ok(res,await deliver(param(req,'id'),b.files,b.summary,req.auth!))}));
+
 requestsRouter.patch('/:id/status', requirePermission('requests.edit'), asyncRoute(async (req, res) => {
   const body = z.object({
     status: z.enum(STATUSES),
     note: z.string().max(2000).optional(),
   }).parse(req.body);
   const request = await loadAuthorized(param(req, 'id'), req);
-  if (['completed', 'ready'].includes(body.status) && !hasPermission(req.auth!.permissions, 'requests.approve')) {
+  if (['completed', 'ready'].includes(body.status) && (!officeScope(req.auth!) || !hasPermission(req.auth!.permissions, 'requests.approve'))) {
     throw forbidden('برای این تغییر وضعیت دسترسی تأیید لازم است.');
   }
   const updated = await changeStatus(param(req, 'id'), body.status, { id: req.auth!.user.id, name: req.auth!.user.fullName, ip: req.ip }, body.note);
@@ -212,7 +218,7 @@ requestsRouter.post('/:id/notes', asyncRoute(async (req, res) => {
   const request = await loadAuthorized(param(req, 'id'), req);
   const isCustomer = req.auth!.user.kind === 'customer';
   await addNote(param(req, 'id'), body.message, { id: req.auth!.user.id, name: req.auth!.user.fullName }, isCustomer ? true : body.visibleToCustomer !== false);
-  if (!isCustomer) {
+  if (!isCustomer && body.visibleToCustomer !== false) {
     await notifyUser(request.customerId, {
       title: 'یادداشت جدید روی پرونده',
       body: body.message.slice(0, 120),
@@ -231,6 +237,7 @@ requestsRouter.post('/:id/documents', asyncRoute(async (req, res) => {
   }).parse(req.body);
   await loadAuthorized(param(req, 'id'), req);
   const isCustomer = req.auth!.user.kind === 'customer';
+  if(!isCustomer&&!hasPermission(req.auth!.permissions,'requests.edit'))throw forbidden();
   await attachDocument(param(req, 'id'), body.fileId, body.title ?? 'مدرک ارسالی', { id: req.auth!.user.id, name: req.auth!.user.fullName }, isCustomer ? 'customer' : 'staff');
   ok(res, await safeRequest(req, param(req, 'id')));
 }));
@@ -243,6 +250,8 @@ requestsRouter.post('/:id/documents/:docId/review', requirePermission('documents
   await loadAuthorized(param(req, 'id'), req);
   const doc = await one<{ request_id: string }>('SELECT request_id FROM request_documents WHERE id = ? AND request_id = ?', [param(req, 'docId'), param(req, 'id')]);
   if (!doc) throw notFound('مدرک یافت نشد.');
+  const output=await one<any>('SELECT kind FROM request_documents WHERE id=?',[param(req,'docId')]);
+  if(output?.kind==='staff'&&!officeScope(req.auth!))throw forbidden('تأیید فایل نتیجه فقط توسط مدیریت مجاز است.');
   await reviewDocument(param(req, 'docId'), body.decision, body.note, { id: req.auth!.user.id, name: req.auth!.user.fullName, ip: req.ip });
   ok(res, await safeRequest(req, param(req, 'id')));
 }));

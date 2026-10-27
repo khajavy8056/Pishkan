@@ -6,7 +6,7 @@ import {
   LifeBuoy, Shapes, Sparkles, ChevronDown, Plus, BadgeCheck, ServerCog, ClipboardCheck, ArrowLeft,
 } from 'lucide-react';
 import clsx from 'clsx';
-import { useAuth } from '../lib/auth';
+import { useAuth,homeFor } from '../lib/auth';
 import { api } from '../lib/api';
 import { relative, faNum } from '../lib/format';
 import { Button, Spinner } from './ui';
@@ -26,6 +26,7 @@ const customerNav: NavItem[] = [
 
 const staffNav: NavItem[] = [
   { to: '/staff', label: 'میز کار من', icon: <LayoutDashboard className="size-5" />, end: true },
+  {to:'/staff/automation',label:'کارتابل و ارجاعات',icon:<ClipboardCheck className="size-5" />,permission:'requests.view'},
   { to: '/staff/requests', label: 'درخواست‌ها', icon: <ClipboardList className="size-5" />, permission: 'requests.view' },
   { to: '/staff/documents', label: 'بررسی مدارک', icon: <ClipboardCheck className="size-5" />, permission: 'documents.view' },
   { to: '/staff/customers', label: 'مشتریان', icon: <Users className="size-5" />, permission: 'customers.view' },
@@ -36,7 +37,13 @@ const staffNav: NavItem[] = [
   { to: '/staff/queue',label:'صف پذیرش',icon:<ClipboardList className="size-5" />,permission:'requests.view' },
 ];
 
+const accountantNav: NavItem[] = [
+ {to:'/staff/accounting',label:'حسابداری دفتر',icon:<Wallet className="size-5" />,permission:'invoices.view'},
+ {to:'/staff/reports',label:'گزارش‌های مالی',icon:<BarChart3 className="size-5" />,permission:'reports.view'},
+ {to:'/staff/payroll',label:'حقوق و تسویه کارکنان',icon:<Receipt className="size-5" />,permission:'invoices.view'},
+];
 const adminNav: NavItem[] = [
+  {to:'/admin/automation',label:'کارتابل تأیید و ارجاع',icon:<ClipboardCheck className="size-5" />,permission:'requests.view'},
   { to: '/admin', label: 'داشبورد مدیریت', icon: <LayoutDashboard className="size-5" />, end: true },
   { to: '/admin/requests', label: 'درخواست‌ها', icon: <ClipboardList className="size-5" />, permission: 'requests.view' },
   { to: '/admin/services', label: 'خدمات و دسته‌ها', icon: <Shapes className="size-5" />, permission: 'services.view' },
@@ -65,7 +72,10 @@ export function AppShell({ children, variant }: { children: ReactNode; variant: 
   const [notifications, setNotifications] = useState<any[]>([]);
   const [unread, setUnread] = useState(0);
 
-  const nav = useMemo(() => navFor(variant), [variant]);
+  const nav = useMemo(() => {
+    const list=navFor(user?.kind==='admin'?'admin':variant==='customer'?'customer':'staff');
+    return user?.roleCode==='accountant'?[...accountantNav,...staffNav.filter(n=>!['/staff/custom-services','/staff/queue'].includes(n.to))]:list;
+  }, [variant,user?.kind,user?.roleCode]);
   const visibleNav = nav.filter((item) => !item.permission || can(item.permission));
 
   useEffect(() => {
@@ -96,14 +106,14 @@ export function AppShell({ children, variant }: { children: ReactNode; variant: 
     setNotifications((prev) => prev.map((n) => ({ ...n, readAt: new Date().toISOString() })));
   };
 
-  const brandHome = variant === 'customer' ? '/app' : variant === 'admin' ? '/admin' : '/staff';
+  const brandHome = homeFor(user);
 
   return (
     <div className="min-h-dvh lg:flex">
       {/* Sidebar */}
       <aside
         className={clsx(
-          'fixed inset-y-0 right-0 z-40 flex w-72 flex-col bg-navy-900 text-white transition-transform lg:static lg:translate-x-0',
+          'app-sidebar fixed inset-y-0 right-0 z-40 flex w-64 shrink-0 flex-col bg-navy-900 text-white transition-transform lg:sticky lg:top-0 lg:h-dvh lg:translate-x-0',
           open ? 'translate-x-0' : 'translate-x-full',
         )}
       >
@@ -113,7 +123,7 @@ export function AppShell({ children, variant }: { children: ReactNode; variant: 
             <span>
               <span className="block text-sm font-bold">دفتر پیشخوان</span>
               <span className="block text-[11px] text-navy-300">
-                {variant === 'customer' ? 'پنل مشتری' : variant === 'admin' ? 'پنل مدیریت' : 'پنل کارکنان'}
+                {user?.roleName ?? (variant === 'customer' ? 'پنل مشتریان' : 'پنل کارکنان')}
               </span>
             </span>
           </Link>
@@ -174,7 +184,7 @@ export function AppShell({ children, variant }: { children: ReactNode; variant: 
 
             <div className="flex-1" />
 
-            <Link to="/app/services" className="btn-ghost btn-sm hidden sm:inline-flex">
+            <Link to={user?.kind==='customer'?'/app/services':'/services'} className="btn-ghost btn-sm hidden sm:inline-flex">
               <Search className="size-4" /> جست‌وجوی خدمات
             </Link>
 
@@ -226,8 +236,9 @@ export function AppShell({ children, variant }: { children: ReactNode; variant: 
           </div>
         </header>
 
-        <main className="mx-auto w-full max-w-7xl flex-1 px-4 py-6 sm:px-6 lg:py-8">{children}</main>
+        <main className="app-content mx-auto w-full max-w-7xl flex-1 px-4 py-6 pb-24 sm:px-6 lg:py-8">{children}</main>
 
+        <nav aria-label="دسترسی سریع موبایل" className="mobile-dock fixed inset-x-0 bottom-0 z-20 flex justify-around border-t border-navy-100 bg-white/95 px-2 pb-[env(safe-area-inset-bottom)] backdrop-blur lg:hidden">{visibleNav.filter(n=>!n.to.includes('/assistant')).slice(0,4).map(n=><NavLink key={n.to} to={n.to} end={n.end} className={({isActive})=>clsx('flex min-h-16 min-w-14 flex-col items-center justify-center gap-1 text-[10px]',isActive?'font-bold text-brand-700':'text-navy-500')}>{n.icon}<span>{n.label}</span></NavLink>)}<button onClick={()=>setOpen(true)} className="flex min-w-14 flex-col items-center justify-center gap-1 text-[10px] text-navy-500"><Menu className="size-5" />همه بخش‌ها</button></nav>
         <footer className="border-t border-navy-900/8 px-6 py-4 text-center text-xs text-navy-400">
           سامانه جامع دفتر پیشخوان دولت — نسخه {import.meta.env.VITE_APP_VERSION ?? '1.0.0'}
         </footer>
@@ -258,15 +269,15 @@ export function PageHeader({ title, description, actions, backTo }: {
 }
 
 /** Guard used by protected routes. */
-export function RequireRole({ kinds, children }: { kinds: string[]; children: ReactNode }) {
-  const { user, loading } = useAuth();
+export function RequireRole({ kinds, children,permission,office=false }: { kinds: string[]; children: ReactNode;permission?:string;office?:boolean }) {
+  const { user, loading,can } = useAuth();
   const location = useLocation();
   const navigate = useNavigate();
 
   useEffect(() => {
     if (loading) return;
     if (!user) navigate('/login', { replace: true });
-    else if (!kinds.includes(user.kind)) navigate('/', { replace: true });
+    else if (!kinds.includes(user.kind)) navigate(homeFor(user), { replace: true });
     else if (user.kind === 'customer' && user.profileState?.complete === false && location.pathname !== '/app/profile') navigate('/app/profile', {replace:true});
   }, [user, loading, kinds, navigate, location.pathname]);
 
@@ -278,6 +289,7 @@ export function RequireRole({ kinds, children }: { kinds: string[]; children: Re
     );
   }
   if (!user || !kinds.includes(user.kind)) return null;
+  if((permission&&!can(permission))||(office&&!(['super_admin','manager','accountant'].includes(user.roleCode??''))))return <div className="mx-auto max-w-lg p-8 text-center"><ShieldCheck className="mx-auto mb-4 size-12 text-brand-700" /><h1 className="text-xl font-bold">دسترسی به این بخش مجاز نیست</h1><p className="my-4 text-sm text-navy-500">امکانات پنل بر اساس نقش و مجوزهای حساب شما نمایش داده می‌شوند.</p><Link className="btn-primary" to={homeFor(user)}>بازگشت به پنل من</Link></div>;
   return <>{children}</>;
 }
 

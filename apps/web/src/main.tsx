@@ -1,3 +1,4 @@
+import { AutomationInbox } from './pages/shared/Automation';
 import { CompensationPage } from './pages/shared/Compensation';
 import { EligibleQueue } from './pages/staff/Queue';
 import { StrictMode } from 'react';
@@ -34,8 +35,9 @@ import { SettingsCenter } from './pages/admin/SettingsCenter';
 import './styles.css';
 
 const customer = (node: ReactNode) => <RequireRole kinds={['customer']}>{node}</RequireRole>;
-const staffOnly = (node: ReactNode) => <RequireRole kinds={['staff', 'admin']}>{node}</RequireRole>;
-const adminOnly = (node: ReactNode) => <RequireRole kinds={['admin']}>{node}</RequireRole>;
+const staffOnly = (node: ReactNode,permission?:string) => <RequireRole kinds={['staff', 'admin']} permission={permission}>{node}</RequireRole>;
+const financial = (node:ReactNode,permission:string)=><RequireRole kinds={['staff','admin']} permission={permission} office>{node}</RequireRole>;
+const adminOnly = (node: ReactNode,permission?:string) => <RequireRole kinds={['admin']} permission={permission}>{node}</RequireRole>;
 
 function ScrollToTop() {
   const { pathname } = useLocation();
@@ -76,14 +78,19 @@ function App() {
 
               {/* staff */}
               <Route path="/staff" element={staffOnly(<StaffWorkbench />)} />
-              <Route path="/staff/requests" element={staffOnly(<StaffRequests />)} />
-              <Route path="/staff/requests/:id" element={staffOnly(<RequestDetail />)} />
-              <Route path="/staff/documents" element={staffOnly(<StaffDocuments />)} />
-              <Route path="/staff/customers" element={staffOnly(<StaffCustomers />)} />
-              <Route path="/staff/custom-services" element={staffOnly(<StaffCustomService />)} />
+              <Route path="/staff/requests" element={staffOnly(<StaffRequests />,'requests.view')} />
+              <Route path="/staff/requests/:id" element={staffOnly(<RequestDetail />,'requests.view')} />
+              <Route path="/staff/documents" element={staffOnly(<StaffDocuments />,'documents.view')} />
+              <Route path="/staff/customers" element={staffOnly(<StaffCustomers />,'customers.view')} />
+              <Route path="/staff/custom-services" element={staffOnly(<StaffCustomService />,'services.create')} />
               <Route path="/staff/messages" element={staffOnly(<MessageCenter variant="staff" />)} />
               <Route path="/staff/shifts" element={staffOnly(<StaffShifts />)} />
-              <Route path="/staff/queue" element={staffOnly(<EligibleQueue />)} />
+              <Route path="/staff/queue" element={staffOnly(<EligibleQueue />,'requests.edit')} />
+              <Route path="/staff/accounting" element={financial(<AdminFinance />,'invoices.view')} />
+              <Route path="/staff/reports" element={financial(<AdminReports />,'reports.view')} />
+              <Route path="/staff/payroll" element={financial(<CompensationPage admin />,'payments.approve')} />
+              <Route path="/staff/automation" element={staffOnly(<AutomationInbox />,'requests.view')} />
+              <Route path="/admin/automation" element={adminOnly(<AutomationInbox variant="admin" />,'requests.view')} />
               <Route path="/staff/finance" element={staffOnly(<StaffFinance />)} />
               <Route path="/staff/performance" element={staffOnly(<StaffPerformance />)} />
 
@@ -91,18 +98,18 @@ function App() {
               <Route path="/admin" element={adminOnly(<AdminDashboard />)} />
               <Route path="/admin/requests" element={adminOnly(<StaffRequests variant="admin" />)} />
               <Route path="/admin/requests/:id" element={adminOnly(<RequestDetail variant="admin" />)} />
-              <Route path="/admin/services" element={adminOnly(<AdminServices />)} />
-              <Route path="/admin/services/:id" element={adminOnly(<AdminServiceEditor />)} />
-              <Route path="/admin/customers" element={adminOnly(<AdminCustomers />)} />
-              <Route path="/admin/staff" element={adminOnly(<AdminStaff />)} />
-              <Route path="/admin/shifts" element={adminOnly(<AdminShifts />)} />
+              <Route path="/admin/services" element={adminOnly(<AdminServices />,'services.view')} />
+              <Route path="/admin/services/:id" element={adminOnly(<AdminServiceEditor />,'services.edit')} />
+              <Route path="/admin/customers" element={adminOnly(<AdminCustomers />,'customers.view')} />
+              <Route path="/admin/staff" element={adminOnly(<AdminStaff />,'staff.view')} />
+              <Route path="/admin/shifts" element={adminOnly(<AdminShifts />,'shifts.view')} />
               <Route path="/admin/messages" element={adminOnly(<MessageCenter variant="admin" />)} />
               <Route path="/admin/payroll" element={adminOnly(<CompensationPage admin />)} />
-              <Route path="/admin/finance" element={adminOnly(<AdminFinance />)} />
-              <Route path="/admin/reports" element={adminOnly(<AdminReports />)} />
-              <Route path="/admin/settings" element={adminOnly(<SettingsCenter />)} />
-              <Route path="/admin/system" element={adminOnly(<AdminSystem />)} />
-              <Route path="/admin/audit" element={adminOnly(<AdminAudit />)} />
+              <Route path="/admin/finance" element={adminOnly(<AdminFinance />,'invoices.view')} />
+              <Route path="/admin/reports" element={adminOnly(<AdminReports />,'reports.view')} />
+              <Route path="/admin/settings" element={adminOnly(<SettingsCenter />,'settings.view')} />
+              <Route path="/admin/system" element={adminOnly(<AdminSystem />,'system.view')} />
+              <Route path="/admin/audit" element={adminOnly(<AdminAudit />,'audit.view')} />
 
               {/* legacy/aliases */}
               <Route path="/dashboard" element={<Navigate to="/app" replace />} />

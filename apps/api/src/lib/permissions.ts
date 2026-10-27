@@ -94,7 +94,7 @@ export const DEFAULT_ROLES: {
       'dashboard.view',
       'requests.view', 'requests.create', 'requests.edit', 'requests.approve', 'requests.cancel', 'requests.export',
       'customers.view', 'customers.edit', 'customers.export',
-      'services.view', 'services.edit',
+      'services.view', 'services.create', 'services.edit',
       'categories.view',
       'staff.view', 'staff.create', 'staff.edit',
       'shifts.view', 'shifts.create', 'shifts.edit', 'shifts.approve',

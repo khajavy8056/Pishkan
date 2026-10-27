@@ -91,7 +91,7 @@ describe('authenticated panels render', () => {
 
   it('renders the admin dashboard with finance cards', async () => {
     renderAs(adminUser, <AdminDashboard />);
-    await waitFor(() => expect(screen.getByText('داشبورد مدیریت')).toBeTruthy());
+    await waitFor(() => expect(screen.getByRole('heading',{name:'داشبورد مدیریت'})).toBeTruthy());
     expect(screen.getByText('پرونده‌های در جریان')).toBeTruthy();
     expect(screen.getByText('روند ثبت درخواست (۱۴ روز)')).toBeTruthy();
   });

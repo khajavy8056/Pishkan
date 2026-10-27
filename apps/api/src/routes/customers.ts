@@ -1,7 +1,8 @@
+import { officeScope } from '../lib/scope.js';
 import { Router } from 'express';
 import { z } from 'zod';
 import { asyncRoute, requireAuth, requirePermission } from '../http/middleware.js';
-import { badRequest, conflict, notFound } from '../http/errors.js';
+import { badRequest, conflict, forbidden, notFound } from '../http/errors.js';
 import { created, ok, pagination } from '../http/respond.js';
 import { one, q, run, nowIso } from '../db/index.js';
 import { hashPassword, id } from '../lib/crypto.js';
@@ -93,6 +94,7 @@ customersRouter.get('/', requirePermission('customers.view'), asyncRoute(async (
   const { page, pageSize } = pagination(req, { pageSize: 25 });
   const where: string[] = [`u.kind = 'customer'`];
   const args: any[] = [];
+  if(!officeScope(req.auth!)){where.push('EXISTS(SELECT 1 FROM requests r WHERE r.customer_id=u.id AND r.assigned_to=?)');args.push(req.auth!.user.id)}
   if (typeof req.query.search === 'string' && req.query.search.trim()) {
     where.push('(u.full_name LIKE ? OR u.mobile LIKE ? OR u.national_id LIKE ?)');
     const s = `%${req.query.search.trim()}%`;
@@ -112,9 +114,10 @@ customersRouter.get('/', requirePermission('customers.view'), asyncRoute(async (
     [...args, pageSize, (page - 1) * pageSize],
   );
   ok(res, rows.map((r) => ({
-    id: r.id, fullName: r.full_name, mobile: r.mobile, email: r.email, nationalId: r.national_id,
+    id: r.id, fullName: r.full_name, mobile: r.mobile, email: r.email,
+    nationalId: officeScope(req.auth!) ? r.national_id : null,
     status: r.status, city: r.city, province: r.province, mobileVerified: Boolean(r.mobile_verified),
-    requestCount: Number(r.request_count), outstanding: Number(r.outstanding), createdAt: r.created_at,
+    requestCount: Number(r.request_count), outstanding: officeScope(req.auth!)?Number(r.outstanding):null, createdAt: r.created_at,
   })), { total: Number(total?.c ?? 0), page, pageSize });
 }));
 
@@ -156,15 +159,17 @@ customersRouter.post('/', requirePermission('customers.create'), asyncRoute(asyn
 customersRouter.get('/:id', requirePermission('customers.view'), asyncRoute(async (req, res) => {
   const user = await one<any>(`SELECT * FROM users WHERE id = ? AND kind = 'customer'`, [param(req, 'id')]);
   if (!user) throw notFound('مشتری یافت نشد.');
+  const office=officeScope(req.auth!);
+  if(!office&&!await one('SELECT id FROM requests WHERE customer_id=? AND assigned_to=?',[user.id,req.auth!.user.id]))throw forbidden();
   const profile = await one<any>('SELECT * FROM customer_profiles WHERE user_id = ?', [user.id]);
   const [requests, invoices] = await Promise.all([
-    listRequests({ customerId: user.id, pageSize: 10 }),
-    listInvoices({ customerId: user.id, pageSize: 10 }),
+    listRequests({ customerId: user.id, assignedTo:office?undefined:req.auth!.user.id,pageSize: 10 }),
+    office?listInvoices({ customerId: user.id, pageSize: 10 }):Promise.resolve({items:[]}),
   ]);
   const documents = await q<any>(
     `SELECT d.id, d.title, d.status, d.created_at, f.name AS file_name, f.mime, f.size FROM request_documents d
      JOIN files f ON f.id = d.file_id JOIN requests r ON r.id = d.request_id
-     WHERE r.customer_id = ? ORDER BY d.created_at DESC`, [user.id],
+     WHERE r.customer_id = ? AND (?=1 OR r.assigned_to=?) ORDER BY d.created_at DESC`, [user.id,Number(office),req.auth!.user.id],
   );
   ok(res, {
     id: user.id,
@@ -180,7 +185,7 @@ customersRouter.get('/:id', requirePermission('customers.view'), asyncRoute(asyn
       address: profile.address, postalCode: profile.postal_code, birthDate: profile.birth_date,
       jobTitle: profile.job_title, province: profile.province, city: profile.city,
     } : null,
-    stats: await requestStats({ customerId: user.id }),
+    stats: await requestStats({ customerId: user.id,assignedTo:office?undefined:req.auth!.user.id }),
     requests: requests.items,
     invoices: invoices.items,
     documents: documents.map((d) => ({
@@ -191,6 +196,7 @@ customersRouter.get('/:id', requirePermission('customers.view'), asyncRoute(asyn
 }));
 
 customersRouter.patch('/:id', requirePermission('customers.edit'), asyncRoute(async (req, res) => {
+  if(!officeScope(req.auth!))throw forbidden('تغییر هویت و وضعیت مشتری فقط توسط مدیریت مجاز است.');
   const body = z.object({
     fullName: z.string().min(3).max(120).optional(),
     email: z.string().email().optional().or(z.literal('')),
@@ -234,6 +240,7 @@ customersRouter.patch('/:id', requirePermission('customers.edit'), asyncRoute(as
 }));
 
 customersRouter.post('/:id/reset-password', requirePermission('customers.edit'), asyncRoute(async (req, res) => {
+  if(!officeScope(req.auth!))throw forbidden();
   const body = z.object({ password: z.string().min(8).max(200) }).parse(req.body);
   await validatePasswordAgainstPolicy(body.password);
   const user = await one<any>('SELECT id FROM users WHERE id = ? AND kind = ?', [param(req, 'id'), 'customer']);

@@ -3,7 +3,7 @@ import { Link, NavLink, useLocation } from 'react-router-dom';
 import { Menu, X, Phone, MapPin, Clock, ArrowLeft, ShieldCheck, Sparkles } from 'lucide-react';
 import clsx from 'clsx';
 import { useSite } from '../lib/site';
-import { useAuth } from '../lib/auth';
+import { useAuth,homeFor } from '../lib/auth';
 
 const links = [
   { to: '/', label: 'خانه', end: true },
@@ -18,7 +18,7 @@ export function PublicLayout({ children }: { children: ReactNode }) {
   const [open, setOpen] = useState(false);
   const location = useLocation();
 
-  const panelLink = user?.kind === 'admin' ? '/admin' : user?.kind === 'staff' ? '/staff' : '/app';
+  const panelLink = homeFor(user);
   void location;
 
   return (

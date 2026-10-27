@@ -429,7 +429,7 @@ export async function getRequest(requestId: string, viewer?: { actorId: string; 
       id: e.id, actorId: e.actor_id, actorName: e.actor_name, type: e.type, message: e.message,
       fromStatus: e.from_status, toStatus: e.to_status, metadata: jsonParse(e.metadata, {}), createdAt: e.created_at,
     })),
-    documents: documents.map((d) => ({
+    documents: documents.filter(d=>!viewer?.isCustomer || d.kind!=='staff' || d.status==='approved').map((d) => ({
       id: d.id, title: d.title, kind: d.kind, status: d.status, reviewNote: d.review_note,
       file: { id: d.file_id, name: d.file_name, mime: d.mime, size: Number(d.size) },
       createdAt: d.created_at,
@@ -513,6 +513,8 @@ export async function changeStatus(
   actor: { id: string; name: string; ip?: string },
   note?: string,
 ) {
+  return tx(async()=>{
+  await run('UPDATE requests SET updated_at=updated_at WHERE id=?',[requestId]);
   const request = await one<RequestRow>('SELECT * FROM requests WHERE id = ?', [requestId]);
   if (!request) throw notFound('درخواست یافت نشد.');
   const from = request.status;
@@ -532,6 +534,10 @@ export async function changeStatus(
     }
   }
 
+  if(['ready','completed'].includes(toStatus)){
+    if(await one("SELECT id FROM request_handoffs WHERE request_id=? AND status='pending'",[requestId]))throw conflict('ابتدا ارجاع‌های باز مدیریت و حسابداری را بررسی کنید.');
+    if(await one("SELECT id FROM request_documents WHERE request_id=? AND kind='staff' AND status<>'approved'",[requestId]))throw conflict('نتیجه کارکنان هنوز تأیید نشده است.');
+  }
   const ts = nowIso();
   const sets = ['status = ?', 'updated_at = ?'];
   const args: any[] = [toStatus, ts];
@@ -551,6 +557,7 @@ export async function changeStatus(
     entityId: requestId, before: { status: from }, after: { status: toStatus, note }, ip: actor.ip,
   });
   return getRequest(requestId);
+  });
 }
 
 export async function assignRequest(requestId: string, staffId: string | null, actor: { id: string; name: string; ip?: string }) {
@@ -707,3 +714,5 @@ export async function claimRequest(requestId:string,staffId:string,name:string){
   return {id:requestId};
  });
 }
+
+export function nextStatuses(status:RequestStatus){return ALLOWED_TRANSITIONS[status]??[];}

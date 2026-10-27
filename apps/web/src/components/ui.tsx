@@ -1,5 +1,5 @@
 import {
-  createContext, useCallback, useContext, useEffect, useMemo, useRef, useState,
+  Children,cloneElement,isValidElement,useId,type ReactElement,createContext, useCallback, useContext, useEffect, useMemo, useRef, useState,
   type ButtonHTMLAttributes, type InputHTMLAttributes, type ReactNode, type SelectHTMLAttributes, type TextareaHTMLAttributes,
 } from 'react';
 import { CheckCircle2, AlertTriangle, Info, X, Loader2, ChevronLeft, ChevronRight, Inbox } from 'lucide-react';
@@ -115,17 +115,28 @@ export function Button({ variant = 'primary', size = 'md', loading, icon, childr
 export function Field({ label, hint, error, required, children, className }: {
   label?: string; hint?: string; error?: string; required?: boolean; children: ReactNode; className?: string;
 }) {
+  const generated=useId();let controlId:string|undefined;
+  const bind=(node:ReactNode):ReactNode=>Children.map(node,child=>{
+    if(!isValidElement(child))return child;
+    const el=child as ReactElement<any>;
+    if(!controlId&&[Input,Select,Textarea,'input','select','textarea'].includes(el.type as any)){
+      controlId=el.props.id??generated;
+      return cloneElement(el,{id:controlId,'aria-required':required||undefined,'aria-invalid':!!error||undefined,'aria-describedby':hint||error?`${generated}-help`:undefined});
+    }
+    return el.props.children?cloneElement(el,{},bind(el.props.children)):el;
+  });
+  const controls=bind(children);
   return (
     <div className={className}>
       {label && (
-        <label className="label">
+        <label className="label" htmlFor={controlId}>
           {label}
           {required && <span className="text-rose-600"> *</span>}
         </label>
       )}
-      {children}
-      {hint && !error && <p className="hint">{hint}</p>}
-      {error && <p className="field-error">{error}</p>}
+      {controls}
+      {hint && !error && <p id={`${generated}-help`} className="hint">{hint}</p>}
+      {error && <p id={`${generated}-help`} role="alert" className="field-error">{error}</p>}
     </div>
   );
 }

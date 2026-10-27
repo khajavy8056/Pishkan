@@ -297,3 +297,10 @@ POST /api/requests
 - `DELETE /api/system/backups/:id` نیازمند body با `confirmation: DELETE` است.
 
 جزییات سیاست‌ها و محدودیت‌ها در [گزارش اصلاحات](CORRECTIONS-2026-10-27.md).
+
+
+## گردش پرونده و کارتابل ارجاع (migrations 008)
+
+کارمند مسئول می‌تواند پس از ورود/داشتن `requests.edit` خروجی خصوصی را با `POST /api/requests/:id/deliver {files:[{fileId,title}],summary}` بفرستد. همه فایل‌ها باید قبلاً با نشست خود کارمند آپلود شده باشند. پرونده به `under_review` می‌رود و ارجاع مدیریت اتمیک ساخته می‌شود. مشتری تا تصویب مدیریت نه فایل، نه متادیتای آن و نه رویداد داخلی تحویل را می‌بیند/دانلود می‌کند.
+
+`POST /api/requests/:id/handoffs {department:management|accounting,reason}`؛ `GET /api/requests/:id/handoffs` (با کنترل همان دسترسی پرونده)؛ `GET /api/automation/inbox` بر مبنای مجوز واحد؛ `POST /api/automation/:id/decision {decision:approved|returned,note}`. مسیرهای `/api/v1` نیز موجودند. تأیید تکراری 409؛ تصمیم به واحد دیگر 403. وضعیت `ready/completed` تا پاسخ همه ارجاع‌های باز و تأیید فایل خروجی 409 است. تأیید حسابدار فقط گام بازبینی مالی این ارجاع است، نه ایجاد پرداخت؛ پرداخت واقعی فقط از مسیر accounting انجام می‌شود.

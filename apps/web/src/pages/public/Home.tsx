@@ -1,12 +1,12 @@
 import { useEffect, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import {
-  Search, ArrowLeft, ShieldCheck, Clock, FileCheck2, Sparkles, MessageSquare, CreditCard,
+  Building2,Search, ArrowLeft, ShieldCheck, Clock, FileCheck2, Sparkles, MessageSquare, CreditCard,
   ClipboardList, Bell, UserRound, ChevronLeft, Star, Users, BadgeCheck,
 } from 'lucide-react';
 import { PublicLayout } from '../../components/public-layout';
 import { useSite, type Service } from '../../lib/site';
-import { useAuth } from '../../lib/auth';
+import { useAuth,homeFor } from '../../lib/auth';
 import { api } from '../../lib/api';
 import { faNum, rial } from '../../lib/format';
 import { Button } from '../../components/ui';
@@ -45,84 +45,13 @@ export function HomePage() {
 
   return (
     <PublicLayout>
-      {/* Hero */}
-      <section className="hero-grid relative overflow-hidden">
-        <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(700px_300px_at_85%_-10%,#dbeafe_0%,transparent_70%)]" />
-        <div className="mx-auto grid max-w-7xl items-center gap-10 px-4 py-12 sm:px-6 lg:grid-cols-2 lg:py-20">
-          <div className="animate-in">
-            <span className="badge bg-brand-50 text-brand-800 ring-1 ring-brand-200">
-              <Sparkles className="size-3.5" /> پیشکان · یک مسیر روشن تا انجام کار
-            </span>
-            <h1 className="mt-4 text-3xl font-black leading-[1.35] text-navy-900 sm:text-4xl lg:text-[2.75rem]">
-              وقت شما ارزشمند است.<br />
-              <span className="text-brand-700">کارهایتان را ساده‌تر</span> پیش ببرید.
-            </h1>
-            <p className="mt-4 max-w-xl text-sm leading-8 text-navy-600 sm:text-base">
-              {setting('site.welcome_message')}
-            </p>
-
-            <form onSubmit={submitSearch} className="relative mt-7 max-w-xl">
-              <div className="flex items-center gap-2 rounded-2xl bg-white p-2 shadow-[var(--shadow-card)] ring-1 ring-navy-900/8">
-                <Search className="mr-2 size-5 shrink-0 text-navy-400" />
-                <input
-                  value={query}
-                  onChange={(e) => setQuery(e.target.value)}
-                  placeholder="نام خدمت را بنویسید؛ مثلاً «سابقه بیمه» یا «ثبت شرکت»"
-                  className="w-full bg-transparent py-2 text-sm outline-none placeholder:text-navy-400"
-                  aria-label="جست‌وجوی خدمات"
-                />
-                <Button type="submit" className="shrink-0">جست‌وجو</Button>
-              </div>
-
-              {query.trim().length >= 2 && (
-                <div className="absolute inset-x-0 top-full z-20 mt-2 overflow-hidden rounded-2xl bg-white shadow-xl ring-1 ring-navy-900/10">
-                  {searching && <p className="px-4 py-3 text-sm text-navy-500">در حال جست‌وجو…</p>}
-                  {!searching && results?.length === 0 && (
-                    <p className="px-4 py-3 text-sm text-navy-500">
-                      خدمتی با این عنوان پیدا نشد. می‌توانید از <Link className="text-brand-700 underline" to="/assistant">دستیار هوشمند</Link> کمک بگیرید.
-                    </p>
-                  )}
-                  {results?.map((service) => (
-                    <Link key={service.id} to={`/services/${service.slug}`} className="flex items-center justify-between gap-3 border-b border-navy-900/5 px-4 py-3 hover:bg-navy-50">
-                      <span className="min-w-0">
-                        <span className="block truncate text-sm font-medium text-navy-900">{service.title}</span>
-                        <span className="block truncate text-xs text-navy-500">{service.summary}</span>
-                      </span>
-                      <ChevronLeft className="size-4 shrink-0 text-navy-400" />
-                    </Link>
-                  ))}
-                </div>
-              )}
-            </form>
-
-            <div className="mt-6 flex flex-wrap gap-2 text-xs text-navy-600">
-              <span className="text-navy-400">جست‌وجوهای پرتکرار:</span>
-              {site?.popularServices.slice(0,4).map((item) => (
-                <Link key={item.id} to={`/services/${item.slug}`} className="rounded-full bg-white/80 px-3 py-1.5 ring-1 ring-navy-900/8 hover:bg-brand-50">{item.title}</Link>
-              ))}
-            </div>
-
-            <div className="mt-8 flex flex-wrap items-center gap-x-6 gap-y-3 text-xs text-navy-500">
-              <span className="flex items-center gap-1.5"><ShieldCheck className="size-4 text-emerald-600" /> ارسال امن مدارک</span>
-              <span className="flex items-center gap-1.5"><Clock className="size-4 text-brand-600" /> پیگیری لحظه‌ای وضعیت</span>
-              <span className="flex items-center gap-1.5"><BadgeCheck className="size-4 text-navy-700" /> کارشناس اختصاصی هر پرونده</span>
-            </div>
-          </div>
-
-          {/* Actual catalogue data — no fictional personal requests or tracking codes. */}
-          <div className="relative animate-in lg:pr-7">
-            <div className="journey-panel overflow-hidden rounded-[2rem] border border-white/20 bg-navy-900 p-6 text-white shadow-2xl sm:p-8">
-              <div className="flex items-center justify-between"><span className="text-xs tracking-wide text-white/60">میز خدمت دیجیتال</span><span className="flex items-center gap-2 rounded-full bg-white/10 px-3 py-1.5 text-[11px]"><span className="size-1.5 rounded-full bg-teal-300" />همراه شما، قدم‌به‌قدم</span></div>
-              <h2 className="mt-7 text-2xl font-bold leading-relaxed">از انتخاب خدمت<br /><span className="text-teal-200">تا تحویل نتیجه.</span></h2>
-              <div className="my-7 grid grid-cols-3 gap-2 text-center text-xs text-white/70">{[['۱','انتخاب خدمت'],['۲','ثبت و بررسی'],['۳','پیگیری نتیجه']].map(([n,t])=><div key={n}><span className="mx-auto mb-2 grid size-9 place-items-center rounded-xl border border-white/15 bg-white/5 font-bold text-teal-200">{n}</span>{t}</div>)}</div>
-              <div className="rounded-2xl bg-white p-4 text-navy-900"><div className="mb-3 flex items-center justify-between"><span className="text-xs font-bold">از کجا شروع کنیم؟</span><span className="text-[10px] text-navy-500">خدمات موجود در سامانه</span></div>
-                {site?.popularServices.slice(0,3).map(item=><Link key={item.id} to={`/services/${item.slug}`} className="group flex items-center gap-3 border-t border-navy-100 py-3"><span className="grid size-9 shrink-0 place-items-center rounded-xl bg-brand-50 text-brand-700"><FileCheck2 className="size-4" /></span><span className="min-w-0 flex-1"><span className="block truncate text-xs font-medium">{item.title}</span><span className="mt-1 block text-[10px] text-navy-500">{item.categoryTitle ?? 'مشاهده جزئیات و شرایط'}</span></span><ChevronLeft className="size-4 text-navy-400 group-hover:text-brand-700" /></Link>)}
-                {!site?.popularServices.length&&<Link to="/services" className="btn-soft w-full">مرور فهرست خدمات <ArrowLeft className="size-4" /></Link>}
-              </div>
-              <p className="mt-5 flex items-center gap-2 text-[11px] text-white/60"><ShieldCheck className="size-4 text-teal-200" />مدارک و گفت‌وگوهای شما در حساب کاربری خودتان</p>
-            </div>
-          </div>
+      <section className="civic-hero relative mb-10">
+        <div className="mx-auto grid max-w-7xl items-center gap-8 px-4 pb-24 pt-12 sm:px-6 lg:grid-cols-[1fr_340px] lg:gap-16 lg:pb-28 lg:pt-16">
+          <div className="relative z-10 text-white"><span className="mb-5 inline-flex items-center gap-2 rounded-full border border-white/20 bg-white/10 px-3 py-1.5 text-xs"><ShieldCheck className="size-4" />سامانه هوشمند خدمات و اتوماسیون دفتر</span><h1 className="text-3xl font-black leading-[1.7] sm:text-4xl">دسترسی آسان به خدمات<br /><span className="text-blue-200">پیگیری شفاف، از ثبت تا نتیجه</span></h1><p className="mt-4 max-w-lg text-sm leading-8 text-blue-100">{setting('site.welcome_message') || 'خدمت مورد نظر را انتخاب کنید، مدارک را امن ارسال کنید و مراحل انجام کار را از حساب خود دنبال کنید.'}</p>
+          <form onSubmit={submitSearch} className="relative mt-7 max-w-xl"><div className="flex items-center gap-2 rounded-xl bg-white p-2 shadow-lg"><Search className="mr-2 size-5 shrink-0 text-navy-400" /><input value={query} onChange={e=>setQuery(e.target.value)} placeholder="چه خدمتی نیاز دارید؟" aria-label="جست‌وجوی خدمات" className="min-w-0 flex-1 bg-transparent py-2 text-sm text-navy-900 outline-none" /><Button type="submit">جست‌وجو</Button></div>{query.trim().length>=2&&<div className="absolute inset-x-0 top-full z-30 mt-2 overflow-hidden rounded-xl bg-white text-navy-900 shadow-xl">{searching&&<p className="p-4 text-xs">در حال جست‌وجو…</p>}{!searching&&results?.length===0&&<p className="p-4 text-xs">خدمتی یافت نشد. عبارت دیگری را امتحان کنید.</p>}{results?.map(item=><Link key={item.id} to={`/services/${item.slug}`} className="flex items-center justify-between border-b border-navy-100 px-4 py-3 text-sm hover:bg-brand-50">{item.title}<ChevronLeft className="size-4" /></Link>)}</div>}</form><p className="mt-6 flex flex-wrap gap-5 text-xs text-blue-100"><span className="flex items-center gap-2"><FileCheck2 className="size-4" />ارسال و بررسی مدارک</span><span className="flex items-center gap-2"><Clock className="size-4" />تاریخچه مراحل پرونده</span></p><p className="mt-6 text-[10px] text-white/55">تصویر ساختمان تزئینی و تولیدشده است؛ تصویر دفتر واقعی نیست.</p></div>
+          <div className="relative z-10 rounded-2xl bg-white p-6 shadow-2xl"><div className="mx-auto mb-4 grid size-14 place-items-center rounded-2xl bg-brand-50 text-brand-700"><Building2 className="size-8" /></div><h2 className="text-center text-lg font-bold text-navy-900">ورود به سامانه</h2><p className="mb-6 mt-2 text-center text-xs text-navy-500">یک سامانه، پنل‌های متناسب با نقش شما</p>{user?<Link to={homeFor(user)} className="btn-primary w-full">ورود به پنل من <ArrowLeft className="size-4" /></Link>:<div className="space-y-3"><Link to="/login?account=customer" className="btn-primary w-full"><UserRound className="size-4" />ورود مشتریان</Link><Link to="/login?account=staff" className="btn-soft w-full"><Users className="size-4" />ورود کارکنان و مدیران</Link><Link to="/register" className="btn-ghost w-full">ثبت‌نام مشتری جدید</Link></div>}<div className="mt-6 border-t border-navy-100 pt-4 text-center"><Link className="text-xs text-brand-700" to="/assistant">راهنما و دستیار خدمات <ChevronLeft className="inline size-3" /></Link><p className="mt-3 text-[10px] leading-5 text-navy-500">کارکنان، حسابداران و مدیران از یک درگاه وارد می‌شوند؛ امکانات بر اساس دسترسی حساب نمایش داده می‌شود.</p></div></div>
         </div>
+        <div className="relative z-10 mx-auto -mt-10 max-w-5xl px-4"><div className="grid grid-cols-2 gap-3 rounded-2xl border border-navy-100 bg-white p-4 shadow-lg sm:flex sm:justify-around">{site?.categories.map(c=><Link key={c.id} to={`/services?category=${c.slug}`} className="flex flex-col items-center gap-2 rounded-xl px-4 py-2 text-center text-xs font-medium text-navy-700 transition hover:bg-brand-50"><span className="grid size-11 place-items-center rounded-xl bg-brand-50 text-brand-700"><FileCheck2 className="size-5" /></span>{c.title}<small className="text-[10px] font-normal text-navy-400">{faNum(c.serviceCount)} خدمت</small></Link>)}</div></div>
       </section>
 
       {/* Categories */}

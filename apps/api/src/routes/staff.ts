@@ -1,3 +1,4 @@
+import { officeScope } from '../lib/scope.js';
 import { Router } from 'express';
 import { z } from 'zod';
 import { asyncRoute, requireAuth, requirePermission } from '../http/middleware.js';
@@ -77,12 +78,12 @@ staffRouter.get('/me/workload', asyncRoute(async (req, res) => {
      WHERE r.assigned_to = ? AND r.status NOT IN ('completed','cancelled','rejected')
      ORDER BY CASE r.priority WHEN 'high' THEN 0 ELSE 1 END, r.due_at ASC LIMIT 50`, [userId],
   );
-  const pendingDocs = await q<any>(
+  const pendingDocs = hasPermission(req.auth!.permissions,'documents.view') ? await q<any>(
     `SELECT d.id, d.title, d.created_at, r.tracking_code, r.id AS request_id
      FROM request_documents d JOIN requests r ON r.id = d.request_id
      WHERE d.status = 'pending' AND (r.assigned_to = ? OR ? = 1) LIMIT 20`,
-    [userId, hasPermission(req.auth!.permissions, 'documents.approve') ? 1 : 0],
-  );
+    [userId, officeScope(req.auth!) && hasPermission(req.auth!.permissions, 'documents.approve') ? 1 : 0],
+  ) : [];
   const today = new Date().toISOString().slice(0, 10);
   const shift = await one<any>('SELECT * FROM shifts WHERE user_id = ? AND shift_date = ? AND status <> ?', [userId, today, 'leave']);
   const attendance = await one<any>(
