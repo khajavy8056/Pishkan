@@ -115,6 +115,7 @@ describe('authenticated panels render', () => {
 describe('panel routing and role navigation', () => {
   it('selects the correct entry route for each account kind and role', () => {
     expect(homeFor(customerUser as any)).toBe('/app');
+    expect(homeFor({ ...customerUser, profileState: { complete: false, missing: ['نام', 'شهر'], profile: {} } } as any)).toBe('/app/profile');
     expect(homeFor({ ...adminUser, roleCode: 'super_admin' } as any)).toBe('/admin');
     expect(homeFor({ ...adminUser, roleCode: 'manager' } as any)).toBe('/admin');
     expect(homeFor({ ...adminUser, kind: 'staff', roleCode: 'accountant' } as any)).toBe('/staff/accounting');
