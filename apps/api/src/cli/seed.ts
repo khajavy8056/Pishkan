@@ -11,7 +11,7 @@ import { runSeed } from '../modules/catalog/seed.js';
 const catalogOnly = process.argv.includes('--catalog-only');
 const demo = process.argv.includes('--demo') || (env.demoMode && !catalogOnly);
 const adminUsername = process.env.BOOTSTRAP_ADMIN_USERNAME || 'admin';
-const adminPassword = process.env.BOOTSTRAP_ADMIN_PASSWORD || (env.isProd ? '' : 'Admin@12345');
+const adminPassword = process.env.BOOTSTRAP_ADMIN_PASSWORD || '';
 
 await migrate({ log: (m) => console.log(`[migrate] ${m}`) });
 const result = await runSeed({

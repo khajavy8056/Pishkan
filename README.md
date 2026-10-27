@@ -47,29 +47,26 @@ apps/
   web/            React 19 + Vite 7 + Tailwind 4 — SPA فارسی/RTL، PWA و پوسته Capacitor برای اندروید
     src/pages/    public | customer | staff | admin | shared
 deploy/           systemd، Nginx، PostgreSQL
-scripts/          install.sh (نصب یک‌دستوری) و pishkan (چرخه عمر)
+scripts/          install.sh (Ubuntu)، نصب و راه‌انداز PowerShell/CMD Windows و pishkan (چرخه عمر)
 docs/             راهنمای نصب، به‌روزرسانی، پشتیبان‌گیری، دامنه، پیامک، API، راهنمای مدیر/کارمند، اندروید، گزارش آزمون
 ```
 
 جزئیات بیشتر: [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)
 
-## ۳. اجرای محلی (توسعه)
+## ۳. نصب محلی روی Windows و اجرای همه پنل‌ها
 
-پیش‌نیاز: Node.js 22.5+ (برای SQLite داخلی) و npm.
+راهنمای کامل و عیب‌یابی: [docs/WINDOWS-LOCAL.md](docs/WINDOWS-LOCAL.md). بستهٔ نصب سبک Windows شامل launcherهای CMD و نصب‌کنندهٔ PowerShell است (MSI امضاشده نیست). پس از نصب Node.js 22.5+، شاخهٔ جاری را دریافت کنید و روی `Install-Pishkan-Windows.cmd` دوبار کلیک کنید. نصب‌کننده با SQLite محلی، migrationها و کاتالوگ شروع می‌کند، رمز مدیرکل را تصادفی می‌سازد و پس از نصب نمایش می‌دهد؛ رمز ثابت منتشرشده ندارد.
 
-```bash
-git clone https://github.com/khajavy8056/Pishkan.git
-cd Pishkan
-npm ci
-cp .env.development.example .env  # فقط توسعه محلی؛ برای تولید از .env.example استفاده کنید
-npm run seed                 # مهاجرت‌ها + نقش‌ها + کاتالوگ + مدیر
-npm run dev                  # API روی :3000 و وب روی :5173
+```powershell
+# در ریشهٔ پوشهٔ دریافت‌شده
+.\Install-Pishkan-Windows.cmd
+# یا برای پورت دیگر/داده‌های نمایشی اختیاری:
+powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\install-windows.ps1 -Port 3002 -IncludeDemoData
 ```
 
-- رابط کاربری: <http://localhost:5173>
-- API: <http://localhost:3000/api/health>
+صفحه: `http://127.0.0.1:3000`؛ API سلامت: `http://127.0.0.1:3000/api/health`. دادهٔ نمونه پیش‌فرض خاموش است. نصب معمولی ۳ دسته و ۳۰ خدمت با هزینهٔ **نمونه** می‌سازد؛ پس از ورود مدیرکل از پنل کارکنان، حساب‌های کارمند/حسابدار را بسازید و مشتری را ثبت‌نام کنید. پورت فقط روی رایانهٔ محلی گوش می‌دهد.
 
-حساب مدیر پیش‌فرض محیط توسعه: `admin` / `Admin@12345` — **این رمز را در محیط عملیاتی هرگز استفاده نکنید.**
+برای اجرای دستی توسعه در سیستم‌های دیگر، Node.js 22.5+ لازم است. `.env.development.example` را کپی و یک رمز قوی مخصوص خود در `BOOTSTRAP_ADMIN_PASSWORD` بنویسید، سپس `npm ci`, `npm run build` و `npm run dev` اجرا کنید. هیچ رمز پیش‌فرضی برای مدیر ساخته نمی‌شود مگر آن را خودتان تنظیم کنید. نصب Windows، مسیرهای نگهداری داده، اختیارات و محدودیت‌ها: [راهنمای Windows](docs/WINDOWS-LOCAL.md).
 
 ## ۴. نصب روی سرور (Ubuntu 22.04/24.04)
 
@@ -106,7 +103,8 @@ pishkan doctor        # بررسی کامل نصب
 
 | سند | موضوع |
 | --- | --- |
-| [docs/INSTALL.md](docs/INSTALL.md) | نصب کامل، پیش‌نیازها، عیب‌یابی |
+| [docs/INSTALL.md](docs/INSTALL.md) | نصب Ubuntu Server، پیش‌نیازها، عیب‌یابی |
+| [docs/WINDOWS-LOCAL.md](docs/WINDOWS-LOCAL.md) | نصب محلی Windows، مدیرکل اولیه، اجرای پنل‌ها و دادهٔ نمونه |
 | [docs/UPDATE.md](docs/UPDATE.md) | به‌روزرسانی، بازگشت، مهاجرت داده |
 | [docs/BACKUP-RESTORE.md](docs/BACKUP-RESTORE.md) | پشتیبان‌گیری، بازیابی، سیاست نگهداری و ذخیره خارج از سرور |
 | [docs/DOMAIN-CLOUDFLARE.md](docs/DOMAIN-CLOUDFLARE.md) | اتصال دامنه، DNS، HTTPS و Cloudflare |
