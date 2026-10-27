@@ -20,17 +20,27 @@ const context=await browser.newContext({viewport:{width:1440,height:1024}});
 const page=await context.newPage();const errors=[];const unauthorized=[];page.on('response',r=>{if(r.status()===401)unauthorized.push(r.url())});
 page.on('pageerror',error=>errors.push(error.message));page.on('console',msg=>{if(msg.type()==='error')console.error(msg.text())});
 const screenshot=async(name)=>{await page.evaluate(()=>document.fonts.ready);await page.screenshot({path:path.join(out,`${name}.png`),fullPage:true})};
-async function login(username,password){
+async function login(username,password,{simulateRefreshFailure=false}={}){
+ const initialAuthProbe=page.waitForResponse(r=>new URL(r.url()).pathname==='/api/auth/me');
  await page.goto(`${base}/login?account=staff`);
+ await initialAuthProbe;
  await page.getByLabel('نام کاربری، موبایل یا ایمیل').fill(username);
  await page.getByLabel('رمز عبور',{exact:false}).first().fill(password);
+ if(simulateRefreshFailure){
+  let failOnce=true;
+  await page.route('**/api/auth/me',async route=>{
+   if(failOnce){failOnce=false;await route.fulfill({status:401,contentType:'application/json',body:JSON.stringify({ok:false,error:{code:'unauthorized',message:'simulated one-time auth refresh failure'}})});}
+   else await route.continue();
+  });
+ }
  await page.getByRole('button',{name:'ورود',exact:true}).click();
  await page.waitForURL(/\/(admin|staff)(\/accounting)?$/);
+ if(simulateRefreshFailure)await page.unroute('**/api/auth/me');
 }
 async function api(method,url,body){const r=await context.request.fetch(`${base}${url}`,{method,data:body});assert(r.ok(),`${method} ${url}: ${r.status()}`);return(await r.json()).data}
 try{
  await page.goto(base);await page.getByRole('heading',{name:'ورود به سامانه',exact:true}).waitFor();await screenshot('01-home-desktop');
- await login(credentials.username,credentials.password);
+ await login(credentials.username,credentials.password,{simulateRefreshFailure:true});
  await page.getByRole('heading',{name:'داشبورد مدیریت',exact:true}).waitFor();await screenshot('02-admin-desktop');
  const stamp=crypto.randomBytes(4).toString('hex');
  const password=`Smoke#${crypto.randomBytes(16).toString('hex')}`;
@@ -58,6 +68,6 @@ try{
  await context.clearCookies();await page.goto(base);await screenshot('07-home-mobile');
  assert(await page.evaluate(()=>document.documentElement.scrollWidth<=window.innerWidth),'home does not overflow');
  assert.deepEqual(errors,[],'no browser JavaScript errors');
- console.log('PASS: real Chromium desktop/mobile; shared login; admin/manager/accountant/operator panels; manager creation permissions; payroll; access denial; overflow; no JS errors.');
+ console.log('PASS: real Chromium desktop/mobile; shared login with one simulated /me refresh failure; admin/manager/accountant/operator panels; manager creation permissions; payroll; access denial; overflow; no JS errors.');
  console.log('Screenshots: .data/ui-smoke/ (local only).');if(unauthorized.length)console.log('Unauthenticated background probes after logout/role change:',[...new Set(unauthorized.map(u=>new URL(u).pathname))]);
 }catch(error){await screenshot('failure');console.error('Browser errors:',errors);console.error('Page:',await page.locator('body').innerText());throw error}finally{await browser.close()}

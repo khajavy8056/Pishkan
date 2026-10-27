@@ -10,7 +10,7 @@ import { Button, Field, Input, useToast } from '../../components/ui';
 
 export function LoginPage() {
   const { site, setting } = useSite();
-  const { user, refresh } = useAuth();
+  const { user, refresh, setUser } = useAuth();
   const navigate = useNavigate();
   const [params] = useSearchParams();
   const { notify } = useToast();
@@ -47,9 +47,20 @@ export function LoginPage() {
   }, [countdown]);
 
   const afterLogin = async (data: any) => {
+    // The login response itself is already server-authenticated. Seed the
+    // client auth state before the follow-up /me request so a brief refresh
+    // failure cannot send a successful login straight back to /login.
+    const loginUser = data?.user as CurrentUser | undefined;
+    if (loginUser) setUser(loginUser);
     const me = await refresh();
-    const target = next ?? homeFor(me ?? (data.user as CurrentUser));
-    notify(`خوش آمدید ${me?.fullName ?? ''}`, 'success');
+    const authenticated = me ?? loginUser ?? null;
+    if (!me && loginUser) setUser(loginUser);
+    if (!authenticated) {
+      setError('ورود انجام شد، اما نشست کاربری تأیید نشد. لطفاً دوباره تلاش کنید.');
+      return;
+    }
+    const target = next ?? homeFor(authenticated);
+    notify(`خوش آمدید ${authenticated.fullName ?? ''}`, 'success');
     navigate(target, { replace: true });
   };
 
