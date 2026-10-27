@@ -4,7 +4,7 @@ import { Smartphone, KeyRound, ArrowRight, ShieldCheck, Eye, EyeOff, RefreshCw, 
 import clsx from 'clsx';
 import { PublicLayout } from '../../components/public-layout';
 import { useSite } from '../../lib/site';
-import { useAuth, homeFor, type CurrentUser } from '../../lib/auth';
+import { useAuth, homeFor } from '../../lib/auth';
 import { api, ApiFailure } from '../../lib/api';
 import { Button, Field, Input, useToast } from '../../components/ui';
 
@@ -46,17 +46,18 @@ export function LoginPage() {
     return () => clearTimeout(timer);
   }, [countdown]);
 
-  const afterLogin = async (data: any) => {
-    // The login response itself is already server-authenticated. Seed the
-    // client auth state before the follow-up /me request so a brief refresh
-    // failure cannot send a successful login straight back to /login.
-    const loginUser = data?.user as CurrentUser | undefined;
-    if (loginUser) setUser(loginUser);
-    const me = await refresh();
-    const authenticated = me ?? loginUser ?? null;
-    if (!me && loginUser) setUser(loginUser);
+  const afterLogin = async () => {
+    // Do not open a protected panel based only on the login response: the
+    // browser must send the session cookie back successfully first.
+    let authenticated = await refresh();
     if (!authenticated) {
-      setError('ورود انجام شد، اما نشست کاربری تأیید نشد. لطفاً دوباره تلاش کنید.');
+      // A hosted preview or a freshly-set cookie can take one request to settle.
+      await new Promise((resolve) => window.setTimeout(resolve, 200));
+      authenticated = await refresh();
+    }
+    if (!authenticated) {
+      setUser(null);
+      setError('ورود پذیرفته شد، اما نشست مرورگر تأیید نشد. کوکی‌های این سایت را فعال کنید و دوباره وارد شوید.');
       return;
     }
     const target = next ?? homeFor(authenticated);
@@ -87,7 +88,7 @@ export function LoginPage() {
     try {
       const res = await api.post<any>('/api/auth/otp/verify', { mobile, code,kind:accountKind });
       if(res.data.mfaRequired){setMfa({token:res.data.mfaToken,mode:'totp',message:'کد برنامه تأیید دومرحله‌ای را وارد کنید.'});return;}
-      await afterLogin(res.data);
+      await afterLogin();
     } catch (err) {
       setError(err instanceof ApiFailure ? err.message : 'کد وارد شده معتبر نیست');
     } finally {
@@ -105,7 +106,7 @@ export function LoginPage() {
         if (res.data.mode === 'otp') notify('کد تأیید به موبایل شما ارسال شد.', 'success');
         return;
       }
-      await afterLogin(res.data);
+      await afterLogin();
     } catch (err) {
       setError(err instanceof ApiFailure ? err.message : 'ورود ناموفق بود');
     } finally {
@@ -119,7 +120,7 @@ export function LoginPage() {
     setError('');
     try {
       const res = await api.post<any>('/api/auth/mfa/verify', { ticket: mfa.token, code: mfaCode, mode: mfa.mode });
-      await afterLogin(res.data);
+      await afterLogin();
     } catch (err) {
       setError(err instanceof ApiFailure ? err.message : 'کد تأیید صحیح نیست');
     } finally {

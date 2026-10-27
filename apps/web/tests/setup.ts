@@ -46,7 +46,7 @@ const bootstrap = {
     },
   ],
   newestServices: [],
-  authMethods: { otp: true, password: true, registrationOpen: true, passwordReset: true },
+  authMethods: { staffOtp: false, otp: true, password: true, registrationOpen: true, passwordReset: true },
   maintenance: false,
   assistant: {
     enabled: true,

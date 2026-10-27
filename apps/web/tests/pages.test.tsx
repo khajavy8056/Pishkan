@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { render, screen, waitFor } from '@testing-library/react';
+import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
 import { AuthProvider } from '../src/lib/auth';
 import { SiteProvider } from '../src/lib/site';
@@ -9,6 +9,7 @@ import { HomePage } from '../src/pages/public/Home';
 import { ServicesPage, ServiceDetailPage } from '../src/pages/public/Services';
 import { LoginPage, RegisterPage, LegalPage, StatusPage, AssistantPage } from '../src/pages/public/Auth';
 import { NotFoundPage } from '../src/pages/public/Auth';
+import { fetchMock } from './setup';
 
 function renderAt(path: string, element: React.ReactElement) {
   return render(
@@ -46,6 +47,37 @@ describe('public pages render', () => {
     renderAt('/login', <LoginPage />);
     await waitFor(() => expect(screen.getByText('کد یک‌بارمصرف')).toBeTruthy());
     expect(screen.getByText('نام کاربری و رمز')).toBeTruthy();
+  });
+
+  it('does not enter a protected panel if the browser session cookie cannot be verified', async () => {
+    const originalFetch = fetchMock.getMockImplementation();
+    let authMeCalls = 0;
+    fetchMock.mockImplementation(async (input) => {
+      const url = typeof input === 'string' ? input : input instanceof URL ? input.toString() : String(input.url);
+      if (url.includes('/api/auth/login')) {
+        const data = { user: { id: 'usr_admin', kind: 'admin', fullName: 'مدیر سامانه', roleCode: 'super_admin', permissions: '*' }, token: 'test-session-token' };
+        return { ok: true, status: 200, headers: new Headers({ 'content-type': 'application/json' }), json: async () => ({ ok: true, data }), blob: async () => new Blob(), text: async () => '' } as unknown as Response;
+      }
+      if (url.includes('/api/auth/me')) {
+        authMeCalls += 1;
+        return { ok: false, status: 401, headers: new Headers({ 'content-type': 'application/json' }), json: async () => ({ ok: false, error: { code: 'unauthorized', message: 'برای دسترسی باید وارد شوید.' } }), blob: async () => new Blob(), text: async () => '' } as unknown as Response;
+      }
+      return originalFetch!(input);
+    });
+
+    try {
+      renderAt('/login?account=staff', <LoginPage />);
+      await screen.findByText('نام کاربری و رمز');
+      fireEvent.click(screen.getByText('نام کاربری و رمز'));
+      await screen.findByLabelText(/نام کاربری، موبایل یا ایمیل/);
+      fireEvent.change(screen.getByLabelText(/نام کاربری، موبایل یا ایمیل/), { target: { value: 'preview-admin' } });
+      fireEvent.change(screen.getByLabelText(/رمز عبور/), { target: { value: 'example-password' } });
+      fireEvent.click(screen.getByRole('button', { name: 'ورود' }));
+      await waitFor(() => expect(screen.getByText(/نشست مرورگر تأیید نشد/)).toBeTruthy());
+      expect(authMeCalls).toBe(3); // initial auth check plus two post-login checks
+    } finally {
+      fetchMock.mockImplementation(originalFetch!);
+    }
   });
 
   it('renders the registration form when open', async () => {
