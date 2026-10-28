@@ -19,6 +19,34 @@ import { param } from '../http/params.js';
 export const filesRouter = Router();
 
 const DEFAULT_TYPES = ['jpg', 'jpeg', 'png', 'webp', 'pdf'];
+const MIME_BY_EXTENSION: Record<string, string> = { jpg: 'image/jpeg', jpeg: 'image/jpeg', png: 'image/png', webp: 'image/webp', pdf: 'application/pdf' };
+
+function sniffMime(filePath: string): string | null {
+  const fd = fs.openSync(filePath, 'r');
+  try {
+    const signature = Buffer.alloc(12);
+    const size = fs.readSync(fd, signature, 0, signature.length, 0);
+    const bytes = signature.subarray(0, size);
+    if (bytes.length >= 3 && bytes[0] === 0xff && bytes[1] === 0xd8 && bytes[2] === 0xff) return 'image/jpeg';
+    if (bytes.length >= 8 && bytes.subarray(0, 8).equals(Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]))) return 'image/png';
+    if (bytes.length >= 12 && bytes.toString('ascii', 0, 4) === 'RIFF' && bytes.toString('ascii', 8, 12) === 'WEBP') return 'image/webp';
+    if (bytes.length >= 5 && bytes.toString('ascii', 0, 5) === '%PDF-') return 'application/pdf';
+    return null;
+  } finally {
+    fs.closeSync(fd);
+  }
+}
+
+async function sha256File(filePath: string): Promise<string> {
+  const hash = crypto.createHash('sha256');
+  await new Promise<void>((resolve, reject) => {
+    const stream = fs.createReadStream(filePath);
+    stream.on('data', (chunk) => hash.update(chunk));
+    stream.on('end', resolve);
+    stream.on('error', reject);
+  });
+  return hash.digest('hex');
+}
 
 async function uploadConfig() {
   const maxSizeMb = await getNumber('files.max_size_mb');
@@ -46,7 +74,7 @@ async function multerMiddleware() {
     fileFilter: (_req, file, cb) => {
       const ext = path.extname(file.originalname).toLowerCase().replace('.', '');
       if (!cfg.types.includes(ext)) {
-        return cb(new Error(`پسوند .${ext} مجاز نیست. فرمت‌های مجاز: ${cfg.types.join(', ')}`));
+        return cb(badRequest(`پسوند .${ext} مجاز نیست. فرمت‌های مجاز: ${cfg.types.join(', ')}`));
       }
       cb(null, true);
     },
@@ -65,30 +93,42 @@ filesRouter.post('/upload', requireAuth, asyncRoute(async (req, res, next) => {
       const purpose = typeof req.query.purpose === 'string' ? req.query.purpose.slice(0, 40) : 'document';
       const isPublic = req.query.public === 'true' && hasPermission(req.auth!.permissions, 'settings.edit');
 
-      const buffer = fs.readFileSync(file.path);
-      const checksum = crypto.createHash('sha256').update(buffer).digest('hex');
+      const extension = path.extname(file.originalname).slice(1).toLowerCase();
+      const actualMime = sniffMime(file.path);
+      if (!actualMime || MIME_BY_EXTENSION[extension] !== actualMime) {
+        fs.rmSync(file.path, { force: true });
+        throw badRequest('محتوای فایل با قالب مجاز یا پسوند آن مطابقت ندارد.');
+      }
+      const checksum = await sha256File(file.path);
       const fileId = id('file');
       const storageKey = path.join('private', file.filename);
 
+      const finalPath = isPublic
+        ? path.join(env.uploadDir, 'public', file.filename)
+        : file.path;
       if (isPublic) {
-        const publicDir = path.join(env.uploadDir, 'public');
-        fs.mkdirSync(publicDir, { recursive: true });
-        fs.renameSync(file.path, path.join(publicDir, file.filename));
+        fs.mkdirSync(path.dirname(finalPath), { recursive: true });
+        fs.renameSync(file.path, finalPath);
       }
 
-      await run(
-        `INSERT INTO files (id, owner_id, name, mime, size, storage_key, sha256, is_public, purpose, created_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-        [fileId, req.auth!.user.id, sanitizeName(file.originalname), file.mimetype, file.size,
-          isPublic ? path.join('public', file.filename) : storageKey, checksum, isPublic ? 1 : 0, purpose, nowIso()],
-      );
+      try {
+        await run(
+          `INSERT INTO files (id, owner_id, name, mime, size, storage_key, sha256, is_public, purpose, created_at)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+          [fileId, req.auth!.user.id, sanitizeName(file.originalname), actualMime, file.size,
+            isPublic ? path.join('public', file.filename) : storageKey, checksum, isPublic ? 1 : 0, purpose, nowIso()],
+        );
+      } catch (error) {
+        fs.rmSync(finalPath, { force: true });
+        throw error;
+      }
 
       res.status(201).json({
         ok: true,
         data: {
           id: fileId,
           name: sanitizeName(file.originalname),
-          mime: file.mimetype,
+          mime: actualMime,
           size: file.size,
           url: isPublic ? `/uploads/public/${file.filename}` : `/api/files/${fileId}`,
         },
@@ -103,33 +143,48 @@ filesRouter.get('/:id', requireAuth, asyncRoute(async (req, res) => {
   if (!file) throw notFound('فایل یافت نشد.');
 
   const auth = req.auth!;
-  let allowed = file.owner_id === auth.user.id || officeScope(auth);
-  if (!allowed && auth.user.kind !== 'customer') {
-    allowed = hasPermission(auth.permissions, 'documents.view') && Boolean(await one('SELECT d.id FROM request_documents d JOIN requests r ON r.id=d.request_id WHERE d.file_id=? AND r.assigned_to=?',[file.id,auth.user.id]));
-  }
-  if (!allowed) {
-    const linked = await one(
+  const isSuperAdmin = auth.user.roleCode === 'super_admin' || auth.permissions === '*';
+  const hasProtectedLink = Boolean(await one(
+    `SELECT id FROM request_documents WHERE file_id = ?
+     UNION SELECT id FROM messages WHERE file_id = ? LIMIT 1`, [file.id, file.id],
+  ));
+  let allowed = isSuperAdmin;
+  if (!allowed && auth.user.kind === 'customer') {
+    const ownRequestDocument = await one(
       `SELECT d.id FROM request_documents d JOIN requests r ON r.id = d.request_id
-       WHERE d.file_id = ? AND r.customer_id = ? AND (d.kind<>'staff' OR d.status='approved')`, [file.id, auth.user.id],
+       WHERE d.file_id = ? AND r.customer_id = ? AND (d.kind <> 'staff' OR d.status = 'approved') LIMIT 1`,
+      [file.id, auth.user.id],
     );
-    allowed = Boolean(linked);
-  }
-  if (!allowed && (auth.user.kind === 'customer' || hasPermission(auth.permissions, 'messages.view'))) {
-    const linkedMessage = auth.user.kind === 'customer'
-      ? await one('SELECT m.id FROM messages m JOIN threads t ON t.id=m.thread_id WHERE m.file_id=? AND t.customer_id=? LIMIT 1', [file.id, auth.user.id])
-      : await one(`SELECT m.id FROM messages m JOIN threads t ON t.id=m.thread_id
-          WHERE m.file_id=? AND (t.assigned_to=? OR EXISTS(SELECT 1 FROM requests r WHERE r.id=t.request_id AND r.assigned_to=?)) LIMIT 1`, [file.id, auth.user.id, auth.user.id]);
-    allowed = Boolean(linkedMessage);
+    const ownMessage = ownRequestDocument ? null : await one(
+      `SELECT m.id FROM messages m JOIN threads t ON t.id = m.thread_id
+       WHERE m.file_id = ? AND t.customer_id = ? LIMIT 1`, [file.id, auth.user.id],
+    );
+    allowed = Boolean(ownRequestDocument || ownMessage || (!hasProtectedLink && file.owner_id === auth.user.id));
+  } else if (!allowed && auth.user.kind !== 'customer') {
+    const assignedDocument = hasPermission(auth.permissions, 'documents.view') ? await one(
+      `SELECT d.id FROM request_documents d JOIN requests r ON r.id = d.request_id
+       WHERE d.file_id = ? AND r.assigned_to = ? LIMIT 1`, [file.id, auth.user.id],
+    ) : null;
+    const assignedMessage = !assignedDocument && hasPermission(auth.permissions, 'messages.view') ? await one(
+      `SELECT m.id FROM messages m JOIN threads t ON t.id = m.thread_id
+       WHERE m.file_id = ? AND (t.assigned_to = ? OR EXISTS(
+         SELECT 1 FROM requests r WHERE r.id = t.request_id AND r.assigned_to = ?
+       )) LIMIT 1`, [file.id, auth.user.id, auth.user.id],
+    ) : null;
+    // Staff-owned unattached files remain manageable by their uploader, but
+    // ownership alone never bypasses case/thread scope for attached content.
+    allowed = Boolean(assignedDocument || assignedMessage || (!hasProtectedLink && file.owner_id === auth.user.id));
   }
   if (!allowed) throw forbidden('دسترسی به این فایل مجاز نیست.');
 
   const absolute = path.resolve(env.uploadDir, file.storage_key);
   const relative = path.relative(path.resolve(env.uploadDir), absolute);
-  if (relative.startsWith('..') || path.isAbsolute(relative)) throw forbidden();
+  if (relative === '..' || relative.startsWith(`..${path.sep}`) || path.isAbsolute(relative)) throw forbidden();
   if (!fs.existsSync(absolute)) throw notFound('فایل روی سرور موجود نیست.');
 
+  const safeInline = ['image/jpeg', 'image/png', 'image/webp'].includes(file.mime);
   res.setHeader('content-type', file.mime || 'application/octet-stream');
-  res.setHeader('content-disposition', `inline; filename="${encodeURIComponent(file.name)}"`);
+  res.setHeader('content-disposition', `${safeInline ? 'inline' : 'attachment'}; filename="${encodeURIComponent(file.name)}"`);
   res.setHeader('x-content-type-options', 'nosniff');
   fs.createReadStream(absolute).pipe(res);
 }));
@@ -158,7 +213,7 @@ filesRouter.delete('/:id', requireAuth, asyncRoute(async (req, res) => {
   try {
     const absolute = path.resolve(env.uploadDir, file.storage_key);
     const relative = path.relative(path.resolve(env.uploadDir), absolute);
-    if (!relative.startsWith('..') && !path.isAbsolute(relative) && fs.existsSync(absolute)) fs.unlinkSync(absolute);
+    if (relative !== '..' && !relative.startsWith(`..${path.sep}`) && !path.isAbsolute(relative) && fs.existsSync(absolute)) fs.unlinkSync(absolute);
   } catch { /* file already gone */ }
 
   await run('DELETE FROM files WHERE id = ?', [file.id]);

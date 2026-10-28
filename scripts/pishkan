@@ -5,7 +5,7 @@
 #   pishkan status | health | version
 #   pishkan logs [api|nginx] [-f]
 #   pishkan restart
-#   pishkan update [--ref <git-ref>] [--no-backup]
+#   pishkan update [--ref <40-char-commit-SHA>] [--no-backup]
 #   pishkan rollback [--to <release-id>]
 #   pishkan backup [--dest <dir>] [--quiet]
 #   pishkan restore <backup-file> [--yes]
@@ -39,7 +39,7 @@ usage() {
   pishkan version                نسخه نصب‌شده و شناسه نسخه (commit)
   pishkan logs [api|nginx] [-f]  مشاهده لاگ‌ها
   pishkan restart                راه‌اندازی مجدد سرویس API
-  pishkan update [--ref REF]     به‌روزرسانی امن؛ در صورت خطا خودکار بازمی‌گردد
+  pishkan update [--ref SHA]     به‌روزرسانی از commit کامل تأییدشده؛ در خطا بازمی‌گردد
   pishkan rollback [--to ID]     بازگشت به نسخه قبلی
   pishkan backup [--dest DIR]    پشتیبان‌گیری از پایگاه داده و مدارک
   pishkan restore FILE [--yes]   بازیابی (نیازمند تأیید صریح)
@@ -151,7 +151,7 @@ cmd_backup() {
   dest="${dest:-$BACKUP_DIR}"
   mkdir -p "$dest"
 
-  local stamp file workdir driver
+  local stamp file workdir driver database_file database_checksum uploads_checksum
   stamp="$(date -u +%Y%m%dT%H%M%SZ)"
   file="${dest}/pishkan-backup-${stamp}.tar.gz"
   workdir="$(mktemp -d)"
@@ -159,6 +159,7 @@ cmd_backup() {
 
   [ "$quiet" = "1" ] || log "پشتیبان‌گیری از پایگاه داده (${driver:-postgres})…"
   if [ "$driver" = "sqlite" ]; then
+    database_file="database.sqlite"
     local sqlite_file
     sqlite_file="$(read_env_value SQLITE_FILE)"
     [ -f "$sqlite_file" ] || die "فایل SQLite یافت نشد: ${sqlite_file:-تنظیم نشده}"
@@ -169,15 +170,17 @@ cmd_backup() {
       die 'sqlite3 نصب نیست؛ کپی خام دیتابیس زنده ناامن است و پشتیبان‌گیری لغو شد.'
     fi
   else
+    database_file="database.dump"
     PGPASSWORD="$(read_env_value DB_PASSWORD)" pg_dump \
       --host "$DB_HOST" --port "$DB_PORT" --username "$DB_USER" --dbname "$DB_NAME" \
-      --format=custom --no-owner --no-privileges --file "${workdir}/database.dump"
+      --format=custom --no-owner --no-privileges --file "${workdir}/${database_file}"
   fi
 
-  if [ -d "$UPLOAD_DIR" ]; then
-    [ "$quiet" = "1" ] || log "پشتیبان‌گیری از مدارک و فایل‌ها…"
-    tar -C "$UPLOAD_DIR" -czf "${workdir}/uploads.tar.gz" . || die "آرشیو مدارک ناقص است؛ پشتیبان‌گیری ناموفق بود."
-  fi
+  [ "$quiet" = "1" ] || log "پشتیبان‌گیری از مدارک و فایل‌ها…"
+  mkdir -p "$UPLOAD_DIR"
+  tar -C "$UPLOAD_DIR" -czf "${workdir}/uploads.tar.gz" . || die "آرشیو مدارک ناقص است؛ پشتیبان‌گیری ناموفق بود."
+  database_checksum="$(sha256sum "${workdir}/${database_file}" | awk '{print $1}')"
+  uploads_checksum="$(sha256sum "${workdir}/uploads.tar.gz" | awk '{print $1}')"
 
   cat >"${workdir}/manifest.json" <<EOF
 {
@@ -186,6 +189,10 @@ cmd_backup() {
   "commit": "$(cat "$(current_release)/.release-commit" 2>/dev/null || echo unknown)",
   "driver": "${driver:-postgres}",
   "database": "${DB_NAME}",
+  "databaseFile": "${database_file}",
+  "databaseChecksum": "${database_checksum}",
+  "uploadsFile": "uploads.tar.gz",
+  "uploadsChecksum": "${uploads_checksum}",
   "release": "$(basename "$(current_release)")",
   "hostname": "$(hostname)"
 }
@@ -211,15 +218,24 @@ EOF
 safe_extract() {
   command -v python3 >/dev/null 2>&1 || die "python3 برای اعتبارسنجی آرشیو لازم است."
   python3 - "$1" "$2" <<'PYARCHIVE'
-import sys, tarfile, pathlib
+import pathlib, shutil, sys, tarfile
 archive, target = sys.argv[1:]
 root = pathlib.Path(target).resolve()
+root.mkdir(parents=True, exist_ok=True)
 with tarfile.open(archive, 'r:gz') as tar:
     for member in tar.getmembers():
+        if not (member.isfile() or member.isdir()):
+            raise SystemExit('Links and special archive members are forbidden')
         dest = (root / member.name).resolve()
-        if (not member.isfile() and not member.isdir()) or not dest.is_relative_to(root):
-            raise SystemExit('Unsafe archive member: extraction aborted')
-    tar.extractall(root, filter='data')
+        try: dest.relative_to(root)
+        except ValueError: raise SystemExit('Unsafe archive member: extraction aborted')
+        if member.isdir():
+            dest.mkdir(parents=True, exist_ok=True)
+        else:
+            dest.parent.mkdir(parents=True, exist_ok=True)
+            source = tar.extractfile(member)
+            if source is None: raise SystemExit('Unreadable archive member')
+            with source, dest.open('wb') as output: shutil.copyfileobj(source, output)
 PYARCHIVE
 }
 
@@ -251,13 +267,37 @@ cmd_restore() {
     confirm_phrase RESTORE "برای ادامه عبارت RESTORE را تایپ کنید: " || die "بازیابی لغو شد."
   fi
 
-  log "ایجاد نسخه پشتیبان ایمنی از وضعیت فعلی…"
-  cmd_backup --quiet || die "ایجاد نسخه ایمنی ناموفق بود؛ بازیابی لغو شد."
-
-  local workdir driver
+  local workdir driver upload_previous
   workdir="$(mktemp -d)"
-  safe_extract "$file" "$workdir"
-  [ -f "${workdir}/manifest.json" ] || die "ساختار فایل پشتیبان معتبر نیست."
+  safe_extract "$file" "$workdir" || { rm -rf "$workdir"; die "استخراج امن فایل پشتیبان ناموفق بود."; }
+  [ -f "${workdir}/manifest.json" ] || { rm -rf "$workdir"; die "ساختار فایل پشتیبان معتبر نیست."; }
+  if [ ! -f "${workdir}/database.dump" ] && [ ! -f "${workdir}/database.sqlite" ]; then
+    rm -rf "$workdir"; die "فایل پایگاه داده در نسخه پشتیبان موجود نیست."
+  fi
+  [ -f "${workdir}/uploads.tar.gz" ] || { rm -rf "$workdir"; die "آرشیو مدارک به این نسخه پشتیبان پیوست نیست؛ بازیابی کامل لغو شد."; }
+  python3 - "${workdir}/manifest.json" "$workdir" <<'PYMANIFEST' || { rm -rf "$workdir"; die "manifest یا checksum اجزای پشتیبان معتبر نیست."; }
+import hashlib, json, pathlib, sys
+manifest_path, root = pathlib.Path(sys.argv[1]), pathlib.Path(sys.argv[2])
+manifest = json.loads(manifest_path.read_text(encoding='utf-8'))
+database = manifest.get('databaseFile') or ('database.dump' if (root / 'database.dump').exists() else 'database.sqlite')
+uploads = manifest.get('uploadsFile') or 'uploads.tar.gz'
+if database not in ('database.dump', 'database.sqlite') or uploads != 'uploads.tar.gz':
+    raise SystemExit('Unexpected component filename')
+for filename, key in ((database, 'databaseChecksum'), (uploads, 'uploadsChecksum')):
+    expected = manifest.get(key)
+    if expected is not None:
+        if len(expected) != 64 or any(ch not in '0123456789abcdef' for ch in expected.lower()):
+            raise SystemExit('Malformed checksum')
+        digest = hashlib.sha256()
+        with (root / filename).open('rb') as component:
+            for chunk in iter(lambda: component.read(1024 * 1024), b''): digest.update(chunk)
+        if digest.hexdigest().lower() != expected.lower(): raise SystemExit('Component checksum mismatch')
+PYMANIFEST
+  mkdir -p "${workdir}/uploads-stage"
+  safe_extract "${workdir}/uploads.tar.gz" "${workdir}/uploads-stage" || { rm -rf "$workdir"; die "استخراج امن مدارک ناموفق بود؛ هیچ داده‌ای جایگزین نشد."; }
+
+  log "ایجاد نسخه پشتیبان ایمنی از وضعیت فعلی…"
+  cmd_backup --quiet || { rm -rf "$workdir"; die "ایجاد نسخه ایمنی ناموفق بود؛ بازیابی لغو شد."; }
 
   driver="$(read_env_value DB_DRIVER)"
   if [ -f "${workdir}/database.dump" ]; then
@@ -281,20 +321,24 @@ cmd_restore() {
     die "پایگاه داده‌ای در فایل پشتیبان یافت نشد."
   fi
 
-  if [ -f "${workdir}/uploads.tar.gz" ]; then
-    log "بازیابی مدارک و فایل‌ها…"
-    mkdir -p "$UPLOAD_DIR"
-    rm -rf "${UPLOAD_DIR:?}"/* 2>/dev/null || true
-    safe_extract "${workdir}/uploads.tar.gz" "$UPLOAD_DIR"
-    chown -R "$APP_USER:$APP_GROUP" "$UPLOAD_DIR"
+  log "جایگزینی آرشیو مدارک با نسخه بررسی‌شده…"
+  mkdir -p "$(dirname "$UPLOAD_DIR")"
+  upload_previous="${UPLOAD_DIR}.pre-restore-$(date -u +%Y%m%d%H%M%S)-$$"
+  if [ -e "$UPLOAD_DIR" ] || [ -L "$UPLOAD_DIR" ]; then mv "$UPLOAD_DIR" "$upload_previous"; fi
+  if ! mv "${workdir}/uploads-stage" "$UPLOAD_DIR"; then
+    [ ! -e "$upload_previous" ] || mv "$upload_previous" "$UPLOAD_DIR"
+    rm -rf "$workdir"
+    die "جایگزینی آرشیو مدارک انجام نشد؛ نسخه پایگاه داده ایمنی ${BACKUP_DIR} حفظ شده است."
   fi
+  chown -R "$APP_USER:$APP_GROUP" "$UPLOAD_DIR"
   rm -rf "$workdir"
 
   systemctl start "$SERVICE_NAME"
   if wait_for_health 90; then
-    ok "بازیابی با موفقیت انجام شد."
+    [ ! -e "$upload_previous" ] || rm -rf "$upload_previous"
+    ok "بازیابی پایگاه داده و آرشیو مدارک با موفقیت انجام شد."
   else
-    die "سرویس پس از بازیابی پاسخ نداد. نسخه ایمنی در ${BACKUP_DIR} موجود است."
+    die "سرویس پس از بازیابی پاسخ نداد. نسخه ایمنی در ${BACKUP_DIR} و فایل مدارک قبلی در ${upload_previous} حفظ شده است."
   fi
   [ "$driver" = "sqlite" ] && warn "در محیط SQLite، لاگ‌های WAL ممکن است نیاز به راه‌اندازی مجدد داشته باشند."
   return 0
@@ -306,10 +350,10 @@ cmd_restore() {
 
 cmd_update() {
   require_root
-  local ref="$REPO_BRANCH" no_backup=0
+  local ref="${PISHKAN_COMMIT:-$(read_env_value PISHKAN_RELEASE_REF)}" no_backup=0
   while [ $# -gt 0 ]; do
     case "$1" in
-      --ref) shift; ref="${1:-$REPO_BRANCH}" ;;
+      --ref) shift; ref="${1:-}" ;;
       --no-backup) no_backup=1 ;;
       *) die "پارامتر ناشناخته برای update: $1" ;;
     esac
@@ -317,6 +361,7 @@ cmd_update() {
   done
 
   is_installed || die "Pishkan نصب نشده است."
+  is_full_commit "$ref" || die 'به‌روزرسانی فقط با SHA کامل ۴۰ رقمی commit مجاز است: pishkan update --ref <SHA>'
   local old_release new_dir commit
   old_release="$(current_release)"
   new_dir="${RELEASES_DIR}/$(date -u +%Y%m%d%H%M%S)"
@@ -329,9 +374,8 @@ cmd_update() {
     warn "پشتیبان‌گیری پیش از به‌روزرسانی با درخواست شما رد شد."
   fi
 
-  log "دریافت نسخه جدید…"
-  git clone --depth 1 --branch "$ref" "$REPO_URL" "$new_dir" >/dev/null
-  commit="$(git -C "$new_dir" rev-parse --short HEAD)"
+  log "دریافت commit تأییدشده…"
+  commit="$(clone_verified_commit "$ref" "$new_dir")"
   printf '%s\n' "$commit" >"${new_dir}/.release-commit"
   chown -R "$APP_USER:$APP_GROUP" "$new_dir"
   ok "نسخه جدید: $commit"
@@ -363,7 +407,8 @@ cmd_update() {
   systemctl restart "$SERVICE_NAME"
 
   if wait_for_health 90; then
-    ok "به‌روزرسانی انجام شد (نسخه ${commit})."
+    set_env_value PISHKAN_RELEASE_REF "$commit"
+    ok "به‌روزرسانی انجام شد (commit تأییدشده ${commit})."
     install -m 0755 "${CURRENT_LINK}/scripts/pishkan" /usr/local/bin/pishkan
     install -m 0644 "${CURRENT_LINK}/deploy/systemd/pishkan-backup.service" /etc/systemd/system/ 2>/dev/null || true
   else

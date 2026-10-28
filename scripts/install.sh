@@ -23,8 +23,9 @@ else
   # Piped execution: fetch the helpers next to this script.
   TMP_LIB="$(mktemp -d)"
   trap 'rm -rf "$TMP_LIB"' EXIT
-  curl -fsSL "https://raw.githubusercontent.com/khajavy8056/Pishkan/main/scripts/lib/common.sh" -o "${TMP_LIB}/common.sh" \
-    || { echo "دریافت فایل‌های نصب ناموفق بود. اتصال شبکه را بررسی کنید." >&2; exit 1; }
+  COMMONS_REF="${PISHKAN_COMMIT:-main}"
+  curl -fsSL "https://raw.githubusercontent.com/khajavy8056/Pishkan/${COMMONS_REF}/scripts/lib/common.sh" -o "${TMP_LIB}/common.sh" \
+    || { echo "دریافت فایل‌های نصب ناموفق بود. اتصال شبکه و مرجع نسخه را بررسی کنید." >&2; exit 1; }
   # shellcheck source=lib/common.sh
   . "${TMP_LIB}/common.sh"
 fi
@@ -95,12 +96,16 @@ apt-get install -y -qq \
   postgresql postgresql-contrib nginx certbot python3-certbot-nginx ufw jq >/dev/null
 ok "بسته‌های پایه نصب شدند."
 
-if ! command -v node >/dev/null 2>&1 || [ "$(node -p 'process.versions.node.split(".")[0]' 2>/dev/null || echo 0)" -lt "$NODE_MAJOR" ]; then
-  heading "نصب Node.js ${NODE_MAJOR}"
+node_version_supported() {
+  command -v node >/dev/null 2>&1 && node -e 'const [major,minor,patch]=process.versions.node.split(".").map(Number); process.exit(major>22 || (major===22 && (minor>22 || (minor===22 && patch>=2))) ? 0 : 1)' >/dev/null 2>&1
+}
+if ! command -v node >/dev/null 2>&1 || [ "$(node -p 'process.versions.node.split(".")[0]' 2>/dev/null || echo 0)" -lt "$NODE_MAJOR" ] || ! node_version_supported; then
+  heading "نصب Node.js ${NODE_MAJOR} (حداقل 22.22.2)"
   curl -fsSL "https://deb.nodesource.com/setup_${NODE_MAJOR}.x" | bash - >/dev/null
   apt-get install -y -qq nodejs >/dev/null
 fi
 NODE_VERSION="$(node -v)"
+node_version_supported || die "Node.js ${NODE_VERSION} نصب شد اما حداقل نسخهٔ پشتیبانی‌شده v22.22.2 است."
 ok "Node.js ${NODE_VERSION}"
 if ! node --experimental-sqlite -e 'require("node:sqlite")' >/dev/null 2>&1; then
   warn "ماژول node:sqlite در دسترس نیست؛ در محیط عملیاتی از PostgreSQL استفاده می‌شود."
@@ -157,17 +162,28 @@ heading "دریافت کد سامانه"
 RELEASE_ID="$(date -u +%Y%m%d%H%M%S)"
 RELEASE_DIR="${RELEASES_DIR}/${RELEASE_ID}"
 
+RELEASE_COMMIT=""
 if [ "$EXISTING_INSTALL" = "1" ] && [ "${FORCE_REINSTALL:-0}" != "1" ]; then
-  log "نصب موجود است؛ نسخه فعلی حفظ می‌شود. برای استقرار نسخه جدید از «pishkan update» استفاده کنید."
+  log "نصب موجود است؛ نسخه فعلی حفظ می‌شود. برای استقرار نسخه جدید از «pishkan update --ref SHA» استفاده کنید."
   RELEASE_DIR="$(current_release)"
+  RELEASE_COMMIT="$(cat "${RELEASE_DIR}/.release-commit" 2>/dev/null || true)"
+  if ! is_full_commit "$RELEASE_COMMIT"; then RELEASE_COMMIT="$(git -C "$RELEASE_DIR" rev-parse HEAD 2>/dev/null || true)"; fi
 else
   if [ -n "${SOURCE_DIR:-}" ] && [ -d "${SOURCE_DIR}/apps/api" ]; then
+    SOURCE_COMMIT="$(git -C "$SOURCE_DIR" rev-parse HEAD 2>/dev/null || true)"
+    is_full_commit "$SOURCE_COMMIT" || die 'SOURCE_DIR باید clone گیت با commit مشخص باشد؛ از کپی بدون تاریخچه برای نصب تولید استفاده نکنید.'
+    if [ -n "$PISHKAN_COMMIT" ] && [ "${SOURCE_COMMIT,,}" != "${PISHKAN_COMMIT,,}" ]; then
+      die 'commit مسیر SOURCE_DIR با PISHKAN_COMMIT مورد تأیید مطابقت ندارد.'
+    fi
     rsync -a --exclude node_modules --exclude .git --exclude .data "${SOURCE_DIR}/" "$RELEASE_DIR/"
-    ok "کد از مسیر محلی ${SOURCE_DIR} کپی شد."
+    RELEASE_COMMIT="$SOURCE_COMMIT"
+    ok "کد از ${SOURCE_DIR} با commit ${RELEASE_COMMIT} کپی شد."
   else
-    git clone --depth 1 --branch "$REPO_BRANCH" "$REPO_URL" "$RELEASE_DIR" >/dev/null
-    ok "کد از ${REPO_URL} دریافت شد."
+    is_full_commit "$PISHKAN_COMMIT" || die 'نصب تولیدی به PISHKAN_COMMIT کامل ۴۰ رقمی نیاز دارد؛ دریافت شناور شاخه main مجاز نیست.'
+    RELEASE_COMMIT="$(clone_verified_commit "$PISHKAN_COMMIT" "$RELEASE_DIR")"
+    ok "کد تأییدشده با commit ${RELEASE_COMMIT} دریافت شد."
   fi
+  printf '%s\n' "$RELEASE_COMMIT" >"${RELEASE_DIR}/.release-commit"
 fi
 
 # ---------------------------------------------------------------------------
@@ -175,7 +191,7 @@ fi
 # ---------------------------------------------------------------------------
 heading "تنظیمات محیطی"
 if [ -f "$ENV_FILE" ]; then
-  ok "فایل تنظیمات موجود است و تغییر داده نمی‌شود: ${ENV_FILE}"
+  ok "فایل تنظیمات موجود است؛ فقط شناسه commit نسخهٔ فعال در صورت نیاز تکمیل می‌شود: ${ENV_FILE}"
 else
   APP_ENCRYPTION_KEY="$(random_hex 32)"
   APP_URL_VALUE="${APP_URL:-}"
@@ -214,10 +230,14 @@ LOG_LEVEL=info
 LOG_FILE=${LOG_DIR}/api.log
 DEMO_MODE=false
 APP_VERSION=1.0.0
+PISHKAN_RELEASE_REF=${RELEASE_COMMIT}
 EOF
   chown "root:${APP_GROUP}" "$ENV_FILE"
   chmod 0640 "$ENV_FILE"
   ok "فایل تنظیمات ساخته شد: ${ENV_FILE}"
+fi
+if is_full_commit "$RELEASE_COMMIT" && [ -n "$ENV_FILE" ] && [ -z "$(read_env_value PISHKAN_RELEASE_REF)" ]; then
+  set_env_value PISHKAN_RELEASE_REF "$RELEASE_COMMIT"
 fi
 
 # ---------------------------------------------------------------------------
@@ -378,7 +398,8 @@ cat <<EOF
 
   نسخه:            ${VERSION}
   نشانی سامانه:    ${PUBLIC_URL}
-  پنل مدیریت:      ${PUBLIC_URL}/login
+  ورود مشترک:      ${PUBLIC_URL}/login
+  ورود به پنل نقش: ${PUBLIC_URL}/panel
   سرویس:           systemctl status ${SERVICE_NAME}
   تنظیمات:         ${ENV_FILE}
 

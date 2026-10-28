@@ -26,6 +26,7 @@
 import { getBool, getNumber, getSecret, getString } from '../settings/service.js';
 import { one, run, nowIso } from '../../db/index.js';
 import { id } from '../../lib/crypto.js';
+import { getEnabledSmsTemplate, type SmsEvent } from './templates.js';
 
 export interface SmsResult {
   ok: boolean;
@@ -311,16 +312,16 @@ export async function getProvider(): Promise<SmsProvider> {
 
 async function logSms(input: {
   mobile: string; purpose?: string; provider: string; templateCode?: string;
-  body?: string; status: 'sent' | 'failed' | 'skipped'; messageId?: string; error?: string;
+  body?: string; status: 'pending' | 'sent' | 'failed' | 'skipped'; messageId?: string; error?: string; idempotencyKey?: string;
 }) {
   const keepBody = await getBool('sms.log_body');
   await run(
-    `INSERT INTO sms_logs (id, mobile, purpose, provider, template_code, body, status, provider_message_id, error, created_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    `INSERT INTO sms_logs (id, mobile, purpose, provider, template_code, body, status, provider_message_id, error, created_at, idempotency_key)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     [
       id('sms'), normalizeMobile(input.mobile), input.purpose ?? null, input.provider,
       input.templateCode ?? null, keepBody ? input.body ?? null : null, input.status,
-      input.messageId ?? null, input.error ?? null, nowIso(),
+      input.messageId ?? null, input.error ?? null, nowIso(), input.idempotencyKey ?? null,
     ],
   );
 }
@@ -373,6 +374,65 @@ export async function sendOtpSms(mobile: string, code: string, purpose = 'login'
     status: result.ok ? 'sent' : 'failed', messageId: result.messageId, error: result.error,
   });
   return result;
+}
+
+function scrubSmsError(error: string | undefined): string | undefined {
+  if (!error) return undefined;
+  let safe = error.slice(0, 400);
+  for (const value of [process.env.APP_ENCRYPTION_KEY, process.env.SMS_API_KEY, process.env.SMS_PASSWORD]) {
+    if (value && value.length >= 4) safe = safe.split(value).join('[redacted]');
+  }
+  return safe;
+}
+
+/** Send a configured approved pattern once for a durable event key. */
+export async function sendEventNotificationSms(mobile: string, event: SmsEvent, idempotencyKey: string): Promise<SmsResult> {
+  if (!isValidMobile(mobile)) return { ok: false, error: 'شماره موبایل معتبر نیست.', errorCode: 'invalid_mobile', provider: 'none' };
+  if (!(await getBool('sms.enabled')) || !(await getBool('sms.notify_enabled'))) {
+    return { ok: false, error: 'پیامک اعلان غیرفعال است.', errorCode: 'disabled', provider: 'none' };
+  }
+  const template = await getEnabledSmsTemplate(event.eventCode);
+  if (!template) {
+    await logSms({ mobile, purpose: event.eventCode, provider: 'none', status: 'skipped', error: 'الگوی فعال و معتبر برای این رویداد تعریف نشده است.' });
+    return { ok: false, error: 'الگوی فعال و معتبر برای این رویداد تعریف نشده است.', errorCode: 'template_unavailable', provider: 'none' };
+  }
+  const names = [...template.variables];
+  if (Object.keys(event.variables).sort().join('|') !== [...names].sort().join('|')) {
+    await logSms({ mobile, purpose: event.eventCode, templateCode: template.bodyId, provider: 'none', status: 'skipped', error: 'متغیرهای رویداد با قرارداد الگو سازگار نیستند.' });
+    return { ok: false, error: 'متغیرهای پیامک کامل نیستند.', errorCode: 'invalid_variables', provider: 'none' };
+  }
+  const args = names.map((name) => String(event.variables[name]).slice(0, 120));
+  if (!idempotencyKey || idempotencyKey.length > 180) {
+    return { ok: false, error: 'کلید یکتای ارسال معتبر نیست.', errorCode: 'invalid_idempotency_key', provider: 'none' };
+  }
+  if ((await sentToday()) >= await getNumber('sms.daily_limit')) {
+    await logSms({ mobile, purpose: event.eventCode, provider: 'limit', status: 'skipped', error: 'سقف ارسال روزانه' });
+    return { ok: false, error: 'سقف ارسال پیامک روزانه سامانه تکمیل شده است.', errorCode: 'daily_limit', provider: 'none' };
+  }
+
+  const logId = id('sms');
+  const timestamp = nowIso();
+  const claim = await run(
+    `INSERT INTO sms_logs (id, mobile, purpose, provider, template_code, body, status, created_at, idempotency_key)
+     VALUES (?, ?, ?, ?, ?, ?, 'pending', ?, ?) ON CONFLICT(idempotency_key) DO NOTHING`,
+    [logId, normalizeMobile(mobile), event.eventCode, 'pending', template.bodyId, `event:${event.eventCode}; params:${args.length}`, timestamp, idempotencyKey],
+  );
+  if (!claim.changes) return { ok: false, error: 'این رویداد قبلاً برای این گیرنده پردازش شده است.', errorCode: 'duplicate', provider: 'deduplicated' };
+
+  let result: SmsResult;
+  try {
+    const provider = await getProvider();
+    if (!provider.configured()) throw new Error('اعتبارنامه پیامک تنظیم نشده است.');
+    result = await provider.sendPattern({ to: mobile, bodyId: template.bodyId, args });
+  } catch (error) {
+    result = { ok: false, error: 'پیکربندی یا اتصال ارائه‌دهنده پیامک نامعتبر است.', errorCode: 'provider_error', provider: 'none' };
+  }
+  const safeError = scrubSmsError(result.error);
+  await run(
+    'UPDATE sms_logs SET provider=?, status=?, provider_message_id=?, error=? WHERE id=? AND status=\'pending\'',
+    [result.provider, result.ok ? 'sent' : 'failed', result.messageId ?? null, safeError ?? null, logId],
+  );
+  return { ...result, error: safeError };
 }
 
 export async function sendNotificationSms(mobile: string, params: string[], purpose = 'notification'): Promise<SmsResult> {

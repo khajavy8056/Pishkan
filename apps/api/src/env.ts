@@ -35,6 +35,17 @@ function num(key: string, fallback: number): number {
 
 const nodeEnv = str('NODE_ENV', 'development');
 
+export type DbDriver = 'postgres' | 'sqlite';
+export function parseDbDriver(value: string, runtime: string): DbDriver {
+  if (value !== 'postgres' && value !== 'sqlite') {
+    throw new Error(`Invalid DB_DRIVER=${JSON.stringify(value)}. Supported values are "postgres" and "sqlite".`);
+  }
+  if (runtime === 'production' && value !== 'postgres') {
+    throw new Error('DB_DRIVER=sqlite is restricted to development and tests; production requires PostgreSQL.');
+  }
+  return value;
+}
+
 export const env = {
   nodeEnv,
   isProd: nodeEnv === 'production',
@@ -42,7 +53,7 @@ export const env = {
   port: num('PORT', 3000),
   host: str('HOST', '0.0.0.0'),
   /** postgres | sqlite — sqlite is used for local development and CI only. */
-  dbDriver: (str('DB_DRIVER', 'postgres') as 'postgres' | 'sqlite'),
+  dbDriver: parseDbDriver(str('DB_DRIVER', 'postgres'), nodeEnv),
   databaseUrl: str('DATABASE_URL', ''),
   sqliteFile: str('SQLITE_FILE', path.resolve(process.cwd(), '.data/pishkan.db')),
   appUrl: str('APP_URL', 'http://localhost:5173'),

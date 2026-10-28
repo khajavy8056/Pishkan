@@ -3,6 +3,7 @@ import { z } from 'zod';
 import { asyncRoute, requireAuth, requirePermission } from '../http/middleware.js';
 import { badRequest, forbidden } from '../http/errors.js';
 import { ok } from '../http/respond.js';
+import { param } from '../http/params.js';
 import { env } from '../env.js';
 import {
   adminSettingsView, getBool, getNumber, getSecret, getString, invalidateSettingsCache,
@@ -11,6 +12,7 @@ import {
 import { sendTestSms, smsConfig, smsLogs, testConnection } from '../modules/sms/provider.js';
 import { writeAudit } from '../modules/audit/service.js';
 import { one, q } from '../db/index.js';
+import { listSmsTemplates, saveSmsTemplate } from '../modules/sms/templates.js';
 
 export const settingsRouter = Router();
 settingsRouter.use(requireAuth);
@@ -56,6 +58,23 @@ settingsRouter.post('/admin/reset', requirePermission('settings.edit'), asyncRou
 
 /* ---------------------------------- SMS ----------------------------------- */
 
+settingsRouter.get('/sms/templates', requirePermission('settings.view'), asyncRoute(async (_req, res) => {
+  ok(res, await listSmsTemplates());
+}));
+
+settingsRouter.put('/sms/templates/:eventCode', requirePermission('settings.edit'), asyncRoute(async (req, res) => {
+  const body = z.object({
+    bodyId: z.string().max(20), patternText: z.string().max(500), enabled: z.boolean(),
+  }).parse(req.body);
+  const template = await saveSmsTemplate({ eventCode: param(req, 'eventCode'), ...body }, { id: req.auth!.user.id });
+  await writeAudit({
+    actorId: req.auth!.user.id, actorName: req.auth!.user.fullName, action: 'sms.template.update',
+    entityType: 'sms_template', entityId: template.eventCode,
+    after: { eventCode: template.eventCode, enabled: template.enabled, configured: template.validationStatus === 'configured' }, ip: req.ip,
+  });
+  ok(res, template);
+}));
+
 settingsRouter.post('/sms/test-connection', requirePermission('settings.edit'), asyncRoute(async (req, res) => {
   const result = await testConnection();
   await writeAudit({
@@ -92,7 +111,7 @@ settingsRouter.get('/sms/credentials', requirePermission('settings.view'), async
   ok(res, {
     provider: cfg.provider,
     authMode: cfg.authMode,
-    username: cfg.username,
+    username: cfg.username ? `${cfg.username.slice(0, 2)}•••` : '',
     senderLine: cfg.senderLine,
     hasPassword: Boolean(await getSecret('sms.password')),
     hasApiKey: Boolean(await getSecret('sms.api_key')),

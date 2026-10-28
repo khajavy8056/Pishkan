@@ -8,9 +8,11 @@
 | --- | --- |
 | `database.dump` | خروجی کامل PostgreSQL با قالب custom (شامل مشتریان، پرونده‌ها، فاکتورها، تراکنش‌ها، تنظیمات، نقش‌ها، لاگ عملیات) |
 | `uploads.tar.gz` | مدارک و فایل‌های بارگذاری‌شده مشتریان |
-| `manifest.json` | تاریخ، نسخه سامانه، شناسه نسخه کد، نوع پایگاه داده و نام سرور |
+| `manifest.json` | تاریخ، نسخه سامانه، شناسه نسخه کد، نوع پایگاه داده، نام فایل‌ها و SHA-256 جداگانه هر دو جزء |
 
-در محیط SQLite (توسعه) به‌جای dump، فایل `database.sqlite` با روش backup امن SQLite گرفته می‌شود.
+در محیط SQLite (توسعه) به‌جای dump، فایل `database.sqlite` با روش backup امن SQLite گرفته می‌شود. CLI حتی برای پوشهٔ uploads خالی نیز یک آرشیو خالی اما معتبر می‌سازد؛ نبود آرشیو یا ناسازگاری SHA-256 هر جزء، بازیابی را پیش از جایگزینی داده متوقف می‌کند. پشتیبان‌های API نیز فایل DB و آرشیو uploads را در یک رکورد مرتبط با checksumهای مستقل ثبت می‌کنند.
+
+بازیابی SQLite از مسیر API فقط برای توسعه/آزمون است. مسیر API در production ممنوع است و بازیابی PostgreSQL نیز فقط از CLI روی سرور (با سرویس متوقف، تأیید صریح و نسخهٔ ایمنی) انجام می‌شود تا DB و uploads با هم جایگزین شوند. پشتیبان CLI باید یک آرشیو کامل با هر دو جزء باشد؛ پشتیبان database-only قابل‌بازیابی کامل اعلام نمی‌شود.
 
 ## پشتیبان‌گیری دستی
 
@@ -84,8 +86,10 @@ sudo pishkan restore /var/backups/pishkan/pishkan-backup-20260101T023000Z.tar.gz
 ### بازیابی روی سرور تازه
 
 ```bash
-# ۱. نصب تازه (بدون داده)
-curl -fsSL https://raw.githubusercontent.com/khajavy8056/Pishkan/main/scripts/install.sh | sudo bash
+# ۱. نصب تازه (بدون داده) با commit نصب‌کننده منتشرشده در این راهنما
+PISHKAN_COMMIT='<INSTALLER_COMMIT_SHA>'
+curl -fsSL "https://raw.githubusercontent.com/khajavy8056/Pishkan/${PISHKAN_COMMIT}/scripts/install.sh" \
+  | sudo env PISHKAN_COMMIT="${PISHKAN_COMMIT}" bash
 # ۲. بازیابی
 sudo pishkan restore /path/to/pishkan-backup-....tar.gz
 ```

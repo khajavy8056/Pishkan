@@ -60,27 +60,52 @@ export function requireAnyPermission(...perms: string[]) {
 /* ------------------------------ rate limiting ------------------------------ */
 
 interface Bucket { count: number; resetAt: number }
-const buckets = new Map<string, Bucket>();
 
-export function resetRateLimits() {
-  buckets.clear();
+/** Bounded fixed-window storage; old IP/path keys cannot grow without limit. */
+export function createRateLimitStore(capacity = 20_000, sweepEvery = 128) {
+  const buckets = new Map<string, Bucket>();
+  let operations = 0;
+  return {
+    take(key: string, windowMs: number, max: number, now = Date.now()) {
+      operations += 1;
+      if (operations % sweepEvery === 0 || buckets.size >= capacity) {
+        for (const [candidate, bucket] of buckets) if (bucket.resetAt <= now) buckets.delete(candidate);
+      }
+      let bucket = buckets.get(key);
+      if (!bucket || bucket.resetAt <= now) {
+        if (buckets.size >= capacity) {
+          const oldest = buckets.keys().next().value as string | undefined;
+          if (oldest !== undefined) buckets.delete(oldest);
+        }
+        bucket = { count: 0, resetAt: now + windowMs };
+        buckets.set(key, bucket);
+      }
+      bucket.count += 1;
+      return {
+        allowed: bucket.count <= max,
+        retryAfterSeconds: Math.max(1, Math.ceil((bucket.resetAt - now) / 1000)),
+      };
+    },
+    clear() { buckets.clear(); operations = 0; },
+    get size() { return buckets.size; },
+  };
 }
 
-/** In-memory fixed-window limiter. Suitable for a single node deployment. */
-export function rateLimit(options: { windowMs: number; max: number; key?: (req: Request) => string; message?: string }) {
+const rateLimitStore = createRateLimitStore();
+export function resetRateLimits() { rateLimitStore.clear(); }
+
+/** In-memory fixed-window limiter. Safe for the documented single-process API deployment. */
+export function rateLimit(options: {
+  windowMs: number; max: number; key?: (req: Request) => string;
+  includePath?: boolean; message?: string;
+}) {
   return (req: Request, res: Response, next: NextFunction) => {
-    const key = `${req.path}:${options.key ? options.key(req) : req.ip ?? 'unknown'}`;
-    const now = Date.now();
-    const bucket = buckets.get(key);
-    if (!bucket || bucket.resetAt <= now) {
-      buckets.set(key, { count: 1, resetAt: now + options.windowMs });
-      return next();
-    }
-    bucket.count += 1;
-    if (bucket.count > options.max) {
-      const retry = Math.ceil((bucket.resetAt - now) / 1000);
-      res.setHeader('Retry-After', String(retry));
-      return next(tooMany(options.message ?? `تعداد درخواست بیش از حد مجاز است. ${retry} ثانیه دیگر تلاش کنید.`));
+    const identity = options.key ? options.key(req) : req.ip ?? 'unknown';
+    const key = `${options.includePath === false ? 'all' : req.path}:${identity}`;
+    const result = rateLimitStore.take(key, options.windowMs, options.max);
+    if (!result.allowed) {
+      res.setHeader('Retry-After', String(result.retryAfterSeconds));
+      return next(tooMany(options.message ?? `تعداد درخواست بیش از حد مجاز است. ${result.retryAfterSeconds} ثانیه دیگر تلاش کنید.`));
     }
     next();
   };

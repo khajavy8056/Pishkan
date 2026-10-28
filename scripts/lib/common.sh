@@ -11,6 +11,7 @@ REPO_OWNER="${REPO_OWNER:-khajavy8056}"
 REPO_NAME="${REPO_NAME:-Pishkan}"
 REPO_URL="${REPO_URL:-https://github.com/${REPO_OWNER}/${REPO_NAME}.git}"
 REPO_BRANCH="${REPO_BRANCH:-main}"
+PISHKAN_COMMIT="${PISHKAN_COMMIT:-}"
 
 APP_USER="${APP_USER:-pishkan}"
 APP_GROUP="${APP_GROUP:-pishkan}"
@@ -64,6 +65,23 @@ require_commands() {
   if [ ${#missing[@]} -gt 0 ]; then
     die "این ابزارها نصب نیستند: ${missing[*]}"
   fi
+}
+
+is_full_commit() { [[ "${1:-}" =~ ^[0-9a-fA-F]{40}$ ]]; }
+
+clone_verified_commit() {
+  local commit="$1" destination="$2" actual
+  is_full_commit "$commit" || die 'برای نصب نسخه تأییدشده، PISHKAN_COMMIT باید SHA کامل ۴۰ رقمی Git باشد.'
+  mkdir -p "$destination"
+  git -C "$destination" init -q
+  git -C "$destination" remote add origin "$REPO_URL"
+  git -C "$destination" fetch --quiet --depth 1 origin "$commit" \
+    || { rm -rf "$destination"; die "دریافت commit ${commit} ناموفق بود؛ SHA و دسترسی مخزن را بررسی کنید."; }
+  git -C "$destination" checkout --quiet --detach FETCH_HEAD \
+    || { rm -rf "$destination"; die 'Checkout نسخه تأییدشده ناموفق بود.'; }
+  actual="$(git -C "$destination" rev-parse HEAD)"
+  [ "${actual,,}" = "${commit,,}" ] || { rm -rf "$destination"; die 'SHA دریافت‌شده با نسخه تأییدشده مطابقت ندارد.'; }
+  printf '%s\n' "$actual"
 }
 
 is_installed() {

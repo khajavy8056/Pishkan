@@ -41,7 +41,7 @@
 ```
 apps/
   api/            Express 5 + TypeScript (Node 22) — REST API، PostgreSQL (تولید) / SQLite (توسعه و CI)
-    migrations/   مهاجرت‌های نسخه‌بندی‌شده SQL (001..005)
+    migrations/   مهاجرت‌های نسخه‌بندی‌شده SQL (001..014)
     src/modules/  منطق دامنه: auth, catalog, requests, accounting, workforce, messages, assistant, settings, audit, backup
     src/routes/   لایه HTTP؛ هر مسیر مجوزدار با requirePermission محافظت می‌شود
   web/            React 19 + Vite 7 + Tailwind 4 — SPA فارسی/RTL، PWA و پوسته Capacitor برای اندروید
@@ -55,7 +55,7 @@ docs/             راهنمای نصب، به‌روزرسانی، پشتیبا
 
 ## ۳. نصب محلی روی Windows و اجرای همه پنل‌ها
 
-راهنمای کامل و عیب‌یابی: [docs/WINDOWS-LOCAL.md](docs/WINDOWS-LOCAL.md). بستهٔ نصب سبک Windows شامل launcherهای CMD و نصب‌کنندهٔ PowerShell است (MSI امضاشده نیست). پس از نصب Node.js 22.5+، شاخهٔ جاری را دریافت کنید و روی `Install-Pishkan-Windows.cmd` دوبار کلیک کنید. نصب‌کننده با SQLite محلی، migrationها و کاتالوگ شروع می‌کند، رمز مدیرکل را تصادفی می‌سازد و پس از نصب نمایش می‌دهد؛ رمز ثابت منتشرشده ندارد.
+راهنمای کامل و عیب‌یابی: [docs/WINDOWS-LOCAL.md](docs/WINDOWS-LOCAL.md). بستهٔ نصب سبک Windows شامل launcherهای CMD و نصب‌کنندهٔ PowerShell است (MSI امضاشده نیست). پس از نصب Node.js 22.22.2+، شاخهٔ جاری را دریافت کنید و روی `Install-Pishkan-Windows.cmd` دوبار کلیک کنید. نصب‌کننده با SQLite محلی، migrationها و کاتالوگ شروع می‌کند، رمز مدیرکل را تصادفی می‌سازد و پس از نصب نمایش می‌دهد؛ رمز ثابت منتشرشده ندارد.
 
 ```powershell
 # در ریشهٔ پوشهٔ دریافت‌شده
@@ -66,25 +66,28 @@ powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\install-windows.ps
 
 صفحه: `http://127.0.0.1:3000`؛ API سلامت: `http://127.0.0.1:3000/api/health`. دادهٔ نمونه پیش‌فرض خاموش است. نصب معمولی ۳ دسته و ۳۰ خدمت با هزینهٔ **نمونه** می‌سازد؛ پس از ورود مدیرکل از پنل کارکنان، حساب‌های کارمند/حسابدار را بسازید و مشتری را ثبت‌نام کنید. پورت فقط روی رایانهٔ محلی گوش می‌دهد.
 
-برای اجرای دستی توسعه در سیستم‌های دیگر، Node.js 22.5+ لازم است. `.env.development.example` را کپی و یک رمز قوی مخصوص خود در `BOOTSTRAP_ADMIN_PASSWORD` بنویسید، سپس `npm ci`, `npm run build` و `npm run dev` اجرا کنید. هیچ رمز پیش‌فرضی برای مدیر ساخته نمی‌شود مگر آن را خودتان تنظیم کنید. نصب Windows، مسیرهای نگهداری داده، اختیارات و محدودیت‌ها: [راهنمای Windows](docs/WINDOWS-LOCAL.md).
+برای اجرای دستی توسعه در سیستم‌های دیگر، Node.js 22.22.2+ لازم است. `.env.development.example` را کپی و یک رمز قوی مخصوص خود در `BOOTSTRAP_ADMIN_PASSWORD` بنویسید، سپس `npm ci`, `npm run build` و `npm run dev` اجرا کنید. هیچ رمز پیش‌فرضی برای مدیر ساخته نمی‌شود مگر آن را خودتان تنظیم کنید. نصب Windows، مسیرهای نگهداری داده، اختیارات و محدودیت‌ها: [راهنمای Windows](docs/WINDOWS-LOCAL.md).
 
 ## ۴. نصب روی سرور (Ubuntu 22.04/24.04)
 
 > دستورهای زیر مسیر انتشار روی `main` هستند؛ تا زمانی که تغییرات این شاخه بازبینی و به `main` ادغام نشده‌اند، در دسترس بودن آن‌ها تضمین نشده و این URLها در این محیط آزموده نشده‌اند.
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/khajavy8056/Pishkan/main/scripts/install.sh | sudo bash
+PISHKAN_COMMIT='<INSTALLER_COMMIT_SHA>'
+curl -fsSL "https://raw.githubusercontent.com/khajavy8056/Pishkan/${PISHKAN_COMMIT}/scripts/install.sh" \
+  | sudo env PISHKAN_COMMIT="${PISHKAN_COMMIT}" bash
 ```
 
 با دامنه و ایمیل (برای HTTPS خودکار):
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/khajavy8056/Pishkan/main/scripts/install.sh \
-  | sudo DOMAIN=pishkan.example.ir EMAIL=admin@example.ir bash
+PISHKAN_COMMIT='<INSTALLER_COMMIT_SHA>'
+curl -fsSL "https://raw.githubusercontent.com/khajavy8056/Pishkan/${PISHKAN_COMMIT}/scripts/install.sh" \
+  | sudo env PISHKAN_COMMIT="${PISHKAN_COMMIT}" DOMAIN=pishkan.example.ir EMAIL=admin@example.ir bash
 ```
 
 نصب‌کننده پیش‌نیازها را بررسی می‌کند و در صورت کمبود منابع با پیام روشن متوقف می‌شود،
-PostgreSQL و Nginx و Node 22 را نصب می‌کند، کلیدهای تصادفی می‌سازد، مهاجرت‌ها را اجرا می‌کند و
+PostgreSQL و Nginx و Node.js 22.22.2+ را نصب می‌کند، کلیدهای تصادفی می‌سازد، مهاجرت‌ها را اجرا می‌کند و
 رمز اولیه مدیر کل را **یک بار** نمایش می‌دهد. جزئیات: [docs/INSTALL.md](docs/INSTALL.md)
 
 ## ۵. مدیریت روزانه

@@ -7,7 +7,8 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { env } from '../env.js';
 import { resolveSession } from '../modules/auth/service.js';
-import { errorHandler, notFoundHandler, requestId } from './middleware.js';
+import { errorHandler, notFoundHandler, requestId, rateLimit } from './middleware.js';
+import { forbidden } from './errors.js';
 import { getBool } from '../modules/settings/service.js';
 import { healthRouter } from '../routes/health.js';
 import { publicRouter } from '../routes/public.js';
@@ -26,7 +27,8 @@ import { dashboardRouter } from '../routes/dashboard.js';
 import { systemRouter } from '../routes/system.js';
 
 function rateLimitConfig() {
-  return { windowMs: 60_000, max: Number(process.env.RATE_LIMIT_PER_MINUTE ?? 300) };
+  const configured = Number(process.env.RATE_LIMIT_PER_MINUTE ?? 300);
+  return { windowMs: 60_000, max: Number.isSafeInteger(configured) && configured > 0 ? configured : 300 };
 }
 
 /** Reject cross-site state-changing requests made with cookie auth. */
@@ -43,7 +45,7 @@ function originGuard(req: Request, _res: Response, next: NextFunction) {
     ]);
     if (allowed.has(host)) return next();
   } catch { /* invalid origin header */ }
-  return next(new Error('درخواست از مبدأ نامعتبر رد شد.'));
+  return next(forbidden('درخواست از مبدأ نامعتبر رد شد.'));
 }
 
 export async function createApp(): Promise<Express> {
@@ -109,24 +111,10 @@ export async function createApp(): Promise<Express> {
 
   app.use(originGuard);
 
-  // basic API throttle
+  // Bounded process-local API throttle. Deployment docs require a single API
+  // process; shared/distributed deployments need an external limiter.
   const { windowMs, max } = rateLimitConfig();
-  const hits = new Map<string, { c: number; reset: number }>();
-  app.use('/api', (req, res, next) => {
-    const key = req.ip ?? 'unknown';
-    const now = Date.now();
-    const entry = hits.get(key);
-    if (!entry || entry.reset < now) {
-      hits.set(key, { c: 1, reset: now + windowMs });
-    } else {
-      entry.c += 1;
-      if (entry.c > max) {
-        res.setHeader('Retry-After', '60');
-        return res.status(429).json({ ok: false, error: { code: 'rate_limited', message: 'تعداد درخواست‌ها بیش از حد مجاز است.' } });
-      }
-    }
-    next();
-  });
+  app.use('/api', rateLimit({ windowMs, max, includePath: false }));
 
   // attach session (cookie or bearer)
   app.use(async (req, _res, next) => {

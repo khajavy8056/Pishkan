@@ -92,6 +92,30 @@ describe('admin settings', () => {
     expect(services.body.meta.total).toBeGreaterThanOrEqual(30);
   });
 
+  it('configures event-specific SMS patterns without exposing SMS credentials', async () => {
+    const admin = await adminSession();
+    const server = await app();
+    await request(server).put('/api/settings/admin').set('Cookie', admin.cookie).send({
+      values: { 'sms.username': 'private-panel-user', 'sms.password': 'PrivatePassword77' },
+    }).expect(200);
+
+    const templates = await request(server).get('/api/settings/sms/templates').set('Cookie', admin.cookie).expect(200);
+    const requestCreated = templates.body.data.find((item: any) => item.eventCode === 'request_created');
+    expect(requestCreated.parameters).toEqual(['tracking_code', 'service_title']);
+    expect(JSON.stringify(templates.body)).not.toContain('PrivatePassword77');
+
+    await request(server).put('/api/settings/sms/templates/request_created').set('Cookie', admin.cookie).send({
+      bodyId: '582001', patternText: 'درخواست {tracking_code} برای {service_title}', enabled: true,
+    }).expect(200);
+    await request(server).put('/api/settings/sms/templates/request_status').set('Cookie', admin.cookie).send({
+      bodyId: 'bad', patternText: 'وضعیت {tracking_code} {status}', enabled: true,
+    }).expect(400);
+
+    const credentials = await request(server).get('/api/settings/sms/credentials').set('Cookie', admin.cookie).expect(200);
+    expect(JSON.stringify(credentials.body)).not.toContain('private-panel-user');
+    expect(JSON.stringify(credentials.body)).not.toContain('PrivatePassword77');
+  });
+
   it('opens the SMS connection test and reports configuration state', async () => {
     const admin = await adminSession();
     const server = await app();

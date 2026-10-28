@@ -13,6 +13,7 @@ import {
 import { getBool, getNumber, getString } from '../modules/settings/service.js';
 import { writeAudit } from '../modules/audit/service.js';
 import { notifyUser } from '../modules/notifications/service.js';
+import { notifyPaymentStatus } from '../modules/notifications/events.js';
 import { param } from '../http/params.js';
 
 import { startZarinpal, verifyZarinpal } from '../modules/accounting/zarinpal.js';
@@ -76,15 +77,11 @@ accountingRouter.post('/payments/callback/:gateway', asyncRoute(async (req, res)
     if (payment.gateway !== 'mock' || await getString('accounting.gateway') !== 'test' || !(await getBool('accounting.gateway_sandbox'))) throw forbidden('پرداخت متعلق به درگاه آزمایشی نیست.');
     if (body.success === false || body.success === 'false') {
       await run('UPDATE payments SET status = ?, updated_at = ? WHERE id = ?', ['failed', nowIso(), payment.id]);
+      await notifyPaymentStatus(payment.id, 'پرداخت ناموفق بود').catch(() => undefined);
       return ok(res, { status: 'failed' });
     }
     const confirmed = await confirmPayment(payment.id, { id: 'system', name: 'درگاه آزمایشی', ip: req.ip }, body.reference ?? 'MOCK-REF');
-    await notifyUser(payment.customer_id, {
-      title: 'پرداخت با موفقیت ثبت شد',
-      body: `مبلغ ${Number(payment.amount).toLocaleString('fa-IR')} ریال`,
-      kind: 'success',
-      link: '/app/payments',
-    }).catch(() => undefined);
+    await notifyPaymentStatus(payment.id, 'پرداخت تأیید شد').catch(() => undefined);
     return ok(res, confirmed);
   }
 
@@ -146,7 +143,13 @@ accountingRouter.post('/invoices', requirePermission('invoices.create'), asyncRo
     kind: body.requestId ? 'public' : 'custom',
     items: body.items?.map((i) => ({ title: i.title, qty: i.qty ?? 1, unitPrice: i.unitPrice, amount: (i.qty ?? 1) * i.unitPrice })),
   }, { id: req.auth!.user.id, name: req.auth!.user.fullName, ip: req.ip });
-
+  if (invoice?.status === 'issued') {
+    await notifyUser(invoice.customerId, {
+      title: 'فاکتور جدید برای شما صادر شد', body: `فاکتور ${invoice.number} — ${invoice.total.toLocaleString('fa-IR')} ریال`,
+      kind: 'info', link: '/app/invoices', idempotencyKey: `invoice:${invoice.id}:issued`,
+      sms: { eventCode: 'invoice_created', variables: { invoice_number: invoice.number, amount: String(invoice.total) } },
+    }).catch(() => undefined);
+  }
   created(res, invoice);
 }));
 
@@ -188,12 +191,7 @@ accountingRouter.post('/payments', requirePermission('payments.create'), asyncRo
   }
 
   const payment = await createPayment({ ...body, status: 'confirmed' }, { id: req.auth!.user.id, name: req.auth!.user.fullName, ip: req.ip });
-  await notifyUser(body.customerId, {
-    title: 'پرداخت شما ثبت شد',
-    body: `مبلغ ${Number(body.amount).toLocaleString('fa-IR')} ریال — ${body.method === 'cash' ? 'نقدی' : body.method === 'pos' ? 'کارتخوان' : 'کارت به کارت'}`,
-    kind: 'success',
-    link: '/app/payments',
-  }).catch(() => undefined);
+  await notifyPaymentStatus(payment.id, 'پرداخت حضوری ثبت شد').catch(() => undefined);
   created(res, payment);
 }));
 
@@ -202,6 +200,7 @@ accountingRouter.post('/payments/:id/confirm', requirePermission('payments.appro
   const pending = await one<any>('SELECT * FROM payments WHERE id=?',[param(req,'id')]);
   if (pending?.method === 'online' && pending.gateway !== 'mock') throw forbidden('پرداخت آنلاین فقط با تأیید سروری درگاه قابل تأیید است.');
   const payment = await confirmPayment(param(req, 'id'), { id: req.auth!.user.id, name: req.auth!.user.fullName, ip: req.ip }, body.reference);
+  await notifyPaymentStatus(param(req, 'id'), 'پرداخت تأیید شد').catch(() => undefined);
   ok(res, payment);
 }));
 

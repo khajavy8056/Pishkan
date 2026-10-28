@@ -279,15 +279,17 @@ export async function addEvent(input: {
   requestId: string; type: string; message?: string; actorId?: string; actorName?: string;
   fromStatus?: string; toStatus?: string; metadata?: unknown; visibleToCustomer?: boolean;
 }) {
+  const eventId = id('evt');
   await run(
     `INSERT INTO request_events (id, request_id, actor_id, actor_name, type, message, from_status, to_status, metadata, visible_to_customer, created_at)
      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     [
-      id('evt'), input.requestId, input.actorId ?? null, input.actorName ?? null, input.type,
+      eventId, input.requestId, input.actorId ?? null, input.actorName ?? null, input.type,
       input.message ?? null, input.fromStatus ?? null, input.toStatus ?? null,
       jsonStringify(input.metadata ?? {}), input.visibleToCustomer === false ? 0 : 1, nowIso(),
     ],
   );
+  return eventId;
 }
 
 /* --------------------------------- create ---------------------------------- */
@@ -676,7 +678,7 @@ export async function reviewDocument(
     'UPDATE request_documents SET status = ?, reviewed_by = ?, review_note = ? WHERE id = ?',
     [decision, actor.id, note ?? null, documentId],
   );
-  await addEvent({
+  const eventId = await addEvent({
     requestId: doc.request_id, type: 'document', actorId: actor.id, actorName: actor.name,
     message: decision === 'approved' ? 'مدرک تأیید شد.' : `مدرک رد شد. ${note ?? ''}`.trim(),
     metadata: { documentId },
@@ -685,6 +687,7 @@ export async function reviewDocument(
     await run(`UPDATE requests SET status = 'waiting_documents', updated_at = ? WHERE id = ? AND status NOT IN ('completed','cancelled','rejected')`, [nowIso(), doc.request_id]);
   }
   await writeAudit({ actorId: actor.id, actorName: actor.name, action: `document.${decision}`, entityType: 'document', entityId: documentId, ip: actor.ip });
+  return { eventId, requestId: doc.request_id, previousStatus: doc.status };
 }
 
 export async function customerCancel(requestId: string, customerId: string, reason: string, actor: { id: string; name: string }) {

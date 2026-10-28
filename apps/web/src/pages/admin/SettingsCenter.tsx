@@ -227,6 +227,8 @@ export function SettingsCenter() {
             </div>
           </Card>
 
+          {activeGroup === 'sms' && <SmsTemplatesPanel notify={notify} />}
+
           {activeGroup === 'sms' && (
             <Card>
               <h2 className="mb-1 flex items-center gap-2 font-bold text-navy-900"><MessageSquare className="size-4 text-brand-700" /> آزمون سرویس پیامک</h2>
@@ -328,6 +330,84 @@ export function SettingsCenter() {
         </div>
       </Modal>
     </AppShell>
+  );
+}
+
+function SmsTemplatesPanel({ notify }: { notify: (message: string, type: 'success' | 'error' | 'info') => void }) {
+  const [templates, setTemplates] = useState<any[]>([]);
+  const [drafts, setDrafts] = useState<Record<string, any>>({});
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState<string | null>(null);
+  const [error, setError] = useState('');
+
+  const load = () => api.get<{ data: any[] }>('/api/settings/sms/templates')
+    .then((res) => {
+      setTemplates(res.data);
+      setDrafts(Object.fromEntries(res.data.map((item) => [item.eventCode, {
+        bodyId: item.bodyId, patternText: item.patternText, enabled: item.enabled,
+      }])));
+      setError('');
+    })
+    .catch((err) => setError(err instanceof ApiFailure ? err.message : 'بارگذاری الگوها ناموفق بود.'))
+    .finally(() => setLoading(false));
+  useEffect(() => { load(); }, []);
+
+  const saveTemplate = async (eventCode: string) => {
+    const draft = drafts[eventCode];
+    if (!draft) return;
+    setSaving(eventCode);
+    try {
+      await api.put(`/api/settings/sms/templates/${encodeURIComponent(eventCode)}`, draft);
+      notify('الگوی این رویداد ذخیره شد. برای ارسال واقعی باید شناسه و متن را با پنل ارائه‌دهنده تطبیق دهید.', 'success');
+      await load();
+    } catch (err) {
+      notify(err instanceof ApiFailure ? err.message : 'ذخیره الگوی پیامک ناموفق بود.', 'error');
+    } finally { setSaving(null); }
+  };
+
+  return (
+    <Card>
+      <h2 className="mb-1 flex items-center gap-2 font-bold text-navy-900"><MessageSquare className="size-4 text-brand-700" /> الگوهای پیامک رویدادها</h2>
+      <p className="mb-4 text-[11px] leading-5 text-navy-500">
+        برای هر رویداد، شناسه پترن و متن تأییدشده را از پنل ارائه‌دهنده وارد کنید. فقط نام متغیرهای ثابت زیر به ترتیب مشخص‌شده به پترن فرستاده می‌شود؛ متن آزاد و یادداشت داخلی ارسال نمی‌شود. وضعیت «ساختار کامل» تأیید ارائه‌دهنده یا تحویل واقعی پیامک نیست.
+      </p>
+      {loading ? <Loading rows={2} /> : error ? <ErrorState message={error} onRetry={load} /> : (
+        <div className="space-y-4">
+          {templates.map((template) => {
+            const draft = drafts[template.eventCode] ?? {};
+            return (
+              <div key={template.eventCode} className="rounded-xl border border-navy-100 p-3 sm:p-4">
+                <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
+                  <div>
+                    <h3 className="text-sm font-semibold text-navy-900">{template.title}</h3>
+                    <p className="text-[11px] text-navy-500">گیرنده: {template.recipientType === 'customer' ? 'مشتری' : 'کارشناس'} · {template.description}</p>
+                  </div>
+                  <Badge tone={template.validationStatus === 'configured' ? 'info' : 'warning'}>
+                    {template.validationStatus === 'configured' ? 'ساختار کامل؛ تطبیق ارائه‌دهنده تأیید نشده' : 'ناقص'}
+                  </Badge>
+                </div>
+                <div className="mb-3 rounded-lg bg-navy-50 px-3 py-2 text-[11px] text-navy-600">
+                  متغیرها، به همین ترتیب: <span dir="ltr" className="font-mono">{template.parameters.map((name: string) => `{${name}}`).join('، ')}</span>
+                </div>
+                <div className="grid gap-3 sm:grid-cols-2">
+                  <Field label="شناسه پترن ارائه‌دهنده">
+                    <Input dir="ltr" inputMode="numeric" value={draft.bodyId ?? ''} onChange={(e) => setDrafts((prev) => ({ ...prev, [template.eventCode]: { ...draft, bodyId: e.target.value } }))} placeholder="شناسه عددی" />
+                  </Field>
+                  <Field label="متن پترن (فقط برای تطبیق مدیریتی)">
+                    <Textarea dir="rtl" value={draft.patternText ?? ''} onChange={(e) => setDrafts((prev) => ({ ...prev, [template.eventCode]: { ...draft, patternText: e.target.value } }))} className="min-h-20" placeholder={template.parameters.map((name: string) => `{${name}}`).join(' ')} />
+                  </Field>
+                </div>
+                <div className="mt-3 flex flex-wrap items-center justify-between gap-3">
+                  <Switch checked={Boolean(draft.enabled)} onChange={(enabled) => setDrafts((prev) => ({ ...prev, [template.eventCode]: { ...draft, enabled } }))} label={draft.enabled ? 'ارسال این رویداد فعال' : 'غیرفعال'} />
+                  <Button size="sm" loading={saving === template.eventCode} onClick={() => saveTemplate(template.eventCode)}><Save className="size-4" /> ذخیره الگو</Button>
+                </div>
+              </div>
+            );
+          })}
+          {templates.length === 0 && <EmptyState title="رویدادی برای پیکربندی موجود نیست" />}
+        </div>
+      )}
+    </Card>
   );
 }
 

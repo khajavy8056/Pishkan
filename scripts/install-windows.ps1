@@ -33,14 +33,13 @@ Write-Host "مسیر نصب: $Root"
 $Node = Get-Command node -ErrorAction SilentlyContinue
 $Npm = Get-Command npm -ErrorAction SilentlyContinue
 if (-not $Node -or -not $Npm) {
-  Write-Fail 'Node.js و npm پیدا نشد. Node.js نسخه 22.5 یا جدیدتر را نصب کنید، PowerShell را ببندید و دوباره باز کنید.'
+  Write-Fail 'Node.js و npm پیدا نشد. Node.js نسخه 22.22.2 یا جدیدتر را نصب کنید، PowerShell را ببندید و دوباره باز کنید.'
 }
 $NodeVersion = (& node -p "process.versions.node" 2>$null).Trim()
-$VersionParts = $NodeVersion.Split('.')
-$Major = [int]$VersionParts[0]
-$Minor = [int]$VersionParts[1]
-if ($Major -lt 22 -or ($Major -eq 22 -and $Minor -lt 5)) {
-  Write-Fail "نسخه Node.js نصب‌شده $NodeVersion است؛ نسخه 22.5 یا جدیدتر لازم است."
+$MinimumNodeVersion = [version]'22.22.2'
+try { $ParsedNodeVersion = [version]$NodeVersion } catch { Write-Fail "نسخه Node.js قابل تشخیص نیست: $NodeVersion" }
+if ($ParsedNodeVersion -lt $MinimumNodeVersion) {
+  Write-Fail "نسخه Node.js نصب‌شده $NodeVersion است؛ نسخه 22.22.2 یا جدیدتر لازم است."
 }
 Write-Ok "Node.js $NodeVersion"
 

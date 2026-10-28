@@ -3,6 +3,7 @@ import { one, run, tx, nowIso } from '../../db/index.js';
 import { badRequest, forbidden, notFound } from '../../http/errors.js';
 import { getBool, getString, getSecret } from '../settings/service.js';
 import { createPayment, confirmPayment, getInvoice } from './service.js';
+import { notifyPaymentStatus } from '../notifications/events.js';
 
 function base(sandbox: boolean) { return sandbox ? 'https://sandbox.zarinpal.com' : 'https://payment.zarinpal.com'; }
 async function call(sandbox: boolean, operation: 'request'|'verify', payload: object) {
@@ -48,12 +49,16 @@ export async function startZarinpal(invoiceId: string, customerId: string) {
 export async function verifyZarinpal(paymentId: string, authority: string, status: string) {
  const payment = await one<any>("SELECT * FROM payments WHERE id=? AND gateway='zarinpal'",[paymentId]);
  if (!payment || !authority || payment.gateway_authority !== authority) throw badRequest('شناسه پرداخت با درخواست تطابق ندارد.');
- if (payment.status === 'confirmed') return {confirmed:true,reference:payment.reference};
+ if (payment.status === 'confirmed') {
+  await notifyPaymentStatus(paymentId,'پرداخت تأیید شد').catch(()=>undefined);
+  return {confirmed:true,reference:payment.reference};
+ }
  if (payment.status !== 'pending' || status !== 'OK') return {confirmed:false};
  const merchant = await getSecret('accounting.gateway_merchant_id');
  if (!merchant) throw badRequest('شناسه پذیرنده تنظیم نشده است.');
  const data = await call(Boolean(payment.gateway_sandbox),'verify',{merchant_id:merchant,amount:Number(payment.amount),authority});
  if (![100,101].includes(data.code) || !data.ref_id) throw badRequest('تأیید سروری پرداخت موفق نبود.');
  await confirmPayment(paymentId,{id:'gateway:zarinpal',name:'تأیید سروری زرین‌پال'},String(data.ref_id));
+ await notifyPaymentStatus(paymentId,'پرداخت تأیید شد').catch(()=>undefined);
  return {confirmed:true,reference:String(data.ref_id)};
 }

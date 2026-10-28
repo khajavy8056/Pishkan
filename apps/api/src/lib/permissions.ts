@@ -21,6 +21,7 @@ export const RESOURCES = [
   'reports',
   'messages',
   'documents',
+  'payroll',
   'settings',
   'roles',
   'audit',
@@ -32,10 +33,18 @@ export const ACTIONS = ['view', 'create', 'edit', 'approve', 'cancel', 'delete',
 
 export type Resource = (typeof RESOURCES)[number];
 export type Action = (typeof ACTIONS)[number];
-export type Permission = `${Resource}.${Action}`;
+export const PAYROLL_PERMISSIONS = [
+  'payroll.view',
+  'payroll.contracts.edit',
+  'payroll.accrue',
+  'payroll.settle',
+  'payroll.reports.view',
+] as const;
+
+export type Permission = `${Resource}.${Action}` | (typeof PAYROLL_PERMISSIONS)[number];
 
 export function allPermissions(): Permission[] {
-  return RESOURCES.flatMap((r) => ACTIONS.map((a) => `${r}.${a}` as Permission));
+  return [...RESOURCES.flatMap((r) => ACTIONS.map((a) => `${r}.${a}` as Permission)), ...PAYROLL_PERMISSIONS];
 }
 
 export const PERMISSION_LABELS: Record<Action, string> = {
@@ -63,6 +72,7 @@ export const RESOURCE_LABELS: Record<Resource, string> = {
   reports: 'گزارش‌ها',
   messages: 'پیام‌ها',
   documents: 'مدارک',
+  payroll: 'حقوق و تسویه کارکنان',
   settings: 'تنظیمات',
   roles: 'نقش‌ها و مجوزها',
   audit: 'تاریخچه عملیات',
@@ -165,6 +175,7 @@ export const DEFAULT_ROLES: {
       'payments.view', 'payments.create', 'payments.approve', 'payments.cancel', 'payments.export',
       'expenses.view', 'expenses.create', 'expenses.edit', 'expenses.export',
       'reports.view', 'reports.export',
+      'payroll.view', 'payroll.contracts.edit', 'payroll.accrue', 'payroll.settle', 'payroll.reports.view',
     ],
   },
 ];

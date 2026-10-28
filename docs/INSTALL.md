@@ -22,14 +22,17 @@
 ## ۲. نصب یک‌دستوری
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/khajavy8056/Pishkan/main/scripts/install.sh | sudo bash
+PISHKAN_COMMIT='<INSTALLER_COMMIT_SHA>'
+curl -fsSL "https://raw.githubusercontent.com/khajavy8056/Pishkan/${PISHKAN_COMMIT}/scripts/install.sh" \
+  | sudo env PISHKAN_COMMIT="${PISHKAN_COMMIT}" bash
 ```
 
 با دامنه و ایمیل (HTTPS خودکار با Let's Encrypt):
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/khajavy8056/Pishkan/main/scripts/install.sh \
-  | sudo DOMAIN=pishkan.example.ir EMAIL=admin@example.ir bash
+PISHKAN_COMMIT='<INSTALLER_COMMIT_SHA>'
+curl -fsSL "https://raw.githubusercontent.com/khajavy8056/Pishkan/${PISHKAN_COMMIT}/scripts/install.sh" \
+  | sudo env PISHKAN_COMMIT="${PISHKAN_COMMIT}" DOMAIN=pishkan.example.ir EMAIL=admin@example.ir bash
 ```
 
 از داخل یک کلون:
@@ -49,13 +52,13 @@ sudo bash scripts/install.sh
 | `SKIP_TLS` | `0` | با `1` دریافت گواهی انجام نمی‌شود |
 | `SEED_CATALOG` | `0` | با `1` کاتالوگ نمونه در نصب موجود دوباره بررسی/تکمیل می‌شود |
 | `SOURCE_DIR` | — | نصب از مسیر کد محلی به‌جای clone از GitHub |
-| `NODE_MAJOR` | `22` | نسخه Node.js |
+| `NODE_MAJOR` | `22` | شاخه Node.js؛ نصب‌کننده حداقل `22.22.2` را اجباری می‌کند |
 | `REPO_BRANCH` | `main` | شاخه دریافت کد |
 
 ## ۳. نصب‌کننده چه می‌کند؟
 
 1. بررسی سیستم‌عامل، حافظه، دیسک و معماری؛ توقف با پیام روشن در صورت کمبود.
-2. نصب `postgresql`، `nginx`، `git`، `curl`، `certbot`، `ufw`، `jq` و Node.js 22 (در صورت نیاز).
+2. نصب `postgresql`، `nginx`، `git`، `curl`، `certbot`، `ufw`، `jq` و Node.js 22.22.2+ (در صورت نیاز).
 3. ساخت کاربر سیستمی بدون شل `pishkan` و مسیرهای:
    - `/opt/pishkan/releases/<timestamp>` — نسخه‌ها
    - `/opt/pishkan/current` — لینک نمادین نسخه فعال

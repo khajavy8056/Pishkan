@@ -152,6 +152,8 @@ requestsRouter.post('/',
         body: `شماره پیگیری ${request.trackingCode} — ${request.serviceTitle}`,
         kind: 'success',
         link: `/app/requests/${request.id}`,
+        idempotencyKey: `request:${request.id}:created`,
+        sms: { eventCode: 'request_created', variables: { tracking_code: request.trackingCode, service_title: request.serviceTitle } },
       }).catch(() => undefined);
     }
     created(res, request);
@@ -171,25 +173,32 @@ requestsRouter.patch('/:id/status', requirePermission('requests.edit'), asyncRou
     throw forbidden('برای این تغییر وضعیت دسترسی تأیید لازم است.');
   }
   const updated = await changeStatus(param(req, 'id'), body.status, { id: req.auth!.user.id, name: req.auth!.user.fullName, ip: req.ip }, body.note);
-  await notifyUser(request.customerId, {
-    title: 'وضعیت درخواست شما تغییر کرد',
-    body: `${request.serviceTitle}: ${STATUS_LABELS[body.status]}`,
-    kind: 'info',
-    link: `/app/requests/${request.id}`,
-  }).catch(() => undefined);
+  if (request.status !== body.status) {
+    await notifyUser(request.customerId, {
+      title: 'وضعیت درخواست شما تغییر کرد',
+      body: `${request.serviceTitle}: ${STATUS_LABELS[body.status]}`,
+      kind: 'info',
+      link: `/app/requests/${request.id}`,
+      idempotencyKey: `request:${request.id}:status:${updated?.updatedAt ?? body.status}`,
+      sms: { eventCode: 'request_status', variables: { tracking_code: request.trackingCode, status: STATUS_LABELS[body.status] } },
+    }).catch(() => undefined);
+  }
   ok(res, await safeRequest(req, param(req, 'id')));
 }));
 
 requestsRouter.patch('/:id/assign', requirePermission('requests.edit'), asyncRoute(async (req, res) => {
   if (!officeScope(req.auth!)) throw forbidden('ارجاع مدیریتی برای شما مجاز نیست؛ از پذیرش پرونده استفاده کنید.');
   const body = z.object({ staffId: z.string().nullable() }).parse(req.body);
+  const previous = await loadAuthorized(param(req, 'id'), req);
   const updated = await assignRequest(param(req, 'id'), body.staffId, { id: req.auth!.user.id, name: req.auth!.user.fullName, ip: req.ip });
-  if (body.staffId) {
+  if (body.staffId && previous.assignedTo !== body.staffId) {
     await notifyUser(body.staffId, {
       title: 'پرونده جدید به شما ارجاع شد',
       body: `${updated?.serviceTitle} — ${updated?.trackingCode}`,
       kind: 'info',
       link: `/staff/requests/${param(req, 'id')}`,
+      idempotencyKey: `request:${param(req, 'id')}:assigned:${updated?.updatedAt ?? Date.now()}`,
+      sms: { eventCode: 'request_assigned', variables: { tracking_code: updated?.trackingCode ?? '', service_title: updated?.serviceTitle ?? '' } },
     }).catch(() => undefined);
   }
   ok(res, await safeRequest(req, param(req, 'id')));
@@ -247,12 +256,21 @@ requestsRouter.post('/:id/documents/:docId/review', requirePermission('documents
     decision: z.enum(['approved', 'rejected']),
     note: z.string().max(1000).optional(),
   }).parse(req.body);
-  await loadAuthorized(param(req, 'id'), req);
-  const doc = await one<{ request_id: string }>('SELECT request_id FROM request_documents WHERE id = ? AND request_id = ?', [param(req, 'docId'), param(req, 'id')]);
+  const request = await loadAuthorized(param(req, 'id'), req);
+  const doc = await one<{ request_id: string; kind: string; status: string }>('SELECT request_id, kind, status FROM request_documents WHERE id = ? AND request_id = ?', [param(req, 'docId'), param(req, 'id')]);
   if (!doc) throw notFound('مدرک یافت نشد.');
-  const output=await one<any>('SELECT kind FROM request_documents WHERE id=?',[param(req,'docId')]);
-  if(output?.kind==='staff'&&!officeScope(req.auth!))throw forbidden('تأیید فایل نتیجه فقط توسط مدیریت مجاز است.');
-  await reviewDocument(param(req, 'docId'), body.decision, body.note, { id: req.auth!.user.id, name: req.auth!.user.fullName, ip: req.ip });
+  if(doc.kind==='staff'&&!officeScope(req.auth!))throw forbidden('تأیید فایل نتیجه فقط توسط مدیریت مجاز است.');
+  const review = await reviewDocument(param(req, 'docId'), body.decision, body.note, { id: req.auth!.user.id, name: req.auth!.user.fullName, ip: req.ip });
+  if (doc.kind === 'customer' && doc.status !== body.decision) {
+    await notifyUser(request.customerId, {
+      title: 'مدرک شما بررسی شد',
+      body: `مدرک پرونده ${request.trackingCode}: ${body.decision === 'approved' ? 'تأیید شد' : 'نیازمند اصلاح است'}`,
+      kind: body.decision === 'approved' ? 'success' : 'warning',
+      link: `/app/requests/${request.id}`,
+      idempotencyKey: `document-review:${review.eventId}`,
+      sms: { eventCode: 'document_status', variables: { tracking_code: request.trackingCode, document_status: body.decision === 'approved' ? 'تأیید شد' : 'نیازمند اصلاح است' } },
+    }).catch(() => undefined);
+  }
   ok(res, await safeRequest(req, param(req, 'id')));
 }));
 
