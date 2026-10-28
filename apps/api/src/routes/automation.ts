@@ -1,0 +1,10 @@
+import {Router} from 'express';
+import {z} from 'zod';
+import {asyncRoute,requireAuth} from '../http/middleware.js';
+import {ok,created} from '../http/respond.js';
+import {param} from '../http/params.js';
+import {inbox,decide} from '../modules/automation/service.js';
+export const automationRouter=Router();
+automationRouter.use(requireAuth);
+automationRouter.get('/inbox',asyncRoute(async(req,res)=>{ok(res,await inbox(req.auth!))}));
+automationRouter.post('/:id/decision',asyncRoute(async(req,res)=>{const b=z.object({decision:z.enum(['approved','returned']),note:z.string().trim().min(3).max(2000)}).parse(req.body);ok(res,await decide(param(req,'id'),b.decision,b.note,req.auth!))}));
