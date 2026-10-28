@@ -2,7 +2,7 @@
 # ---------------------------------------------------------------------------
 # Pishkan — Ubuntu Server one-command installer
 #
-#   curl -fsSL https://raw.githubusercontent.com/khajavy8056/Pishkan/main/scripts/install.sh | sudo bash
+#   Use the immutable PISHKAN_COMMIT examples in README.md or docs/INSTALL.md; do not pipe from a floating branch.
 #
 # or from a checkout:
 #

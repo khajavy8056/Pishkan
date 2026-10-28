@@ -87,7 +87,7 @@ sudo pishkan restore /var/backups/pishkan/pishkan-backup-20260101T023000Z.tar.gz
 
 ```bash
 # ۱. نصب تازه (بدون داده) با commit نصب‌کننده منتشرشده در این راهنما
-PISHKAN_COMMIT='<INSTALLER_COMMIT_SHA>'
+PISHKAN_COMMIT='c92c4525332213f82d80a005291d2782485fdcd6'
 curl -fsSL "https://raw.githubusercontent.com/khajavy8056/Pishkan/${PISHKAN_COMMIT}/scripts/install.sh" \
   | sudo env PISHKAN_COMMIT="${PISHKAN_COMMIT}" bash
 # ۲. بازیابی

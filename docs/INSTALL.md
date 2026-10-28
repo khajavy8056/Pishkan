@@ -21,8 +21,10 @@
 
 ## ۲. نصب یک‌دستوری
 
+نسخه نصب به commit کامل `c92c4525332213f82d80a005291d2782485fdcd6` pin شده است؛ دستور از شاخه شناور `main` استفاده نمی‌کند. PR این نسخه هنوز باز است و نصب عملیاتی روی VM انجام نشده.
+
 ```bash
-PISHKAN_COMMIT='<INSTALLER_COMMIT_SHA>'
+PISHKAN_COMMIT='c92c4525332213f82d80a005291d2782485fdcd6'
 curl -fsSL "https://raw.githubusercontent.com/khajavy8056/Pishkan/${PISHKAN_COMMIT}/scripts/install.sh" \
   | sudo env PISHKAN_COMMIT="${PISHKAN_COMMIT}" bash
 ```
@@ -30,7 +32,7 @@ curl -fsSL "https://raw.githubusercontent.com/khajavy8056/Pishkan/${PISHKAN_COMM
 با دامنه و ایمیل (HTTPS خودکار با Let's Encrypt):
 
 ```bash
-PISHKAN_COMMIT='<INSTALLER_COMMIT_SHA>'
+PISHKAN_COMMIT='c92c4525332213f82d80a005291d2782485fdcd6'
 curl -fsSL "https://raw.githubusercontent.com/khajavy8056/Pishkan/${PISHKAN_COMMIT}/scripts/install.sh" \
   | sudo env PISHKAN_COMMIT="${PISHKAN_COMMIT}" DOMAIN=pishkan.example.ir EMAIL=admin@example.ir bash
 ```

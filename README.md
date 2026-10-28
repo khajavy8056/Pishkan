@@ -70,10 +70,10 @@ powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\install-windows.ps
 
 ## ۴. نصب روی سرور (Ubuntu 22.04/24.04)
 
-> دستورهای زیر مسیر انتشار روی `main` هستند؛ تا زمانی که تغییرات این شاخه بازبینی و به `main` ادغام نشده‌اند، در دسترس بودن آن‌ها تضمین نشده و این URLها در این محیط آزموده نشده‌اند.
+> دستورها به commit تغییرناپذیر `c92c4525332213f82d80a005291d2782485fdcd6` روی شاخه ممیزی‌شده pin شده‌اند، نه `main`. این commit از GitHub دریافت و SHA آن تأیید شد؛ نصب سرور واقعی/تولیدی با آن انجام نشده و PR هنوز باز است.
 
 ```bash
-PISHKAN_COMMIT='<INSTALLER_COMMIT_SHA>'
+PISHKAN_COMMIT='c92c4525332213f82d80a005291d2782485fdcd6'
 curl -fsSL "https://raw.githubusercontent.com/khajavy8056/Pishkan/${PISHKAN_COMMIT}/scripts/install.sh" \
   | sudo env PISHKAN_COMMIT="${PISHKAN_COMMIT}" bash
 ```
@@ -81,7 +81,7 @@ curl -fsSL "https://raw.githubusercontent.com/khajavy8056/Pishkan/${PISHKAN_COMM
 با دامنه و ایمیل (برای HTTPS خودکار):
 
 ```bash
-PISHKAN_COMMIT='<INSTALLER_COMMIT_SHA>'
+PISHKAN_COMMIT='c92c4525332213f82d80a005291d2782485fdcd6'
 curl -fsSL "https://raw.githubusercontent.com/khajavy8056/Pishkan/${PISHKAN_COMMIT}/scripts/install.sh" \
   | sudo env PISHKAN_COMMIT="${PISHKAN_COMMIT}" DOMAIN=pishkan.example.ir EMAIL=admin@example.ir bash
 ```
