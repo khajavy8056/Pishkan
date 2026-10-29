@@ -1,6 +1,7 @@
 import { tehranNow } from '../../lib/tehran-time.js';
 import { one, q, run, nowIso, addHours, jsonParse, jsonStringify, tx } from '../../db/index.js';
-import { id } from '../../lib/crypto.js';
+import { id, hmac } from '../../lib/crypto.js';
+import { env } from '../../env.js';
 import { badRequest, conflict, forbidden, notFound } from '../../http/errors.js';
 import { getBool, getNumber, getString } from '../settings/service.js';
 import { getServiceById, finalFee, type ServiceDTO } from '../catalog/service.js';
@@ -251,6 +252,7 @@ export async function candidatesForService(service: ServiceDTO): Promise<{ id: s
 }
 
 export async function autoAssign(requestId: string): Promise<string | null> {
+ return tx(async () => {
   if (!(await getBool('services.auto_assign'))) return null;
   const request = await one<RequestRow>('SELECT * FROM requests WHERE id = ?', [requestId]);
   if (!request || request.assigned_to) return null;
@@ -265,12 +267,14 @@ export async function autoAssign(requestId: string): Promise<string | null> {
   if (!chosen) return null;
 
   const assignedAt = nowIso();
-  await run('UPDATE requests SET assigned_to = ?, assigned_at = ?, status = ?, updated_at = ? WHERE id = ?', [chosen.id, assignedAt, 'assigned', assignedAt, requestId]);
+  const assignment = await run('UPDATE requests SET assigned_to = ?, assigned_at = ?, status = ?, updated_at = ? WHERE id = ? AND assigned_to IS NULL AND status = ?', [chosen.id, assignedAt, 'assigned', assignedAt, requestId, request.status]);
+  if (!assignment.changes) return null;
   await addEvent({
     requestId, type: 'assigned', message: `پرونده به ${chosen.name} ارجاع شد.`,
     fromStatus: request.status, toStatus: 'assigned',
   });
   return chosen.id;
+ });
 }
 
 /* --------------------------------- events ---------------------------------- */
@@ -303,10 +307,53 @@ export interface CreateRequestInput {
   note?: string;
   documentIds?: { fileId: string; title?: string }[];
   existingInvoiceId?: string;
+  idempotencyKey?: string;
+}
+
+function canonicalJson(value: unknown): string {
+  if (Array.isArray(value)) return `[${value.map(canonicalJson).join(',')}]`;
+  if (value && typeof value === 'object') {
+    const entries = Object.entries(value as Record<string, unknown>).sort(([a], [b]) => a.localeCompare(b));
+    return `{${entries.map(([key, item]) => `${JSON.stringify(key)}:${canonicalJson(item)}`).join(',')}}`;
+  }
+  return JSON.stringify(value) ?? 'null';
 }
 
 export async function createRequest(input: CreateRequestInput, actor?: { id: string; name: string; ip?: string }) {
  return tx(async()=>{
+  const idempotencyKey = input.idempotencyKey?.trim();
+  let submissionHash: string | undefined;
+  if (idempotencyKey) {
+    if (idempotencyKey.length < 8 || idempotencyKey.length > 128 || !/^[A-Za-z0-9._:-]+$/.test(idempotencyKey)) {
+      throw badRequest('کلید جلوگیری از ثبت تکراری معتبر نیست.');
+    }
+    submissionHash = hmac(canonicalJson({
+      customerId: input.customerId,
+      serviceId: input.serviceId,
+      formData: input.formData ?? {},
+      paymentMethod: input.paymentMethod ?? null,
+      existingInvoiceId: input.existingInvoiceId ?? null,
+      priority: input.priority ?? 'normal',
+      documentIds: input.documentIds ?? [],
+    }), env.encryptionKey || 'pishkan-development-only-idempotency-secret');
+    let prior = await one<any>('SELECT payload_hash, request_id FROM request_submission_keys WHERE customer_id = ? AND idempotency_key = ?', [input.customerId, idempotencyKey]);
+    if (!prior) {
+      const reserved = await run(`INSERT INTO request_submission_keys (customer_id, idempotency_key, payload_hash, request_id, created_at)
+        VALUES (?, ?, ?, NULL, ?) ON CONFLICT (customer_id, idempotency_key) DO NOTHING`,
+      [input.customerId, idempotencyKey, submissionHash, nowIso()]);
+      if (!reserved.changes) {
+        prior = await one<any>('SELECT payload_hash, request_id FROM request_submission_keys WHERE customer_id = ? AND idempotency_key = ?', [input.customerId, idempotencyKey]);
+      }
+    }
+    if (prior) {
+      if (prior.payload_hash !== submissionHash) throw conflict('این کلید ثبت قبلاً با اطلاعات دیگری استفاده شده است. فرم را بازبینی و دوباره تلاش کنید.');
+      if (!prior.request_id) throw conflict('ثبت درخواست با این کلید هنوز نهایی نشده است؛ کمی بعد دوباره تلاش کنید.');
+      const replay = await getRequest(prior.request_id, { actorId: input.customerId, isCustomer: true });
+      if (replay) return replay;
+      throw conflict('درخواست قبلی این کلید دیگر در دسترس نیست. برای درخواست جدید، فرم را دوباره ارسال کنید.');
+    }
+  }
+
   if (!(await getBool('services.accepting_requests'))) {
     throw conflict('پذیرش درخواست جدید در حال حاضر غیرفعال است.');
   }
@@ -417,6 +464,10 @@ export async function createRequest(input: CreateRequestInput, actor?: { id: str
     action: 'request.create', entityType: 'request', entityId: requestId,
     after: { trackingCode, serviceId: service.id, total }, ip: actor?.ip,
   });
+  if (idempotencyKey) {
+    await run('UPDATE request_submission_keys SET request_id = ? WHERE customer_id = ? AND idempotency_key = ?',
+      [requestId, input.customerId, idempotencyKey]);
+  }
 
   return getRequest(requestId, { actorId: input.customerId, isCustomer: true });
  });

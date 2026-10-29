@@ -101,7 +101,7 @@ export async function createApp(): Promise<Express> {
     if (origin && env.corsOrigins.includes(origin)) {
       res.setHeader('Access-Control-Allow-Origin', origin);
       res.setHeader('Access-Control-Allow-Credentials', 'true');
-      res.setHeader('Access-Control-Allow-Headers', 'content-type, authorization, x-request-id');
+      res.setHeader('Access-Control-Allow-Headers', 'content-type, authorization, x-request-id, idempotency-key');
       res.setHeader('Access-Control-Allow-Methods', 'GET,POST,PATCH,PUT,DELETE,OPTIONS');
       res.setHeader('Vary', 'Origin');
     }

@@ -1,6 +1,6 @@
 # پشکان — سامانه جامع اتوماسیون دفتر پیشخوان دولت
 
-> **وضعیت پس از اصلاحات ۲۰۲۶-۱۰-۲۷:** ایرادهای ۱۶ آزمون پذیرش رفع شده‌اند؛ پروفایل/شهر/فوریت، حقوق و سهم، کنترل دسترسی و رابط مدرن اضافه شده‌اند. این نسخه هنوز گواه آمادگی تولید برای تمام سند نیست. [گزارش اصلاحات و موارد باقی‌مانده](docs/CORRECTIONS-2026-10-27.md) و [ممیزی تاریخی](docs/REQUIREMENTS-AUDIT.md) را بخوانید.
+> **ممیزی جامع ۲۰۲۶-۱۰-۲۹:** retry امن ثبت درخواست و کنترل انتساب تکراری افزوده و آزمون‌ها دوباره اجرا شده‌اند. این نتیجه گواه آمادگی تولید نیست؛ آزمون PostgreSQL واقعی، پیامک/درگاه زنده، مرورگر واقعی و استقرار انجام نشده است. وضعیت دقیق شواهد و شکاف‌ها در [گزارش ممیزی آمادگی انتشار](docs/PRODUCTION-READINESS-AUDIT-2026-10-29.md) آمده است. گزارش‌های پیشین: [اصلاحات ۲۷ اکتبر](docs/CORRECTIONS-2026-10-27.md) و [ممیزی نیازمندی‌ها](docs/REQUIREMENTS-AUDIT.md).
 
 سامانه‌ای یکپارچه برای مدیریت یک دفتر پیشخوان دولت: کاتالوگ خدمات با فرم‌های پویا، پرونده و گردش کار،
 حسابداری عملیاتی، شیفت و حضور کارکنان، پیامک و پیام‌رسانی، دستیار هوشمند و مرکز تنظیمات.
@@ -41,7 +41,7 @@
 ```
 apps/
   api/            Express 5 + TypeScript (Node 22) — REST API، PostgreSQL (تولید) / SQLite (توسعه و CI)
-    migrations/   مهاجرت‌های نسخه‌بندی‌شده SQL (001..014)
+    migrations/   مهاجرت‌های نسخه‌بندی‌شده SQL (001..015)
     src/modules/  منطق دامنه: auth, catalog, requests, accounting, workforce, messages, assistant, settings, audit, backup
     src/routes/   لایه HTTP؛ هر مسیر مجوزدار با requirePermission محافظت می‌شود
   web/            React 19 + Vite 7 + Tailwind 4 — SPA فارسی/RTL، PWA و پوسته Capacitor برای اندروید
@@ -117,7 +117,8 @@ pishkan doctor        # بررسی کامل نصب
 | [docs/STAFF-GUIDE.md](docs/STAFF-GUIDE.md) | راهنمای کارشناسان، مدارک، شیفت و مالی |
 | [docs/API.md](docs/API.md) | فهرست مسیرها و قرارداد پاسخ‌ها |
 | [docs/ANDROID.md](docs/ANDROID.md) | ساخت اپ اندروید با Capacitor |
-| [docs/TEST-REPORT.md](docs/TEST-REPORT.md) | گزارش واقعی آزمون‌ها و کارهای باقی‌مانده |
+| [docs/TEST-REPORT.md](docs/TEST-REPORT.md) | گزارش آزمون‌ها (تاریخی) و پیوند به وضعیت فعلی |
+| [docs/PRODUCTION-READINESS-AUDIT-2026-10-29.md](docs/PRODUCTION-READINESS-AUDIT-2026-10-29.md) | ممیزی جامع، شواهد آزمون و دروازه‌های انتشار |
 
 ## ۷. وضعیت پایگاه داده
 

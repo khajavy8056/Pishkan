@@ -101,11 +101,52 @@ const PANEL_CODES: Record<string, string> = {
   '109': 'استفاده از کلید API به‌جای رمز عبور الزامی است.',
   '110': 'دسترسی وب‌سرویس برای این حساب فعال نیست.',
   '111': 'IP درخواست‌کننده نامعتبر است.',
+  '-111': 'IP درخواست‌کننده نامعتبر است.',
+  '-110': 'استفاده از کلید API به‌جای رمز عبور لازم است.',
+  '-109': 'IP سرور باید در پنل ملی پیامک مجاز شود.',
+  '-108': 'IP به دلیل درخواست‌های ناموفق موقتاً مسدود شده است.',
+  '-10': 'متغیرهای پیامک نمی‌توانند شامل پیوند باشند.',
+  '-7': 'شماره فرستنده برای ارسال معتبر نیست.',
+  '-6': 'خطای داخلی سرویس‌دهنده پیامک.',
+  '-5': 'متغیرهای ارسالی با الگوی تأییدشده مطابقت ندارند.',
+  '-4': 'شناسه الگوی پیامک معتبر یا تأییدشده نیست.',
+  '-3': 'خط ارسال در حساب سرویس‌دهنده تعریف نشده است.',
+  '-2': 'در هر درخواست فقط یک شماره گیرنده مجاز است.',
+  '-1': 'دسترسی به وب‌سرویس پیامک فعال نیست.',
+  '11': 'پیامک توسط سرویس‌دهنده ارسال نشد.',
+  '12': 'مدارک حساب سرویس‌دهنده کامل نیست.',
+  '14': 'متن پیامک شامل پیوند است.',
+  '16': 'شماره گیرنده پیدا نشد.',
+  '17': 'متن پیامک خالی است.',
+  '18': 'شماره گیرنده معتبر نیست.',
+  '19': 'محدودیت زمانی ارسال سرویس‌دهنده اعمال شده است.',
+  '35': 'شماره گیرنده در فهرست سیاه مخابرات است.',
 };
 
 function panelError(value: unknown): { message: string; code: string } {
   const code = String(value ?? '');
   return { message: PANEL_CODES[code] ?? `خطای نامشخص سرویس پیامک (کد ${code || '؟'})`, code };
+}
+
+/** The official REST API returns a plain-text numeric RecId/error code. */
+function parsePanelSendResult(res: { ok: boolean; status: number; json: any; text: string }): SmsResult {
+  if (!res.ok) {
+    return { ok: false, error: `پاسخ نامعتبر از سرویس پیامک (HTTP ${res.status}).`, errorCode: `http_${res.status}`, provider: 'melipayamak' };
+  }
+  const payload = res.json && typeof res.json === 'object' ? res.json : null;
+  const value = payload
+    ? payload.Value ?? payload.value ?? payload.ReturnValue ?? payload.returnValue
+    : typeof res.json === 'string' || typeof res.json === 'number' ? res.json : res.text.trim();
+  const messageId = String(value ?? '').trim().replace(/^\"|\"$/g, '');
+  const legacyStatus = payload?.RetStatus ?? payload?.retStatus;
+  if (/^\d{16,}$/.test(messageId) || (String(legacyStatus) === '1' && /^\d+$/.test(messageId) && messageId !== '0')) {
+    return { ok: true, messageId, provider: 'melipayamak' };
+  }
+  if (messageId) {
+    const err = panelError(messageId);
+    return { ok: false, error: err.message, errorCode: err.code, provider: 'melipayamak' };
+  }
+  return { ok: false, error: `پاسخ نامعتبر از سرویس پیامک (HTTP ${res.status}).`, errorCode: 'bad_response', provider: 'melipayamak' };
 }
 
 /* -------------------------------- transport ------------------------------- */
@@ -188,16 +229,7 @@ function melipayamakPanel(cfg: SmsConfig): SmsProvider {
       };
       try {
         const res = await postForm(`${cfg.baseUrl}/SendSMS/BaseServiceNumber`, payload);
-        if (res.json && typeof res.json === 'object') {
-          const retStatus = res.json.RetStatus ?? res.json.retStatus;
-          const value = res.json.Value ?? res.json.value;
-          if (String(retStatus) === '1' && value !== undefined && String(value) !== '0') {
-            return { ok: true, messageId: String(value), provider: 'melipayamak' };
-          }
-          const err = panelError(value);
-          return { ok: false, error: err.message, errorCode: err.code, provider: 'melipayamak' };
-        }
-        return { ok: false, error: `پاسخ نامعتبر از سرویس پیامک (HTTP ${res.status}).`, errorCode: 'bad_response', provider: 'melipayamak' };
+        return parsePanelSendResult(res);
       } catch (e: any) {
         return { ok: false, error: e?.name === 'AbortError' ? 'زمان پاسخ سرویس پیامک به پایان رسید.' : 'ارتباط با سرویس پیامک برقرار نشد.', errorCode: 'network', provider: 'melipayamak' };
       }
@@ -213,16 +245,7 @@ function melipayamakPanel(cfg: SmsConfig): SmsProvider {
       };
       try {
         const res = await postForm(`${cfg.baseUrl}/SendSMS/SendSMS`, payload);
-        if (res.json && typeof res.json === 'object') {
-          const retStatus = res.json.RetStatus ?? res.json.retStatus;
-          const value = res.json.Value ?? res.json.value;
-          if (String(retStatus) === '1' && value !== undefined) {
-            return { ok: true, messageId: String(value), provider: 'melipayamak' };
-          }
-          const err = panelError(value);
-          return { ok: false, error: err.message, errorCode: err.code, provider: 'melipayamak' };
-        }
-        return { ok: false, error: `پاسخ نامعتبر از سرویس پیامک (HTTP ${res.status}).`, errorCode: 'bad_response', provider: 'melipayamak' };
+        return parsePanelSendResult(res);
       } catch (e: any) {
         return { ok: false, error: e?.name === 'AbortError' ? 'زمان پاسخ سرویس پیامک به پایان رسید.' : 'ارتباط با سرویس پیامک برقرار نشد.', errorCode: 'network', provider: 'melipayamak' };
       }
