@@ -120,7 +120,7 @@ curl -b cookies.txt https://دامنه/api/auth/me
 | GET | `/stats` | `requests.view` | شمارش بر اساس وضعیت |
 | GET | `/pending-documents` | `documents.view` | مدارک منتظر بررسی |
 | GET | `/:id` | مالک یا `requests.view` | جزئیات کامل |
-| POST | `/` | مشتری یا `requests.create` | ثبت درخواست با پاسخ فرم |
+| POST | `/` | مشتری یا `requests.create` | ثبت درخواست با پاسخ فرم؛ هدر اختیاری `Idempotency-Key` (۸ تا ۱۲۸ نویسه ASCII) برای ایمن‌کردن retry |
 | PATCH | `/:id/status` | `requests.edit` | `{status, note?}` با قواعد گردش کار |
 | PATCH | `/:id/assign` | `requests.edit` | `{assignedTo}` |
 | POST | `/:id/auto-assign` | `requests.edit` | ارجاع خودکار تخصص/شیفت/ظرفیت |
@@ -131,16 +131,18 @@ curl -b cookies.txt https://دامنه/api/auth/me
 | POST | `/:id/cancel` | مالک پیش از شروع | لغو |
 | GET | `/:id/timeline` | مالک یا `requests.view` | تاریخچه رویدادها |
 
-نمونه ثبت درخواست:
+نمونه ثبت درخواست (مبالغ فقط سمت سرور محاسبه می‌شوند):
 
-```json
-POST /api/requests
-{
-  "serviceId": "svc_y",
-  "answers": { "nationalId": "0012345678", "reason": "مفقودی" },
-  "documentIds": ["file_1", "file_2"]
-}
+```http
+POST /api/requests HTTP/1.1
+Content-Type: application/json
+Idempotency-Key: 9f9141f7-4356-4ff6-a9f5-726238c9fa39
+Cookie: pishkan_session=…
+
+{"serviceId":"svc_y","formData":{"nationalId":"0012345678","reason":"مفقودی"},"paymentMethod":"online","priority":"normal","documentIds":[{"fileId":"file_1","title":"مدرک هویتی"}]}
 ```
+
+`Idempotency-Key` اختیاری است تا مشتریان قدیمی قرارداد را حفظ کنند. اگر همان مشتری کلید و payload یکسان را دوباره بفرستد، پاسخ پرونده و فاکتور قبلی برمی‌گردد؛ استفاده از همان کلید با داده متفاوت `409` می‌دهد. اگر کلید ارسال نشود، رفتار قبلی ایجاد درخواست جدید حفظ می‌شود.
 
 ## مشتریان — `/api/customers`
 

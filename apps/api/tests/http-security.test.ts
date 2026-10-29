@@ -16,6 +16,16 @@ describe('HTTP origin and rate-limit protection', () => {
     expect(store.size).toBeLessThanOrEqual(3);
   });
 
+  it('allows the request-submission idempotency header in configured CORS preflights', async () => {
+    const server = await app();
+    const preflight = await request(server).options('/api/requests')
+      .set('Origin', 'http://localhost:5173')
+      .set('Access-Control-Request-Method', 'POST')
+      .set('Access-Control-Request-Headers', 'content-type,idempotency-key');
+    expect(preflight.status).toBe(204);
+    expect(preflight.headers['access-control-allow-headers']).toContain('idempotency-key');
+  });
+
   it('returns 403 for invalid or malformed Origin and does not misreport it as 500', async () => {
     resetRateLimits();
     const server = await app();

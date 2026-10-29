@@ -130,6 +130,10 @@ requestsRouter.post('/',
     }).parse(req.body);
 
     const auth = req.auth!;
+    const idempotencyKey = req.get('Idempotency-Key')?.trim();
+    if (idempotencyKey && (idempotencyKey.length < 8 || idempotencyKey.length > 128 || !/^[A-Za-z0-9._:-]+$/.test(idempotencyKey))) {
+      throw badRequest('کلید جلوگیری از ثبت تکراری معتبر نیست.');
+    }
     let customerId = auth.user.id;
     if (auth.user.kind !== 'customer') {
       if (!hasPermission(auth.permissions, 'requests.create')) throw forbidden();
@@ -144,6 +148,7 @@ requestsRouter.post('/',
       paymentMethod: body.paymentMethod,
       priority: body.priority,
       documentIds: body.documentIds,
+      idempotencyKey,
     }, { id: auth.user.id, name: auth.user.fullName, ip: req.ip });
 
     if (request) {

@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import {
   Search, ArrowLeft, Clock, FileText, CheckCircle2, AlertTriangle, UploadCloud, Wallet,
@@ -163,6 +163,7 @@ export function ServiceDetailPage() {
   const [submitting, setSubmitting] = useState(false);
   const [fieldErrors, setFieldErrors] = useState<{ path: string; message: string }[]>([]);
   const [formError, setFormError] = useState('');
+  const submissionKeyRef = useRef<{ storageKey: string; fingerprint: string; key: string } | null>(null);
 
   useEffect(() => {
     let active = true;
@@ -209,16 +210,46 @@ export function ServiceDetailPage() {
     setFormError('');
     setFieldErrors([]);
     try {
-      const res = await api.post<{ data: { id: string; trackingCode: string } }>('/api/requests', {
+      const payload = {
         serviceId: service.id,
         formData: values,
         paymentMethod,
         priority,
+      };
+      const fingerprint = JSON.stringify(payload);
+      const storageKey = `pishkan:request-submit:v1:${user.id}:${service.id}`;
+      let savedKey: string | null = null;
+      try { savedKey = window.sessionStorage.getItem(storageKey); } catch { /* private browsing may disable sessionStorage */ }
+      const currentKey = submissionKeyRef.current;
+      const reusable = currentKey?.storageKey === storageKey
+        ? currentKey.fingerprint === fingerprint ? currentKey.key : undefined
+        : savedKey ?? undefined;
+      const idempotencyKey = reusable ?? (typeof window.crypto?.randomUUID === 'function'
+        ? window.crypto.randomUUID()
+        : Array.from(window.crypto.getRandomValues(new Uint8Array(24)), (byte) => byte.toString(16).padStart(2, '0')).join(''));
+      submissionKeyRef.current = { storageKey, fingerprint, key: idempotencyKey };
+      // Persist only the random operation key, never personal form values or a fingerprint of them.
+      try { window.sessionStorage.setItem(storageKey, idempotencyKey); } catch { /* in-memory retry fallback */ }
+
+      const res = await api.post<{ data: { id: string; trackingCode: string } }>('/api/requests', payload, {
+        'Idempotency-Key': idempotencyKey,
       });
+      try {
+        if (window.sessionStorage.getItem(storageKey) === idempotencyKey) window.sessionStorage.removeItem(storageKey);
+      } catch { /* storage may be unavailable */ }
+      submissionKeyRef.current = null;
       notify(`درخواست ثبت شد. کد پیگیری: ${res.data.trackingCode}`, 'success');
       navigate(`/app/requests/${res.data.id}`);
     } catch (err) {
       if (err instanceof ApiFailure) {
+        if (err.status === 409 && err.message.includes('این کلید ثبت قبلاً')) {
+          try {
+            if (window.sessionStorage.getItem(submissionKeyRef.current?.storageKey ?? '') === submissionKeyRef.current?.key) {
+              window.sessionStorage.removeItem(submissionKeyRef.current?.storageKey ?? '');
+            }
+          } catch { /* storage may be unavailable */ }
+          submissionKeyRef.current = null;
+        }
         setFormError(err.message);
         if (Array.isArray(err.details)) setFieldErrors(err.details as any);
       } else {

@@ -2,7 +2,8 @@ import { describe, expect, it } from 'vitest';
 import request from 'supertest';
 import { app, createStaff, customerSession, adminSession, EXPERT } from './helpers.js';
 import { updateSettings } from '../src/modules/settings/service.js';
-import { validateFormData } from '../src/modules/requests/service.js';
+import { autoAssign, validateFormData } from '../src/modules/requests/service.js';
+import { one, q } from '../src/db/index.js';
 
 async function serviceIdBySlug(slug: string) {
   const server = await app();
@@ -122,13 +123,86 @@ describe('request lifecycle', () => {
     expect(res.body.data.events[0].type).toBe('created');
   });
 
+  it('replays the original request for a concurrent duplicate submission and rejects key reuse with changed data', async () => {
+    const customer = await customerSession();
+    const server = await app();
+    const service = (await request(server).get('/api/public/services/insurance-history')).body.data;
+    const payload = { serviceId: service.id, formData: validForm(service), paymentMethod: 'cash' };
+    const submit = () => request(server).post('/api/requests').set('Cookie', customer.cookie)
+      .set('Idempotency-Key', 'request-submit-test-0001').send(payload);
+
+    const [first, retry] = await Promise.all([submit(), submit()]);
+    expect(first.status).toBe(201);
+    expect(retry.status).toBe(201);
+    expect(retry.body.data.id).toBe(first.body.data.id);
+    expect(retry.body.data.trackingCode).toBe(first.body.data.trackingCode);
+    expect(retry.body.data.invoices).toHaveLength(1);
+
+    const changedPayload = { ...payload, formData: { ...payload.formData, extra: 'different submission' } };
+    const conflictResponse = await request(server).post('/api/requests').set('Cookie', customer.cookie)
+      .set('Idempotency-Key', 'request-submit-test-0001').send(changedPayload);
+    expect(conflictResponse.status).toBe(409);
+    expect(conflictResponse.body.error.message).toContain('کلید ثبت');
+  });
+
+  it('only auto-assigns a request once when two assignment attempts overlap', async () => {
+    const customer = await customerSession();
+    const server = await app();
+    const service = (await request(server).get('/api/public/services/insurance-history')).body.data;
+    await updateSettings({ 'services.auto_assign': false, 'workforce.auto_assign_on_shift': false }, { id: 'system', name: 'test-atomic-assignment' });
+    const created = await request(server).post('/api/requests').set('Cookie', customer.cookie)
+      .send({ serviceId: service.id, formData: validForm(service), paymentMethod: 'cash' }).expect(201);
+    expect(created.body.data.assignedTo).toBeFalsy();
+
+    await updateSettings({ 'services.auto_assign': true }, { id: 'system', name: 'test-atomic-assignment' });
+    const results = await Promise.all([autoAssign(created.body.data.id), autoAssign(created.body.data.id)]);
+    expect(results.filter(Boolean)).toHaveLength(1);
+    const row = await one<any>('SELECT assigned_to FROM requests WHERE id = ?', [created.body.data.id]);
+    const events = await q<any>("SELECT id FROM request_events WHERE request_id = ? AND type = 'assigned'", [created.body.data.id]);
+    expect(row?.assigned_to).toBeTruthy();
+    expect(events).toHaveLength(1);
+  });
+
+  it('allows only one of two eligible employees to claim the same queued request', async () => {
+    const customer = await customerSession();
+    const server = await app();
+    const service = (await request(server).get('/api/public/services/insurance-history')).body.data;
+    const firstStaff = await createStaff('service_expert', { username: 'claim_race_one', password: 'ClaimRace#12345', fullName: 'کارشناس پذیرش اول' });
+    const secondStaff = await createStaff('service_expert', { username: 'claim_race_two', password: 'ClaimRace#12345', fullName: 'کارشناس پذیرش دوم' });
+    const firstId = (await request(server).get('/api/auth/me').set('Cookie', firstStaff.cookie)).body.data.id;
+    const secondId = (await request(server).get('/api/auth/me').set('Cookie', secondStaff.cookie)).body.data.id;
+
+    await updateSettings({ 'services.auto_assign': false, 'workforce.auto_assign_on_shift': false }, { id: 'system', name: 'test-claim-race' });
+    let created: any;
+    try {
+      created = await request(server).post('/api/requests').set('Cookie', customer.cookie)
+        .send({ serviceId: service.id, formData: validForm(service), paymentMethod: 'cash' }).expect(201);
+    } finally {
+      await updateSettings({ 'services.auto_assign': true }, { id: 'system', name: 'test-claim-race' });
+    }
+
+    const [firstClaim, secondClaim] = await Promise.all([
+      request(server).post(`/api/requests/${created.body.data.id}/claim`).set('Cookie', firstStaff.cookie),
+      request(server).post(`/api/requests/${created.body.data.id}/claim`).set('Cookie', secondStaff.cookie),
+    ]);
+    expect([firstClaim.status, secondClaim.status].sort()).toEqual([200, 409]);
+    const row = await one<any>('SELECT assigned_to FROM requests WHERE id = ?', [created.body.data.id]);
+    const events = await q<any>("SELECT id FROM request_events WHERE request_id = ? AND type = 'assigned'", [created.body.data.id]);
+    expect([firstId, secondId]).toContain(row?.assigned_to);
+    expect(events).toHaveLength(1);
+  });
+
   it('routes a customer request to staff and exposes staff status changes back to that customer', async () => {
     const customer = await customerSession();
+    const admin = await adminSession();
     const server = await app();
     await updateSettings({ 'workforce.auto_assign_on_shift': false }, { id: 'system', name: 'test-lifecycle' });
     const staff = await createStaff('service_expert', { ...EXPERT, username: 'lifecycle_expert', password: 'Lifecycle#12345' });
     const staffMe = await request(server).get('/api/auth/me').set('Cookie', staff.cookie);
     const service = (await request(server).get('/api/public/services/social-security-receipt')).body.data;
+    const originalRule = (await request(server).get(`/api/staff/meta/service-assignments/${service.id}`).set('Cookie', admin.cookie)).body.data;
+    await request(server).put(`/api/staff/meta/service-assignments/${service.id}`).set('Cookie', admin.cookie)
+      .send({ staffIds: [staffMe.body.data.id], strategy: 'fixed' }).expect(200);
 
     const created = await request(server)
       .post('/api/requests')
@@ -151,6 +225,9 @@ describe('request lifecycle', () => {
       .set('Cookie', customer.cookie);
     expect(customerDetail.body.data.status).toBe('in_progress');
     expect(customerDetail.body.data.events.some((event: any) => event.type === 'status' && event.toStatus === 'in_progress')).toBe(true);
+
+    await request(server).put(`/api/staff/meta/service-assignments/${service.id}`).set('Cookie', admin.cookie)
+      .send({ staffIds: originalRule.rule?.staffIds ?? [], strategy: originalRule.rule?.strategy ?? 'least_loaded', maxLoad: originalRule.rule?.maxLoad ?? 0 }).expect(200);
   });
 
   it('includes Andimeshk as an active selectable city', async () => {
