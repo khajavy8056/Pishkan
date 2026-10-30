@@ -18,7 +18,12 @@
     "seed": "npm run seed --workspace apps/api",
     "typecheck": "npm run typecheck --workspace apps/api && npm run typecheck --workspace apps/web",
     "check:contrast": "npm run check:contrast --workspace apps/web",
-    "verify": "npm run typecheck && npm test && npm run check:contrast"
+    "verify": "npm run typecheck && npm test && npm run check:contrast",
+    "test:windows": "node windows/lib/selftest.mjs",
+    "verify:runtime": "node windows/lib/verify.mjs --mode core --env .env.windows.local",
+    "verify:workflow": "node windows/lib/verify.mjs --mode workflow --env .env.windows.local",
+    "windows:icon": "node windows/lib/make-icon.mjs",
+    "windows:manager": "node windows/lib/manager.mjs"
   },
   "engines": {
     "node": ">=22.22.2"

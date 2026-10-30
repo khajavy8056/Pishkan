@@ -1,0 +1,46 @@
+{
+  "product": "Pishkan",
+  "productFa": "پیشکان",
+  "appVersion": "1.2.0",
+  "installerVersion": "1.0.0",
+  "channel": "local-test",
+  "entry": {
+    "installer": "windows/PishkanSetup.cmd",
+    "manager": "windows/PishkanManager.cmd",
+    "start": "windows/Start-Pishkan.cmd",
+    "stop": "windows/Stop-Pishkan.cmd",
+    "uninstall": "windows/Uninstall-Pishkan.ps1",
+    "engine": "windows/lib/installer.mjs",
+    "managerEngine": "windows/lib/manager.mjs",
+    "verifier": "windows/lib/verify.mjs",
+    "consoleInstaller": "windows/lib/setup-console.mjs"
+  },
+  "requirements": {
+    "windows": "10 (build 19041) or newer, 64-bit",
+    "node": ">=22.22.2",
+    "npm": "bundled with Node.js",
+    "diskMb": 3000,
+    "network": "registry.npmjs.org and nodejs.org during installation"
+  },
+  "database": {
+    "driver": "sqlite",
+    "nodeEnv": "development",
+    "file": ".data/pishkan-windows.sqlite",
+    "reason": "Pishkan allows SQLite only outside production; the local Windows install runs with NODE_ENV=development and a separate file, and the production deployment stays on PostgreSQL."
+  },
+  "defaults": {
+    "port": 3000,
+    "host": "127.0.0.1",
+    "envFile": ".env.windows.local",
+    "dataDir": ".data"
+  },
+  "isolation": {
+    "ownEnvFile": true,
+    "ownDatabase": true,
+    "ownUploads": true,
+    "randomEncryptionKey": true,
+    "adminPasswordStoredOnDisk": false,
+    "connectsToProduction": false
+  },
+  "themes": ["dark", "light"]
+}

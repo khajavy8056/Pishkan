@@ -17,3 +17,9 @@ apps/web/ios/
 
 # Local sandbox overrides; test settings are declared in vitest.config.ts
 .env.test
+
+# Windows local install artifacts (generated, never committed)
+.env.windows.local
+.env.windows.local.bak-*
+windows/PishkanSetup.exe
+windows/*.exe
