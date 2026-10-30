@@ -257,6 +257,10 @@ export function AdminSystem() {
   const [backups, setBackups] = useState<{ items: any[]; status?: any }>({ items: [] });
   const [sessions, setSessions] = useState<any[]>([]);
   const [domain, setDomain] = useState<any>(null);
+  const [media, setMedia] = useState<any>(null);
+  const [mediaDiagnostics, setMediaDiagnostics] = useState<any>(null);
+  const [pruneResult, setPruneResult] = useState<any>(null);
+  const [mediaBusy, setMediaBusy] = useState(false);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [restoreModal, setRestoreModal] = useState<any>(null);
@@ -273,10 +277,13 @@ export function AdminSystem() {
       api.list<any>('/api/system/backups').catch(() => ({ data: [] } as any)),
       api.list<any>('/api/system/sessions').catch(() => ({ data: [] } as any)),
       api.get<{ data: any }>('/api/settings/domain-check').catch(() => null),
-    ]).then(([st, hl, bk, ss, dm]) => {
+      api.get<{ data: any }>('/api/files/media/stats').catch(() => null),
+      api.get<{ data: any }>('/api/files/media/diagnostics').catch(() => null),
+    ]).then(([st, hl, bk, ss, dm, md, mdg]) => {
       setStatus(st.data); setHealth(hl?.data ?? null);
       setBackups({ items: bk.data, status: (bk as any).meta ?? null });
       setSessions(ss.data); setDomain(dm?.data ?? null);
+      setMedia(md?.data ?? null); setMediaDiagnostics(mdg?.data ?? null);
     }).catch((err) => setError(err instanceof ApiFailure ? err.message : 'خطا در دریافت وضعیت'))
       .finally(() => setLoading(false));
   };
@@ -315,6 +322,17 @@ export function AdminSystem() {
     } catch (err) {
       notify(err instanceof ApiFailure ? err.message : 'خطا در بازیابی', 'error');
     } finally { setBusy(false); }
+  };
+
+  const previewPrune = async () => {
+    setMediaBusy(true);
+    try {
+      const res = await api.post<{ data: any }>('/api/files/media/prune-originals', { dryRun: true });
+      setPruneResult(res.data);
+      notify(res.data.candidates ? `${faNum(res.data.candidates)} نسخه اصلی قدیمی و قابل حذف شناسایی شد (بدون حذف).` : 'نسخه اصلی قدیمی برای حذف وجود ندارد.', 'info');
+    } catch (err) {
+      notify(err instanceof ApiFailure ? err.message : 'خطا در بررسی نسخه‌های اصلی', 'error');
+    } finally { setMediaBusy(false); }
   };
 
   const revokeSession = async (session: any) => {
@@ -375,6 +393,43 @@ export function AdminSystem() {
                 بازیابی، داده‌های جاری را با نسخه پشتیبان جایگزین می‌کند. قبل از بازیابی، از داده‌های فعلی نسخه پشتیبان بگیرید.
                 نسخه‌ها باید در مقصد خارج از سرور اصلی (S3/سرور پشتیبان) هم نگهداری شوند.
               </p>
+            </Card>
+
+            <Card>
+              <h2 className="mb-3 flex items-center gap-2 font-bold text-navy-900"><HardDrive className="size-4 text-brand-700" /> پردازش تصاویر و مدارک</h2>
+              {!media && <p className="text-sm text-navy-400">آمار رسانه در دسترس نیست.</p>}
+              {media && (
+                <>
+                  <div className="grid grid-cols-2 gap-2 text-xs">
+                    <div className="rounded-xl bg-navy-50/60 p-2"><p className="text-[10px] text-navy-500">فایل‌های خصوصی</p><p className="font-bold text-navy-900">{faNum(media.totalFiles)}</p></div>
+                    <div className="rounded-xl bg-navy-50/60 p-2"><p className="text-[10px] text-navy-500">میانگین کاهش حجم</p><p className="font-bold text-emerald-700">{faNum(media.averageSavingsPercent)}٪</p></div>
+                    <div className="rounded-xl bg-navy-50/60 p-2"><p className="text-[10px] text-navy-500">حجم ورودی اصلی</p><p className="font-bold text-navy-900">{faNum(Math.round(media.originalBytes / 1048576))} MB</p></div>
+                    <div className="rounded-xl bg-navy-50/60 p-2"><p className="text-[10px] text-navy-500">حجم نسخه نمایشی</p><p className="font-bold text-navy-900">{faNum(Math.round(media.servedBytes / 1048576))} MB</p></div>
+                  </div>
+                  <div className="mt-2 flex flex-wrap gap-1 text-[10px] text-navy-600">
+                    {Object.entries(media.byStatus ?? {}).map(([status, count]) => (
+                      <span key={status} className="rounded-lg bg-navy-50 px-2 py-1">{status}: {faNum(count as number)}</span>
+                    ))}
+                  </div>
+                  {mediaDiagnostics?.queue && (
+                    <p className="mt-2 text-[10px] text-navy-500">
+                      صف پردازش: {faNum(mediaDiagnostics.queue.active)} فعال، {faNum(mediaDiagnostics.queue.queued)} در انتظار
+                      {mediaDiagnostics.config ? ` • سیاست: ${mediaDiagnostics.config.qualityMode}` : ''}
+                    </p>
+                  )}
+                  <div className="mt-3 flex flex-wrap items-center gap-2">
+                    <Button size="sm" variant="ghost" loading={mediaBusy} onClick={previewPrune}>بررسی حذف نسخه‌های اصلی قدیمی</Button>
+                    {pruneResult && (
+                      <span className="text-[10px] text-navy-500">
+                        {faNum(pruneResult.candidates)} مورد واجد شرایط؛ حذف واقعی فقط با تأیید متنی در API انجام می‌شود.
+                      </span>
+                    )}
+                  </div>
+                  <p className="mt-2 text-[10px] leading-5 text-navy-500">
+                    نسخه اصلی مدارک به‌صورت پیش‌فرض دائمی نگهداری می‌شود؛ حذف خودکار انجام نمی‌شود تا بازیابی و بازبینی انسانی همیشه ممکن باشد.
+                  </p>
+                </>
+              )}
             </Card>
 
             <Card>

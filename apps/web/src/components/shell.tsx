@@ -17,6 +17,7 @@ const customerNav: NavItem[] = [
   { to: '/app', label: 'داشبورد', icon: <LayoutDashboard className="size-5" />, end: true },
   { to: '/app/services', label: 'خدمات', icon: <Shapes className="size-5" /> },
   { to: '/app/requests', label: 'درخواست‌های من', icon: <ClipboardList className="size-5" /> },
+  { to: '/app/documents', label: 'مدارک من', icon: <FileText className="size-5" /> },
   { to: '/app/invoices', label: 'فاکتورها و پرداخت', icon: <Wallet className="size-5" /> },
   { to: '/app/offers', label: 'پیشنهادهای اختصاصی', icon: <Sparkles className="size-5" /> },
   { to: '/app/messages', label: 'پیام‌ها', icon: <MessageSquare className="size-5" /> },
@@ -240,7 +241,7 @@ export function AppShell({ children, variant }: { children: ReactNode; variant: 
 
         <nav aria-label="دسترسی سریع موبایل" className="mobile-dock fixed inset-x-0 bottom-0 z-20 flex justify-around border-t border-navy-100 bg-white/95 px-2 pb-[env(safe-area-inset-bottom)] backdrop-blur lg:hidden">{visibleNav.filter(n=>!n.to.includes('/assistant')).slice(0,4).map(n=><NavLink key={n.to} to={n.to} end={n.end} className={({isActive})=>clsx('flex min-h-16 min-w-14 flex-col items-center justify-center gap-1 text-[10px]',isActive?'font-bold text-brand-700':'text-navy-500')}>{n.icon}<span>{n.label}</span></NavLink>)}<button onClick={()=>setOpen(true)} className="flex min-w-14 flex-col items-center justify-center gap-1 text-[10px] text-navy-500"><Menu className="size-5" />همه بخش‌ها</button></nav>
         <footer className="border-t border-navy-900/8 px-6 py-4 text-center text-xs text-navy-400">
-          سامانه جامع دفتر پیشخوان دولت — نسخه {import.meta.env.VITE_APP_VERSION ?? '1.0.0'}
+          سامانه جامع دفتر پیشخوان دولت — نسخه {import.meta.env.VITE_APP_VERSION ?? '1.1.0'}
         </footer>
       </div>
     </div>

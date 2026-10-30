@@ -6,6 +6,7 @@ import { AppShell, PageHeader } from '../../components/shell';
 import { Button, Card, EmptyState, Field, Input, Loading, Modal, Select, StatusBadge, useToast } from '../../components/ui';
 import { api, ApiFailure } from '../../lib/api';
 import { faDateTime, faNum } from '../../lib/format';
+import { bytes } from '../../components/documents';
 
 export function MessageCenter({ variant }: { variant: 'staff' | 'admin' }) {
   const [params] = useSearchParams();
@@ -75,7 +76,12 @@ export function MessageCenter({ variant }: { variant: 'staff' | 'admin' }) {
 
   const attach = async (file: File) => {
     try {
-      const uploaded = await api.upload<{ data: { id: string } }>('/api/files/upload', file, { purpose: 'chat' });
+      const uploaded = await api.upload<{ data: { id: string; savingsPercent?: number; processing?: { status?: string } } }>('/api/files/upload', file, { purpose: 'chat' });
+      if (uploaded.data.processing?.status === 'failed') {
+        notify('پیوست ارسال شد اما بهینه‌سازی تصویر انجام نشد؛ نسخه اصلی سالم ذخیره شده است.', 'info');
+      } else if ((uploaded.data.savingsPercent ?? 0) >= 5) {
+        notify(`پیوست بهینه شد؛ ${faNum(Math.round(uploaded.data.savingsPercent ?? 0))}٪ کاهش حجم.`, 'success');
+      }
       await send(uploaded.data.id);
     } catch (err) {
       notify(err instanceof ApiFailure ? err.message : 'خطا در بارگذاری فایل', 'error');
@@ -189,9 +195,23 @@ export function MessageCenter({ variant }: { variant: 'staff' | 'admin' }) {
                           mine ? 'bg-brand-700 text-white' : 'bg-navy-50 text-navy-800')}>
                           <p className="whitespace-pre-wrap">{message.body}</p>
                           {message.fileId && (
-                            <a href={`/api/files/${message.fileId}`} target="_blank" rel="noreferrer" className={clsx('mt-1 inline-flex items-center gap-1 text-[11px] underline', mine ? 'text-brand-100' : 'text-brand-700')}>
-                              <Paperclip className="size-3" /> فایل پیوست
-                            </a>
+                            <div className={clsx('mt-1.5 space-y-1', mine && 'text-brand-100')}>
+                              {String(message.file?.mime ?? '').startsWith('image/') && (
+                                <a href={`/api/files/${message.fileId}`} target="_blank" rel="noreferrer" className="block overflow-hidden rounded-lg border border-black/10 bg-white/70">
+                                  <img
+                                    src={`/api/files/${message.fileId}?variant=preview`}
+                                    alt={message.file?.name ?? 'پیوست تصویری'}
+                                    loading="lazy"
+                                    className="max-h-48 w-auto object-contain"
+                                  />
+                                </a>
+                              )}
+                              <a href={`/api/files/${message.fileId}`} target="_blank" rel="noreferrer" className={clsx('inline-flex max-w-full items-center gap-1 text-[11px] underline', mine ? 'text-brand-100' : 'text-brand-700')}>
+                                <Paperclip className="size-3 shrink-0" />
+                                <span className="truncate">{message.file?.name ?? 'فایل پیوست'}</span>
+                                {message.file?.size ? <span className="shrink-0 opacity-70">({bytes(message.file.size)})</span> : null}
+                              </a>
+                            </div>
                           )}
                           <p className={clsx('mt-1 text-[10px]', mine ? 'text-brand-100' : 'text-navy-400')}>
                             {message.senderName ?? 'کاربر'} • {faDateTime(message.createdAt)}

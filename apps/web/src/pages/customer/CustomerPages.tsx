@@ -8,6 +8,7 @@ import {
 import clsx from 'clsx';
 import { AppShell, PageHeader } from '../../components/shell';
 import { Button, Card, EmptyState, ErrorState, Field, Input, Loading, Modal, Select, StatCard, StatusBadge, Textarea, useToast } from '../../components/ui';
+import { DocumentViewer, FileSummary, FileThumbnail } from '../../components/documents';
 import { api, ApiFailure } from '../../lib/api';
 import { useAuth } from '../../lib/auth';
 import { faDate, faDateTime, faNum, relative, rial, STATUS_LABELS } from '../../lib/format';
@@ -127,6 +128,7 @@ export function CustomerDashboard() {
           </Link>
         ))}
       </div>
+
     </AppShell>
   );
 }
@@ -217,6 +219,11 @@ export function CustomerRequestDetail() {
   const [note, setNote] = useState('');
   const [uploading, setUploading] = useState(false);
   const [paying, setPaying] = useState(false);
+  const [viewer, setViewer] = useState<any>(null);
+  const [reuseOpen, setReuseOpen] = useState(false);
+  const [profileDocs, setProfileDocs] = useState<any[]>([]);
+  const [reuseDocId, setReuseDocId] = useState('');
+  const [reuseConfirm, setReuseConfirm] = useState(false);
   const fileInput = useRef<HTMLInputElement>(null);
 
   const load = (showLoading = true) => {
@@ -249,15 +256,51 @@ export function CustomerRequestDetail() {
   const upload = async (file: File) => {
     setUploading(true);
     try {
-      const uploaded = await api.upload<{ data: { id: string; name: string } }>('/api/files/upload', file, { purpose: 'document' });
+      const uploaded = await api.upload<{ data: { id: string; name: string; processing: { status: string }; savingsPercent: number; notes?: string[] } }>(
+        '/api/files/upload', file, { purpose: 'document' },
+      );
       await api.post(`/api/requests/${id}/documents`, { fileId: uploaded.data.id, title: uploaded.data.name });
-      notify('مدرک بارگذاری شد و در انتظار بررسی است.', 'success');
+      notify(
+        uploaded.data.processing.status === 'ready'
+          ? `مدرک بارگذاری شد و تصویر بدون افت خوانایی بهینه شد (${faNum(uploaded.data.savingsPercent)}٪ کاهش حجم).`
+          : 'مدرک بارگذاری شد؛ نسخه اصلی حفظ شد و در انتظار بررسی است.',
+        'success',
+      );
       load();
     } catch (err) {
       notify(err instanceof ApiFailure ? err.message : 'خطا در بارگذاری', 'error');
     } finally {
       setUploading(false);
       if (fileInput.current) fileInput.current.value = '';
+    }
+  };
+
+  const openReuse = async () => {
+    setReuseOpen(true);
+    setReuseDocId('');
+    setReuseConfirm(false);
+    try {
+      const res = await api.get<{ data: any[] }>('/api/documents/mine');
+      setProfileDocs(res.data.filter((doc) => doc.validity !== 'expired' && doc.status !== 'rejected'));
+    } catch (err) {
+      notify(err instanceof ApiFailure ? err.message : 'خطا در دریافت مدارک پروفایل', 'error');
+      setProfileDocs([]);
+    }
+  };
+
+  const submitReuse = async () => {
+    if (!reuseDocId) { notify('یک مدرک را انتخاب کنید.', 'error'); return; }
+    if (!reuseConfirm) { notify('تأیید استفاده از مدرک الزامی است.', 'error'); return; }
+    setUploading(true);
+    try {
+      await api.post(`/api/requests/${id}/documents`, { customerDocumentId: reuseDocId, confirmReuse: true });
+      notify('مدرک پروفایل به پرونده پیوست شد.', 'success');
+      setReuseOpen(false);
+      load();
+    } catch (err) {
+      notify(err instanceof ApiFailure ? err.message : 'خطا در پیوست مدرک', 'error');
+    } finally {
+      setUploading(false);
     }
   };
 
@@ -369,18 +412,28 @@ export function CustomerRequestDetail() {
             <h2 className="mb-3 flex items-center gap-2 font-bold text-navy-900"><FileText className="size-4 text-brand-700" /> مدارک</h2>
             <div className="space-y-2">
               {request.documents.map((doc: any) => (
-                <div key={doc.id} className="rounded-xl bg-navy-50/60 px-3 py-2.5">
-                  <div className="flex items-start justify-between gap-2">
-                    <span className="min-w-0">
-                      <span className="block truncate text-xs font-medium text-navy-900">{doc.title}</span>
-                      <span className="block text-[10px] text-navy-500">{faDate(doc.createdAt)}</span>
-                    </span>
-                    <StatusBadge status={doc.status} />
+                <div key={doc.id} className="flex gap-2 rounded-xl bg-navy-50/60 p-2.5">
+                  <FileThumbnail file={doc.file} onOpen={() => setViewer(doc)} />
+                  <div className="min-w-0 flex-1">
+                    <div className="flex items-start justify-between gap-2">
+                      <span className="min-w-0">
+                        <span className="block truncate text-xs font-medium text-navy-900">{doc.title}</span>
+                        <span className="block text-[10px] text-navy-500">
+                          {faDate(doc.createdAt)}{doc.documentType ? ` • ${doc.documentType}` : ''}
+                        </span>
+                      </span>
+                      <StatusBadge status={doc.status} />
+                    </div>
+                    <FileSummary file={doc.file} />
+                    {doc.reviewNote && <p className="mt-1 text-[11px] text-rose-600">{doc.reviewNote}</p>}
+                    <div className="mt-1 flex flex-wrap items-center gap-2">
+                      <button type="button" onClick={() => setViewer(doc)} className="inline-flex items-center gap-1 text-[11px] text-brand-700 hover:underline">
+                        <Download className="size-3" /> مشاهده
+                      </button>
+                      <a href={`${doc.file.originalUrl ?? `/api/files/${doc.file.id}?variant=original`}&download=true`}
+                        className="text-[11px] text-navy-500 hover:underline">نسخه اصلی</a>
+                    </div>
                   </div>
-                  {doc.reviewNote && <p className="mt-1 text-[11px] text-rose-600">{doc.reviewNote}</p>}
-                  <a href={`/api/files/${doc.file.id}`} target="_blank" rel="noreferrer" className="mt-1 inline-flex items-center gap-1 text-[11px] text-brand-700 hover:underline">
-                    <Download className="size-3" /> مشاهده فایل
-                  </a>
                 </div>
               ))}
               {request.documents.length === 0 && <p className="text-xs text-navy-400">مدرکی بارگذاری نشده است.</p>}
@@ -396,6 +449,12 @@ export function CustomerRequestDetail() {
             <Button variant="ghost" className="mt-3 w-full" loading={uploading} onClick={() => fileInput.current?.click()}>
               <UploadCloud className="size-4" /> بارگذاری مدرک
             </Button>
+            <Button variant="ghost" className="mt-2 w-full" onClick={openReuse}>
+              <FileText className="size-4" /> افزودن از مدارک من
+            </Button>
+            <p className="mt-2 text-[10px] leading-5 text-navy-500">
+              تصویر پس از بارگذاری به‌طور خودکار اصلاح جهت و به WebP بهینه می‌شود؛ نیازی به فشرده‌سازی قبلی نیست.
+            </p>
           </Card>
 
           <Card>
@@ -427,6 +486,46 @@ export function CustomerRequestDetail() {
           </Card>
         </div>
       </div>
+      <DocumentViewer file={viewer?.file ?? null} title={viewer?.title ?? 'مدرک'} open={Boolean(viewer)} onClose={() => setViewer(null)} />
+
+      <Modal
+        open={reuseOpen}
+        onClose={() => setReuseOpen(false)}
+        title="افزودن مدرک از پروفایل"
+        footer={(
+          <div className="flex gap-2">
+            <Button variant="ghost" onClick={() => setReuseOpen(false)}>انصراف</Button>
+            <Button loading={uploading} disabled={!reuseDocId || !reuseConfirm} onClick={submitReuse}>پیوست به پرونده</Button>
+          </div>
+        )}
+      >
+        <div className="space-y-3">
+          {profileDocs.length === 0 && (
+            <p className="text-xs leading-6 text-navy-500">
+              مدرک معتبری در پروفایل شما نیست. از بخش «مدارک من» یک مدرک بارگذاری کنید یا همین‌جا فایل جدید بفرستید.
+            </p>
+          )}
+          {profileDocs.map((doc) => (
+            <label key={doc.id} className={clsx('flex cursor-pointer items-center gap-2 rounded-xl border p-2 text-xs',
+              reuseDocId === doc.id ? 'border-brand-500 bg-brand-50/50' : 'border-navy-100')}>
+              <input type="radio" name="profile-doc" className="size-4" checked={reuseDocId === doc.id}
+                onChange={() => setReuseDocId(doc.id)} />
+              <span className="min-w-0 flex-1">
+                <span className="block truncate font-medium text-navy-900">{doc.docTypeLabel}</span>
+                <span className="block text-[10px] text-navy-500">
+                  {doc.file.width && doc.file.height ? `${faNum(doc.file.width)}×${faNum(doc.file.height)}` : 'سند'}
+                  {doc.expiresAt ? ` • اعتبار تا ${faDate(doc.expiresAt)}` : ' • بدون تاریخ انقضا'}
+                </span>
+              </span>
+              <StatusBadge status={doc.status} />
+            </label>
+          ))}
+          <label className="flex items-start gap-2 rounded-xl bg-amber-50 p-3 text-[11px] leading-6 text-amber-900">
+            <input type="checkbox" className="mt-1 size-4" checked={reuseConfirm} onChange={(e) => setReuseConfirm(e.target.checked)} />
+            <span>تأیید می‌کنم استفاده دوباره این مدرک در این پرونده با اطلاع و موافقت من انجام می‌شود.</span>
+          </label>
+        </div>
+      </Modal>
     </AppShell>
   );
 }

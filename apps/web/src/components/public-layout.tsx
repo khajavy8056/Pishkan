@@ -144,7 +144,7 @@ export function PublicLayout({ children }: { children: ReactNode }) {
           </div>
         </div>
         <div className="border-t border-white/10 px-4 py-4 text-center text-xs text-navy-400">
-          {setting('site.footer_text')} — نسخه {site?.version ?? '1.0.0'}
+          {setting('site.footer_text')} — نسخه {site?.version ?? '1.1.0'}
         </div>
       </footer>
     </div>

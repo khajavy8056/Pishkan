@@ -20,6 +20,7 @@ import {
   CustomerRequestDetail, CustomerRequests,
 } from './pages/customer/CustomerPages';
 import { CustomerServices } from './pages/customer/ServicesPane';
+import { CustomerDocuments } from './pages/customer/Documents';
 import {
   RequestDetail, StaffCustomers, StaffCustomService, StaffDocuments, StaffFinance,
   StaffPerformance, StaffRequests, StaffShifts, StaffWorkbench,
@@ -80,6 +81,7 @@ function App() {
               <Route path="/app/requests/:id" element={customer(<CustomerRequestDetail />)} />
               <Route path="/app/invoices" element={customer(<CustomerInvoices />)} />
               <Route path="/app/offers" element={customer(<CustomerOffers />)} />
+              <Route path="/app/documents" element={customer(<CustomerDocuments />)} />
               <Route path="/app/messages" element={customer(<CustomerMessages />)} />
               <Route path="/app/profile" element={customer(<CustomerProfile />)} />
 

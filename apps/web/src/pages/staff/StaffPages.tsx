@@ -9,6 +9,7 @@ import {
 } from 'lucide-react';
 import clsx from 'clsx';
 import { AppShell, PageHeader } from '../../components/shell';
+import { DocumentViewer, FileSummary, FileThumbnail } from '../../components/documents';
 import {
   Badge, Button, Card, EmptyState, ErrorState, Field, Input, Loading, Modal, Select, StatCard,
   StatusBadge, Textarea, useToast,
@@ -307,6 +308,7 @@ export function RequestDetail({ variant = 'staff' }: { variant?: 'staff' | 'admi
   const [nextStatus, setNextStatus] = useState('');
   const [statusNote, setStatusNote] = useState('');
   const [busy, setBusy] = useState(false);
+  const [viewer, setViewer] = useState<any>(null);
   const fileInput = useRef<HTMLInputElement>(null);
   const base = variant === 'admin' ? '/admin' : '/staff';
 
@@ -451,19 +453,25 @@ export function RequestDetail({ variant = 'staff' }: { variant?: 'staff' | 'admi
             {request.documents.length === 0 && <p className="text-sm text-navy-400">مدرکی پیوست نشده است.</p>}
             <div className="space-y-2">
               {request.documents.map((doc: any) => (
-                <div key={doc.id} className="rounded-xl bg-navy-50/60 p-3">
+                <div key={doc.id} className="flex gap-3 rounded-xl bg-navy-50/60 p-3">
+                  <FileThumbnail file={doc.file} onOpen={() => setViewer(doc)} />
+                  <div className="min-w-0 flex-1">
                   <div className="flex flex-wrap items-start justify-between gap-2">
                     <div className="min-w-0">
                       <p className="truncate text-sm font-medium text-navy-900">{doc.title}</p>
-                      <p className="text-[10px] text-navy-500">{faDate(doc.createdAt)} • {doc.kind === 'staff' ? 'کارکنان' : 'مشتری'}</p>
+                      <p className="text-[10px] text-navy-500">
+                        {faDate(doc.createdAt)} • {doc.kind === 'staff' ? 'کارکنان' : 'مشتری'}
+                        {doc.customerDocumentId ? ' • از مدارک پروفایل' : ''}
+                      </p>
                     </div>
                     <StatusBadge status={doc.status} />
                   </div>
                   {doc.reviewNote && <p className="mt-1 text-[11px] text-rose-600">{doc.reviewNote}</p>}
+                  <FileSummary file={doc.file} />
                   <div className="mt-2 flex flex-wrap gap-2">
-                    <a href={`/api/files/${doc.file.id}`} target="_blank" rel="noreferrer" className="btn-ghost btn-sm">
+                    <Button size="sm" variant="ghost" onClick={() => setViewer(doc)}>
                       <Download className="size-3.5" /> مشاهده
-                    </a>
+                    </Button>
                     {doc.status === 'pending' && can('documents.approve') && (doc.kind!=='staff'||office) && (
                       <>
                         <button onClick={() => reviewDoc(doc.id, 'approved')} className="btn-sm rounded-lg bg-emerald-600 px-2.5 py-1 text-xs text-white hover:bg-emerald-700">
@@ -474,6 +482,7 @@ export function RequestDetail({ variant = 'staff' }: { variant?: 'staff' | 'admi
                         </button>
                       </>
                     )}
+                  </div>
                   </div>
                 </div>
               ))}
@@ -596,6 +605,8 @@ export function RequestDetail({ variant = 'staff' }: { variant?: 'staff' | 'admi
           )}
         </div>
       </Modal>
+
+      <DocumentViewer file={viewer?.file ?? null} title={viewer?.title ?? 'مدرک'} open={Boolean(viewer)} onClose={() => setViewer(null)} />
     </AppShell>
   );
 }
@@ -607,6 +618,7 @@ export function StaffDocuments() {
   const [items, setItems] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [onlyMine, setOnlyMine] = useState(false);
+  const [viewer, setViewer] = useState<any>(null);
 
   const load = () => {
     setLoading(true);
@@ -638,15 +650,22 @@ export function StaffDocuments() {
         {items.map((doc) => (
           <Card key={doc.id}>
             <div className="flex flex-wrap items-start justify-between gap-3">
-              <div className="min-w-0">
-                <p className="font-medium text-navy-900">{doc.title}</p>
-                <p className="mt-0.5 text-xs text-navy-500">
-                  {doc.customerName} • {doc.serviceTitle} • {doc.trackingCode} • {relative(doc.createdAt)}
-                </p>
-                <p className="mt-1 text-[11px] text-navy-400">{doc.file.name} ({faNum(Math.round(doc.file.size / 1024))} کیلوبایت)</p>
+              <div className="flex min-w-0 gap-3">
+                <FileThumbnail file={doc.file} onOpen={() => setViewer(doc)} />
+                <div className="min-w-0">
+                  <p className="font-medium text-navy-900">{doc.title}</p>
+                  <p className="mt-0.5 text-xs text-navy-500">
+                    {doc.customerName} • {doc.serviceTitle} • {doc.trackingCode} • {relative(doc.createdAt)}
+                  </p>
+                  <p className="mt-1 truncate text-[11px] text-navy-400" dir="ltr">{doc.file.name}</p>
+                  <FileSummary file={doc.file} />
+                  {doc.file.processing?.status === 'failed' && (
+                    <p className="mt-1 text-[11px] text-amber-700">پردازش تصویر انجام نشد؛ نسخه اصلی حفظ شده است.</p>
+                  )}
+                </div>
               </div>
               <div className="flex flex-wrap gap-2">
-                <a href={`/api/files/${doc.file.id}`} target="_blank" rel="noreferrer" className="btn-ghost btn-sm"><Download className="size-3.5" /> مشاهده</a>
+                <Button size="sm" variant="ghost" onClick={() => setViewer(doc)}><Download className="size-3.5" /> مشاهده</Button>
                 <Link to={`/staff/requests/${doc.requestId}`} className="btn-ghost btn-sm"><ArrowRight className="size-3.5" /> پرونده</Link>
                 <Button size="sm" onClick={() => review(doc, 'approved')}>تأیید</Button>
                 <Button size="sm" variant="danger" onClick={() => review(doc, 'rejected')}>رد</Button>
@@ -655,6 +674,7 @@ export function StaffDocuments() {
           </Card>
         ))}
       </div>
+      <DocumentViewer file={viewer?.file ?? null} title={viewer?.title ?? 'مدرک'} open={Boolean(viewer)} onClose={() => setViewer(null)} />
     </AppShell>
   );
 }
@@ -667,8 +687,23 @@ export function StaffCustomers() {
   const [loading, setLoading] = useState(true);
   const [selected, setSelected] = useState<any>(null);
   const [creating, setCreating] = useState(false);
+  const [profileViewer, setProfileViewer] = useState<any>(null);
   const [form, setForm] = useState({ fullName: '', mobile: '', nationalId: '', email: '', password: '' });
   const { notify } = useToast();
+  const { user } = useAuth();
+  const can = (permission: string) => user?.permissions === '*' || Boolean(user?.permissions?.includes(permission));
+
+  const reviewProfile = async (document: any, decision: 'approved' | 'rejected') => {
+    const noteText = decision === 'rejected' ? window.prompt('دلیل رد مدرک پروفایل:') ?? '' : '';
+    try {
+      await api.post(`/api/documents/${document.id}/review`, { decision, note: noteText || undefined });
+      notify(decision === 'approved' ? 'مدرک پروفایل تأیید شد.' : 'مدرک پروفایل رد شد.', 'success');
+      const res = await api.get<{ data: any }>(`/api/customers/${selected.id}`);
+      setSelected(res.data);
+    } catch (err) {
+      notify(err instanceof ApiFailure ? err.message : 'خطا', 'error');
+    }
+  };
 
   useEffect(() => {
     const timer = setTimeout(() => {
@@ -751,6 +786,36 @@ export function StaffCustomers() {
               </div>
             </div>
             <div>
+              <p className="mb-1 text-xs font-semibold text-navy-800">مدارک پروفایل</p>
+              {(selected.profileDocuments ?? []).length === 0 && <p className="text-xs text-navy-400">مدرکی در پروفایل ثبت نشده است.</p>}
+              <div className="space-y-1">
+                {(selected.profileDocuments ?? []).map((document: any) => (
+                  <div key={document.id} className="flex items-center justify-between gap-2 rounded-lg bg-navy-50/60 px-2 py-1.5 text-xs">
+                    <button type="button" className="flex min-w-0 items-center gap-2 text-right" onClick={() => setProfileViewer(document)}>
+                      <FileThumbnail file={document.file} className="h-10 w-8" />
+                      <span className="min-w-0">
+                        <span className="block truncate">{document.docTypeLabel}</span>
+                        <span className="block text-[10px] text-navy-500">
+                          {document.expiresAt ? `اعتبار تا ${faDate(document.expiresAt)}` : 'بدون تاریخ انقضا'}
+                          {document.file.processing?.status === 'ready' ? ` • ${faNum(document.file.savingsPercent ?? 0)}٪ کم‌حجم‌تر` : ''}
+                        </span>
+                      </span>
+                    </button>
+                    <span className="flex shrink-0 items-center gap-1">
+                      <StatusBadge status={document.status} />
+                      {document.status === 'pending' && can('documents.approve') && (
+                        <>
+                          <button onClick={() => reviewProfile(document, 'approved')} className="rounded-lg bg-emerald-600 px-2 py-1 text-[10px] text-white">تأیید</button>
+                          <button onClick={() => reviewProfile(document, 'rejected')} className="rounded-lg bg-rose-600 px-2 py-1 text-[10px] text-white">رد</button>
+                        </>
+                      )}
+                    </span>
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            <div>
               <p className="mb-1 text-xs font-semibold text-navy-800">فاکتورها</p>
               {selected.invoices.length === 0 && <p className="text-xs text-navy-400">فاکتوری ندارد.</p>}
               <div className="space-y-1">
@@ -765,6 +830,13 @@ export function StaffCustomers() {
           </div>
         )}
       </Modal>
+
+      <DocumentViewer
+        file={profileViewer?.file ?? null}
+        title={profileViewer?.docTypeLabel ?? 'مدرک پروفایل'}
+        open={Boolean(profileViewer)}
+        onClose={() => setProfileViewer(null)}
+      />
 
       <Modal open={creating} onClose={() => setCreating(false)} title="ایجاد حساب مشتری"
         footer={<><Button variant="ghost" onClick={() => setCreating(false)}>انصراف</Button><Button onClick={create} disabled={form.fullName.length < 3 || form.mobile.length < 10}>ایجاد</Button></>}>
