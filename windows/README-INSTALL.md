@@ -57,6 +57,9 @@ node windows\lib\verify.mjs --mode core --url http://127.0.0.1:3000 --env .env.w
 | `Node.js was not found` | The GUI shows a «نصب Node.js» button — press it (winget first, then the official MSI with SHA-256 verification). |
 | `The graphical installer exited with code 1` | Read `.data\install-error.json`; it contains the failing step, the command, the exit code and the tail of the output. |
 | Window opens but nothing happens on «بررسی سیستم» | Run `node windows\lib\syscheck.mjs --root . --port 3000 --pretty` in a terminal to see the same report as text. |
+| `429` / «تلاش‌های ورود بیش از حد مجاز» | A verification run logs in six times; three runs in five minutes reach the default limit. Wait a minute or raise `AUTH_LOGIN_RATE_LIMIT` in `.env.windows.local`. |
+| A failed install left a server running | Fixed: the installer stops the server it started (`stoppedServer` in `.data\install-error.json`) and a half-started process is cleaned up (`cleanedUp`). If you still see one, `PishkanManager.cmd` reports whether the port belongs to another program. |
+| The port changed after a reinstall | If this installation's own server is running, the installer keeps its port. A different program on the port makes the installer pick the next free one — the report says which. |
 
 ## Important
 

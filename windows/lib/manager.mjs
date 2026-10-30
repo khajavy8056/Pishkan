@@ -29,6 +29,7 @@ import { spawn } from 'node:child_process';
 import {
   backupDir, controlPipePath, dataDir, dbFile, envFilePath, errorLogFile, isPortBusy,
   isWindows, logFile, parseArgs, readJson, sleep, stateFile, uploadDir, writeJson,
+  pidAlive,
 } from './common.mjs';
 import { readEnvFile } from './envfile.mjs';
 
@@ -51,16 +52,6 @@ function out(payload) {
 
 function state() {
   return readJson(stateFile(ROOT), null);
-}
-
-function pidAlive(pid) {
-  if (!pid) return false;
-  try {
-    process.kill(pid, 0);
-    return true;
-  } catch (error) {
-    return error?.code === 'EPERM';
-  }
 }
 
 /**
@@ -177,10 +168,32 @@ async function start() {
     }
     if (!pidAlive(child.pid)) break;
   }
+  // The server did not become ready. It may still be listening with a failing
+  // health check, in which case the reason is in the health payload and in the
+  // log — never leave that half-started process behind for the next run.
+  const partial = await health(1500);
   const tailText = readLogTail(20);
+  let cleanedUp = false;
+  if (pidAlive(child.pid)) {
+    await closeControlPipe();
+    for (let attempt = 0; attempt < 20; attempt += 1) {
+      await sleep(250);
+      if (!pidAlive(child.pid)) break;
+    }
+    if (pidAlive(child.pid)) forceKill(child.pid);
+    cleanedUp = true;
+  }
+  if (fs.existsSync(stateFile(ROOT))) fs.rmSync(stateFile(ROOT), { force: true });
+  const reasons = [];
+  if (partial.up) {
+    const details = partial.body?.checks ?? partial.body?.services ?? null;
+    reasons.push('سرور بالا آمد ولی بررسی آمادگی موفق نبود' + (details ? `: ${JSON.stringify(details).slice(0, 400)}` : ''));
+  } else {
+    reasons.push('سرور در زمان انتظار پاسخ نداد.');
+  }
   return out({
-    ok: false, port: PORT, pid: child.pid,
-    message: `سرور در زمان انتظار پاسخ نداد. گزارش خطا:\n${tailText}`,
+    ok: false, port: PORT, pid: child.pid, health: partial.body ?? null, cleanedUp,
+    message: `${reasons.join(' ')}${cleanedUp ? ' (فرایند نیمه‌کاره متوقف شد)' : ''}\nگزارش:\n${tailText}`,
   });
 }
 
@@ -322,8 +335,11 @@ async function status() {
     {
       id: 'database',
       title: 'پایگاه داده (SQLite)',
-      ok: disk && probe.up,
-      detail: disk ? `${DB} · ${(fs.statSync(DB).size / 1024 / 1024).toFixed(2)} MB` : 'فایل پایگاه داده پیدا نشد',
+      // A stopped server does not make an intact database file a failure.
+      ok: disk && (probe.up ? ready.ok : true),
+      detail: disk
+        ? `${DB} · ${(fs.statSync(DB).size / 1024 / 1024).toFixed(2)} MB${probe.up ? '' : ' · سرور خاموش است'}`
+        : 'فایل پایگاه داده پیدا نشد',
     },
     {
       id: 'storage',

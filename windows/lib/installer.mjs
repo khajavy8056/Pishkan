@@ -29,7 +29,7 @@ import { spawn } from 'node:child_process';
 import {
   MODULE_DIR, DEFAULT_PORT, DEFAULT_ROOT, backupDir, controlPipePath, dataDir, dbFile, dirSizeBytes,
   envFilePath, errorLogFile, errorReportPath, formatBytes, installReportPath, logFile,
-  isPortBusy, findFreePort, parseArgs, readJson, sleep, uploadDir, writeJson,
+  isPortBusy, findFreePort, parseArgs, pidAlive, readJson, sleep, stateFile, uploadDir, writeJson,
 } from './common.mjs';
 import { readEnvFile, upsertEnvFile } from './envfile.mjs';
 
@@ -42,9 +42,14 @@ const SKIP_BUILD = args.has('skip-build');
 const NO_START = args.has('no-start');
 const RUN_WORKFLOW = args.has('verify-workflow');
 const SKIP_NETWORK = args.has('skip-network') || DRY_RUN;
+const SKIP_CHECKS = args.has('skip-checks') || DRY_RUN;
 
 const startedAt = new Date();
 const events = { steps: [], logs: [] };
+/** Set when this run skipped admin creation and no admin existed before it. */
+let adminMissing = false;
+/** Set once this run started the server, so a later failure can stop it again. */
+let serverStartedHere = false;
 
 function emit(event) {
   if (JSON_LINES) {
@@ -68,7 +73,7 @@ function log(message, level = 'info') {
 }
 
 /** Overall progress weights (sum = 100). */
-const WEIGHTS = { env: 4, deps: 42, build: 18, database: 14, admin: 6, start: 6, verify: 10 };
+const WEIGHTS = { check: 3, env: 3, deps: 41, build: 18, database: 13, admin: 6, start: 6, verify: 10 };
 let completedWeight = 0;
 
 function stepEvent(id, title, status, options = {}) {
@@ -165,6 +170,54 @@ function randomHex(bytes) {
 
 /* ------------------------------- the steps -------------------------------- */
 
+/**
+ * Pre-flight check, run by the engine itself so that a console install and a
+ * scripted install get the same protection as the GUI: Windows build, Node and
+ * npm versions, free disk space, write access, network reachability and a free
+ * port. `syscheck.mjs` is the single source of truth for the rules.
+ */
+async function stepChecks(job = {}) {
+  if (SKIP_CHECKS) {
+    stepEvent('check', 'بررسی سیستم', 'skip', { message: 'با درخواست کاربر رد شد' });
+    return null;
+  }
+  stepEvent('check', 'بررسی سیستم', 'running', { stepProgress: 10 });
+  const existingConfig = readEnvFile(envFilePath(ROOT));
+  const checkPort = Number(job.port || args.get('port', String(existingConfig.PORT || DEFAULT_PORT)));
+  const checkArgs = [path.join(MODULE_DIR, 'syscheck.mjs'), '--root', ROOT, '--port', String(checkPort)];
+  if (SKIP_NETWORK) checkArgs.push('--skip-network');
+  const result = await runProcess(process.execPath, checkArgs, { cwd: ROOT, timeoutMs: 120_000 });
+  const line = `${result.stdout}\n${result.stderr}`.split('\n').find((row) => row.startsWith('RESULT_JSON:'));
+  let payload = null;
+  try { payload = line ? JSON.parse(line.slice(12)) : null; } catch { payload = null; }
+  if (!payload) {
+    stepEvent('check', 'بررسی سیستم', 'fail', { message: tail(`${result.stdout}\n${result.stderr}`, 6) });
+    throw Object.assign(new Error('بررسی سیستم اجرا نشد'), {
+      step: 'check', command: 'node windows/lib/syscheck.mjs', exitCode: result.code, output: tail(result.stderr || result.stdout, 40),
+    });
+  }
+  for (const item of payload.items ?? []) {
+    if (item.status === 'ok') continue;
+    log(`${item.status === 'fail' ? '⛔' : '⚠️'} ${item.title} — ${item.detail}${item.remediation ? ` · ${item.remediation}` : ''}`,
+      item.status === 'fail' ? 'error' : 'warn');
+  }
+  if (!payload.ok) {
+    stepEvent('check', 'بررسی سیستم', 'fail', {
+      message: `موارد مسدودکننده: ${(payload.failures ?? []).join('، ')}`,
+    });
+    throw Object.assign(new Error(`پیش‌نیازهای نصب برآورده نشد: ${(payload.failures ?? []).join('، ')}`), {
+      step: 'check', command: 'node windows/lib/syscheck.mjs', exitCode: 1,
+      output: tail(JSON.stringify(payload.items ?? [], null, 2), 40),
+    });
+  }
+  const warnings = payload.warnings ?? [];
+  stepEvent('check', 'بررسی سیستم', 'ok', {
+    message: `${(payload.items ?? []).length} مورد بررسی شد${warnings.length ? ` · ${warnings.length} هشدار` : ''}`,
+    stepProgress: 100,
+  });
+  return payload;
+}
+
 async function stepEnv(job) {
   stepEvent('env', 'آماده‌سازی تنظیمات محلی', 'running', { stepProgress: 5 });
   const file = envFilePath(ROOT);
@@ -174,7 +227,18 @@ async function stepEnv(job) {
   const database = existing.SQLITE_FILE || dbFile(ROOT);
 
   let port = requestedPort;
-  if (await isPortBusy(port)) {
+  // If this installation's own server is already running on the configured
+  // port, keep that port. Picking a "free" one would silently move a working
+  // installation to a new address on every reinstall.
+  const runningState = readJson(stateFile(ROOT), null);
+  const ourServerRunning = Boolean(runningState?.pid)
+    && runningState.root === ROOT
+    && Number(runningState.port) === requestedPort
+    && pidAlive(runningState.pid)
+    && (await isPortBusy(requestedPort));
+  if (ourServerRunning) {
+    log(`سرور این نصب از قبل روی پورت ${port} در حال اجراست؛ همان پورت حفظ شد.`);
+  } else if (await isPortBusy(port)) {
     const free = await findFreePort(port + 1);
     if (!free) throw new Error(`پورت ${port} در حال استفاده است و پورت آزاد دیگری پیدا نشد.`);
     log(`پورت ${port} در حال استفاده بود؛ از پورت آزاد ${free} استفاده می‌شود.`, 'warn');
@@ -197,6 +261,12 @@ async function stepEnv(job) {
     PISHKAN_CONTROL_PIPE: existing.PISHKAN_CONTROL_PIPE || controlPipePath(ROOT),
     DEMO_MODE: existing.DEMO_MODE || 'false',
     LOG_LEVEL: existing.LOG_LEVEL || 'info',
+    // The local app is one machine and every automated check (installer verify,
+    // manager «آزمون گردش‌کار») logs in several times per run from the same IP.
+    // The shared default of 15 logins / 5 minutes is too tight here: three runs
+    // in a row end with «تلاش‌های ورود بیش از حد مجاز». 60 keeps brute-force
+    // protection meaningful while letting a human retry the checks.
+    AUTH_LOGIN_RATE_LIMIT: existing.AUTH_LOGIN_RATE_LIMIT || '60',
   };
 
   // A dry run still writes the configuration file: it is the cheapest way to
@@ -425,6 +495,7 @@ async function stepAdmin(config, job) {
   const username = String(admin.username ?? '').trim();
   const password = String(admin.password ?? '');
   if (!username || !password) {
+    adminMissing = true;
     stepEvent('admin', 'ایجاد حساب مدیر کل', 'skip', {
       message: 'اطلاعات مدیر کل داده نشد؛ می‌توانید بعداً با create-admin بسازید',
     });
@@ -485,6 +556,7 @@ async function stepStart(config) {
       output: tail(result.stderr || result.stdout, 40),
     });
   }
+  serverStartedHere = true;
   stepEvent('start', 'راه‌اندازی سرویس‌ها', 'ok', {
     message: `سرور روی ${payload.url ?? `http://127.0.0.1:${config.port}`} پاسخ می‌دهد`,
     stepProgress: 100,
@@ -499,7 +571,13 @@ async function stepVerify(config, job) {
   stepEvent('verify', 'آزمون نهایی نصب', 'running', { stepProgress: 5 });
   const url = `http://127.0.0.1:${config.port}`;
   const mode = RUN_WORKFLOW ? 'workflow' : 'core';
-  const verifyArgs = [path.join(MODULE_DIR, 'verify.mjs'), '--mode', mode, '--url', url, '--env', config.file];
+  const verifyArgs = [
+    path.join(MODULE_DIR, 'verify.mjs'), '--mode', mode, '--url', url, '--env', config.file, '--root', ROOT,
+  ];
+  // Without an admin account the application is installed but cannot be used.
+  // The installer only warns in that case (a human can create the account
+  // later); a *wrong* installation still fails on every other check.
+  if (adminMissing) verifyArgs.push('--allow-missing-admin');
   if (RUN_WORKFLOW) {
     verifyArgs.push('--admin-user', String(job.admin?.username ?? 'admin'), '--admin-pass', String(job.admin?.password ?? ''));
   }
@@ -536,7 +614,9 @@ async function main() {
   log(`نصب Pishkan در «${ROOT}» آغاز شد.`);
 
   let config;
+  let checks = null;
   try {
+    checks = await stepChecks(job);
     config = await stepEnv(job);
     await stepDependencies();
     await stepBuild();
@@ -559,6 +639,7 @@ async function main() {
       admin: job.admin?.username ? { username: job.admin.username, createdByInstaller: true } : null,
       steps: events.steps.filter((s) => ['ok', 'skip'].includes(s.status)),
       verification: { checks: verification.checks?.length ?? 0, steps: verification.steps?.length ?? 0 },
+      preflight: checks ? { items: checks.items?.length ?? 0, warnings: checks.warnings ?? [] } : null,
       node: process.versions.node,
       platform: process.platform,
       artifacts: {
@@ -571,10 +652,22 @@ async function main() {
     emit({ type: 'result', ok: true, report, durationMs: report.durationMs });
     process.exit(0);
   } catch (error) {
+    // A half-finished installation must not leave a server running: otherwise the
+    // next attempt finds the port busy, silently moves to another port and the
+    // user ends up with two servers and a report that says «موفق».
+    let stoppedServer = false;
+    if (serverStartedHere && !DRY_RUN) {
+      try {
+        const result = await managerCommand('stop', ['--json']);
+        stoppedServer = result.code === 0;
+        if (stoppedServer) log('سرور نیمه‌کارهٔ این نصب پس از خطا متوقف شد.');
+      } catch { /* best effort: the report below still explains the failure */ }
+    }
     const detail = {
       ok: false,
       failedAt: new Date().toISOString(),
       root: ROOT,
+      stoppedServer,
       step: error?.step ?? events.steps.at(-1)?.id ?? 'unknown',
       stepTitle: events.steps.at(-1)?.title ?? '',
       message: error?.message ?? String(error),

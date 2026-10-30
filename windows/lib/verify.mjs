@@ -15,7 +15,12 @@
  * Usage
  *   node windows/lib/verify.mjs --mode status   --url http://127.0.0.1:3000
  *   node windows/lib/verify.mjs --mode core     --url ... --env .env.windows.local
- *   node windows/lib/verify.mjs --mode workflow --url ... --admin-user admin --admin-pass 'secret'
+ *   node windows/lib/verify.mjs --mode workflow --url ... --env .env.windows.local \
+ *     --admin-user admin --admin-pass 'secret'
+ *
+ * --root <dir> sets the application directory (defaults to the current one) and
+ * --env <file> the configuration file (defaults to <root>/.env.windows.local, then
+ * <root>/.env.local, then <root>/.env).
  *
  * Output: one JSON document on stdout (prefixed with RESULT_JSON:), human text on stderr.
  */
@@ -33,10 +38,26 @@ function flag(name) { return args.includes(`--${name}`); }
 
 const MODE = arg('mode', 'core');
 const BASE = (arg('url', process.env.PISHKAN_URL || 'http://127.0.0.1:3000')).replace(/\/+$/, '');
-const ENV_FILE = arg('env', process.env.PISHKAN_ENV_FILE || '');
+const ROOT = path.resolve(arg('root', process.env.PISHKAN_ROOT || '') || process.cwd());
 const ADMIN_USER = arg('admin-user', process.env.PISHKAN_ADMIN_USER || 'admin');
 const ADMIN_PASS = arg('admin-pass', process.env.PISHKAN_ADMIN_PASS || '');
 const TIMEOUT = Number(arg('timeout', '15000'));
+const ALLOW_MISSING_ADMIN = flag('allow-missing-admin');
+
+/**
+ * Locate the local configuration file. The installer always passes --env, but a
+ * human running the script from another directory should still get a useful
+ * report instead of three false failures about files it never looked for.
+ */
+function discoverEnvFile(root) {
+  for (const name of ['.env.windows.local', '.env.local', '.env']) {
+    const candidate = path.join(root, name);
+    if (fs.existsSync(candidate)) return candidate;
+  }
+  return '';
+}
+
+const ENV_FILE = arg('env', process.env.PISHKAN_ENV_FILE || '') || discoverEnvFile(ROOT);
 
 const checks = [];
 const steps = [];
@@ -253,11 +274,22 @@ async function checkDatabase(config) {
         if (migrations <= 0) throw new Error('هیچ مهاجرتی ثبت نشده است');
         return `${migrations} مهاجرت · ${tables} جدول`;
       });
-      safe('database-admin', 'حساب مدیر کل فعال', () => {
+      if (ALLOW_MISSING_ADMIN) {
         const admins = count("SELECT COUNT(*) AS c FROM users WHERE kind = 'admin' AND status = 'active'");
-        if (admins <= 0) throw new Error('مدیر فعالی وجود ندارد');
-        return `${admins} مدیر فعال`;
-      });
+        if (admins > 0) record('database-admin', 'حساب مدیر کل فعال', true, `${admins} مدیر فعال`);
+        else {
+          notes.push(
+            'حساب مدیر کل ساخته نشده است؛ پیش از استفاده با دستور زیر بسازید: ' +
+            'node apps/api/dist/cli/create-admin.js --username admin --stdin',
+          );
+        }
+      } else {
+        safe('database-admin', 'حساب مدیر کل فعال', () => {
+          const admins = count("SELECT COUNT(*) AS c FROM users WHERE kind = 'admin' AND status = 'active'");
+          if (admins <= 0) throw new Error('مدیر فعالی وجود ندارد');
+          return `${admins} مدیر فعال`;
+        });
+      }
       safe('database-roles', 'نقش‌های سیستمی', () => {
         const roles = count('SELECT COUNT(*) AS c FROM roles');
         if (roles < 6) throw new Error(`فقط ${roles} نقش تعریف شده است`);
@@ -274,7 +306,12 @@ async function checkDatabase(config) {
     }
     return;
   }
-  record('database-file', 'اتصال PostgreSQL', false, 'این اسکریپت بررسی مستقیم PostgreSQL را انجام نمی‌دهد؛ وضعیت از /api/health خوانده می‌شود');
+  record(
+    'database-file',
+    'فایل پایگاه داده SQLite',
+    false,
+    `DB_DRIVER باید sqlite باشد (مقدار فعلی: ${config.DB_DRIVER ?? 'تعریف نشده'})؛ نسخهٔ محلی ویندوز PostgreSQL ندارد`,
+  );
 }
 
 async function checkStorage(config, root) {
@@ -341,11 +378,30 @@ async function checkFrontend() {
 }
 
 async function login(identifier, password, actor = 'anon') {
-  jar(actor).clear();
-  const response = await request('/api/auth/login', {
-    method: 'POST', body: { identifier, password }, session: true, expect: 200, actor,
-  });
-  return response;
+  const attempt = () => {
+    jar(actor).clear();
+    return request('/api/auth/login', {
+      method: 'POST', body: { identifier, password }, session: true, expect: 200, actor,
+    });
+  };
+  try {
+    return await attempt();
+  } catch (error) {
+    // The workflow logs in several actors; running it three times in five
+    // minutes can reach the login rate limit. Waiting once gives a human a real
+    // answer instead of a red report that says the app is broken.
+    if (!/→ 429/.test(error.message)) throw error;
+    notes.push('محدودیت نرخ ورود (429): ۱۵ ثانیه صبر و یک تلاش دوباره.');
+    await new Promise((resolve) => setTimeout(resolve, 15_000));
+    try {
+      return await attempt();
+    } catch (second) {
+      throw new Error(
+        `${second.message} — محدودیت نرخ ورود فعال است؛ چند دقیقه صبر کنید یا ` +
+        'AUTH_LOGIN_RATE_LIMIT را در فایل تنظیمات محلی بالا ببرید.',
+      );
+    }
+  }
 }
 
 /* ------------------------------ workflow mode ------------------------------ */
@@ -532,7 +588,9 @@ async function runWorkflow() {
     await request(`/api/requests/${state.requestId}/documents`, actorOptions('customer', {
       method: 'POST', body: { fileId: file.id, title: 'کارت ملی' }, expect: 200,
     }));
-    const size = typeof file.size === 'number' ? `${Math.round(file.size / 1024)} KB` : '—';
+    const size = typeof file.size === 'number'
+      ? (file.size < 1024 ? `${file.size} B` : `${Math.round(file.size / 1024)} KB`)
+      : '—';
     return `${file.name ?? 'national-card.png'} · ${size} · ${file.processing?.status ?? '—'}`;
   });
 
@@ -607,15 +665,32 @@ async function runWorkflow() {
     return 'وضعیت: در انتظار تأیید مدیریت';
   });
 
-  await step('مشاهده گفت‌وگوها و پیام ارسالی', async () => {
-    const threads = await request('/api/messages/threads?pageSize=10', actorOptions('expert'));
-    const thread = (threads.json?.data ?? [])[0];
-    if (thread?.id) {
-      await request(`/api/messages/threads/${thread.id}/messages`, actorOptions('expert', {
-        method: 'POST', body: { body: 'پرونده در حال بررسی است.' },
-      })).catch(() => null);
-    }
-    return `${threads.json?.data?.length ?? 0} گفت‌وگو`;
+  await step('گفت‌وگوی کارشناس و مشتری', async () => {
+    // A real exchange: the expert opens a thread on this request, the customer
+    // answers, and the thread is read back with both messages present.
+    const opened = await request('/api/messages/threads', actorOptions('expert', {
+      method: 'POST',
+      body: {
+        requestId: state.requestId,
+        customerId: state.customer.id,
+        subject: 'پرونده در حال بررسی است',
+        message: 'مدارک شما تأیید شد و نتیجه به‌زودی آماده می‌شود.',
+      },
+      expect: 201,
+    }));
+    const threadId = opened.json.data.id;
+    if (!threadId) throw new Error('شناسه گفت‌وگو برنگشت');
+    const reply = await request(`/api/messages/threads/${threadId}/messages`, actorOptions('customer', {
+      method: 'POST', body: { body: 'سپاس از پیگیری شما.' }, expect: 201,
+    }));
+    if (!reply.json?.data?.id) throw new Error('پاسخ مشتری ثبت نشد');
+    const view = await request(`/api/messages/threads/${threadId}`, actorOptions('expert'));
+    const messages = view.json?.data?.messages ?? [];
+    if (messages.length < 2) throw new Error(`فقط ${messages.length} پیام در گفت‌وگو هست`);
+    const list = await request('/api/messages/threads?pageSize=10', actorOptions('customer'));
+    const mine = (list.json?.data ?? []).find((row) => row.id === threadId);
+    if (!mine) throw new Error('گفت‌وگو در فهرست مشتری نیست');
+    return `${messages.length} پیام · نخوانده: ${mine.unreadCount ?? 0}`;
   });
 
   await step('تأیید مدیریت و انتشار نتیجه برای مشتری', async () => {
@@ -636,7 +711,10 @@ async function runWorkflow() {
     if (!result) throw new Error('نتیجه برای مشتری منتشر نشد');
     const download = await request(`/api/files/${result.file.id}`, actorOptions('customer', { raw: true }));
     if (download.text.length < 20) throw new Error('دانلود فایل نتیجه ناموفق بود');
-    return `${documents.length} مدرک قابل مشاهده · ${Math.round(download.text.length / 1024)} KB دانلود شد`;
+    const downloaded = download.text.length < 1024
+      ? `${download.text.length} B`
+      : `${Math.round(download.text.length / 1024)} KB`;
+    return `${documents.length} مدرک قابل مشاهده · ${downloaded} دانلود شد`;
   });
 
   await step('نهایی‌سازی پرونده و بررسی گزارش‌ها (مدیر)', async () => {
@@ -721,7 +799,7 @@ async function runStatus() {
 /* ---------------------------------- main ----------------------------------- */
 
 async function main() {
-  const root = process.cwd();
+  const root = ROOT;
   let output = {};
 
   if (MODE === 'status') {

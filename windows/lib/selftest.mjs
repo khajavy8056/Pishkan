@@ -20,7 +20,7 @@ import http from 'node:http';
 import { spawnSync } from 'node:child_process';
 
 import {
-  MODULE_DIR, compareVersions, findFreePort, formatBytes, isPortBusy, parseArgs, readJson, writeJson,
+  MODULE_DIR, compareVersions, findFreePort, formatBytes, isPortBusy, parseArgs, pidAlive, readJson, writeJson,
 } from './common.mjs';
 import { formatEnvValue, readEnvFile, renderEnvFile, restoreEnvFile, upsertEnvFile } from './envfile.mjs';
 import { lintAll, lintFile, parseAll } from './ps-lint.mjs';
@@ -212,6 +212,15 @@ await testAsync('syscheck گزارش JSON ساخت‌یافته می‌دهد', 
   assert.equal(report.items.find((item) => item.id === 'node').status, 'ok');
 });
 
+/* ------------------------------ process helpers --------------------------- */
+
+test('pidAlive فرایند زنده را درست تشخیص می‌دهد', () => {
+  assert.equal(pidAlive(process.pid), true, 'فرایند جاری زنده تشخیص داده نشد');
+  assert.equal(pidAlive(0), false);
+  // A PID that is very unlikely to exist: the call must answer, not throw.
+  assert.equal(typeof pidAlive(999999), 'boolean');
+});
+
 /* ------------------------- installer: dry-run wiring ---------------------- */
 
 await testAsync('installer در حالت dry-run بدون تغییر چیزی گزارش کامل می‌دهد', async () => {
@@ -234,6 +243,36 @@ await testAsync('installer در حالت dry-run بدون تغییر چیزی گ
   const steps = events.filter((event) => event.type === 'step' && event.status !== 'running').map((event) => `${event.id}:${event.status}`);
   assert.ok(steps.includes('deps:skip'), 'گام وابستگی‌ها اجرا شد');
   assert.ok(steps.includes('verify:skip'), 'گام بررسی نهایی گزارش نشد');
+});
+
+/* ----------------------- verify: root/env discovery ----------------------- */
+
+await testAsync('verify پوشه و فایل تنظیمات را خودش پیدا می‌کند', async () => {
+  const sandbox = path.join(tmp, 'discover');
+  fs.mkdirSync(sandbox, { recursive: true });
+  fs.writeFileSync(
+    path.join(sandbox, '.env.windows.local'),
+    renderEnvFile({
+      NODE_ENV: 'development',
+      DB_DRIVER: 'sqlite',
+      SQLITE_FILE: path.join(sandbox, '.data', 'pishkan-windows.sqlite'),
+      PORT: '45998',
+      APP_ENCRYPTION_KEY: 'a'.repeat(64),
+      UPLOAD_DIR: path.join(sandbox, '.data', 'uploads'),
+      BACKUP_DIR: path.join(sandbox, '.data', 'backups'),
+    }),
+  );
+  // No --env and no --root: the script must look inside its own directory
+  // instead of reporting three fake failures about files it never opened.
+  const child = spawnSync(process.execPath, [
+    path.join(MODULE_DIR, 'verify.mjs'), '--mode', 'core', '--url', 'http://127.0.0.1:45998', '--root', sandbox,
+  ], { encoding: 'utf8', cwd: tmp });
+  const line = child.stdout.split('\n').find((row) => row.startsWith('RESULT_JSON:'));
+  assert.ok(line, 'خروجی verify خوانده نشد');
+  const report = JSON.parse(line.slice(12));
+  const config = report.checks.find((item) => item.id === 'config');
+  assert.equal(config.ok, true, `فایل تنظیمات پیدا نشد: ${config.detail}`);
+  assert.match(config.detail, /sqlite/);
 });
 
 /* --------------------------- manager safeguards --------------------------- */

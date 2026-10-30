@@ -172,6 +172,17 @@ export function windowsBuild() {
   return Number.parseInt(parts[2] ?? '0', 10) || 0;
 }
 
+/** True when the process exists (EPERM means it exists but is someone else's). */
+export function pidAlive(pid) {
+  if (!pid) return false;
+  try {
+    process.kill(Number(pid), 0);
+    return true;
+  } catch (error) {
+    return error?.code === 'EPERM';
+  }
+}
+
 export function sleep(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
