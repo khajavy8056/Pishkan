@@ -14,6 +14,7 @@ import { normalizeMobile } from '../modules/sms/provider.js';
 import { validatePasswordAgainstPolicy } from '../modules/auth/service.js';
 import { listNotifications, markRead } from '../modules/notifications/service.js';
 import { param } from '../http/params.js';
+import { listCustomerDocuments } from '../modules/documents/service.js';
 
 export const customersRouter = Router();
 customersRouter.use(requireAuth);
@@ -167,10 +168,13 @@ customersRouter.get('/:id', requirePermission('customers.view'), asyncRoute(asyn
     office?listInvoices({ customerId: user.id, pageSize: 10 }):Promise.resolve({items:[]}),
   ]);
   const documents = await q<any>(
-    `SELECT d.id, d.title, d.status, d.created_at, f.name AS file_name, f.mime, f.size FROM request_documents d
+    `SELECT d.id, d.title, d.status, d.created_at, d.document_type, f.id AS file_id, f.name AS file_name,
+            f.mime, f.size, f.processing_status, f.savings_percent, f.width, f.height
+     FROM request_documents d
      JOIN files f ON f.id = d.file_id JOIN requests r ON r.id = d.request_id
      WHERE r.customer_id = ? AND (?=1 OR r.assigned_to=?) ORDER BY d.created_at DESC`, [user.id,Number(office),req.auth!.user.id],
   );
+  const profileDocuments = await listCustomerDocuments(user.id);
   ok(res, {
     id: user.id,
     fullName: user.full_name,
@@ -190,8 +194,16 @@ customersRouter.get('/:id', requirePermission('customers.view'), asyncRoute(asyn
     invoices: invoices.items,
     documents: documents.map((d) => ({
       id: d.id, title: d.title, status: d.status, createdAt: d.created_at,
-      file: { name: d.file_name, mime: d.mime, size: Number(d.size) },
+      documentType: d.document_type ?? null,
+      file: {
+        id: d.file_id, name: d.file_name, mime: d.mime, size: Number(d.size),
+        width: d.width ?? null, height: d.height ?? null,
+        savingsPercent: Number(d.savings_percent ?? 0),
+        processing: { status: d.processing_status ?? 'none' },
+        displayUrl: `/api/files/${d.file_id}`,
+      },
     })),
+    profileDocuments,
   });
 }));
 

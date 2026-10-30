@@ -11,6 +11,7 @@ import {
 } from '../modules/requests/service.js';
 import { getServiceById } from '../modules/catalog/service.js';
 import { one, q } from '../db/index.js';
+import { reuseDocumentInRequest } from '../modules/documents/service.js';
 import { notifyUser } from '../modules/notifications/service.js';
 import { param } from '../http/params.js';
 
@@ -90,6 +91,8 @@ requestsRouter.get('/pending-documents', requirePermission('documents.view'), as
   );
   const rows = await q<any>(
     `SELECT d.id, d.title, d.kind, d.created_at, d.file_id, f.name AS file_name, f.mime, f.size,
+            f.processing_status, f.processing_mode, f.savings_percent, f.preview_storage_key,
+            f.width, f.height, f.processing_error,
             r.id AS request_id, r.tracking_code, r.status AS request_status,
             s.title AS service_title, u.full_name AS customer_name
      FROM request_documents d
@@ -102,7 +105,15 @@ requestsRouter.get('/pending-documents', requirePermission('documents.view'), as
   );
   ok(res, rows.map((r: any) => ({
     id: r.id, title: r.title, kind: r.kind, createdAt: r.created_at,
-    file: { id: r.file_id, name: r.file_name, mime: r.mime, size: Number(r.size) },
+    file: {
+      id: r.file_id, name: r.file_name, mime: r.mime, size: Number(r.size),
+      width: r.width ?? null, height: r.height ?? null,
+      savingsPercent: Number(r.savings_percent ?? 0),
+      previewUrl: r.preview_storage_key ? `/api/files/${r.file_id}?variant=preview` : null,
+      originalUrl: `/api/files/${r.file_id}?variant=original`,
+      displayUrl: `/api/files/${r.file_id}`,
+      processing: { status: r.processing_status ?? 'none', mode: r.processing_mode ?? null, error: r.processing_error ?? null },
+    },
     requestId: r.request_id, trackingCode: r.tracking_code, requestStatus: r.request_status,
     serviceTitle: r.service_title, customerName: r.customer_name,
   })), { total: Number(total?.c ?? 0), page, pageSize });
@@ -245,14 +256,32 @@ requestsRouter.post('/:id/notes', asyncRoute(async (req, res) => {
 
 requestsRouter.post('/:id/documents', asyncRoute(async (req, res) => {
   const body = z.object({
-    fileId: z.string().min(3),
+    fileId: z.string().min(3).optional(),
+    customerDocumentId: z.string().min(3).optional(),
     title: z.string().max(200).optional(),
     kind: z.enum(['customer', 'staff']).optional(),
+    confirmReuse: z.boolean().optional(),
   }).parse(req.body);
-  await loadAuthorized(param(req, 'id'), req);
+  if (!body.fileId && !body.customerDocumentId) throw badRequest('شناسه فایل یا مدرک پروفایل لازم است.');
+  const request = await loadAuthorized(param(req, 'id'), req);
   const isCustomer = req.auth!.user.kind === 'customer';
-  if(!isCustomer&&!hasPermission(req.auth!.permissions,'requests.edit'))throw forbidden();
-  await attachDocument(param(req, 'id'), body.fileId, body.title ?? 'مدرک ارسالی', { id: req.auth!.user.id, name: req.auth!.user.fullName }, isCustomer ? 'customer' : 'staff');
+  if (!isCustomer && !hasPermission(req.auth!.permissions, 'requests.edit')) throw forbidden();
+
+  if (body.customerDocumentId) {
+    // Profile-document reuse is a customer decision and requires confirmation.
+    if (!isCustomer) throw forbidden('استفاده دوباره از مدارک پروفایل فقط با تأیید مشتری انجام می‌شود.');
+    await reuseDocumentInRequest({
+      documentId: body.customerDocumentId,
+      requestId: request!.id,
+      customerId: req.auth!.user.id,
+      confirm: body.confirmReuse === true,
+      actor: { id: req.auth!.user.id, name: req.auth!.user.fullName },
+    });
+    return ok(res, await safeRequest(req, param(req, 'id')));
+  }
+
+  await attachDocument(param(req, 'id'), body.fileId!, body.title ?? 'مدرک ارسالی',
+    { id: req.auth!.user.id, name: req.auth!.user.fullName }, isCustomer ? 'customer' : 'staff');
   ok(res, await safeRequest(req, param(req, 'id')));
 }));
 

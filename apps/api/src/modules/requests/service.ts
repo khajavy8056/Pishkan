@@ -496,7 +496,9 @@ export async function getRequest(requestId: string, viewer?: { actorId: string; 
     [requestId],
   );
   const documents = await q<any>(
-    `SELECT d.*, f.name AS file_name, f.mime AS mime, f.size AS size, f.storage_key
+    `SELECT d.*, f.name AS file_name, f.mime AS mime, f.size AS size, f.storage_key,
+            f.processing_status, f.processing_mode, f.preview_storage_key, f.original_storage_key,
+            f.original_mime, f.original_size, f.savings_percent, f.width, f.height, f.processing_error
      FROM request_documents d JOIN files f ON f.id = d.file_id WHERE d.request_id = ? ORDER BY d.created_at ASC`,
     [requestId],
   );
@@ -538,7 +540,21 @@ export async function getRequest(requestId: string, viewer?: { actorId: string; 
     })),
     documents: documents.filter(d=>!viewer?.isCustomer || d.kind!=='staff' || d.status==='approved').map((d) => ({
       id: d.id, title: d.title, kind: d.kind, status: d.status, reviewNote: d.review_note,
-      file: { id: d.file_id, name: d.file_name, mime: d.mime, size: Number(d.size) },
+      documentType: d.document_type ?? null,
+      customerDocumentId: d.customer_document_id ?? null,
+      expiresAt: d.expires_at ?? null,
+      file: {
+        id: d.file_id, name: d.file_name, mime: d.mime, size: Number(d.size),
+        originalSize: d.original_size === null || d.original_size === undefined ? Number(d.size) : Number(d.original_size),
+        savingsPercent: Number(d.savings_percent ?? 0),
+        width: d.width ?? null, height: d.height ?? null,
+        previewUrl: d.preview_storage_key ? `/api/files/${d.file_id}?variant=preview` : null,
+        originalUrl: `/api/files/${d.file_id}?variant=original`,
+        displayUrl: `/api/files/${d.file_id}`,
+        processing: {
+          status: d.processing_status ?? 'none', mode: d.processing_mode ?? null, error: d.processing_error ?? null,
+        },
+      },
       createdAt: d.created_at,
     })),
     invoices: invoices.map((i) => ({
@@ -702,13 +718,15 @@ export async function attachDocument(
   title: string,
   actor: { id: string; name: string },
   kind: 'customer' | 'staff' = 'staff',
+  meta: { customerDocumentId?: string | null; documentType?: string | null; expiresAt?: string | null } = {},
 ) {
   const file = await one<any>('SELECT * FROM files WHERE id = ?', [fileId]);
   if (!file) throw badRequest('فایل ارسالی یافت نشد.');
   if (file.owner_id !== actor.id) throw forbidden('فقط فایل بارگذاری‌شده توسط خودتان قابل پیوست است.');
   await run(
-    `INSERT INTO request_documents (id, request_id, file_id, title, kind, status, created_at) VALUES (?, ?, ?, ?, ?, 'pending', ?)`,
-    [id('doc'), requestId, fileId, title, kind, nowIso()],
+    `INSERT INTO request_documents (id, request_id, file_id, title, kind, status, created_at, customer_document_id, document_type, expires_at)
+     VALUES (?, ?, ?, ?, ?, 'pending', ?, ?, ?, ?)`,
+    [id('doc'), requestId, fileId, title, kind, nowIso(), meta.customerDocumentId ?? null, meta.documentType ?? null, meta.expiresAt ?? null],
   );
   await addEvent({
     requestId, type: 'document', actorId: actor.id, actorName: actor.name,
