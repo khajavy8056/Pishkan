@@ -59,20 +59,46 @@ docs/             راهنمای نصب، به‌روزرسانی، پشتیبا
 
 جزئیات بیشتر: [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)
 
-## ۳. نصب محلی روی Windows و اجرای همه پنل‌ها
+## ۳. نصب محلی روی Windows (نصب‌کننده و مدیر گرافیکی)
 
-راهنمای کامل و عیب‌یابی: [docs/WINDOWS-LOCAL.md](docs/WINDOWS-LOCAL.md). بستهٔ نصب سبک Windows شامل launcherهای CMD و نصب‌کنندهٔ PowerShell است (MSI امضاشده نیست). پس از نصب Node.js 22.22.2+، شاخهٔ جاری را دریافت کنید و روی `Install-Pishkan-Windows.cmd` دوبار کلیک کنید. نصب‌کننده با SQLite محلی، migrationها و کاتالوگ شروع می‌کند، رمز مدیرکل را تصادفی می‌سازد و پس از نصب نمایش می‌دهد؛ رمز ثابت منتشرشده ندارد.
+نسخهٔ ویندوز، **همان محصول** است: همان بک‌اند، همان API، همان مدل‌ها/مهاجرت‌ها، همان مجوزها و
+همان گردش‌کارها. تفاوت فقط در فایل پیکربندی (`.env.windows.local`) و لانچرهاست.
+
+روی پوشهٔ پروژه، `windows\PishkanSetup.cmd` را دوبار کلیک کنید:
+
+| فایل | کار |
+| --- | --- |
+| `windows\PishkanSetup.cmd` | نصب‌کنندهٔ گرافیکی (بررسی سیستم، نصب Node در صورت نیاز، وابستگی‌ها، ساخت، پایگاه داده، مدیر کل، راه‌اندازی، آزمون نهایی) |
+| `windows\PishkanManager.cmd` | مدیر گرافیکی: شروع/توقف/راه‌اندازی دوباره، وضعیت واقعی پنج سرویس، گزارش زنده، پوشه داده، پشتیبان/بازیابی |
+| `windows\Start-Pishkan.cmd` / `Stop-Pishkan.cmd` | اجرا و توقف امن سرویس |
+| `windows\PishkanSetup.cmd /console` | نصب متنی (بدون پنجره) با همان موتور |
 
 ```powershell
-# در ریشهٔ پوشهٔ دریافت‌شده
-.\Install-Pishkan-Windows.cmd
-# یا برای پورت دیگر/داده‌های نمایشی اختیاری:
-powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\install-windows.ps1 -Port 3002 -IncludeDemoData
+# ساخت میان‌بر منوی شروع و دسکتاپ
+powershell -NoProfile -ExecutionPolicy Bypass -File windows\Create-Shortcuts.ps1
+# نصب متنی
+node windows\lib\setup-console.mjs
+# مدیریت بدون رابط گرافیکی
+node windows\lib\manager.mjs status --root .
 ```
 
-صفحه: `http://127.0.0.1:3000`؛ API سلامت: `http://127.0.0.1:3000/api/health`. دادهٔ نمونه پیش‌فرض خاموش است. نصب معمولی ۳ دسته و ۳۰ خدمت با هزینهٔ **نمونه** می‌سازد؛ پس از ورود مدیرکل از پنل کارکنان، حساب‌های کارمند/حسابدار را بسازید و مشتری را ثبت‌نام کنید. پورت فقط روی رایانهٔ محلی گوش می‌دهد.
+* پایگاه داده: **SQLite جداگانه** در `.data\pishkan-windows.sqlite` با `NODE_ENV=development`
+  (قانون پروژه: SQLite فقط خارج از production؛ محیط عملیاتی روی PostgreSQL می‌ماند).
+* حساب مدیر کل در همان نصب ساخته می‌شود (نام، نام کاربری، رمز با تأیید و سیاست رمز) و رمز
+  در هیچ فایلی ذخیره نمی‌شود.
+* سرور فقط روی `127.0.0.1` گوش می‌دهد؛ هیچ اتصالی به محیط اصلی برقرار نمی‌شود.
+* نصب دوباره = تعمیر/به‌روزرسانی؛ پایگاه داده، فایل‌ها و پشتیبان‌ها حذف نمی‌شوند.
 
-برای اجرای دستی توسعه در سیستم‌های دیگر، Node.js 22.22.2+ لازم است. `.env.development.example` را کپی و یک رمز قوی مخصوص خود در `BOOTSTRAP_ADMIN_PASSWORD` بنویسید، سپس `npm ci`, `npm run build` و `npm run dev` اجرا کنید. هیچ رمز پیش‌فرضی برای مدیر ساخته نمی‌شود مگر آن را خودتان تنظیم کنید. نصب Windows، مسیرهای نگهداری داده، اختیارات و محدودیت‌ها: [راهنمای Windows](docs/WINDOWS-LOCAL.md).
+راهنماها: [نصب و استفاده](docs/WINDOWS-INSTALL-FA.md) ·
+[حذف نصب](docs/WINDOWS-UNINSTALL-FA.md) · [به‌روزرسانی از GitHub](docs/WINDOWS-UPDATE-FA.md) ·
+[گزارش آزمون و محدودیت‌ها](docs/WINDOWS-LOCAL-TEST-REPORT-2026-10-30.md)
+
+> مسیر قدیمی (`Install-Pishkan-Windows.cmd` و `scripts/install-windows.ps1`) هنوز کار می‌کند و
+> همان فایل تنظیمات و همان پایگاه داده را می‌سازد؛ نصب‌کنندهٔ گرافیکی جای آن را می‌گیرد.
+
+برای اجرای دستی توسعه در سیستم‌های دیگر، Node.js 22.22.2+ لازم است. `.env.development.example` را
+کپی و یک رمز قوی مخصوص خود در `BOOTSTRAP_ADMIN_PASSWORD` بنویسید، سپس `npm ci`, `npm run build` و
+`npm run dev` اجرا کنید. هیچ رمز پیش‌فرضی برای مدیر ساخته نمی‌شود مگر آن را خودتان تنظیم کنید.
 
 ## ۴. نصب روی سرور (Ubuntu 22.04/24.04)
 
@@ -113,7 +139,11 @@ pishkan doctor        # بررسی کامل نصب
 | سند | موضوع |
 | --- | --- |
 | [docs/INSTALL.md](docs/INSTALL.md) | نصب Ubuntu Server، پیش‌نیازها، عیب‌یابی |
-| [docs/WINDOWS-LOCAL.md](docs/WINDOWS-LOCAL.md) | نصب محلی Windows، مدیرکل اولیه، اجرای پنل‌ها و دادهٔ نمونه |
+| [docs/WINDOWS-INSTALL-FA.md](docs/WINDOWS-INSTALL-FA.md) | نصب گرافیکی ویندوز، مراحل، پیش‌نیازها، مدیر کل، عیب‌یابی |
+| [docs/WINDOWS-UNINSTALL-FA.md](docs/WINDOWS-UNINSTALL-FA.md) | حذف نصب با پشتیبان و بازگرداندن داده |
+| [docs/WINDOWS-UPDATE-FA.md](docs/WINDOWS-UPDATE-FA.md) | به‌روزرسانی از GitHub بدون از دست رفتن داده |
+| [docs/WINDOWS-LOCAL-TEST-REPORT-2026-10-30.md](docs/WINDOWS-LOCAL-TEST-REPORT-2026-10-30.md) | آزمون‌های واقعی نصب/گردش‌کار، موارد آزمون‌نشده و محدودیت‌ها |
+| [docs/WINDOWS-LOCAL.md](docs/WINDOWS-LOCAL.md) | نصب محلی Windows با اسکریپت قدیمی (نسخهٔ قبلی) |
 | [docs/UPDATE.md](docs/UPDATE.md) | به‌روزرسانی، بازگشت، مهاجرت داده |
 | [docs/BACKUP-RESTORE.md](docs/BACKUP-RESTORE.md) | پشتیبان‌گیری، بازیابی، سیاست نگهداری و ذخیره خارج از سرور |
 | [docs/DOMAIN-CLOUDFLARE.md](docs/DOMAIN-CLOUDFLARE.md) | اتصال دامنه، DNS، HTTPS و Cloudflare |
