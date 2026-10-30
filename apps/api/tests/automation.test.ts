@@ -15,7 +15,8 @@ beforeAll(async()=>{
  const service=await request(server).post('/api/catalog/services').set('Cookie',admin.cookie).send({title:'خدمت گردش اداری',baseFee:500000,form:[],documents:[],workflow:[]});expect(service.status).toBe(201);
  const r=await request(server).post('/api/requests').set('Cookie',customer.cookie).send({serviceId:service.body.data.id,formData:{},paymentMethod:'cash'});expect(r.status).toBe(201);requestId=r.body.data.id;
  await run("UPDATE requests SET assigned_to=?,status='in_progress' WHERE id=?",[workerId,requestId]);
- const upload=await request(server).post('/api/files/upload?purpose=delivery').set('Cookie',operator.cookie).attach('file',Buffer.from('%PDF-1.4\nTest output'),'result.pdf');expect(upload.status).toBe(201);fileId=upload.body.data.id;
+ const pdfFixture=Buffer.from('%PDF-1.4\n1 0 obj<</Type/Catalog/Pages 2 0 R>>endobj\n2 0 obj<</Type/Pages/Kids[3 0 R]/Count 1>>endobj\n3 0 obj<</Type/Page/Parent 2 0 R/MediaBox[0 0 200 200]>>endobj\ntrailer<</Root 1 0 R>>\nstartxref\n0\n%%EOF\n');
+ const upload=await request(server).post('/api/files/upload?purpose=delivery').set('Cookie',operator.cookie).attach('file',pdfFixture,'result.pdf');expect(upload.status).toBe(201);fileId=upload.body.data.id;
 });
 describe('role-aware professional case automation',()=>{
  it('uses the same password login endpoint for worker, accountant, supervisor and super admin',async()=>{
@@ -46,7 +47,8 @@ describe('role-aware professional case automation',()=>{
  });
  it('rejects delivery by unrelated workers and rolls back foreign-file delivery',async()=>{
   await request(server).post(`/api/requests/${requestId}/deliver`).set('Cookie',other.cookie).send({files:[{fileId,title:'نتیجه خدمت'}],summary:'گزارش انجام کار'}).expect(403);
-  const foreign=await request(server).post('/api/files/upload').set('Cookie',other.cookie).attach('file',Buffer.from('%PDF-1.4\nForeign'),'foreign.pdf');expect(foreign.status).toBe(201);
+  const foreignPdf=Buffer.from('%PDF-1.4\n1 0 obj<</Type/Catalog/Pages 2 0 R>>endobj\n2 0 obj<</Type/Pages/Kids[3 0 R]/Count 1>>endobj\n3 0 obj<</Type/Page/Parent 2 0 R/MediaBox[0 0 100 100]>>endobj\ntrailer<</Root 1 0 R>>\nstartxref\n0\n%%EOF\n');
+  const foreign=await request(server).post('/api/files/upload').set('Cookie',other.cookie).attach('file',foreignPdf,'foreign.pdf');expect(foreign.status).toBe(201);
   await request(server).post(`/api/requests/${requestId}/deliver`).set('Cookie',operator.cookie).send({files:[{fileId,title:'نتیجه خدمت'},{fileId:foreign.body.data.id,title:'فایل دیگری'}],summary:'گزارش انجام کار'}).expect(403);
   expect((await one<any>('SELECT COUNT(*) AS c FROM request_documents WHERE request_id=?',[requestId])).c).toBe(0);
   expect((await one<any>('SELECT status FROM requests WHERE id=?',[requestId])).status).toBe('in_progress');

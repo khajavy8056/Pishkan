@@ -85,6 +85,29 @@ const routes: { match: (url: string) => boolean; body: () => unknown }[] = [
   { match: (u) => u.includes('/api/settings/legal'), body: () => jsonBody({ terms: '', privacy: '', officeName: 'دفتر' }) },
   { match: (u) => u.includes('/api/assistant/chat'), body: () => jsonBody({ reply: 'پاسخ آزمایشی', suggestions: [], followUpQuestions: [] }) },
   { match: (u) => u.includes('/api/customers/me/notifications'), body: () => jsonBody([], { unread: 0, total: 0 }) },
+  {
+    match: (u) => u.includes('/api/documents/mine'),
+    body: () => jsonBody([
+      {
+        id: 'cdoc_1', customerId: 'usr_customer', docType: 'national_card', docTypeLabel: 'کارت ملی',
+        title: 'کارت ملی', status: 'pending', issuedAt: null, expiresAt: null, validity: 'none',
+        verifiedBy: null, verifiedAt: null, reviewNote: null, requestId: null, reusedFrom: null,
+        createdAt: '2026-01-02T00:00:00.000Z', updatedAt: '2026-01-02T00:00:00.000Z',
+        file: {
+          id: 'file_1', name: 'card.png', mime: 'image/webp', size: 42000, originalSize: 210000,
+          savingsPercent: 80, width: 1600, height: 1000, previewUrl: '/api/files/file_1?variant=preview',
+          displayUrl: '/api/files/file_1', originalUrl: '/api/files/file_1?variant=original',
+          processing: { status: 'ready', mode: 'lossless', error: null },
+        },
+      },
+    ], {
+      types: [
+        { code: 'national_card', label: 'کارت ملی', validityDays: 0, counts: { total: 1, approved: 0, pending: 1, rejected: 0 } },
+        { code: 'birth_certificate', label: 'شناسنامه', validityDays: 0, counts: { total: 0, approved: 0, pending: 0, rejected: 0 } },
+      ],
+    }),
+  },
+  { match: (u) => u.includes('/api/requests'), body: () => jsonBody([], { total: 0, page: 1, pageSize: 20 }) },
   { match: (u) => u.includes('/api/dashboard/summary'), body: () => jsonBody(dashboardSummary) },
   {
     match: (u) => u.includes('/api/staff/me/workload'),
