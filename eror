@@ -1,0 +1,5 @@
+[21:44:53] نصب در مسیر C:\Users\HP\Downloads\Pishkan-arena-db057b54-pishkan (2)\Pishkan-arena-db057b54-pishkan آغاز شد
+[21:44:55] stderr: fatal: Error: ورودی تنظیمات نصب‌کننده معتبر نیست (JSON)
+    at readJobFromStdin (file:///C:/Users/HP/Downloads/Pishkan-arena-db057b54-pishkan%20(2)/Pishkan-arena-db057b54-pishkan/windows/lib/installer.mjs:161:11)
+    at process.processTicksAndRejections (node:internal/process/task_queues:104:5)
+    at async main (file:///C:/Users/HP/Downloads/Pishkan-arena-db057b54-pishkan%20(2)/Pishkan-arena-db057b54-pishkan/windows/lib/installer.mjs:613:15)
