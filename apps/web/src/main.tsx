@@ -7,6 +7,7 @@ import { BrowserRouter, Navigate, Route, Routes, useLocation } from 'react-route
 import { AuthProvider, useAuth, homeFor } from './lib/auth';
 import { SiteProvider } from './lib/site';
 import { ToastProvider } from './components/ui';
+import { ThemeProvider } from './lib/theme';
 import { RequireRole } from './components/shell';
 import type { ReactNode } from 'react';
 
@@ -56,8 +57,9 @@ function ScrollToTop() {
 
 function App() {
   return (
-    <AuthProvider>
-      <SiteProvider>
+    <ThemeProvider>
+      <AuthProvider>
+        <SiteProvider>
         <ToastProvider>
           <BrowserRouter>
             <ScrollToTop />
@@ -126,8 +128,9 @@ function App() {
             </Routes>
           </BrowserRouter>
         </ToastProvider>
-      </SiteProvider>
-    </AuthProvider>
+        </SiteProvider>
+      </AuthProvider>
+    </ThemeProvider>
   );
 }
 
