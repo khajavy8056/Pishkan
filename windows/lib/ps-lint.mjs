@@ -128,6 +128,25 @@ function checkDotNetProperties(text) {
   return problems;
 }
 
+/**
+ * `ConvertTo-Json` without `-Compress` pretty-prints across many lines in
+ * Windows PowerShell 5.1. The installer sends its job to Node through stdin, and
+ * a multi-line payload once reached the other side as a single "{" — the install
+ * died with «ورودی تنظیمات نصب‌کننده معتبر نیست (JSON)» on a real machine.
+ * Anything that crosses a process boundary must be one line.
+ */
+function checkJsonSerialisation(text) {
+  const problems = [];
+  text.split(/\r?\n/).forEach((line, index) => {
+    if (!/ConvertTo-Json/.test(line)) return;
+    if (line.includes('-Compress')) return;
+    problems.push(
+      `ConvertTo-Json بدون -Compress (خروجی چندخطی می‌شود و در stdin/فایل یک‌خطی خراب می‌شود) — خط ${index + 1}`,
+    );
+  });
+  return problems;
+}
+
 export function lintFile(file) {
   const buffer = fs.readFileSync(file);
   const relative = path.relative(WINDOWS_DIR, file).replace(/\\/g, '/');
@@ -158,7 +177,54 @@ export function lintFile(file) {
 
   problems.push(...checkBalance(text));
   problems.push(...checkDotNetProperties(text));
+  problems.push(...checkJsonSerialisation(text));
   return { file: relative, ok: problems.length === 0, problems };
+}
+
+/**
+ * Rewrite the files so they satisfy the rules (`--fix`).
+ *
+ * Encoding rules get broken by tools, not by people: an editor saves a .cmd with
+ * LF, a zip round-trip drops the BOM. Fixing them by hand is error-prone, and a
+ * broken launcher is invisible until someone double-clicks it on Windows.
+ */
+export function fixFile(file) {
+  const buffer = fs.readFileSync(file);
+  const extension = path.extname(file).toLowerCase();
+  const changes = [];
+  if (extension === '.cmd') {
+    const text = buffer.toString('latin1');
+    const normalized = text.replace(/\r\n/g, '\n').replace(/\n/g, '\r\n');
+    if (normalized !== text) {
+      fs.writeFileSync(file, Buffer.from(normalized, 'latin1'));
+      changes.push('پایان خط به CRLF تغییر کرد');
+    }
+    return changes;
+  }
+  if (extension === '.ps1') {
+    let body = buffer;
+    if (!body.subarray(0, 3).equals(BOM)) {
+      body = Buffer.concat([BOM, body]);
+      changes.push('UTF-8 BOM اضافه شد');
+    }
+    const text = body.toString('utf8').replace(/\r\n/g, '\n').replace(/\n/g, '\r\n');
+    const normalized = Buffer.concat([BOM, Buffer.from(text.slice(1), 'utf8')]);
+    if (!Buffer.from(text.slice(1), 'utf8').equals(body.subarray(3))) {
+      fs.writeFileSync(file, normalized);
+      changes.push('پایان خط به CRLF تغییر کرد');
+    } else if (changes.length) {
+      fs.writeFileSync(file, body);
+    }
+    return changes;
+  }
+  return changes;
+}
+
+export function fixAll() {
+  return collectFiles().map((file) => ({
+    file: path.relative(WINDOWS_DIR, file).replace(/\\/g, '/'),
+    changes: fixFile(file),
+  }));
 }
 
 export function lintAll() {
@@ -220,6 +286,11 @@ export async function parseAll(files = collectFiles(WINDOWS_DIR, ['.ps1'])) {
 
 const isMain = process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url);
 if (isMain) {
+  if (process.argv.includes('--fix')) {
+    const fixed = fixAll().filter((entry) => entry.changes.length);
+    for (const entry of fixed) process.stdout.write(`✎ ${entry.file}: ${entry.changes.join('، ')}\n`);
+    process.stdout.write(fixed.length ? `\n${fixed.length} فایل اصلاح شد.\n\n` : '\nهمهٔ فایل‌ها از قبل درست بودند.\n\n');
+  }
   const results = lintAll();
   let failed = 0;
   for (const result of results) {

@@ -149,17 +149,73 @@ function tail(text, lines = 25) {
   return text.trim().split(/\r?\n/).slice(-lines).join('\n');
 }
 
+/**
+ * Read the job JSON from stdin.
+ *
+ * The sender is PowerShell, and ConvertTo-Json in Windows PowerShell 5.1
+ * *pretty-prints* unless -Compress is used — it once sent a JSON object spread
+ * over a dozen lines, this function took only the first line ("{") and the
+ * installer died with «ورودی تنظیمات نصب‌کننده معتبر نیست (JSON)» on a real
+ * machine. So: never trust the framing. Strip a UTF-8 BOM, try the whole text,
+ * then fall back to the first complete JSON object in it.
+ */
+function parseJobText(raw) {
+  const text = raw.replace(/^\uFEFF/, '').trim();
+  if (!text) return null;
+  const candidates = [text];
+  // Windows line endings, a trailing newline, or a log line before the JSON.
+  candidates.push(text.split(/\r?\n/).filter((line) => line.trim()).join('\n'));
+  for (const candidate of candidates) {
+    try {
+      const value = JSON.parse(candidate);
+      if (value && typeof value === 'object') return value;
+    } catch { /* try the next shape */ }
+  }
+  // Last resort: the first balanced {...} block (tolerates extra output around it).
+  const start = text.indexOf('{');
+  if (start >= 0) {
+    let depth = 0;
+    let inString = false;
+    let escaped = false;
+    for (let i = start; i < text.length; i += 1) {
+      const char = text[i];
+      if (inString) {
+        if (escaped) escaped = false;
+        else if (char === '\\') escaped = true;
+        else if (char === '"') inString = false;
+        continue;
+      }
+      if (char === '"') inString = true;
+      else if (char === '{') depth += 1;
+      else if (char === '}') {
+        depth -= 1;
+        if (depth === 0) {
+          try {
+            const value = JSON.parse(text.slice(start, i + 1));
+            if (value && typeof value === 'object') return value;
+          } catch { /* fall through */ }
+          break;
+        }
+      }
+    }
+  }
+  return undefined;
+}
+
 async function readJobFromStdin() {
   if (!args.has('job-stdin')) return {};
   const chunks = [];
   for await (const chunk of process.stdin) chunks.push(Buffer.from(chunk));
-  const text = Buffer.concat(chunks).toString('utf8').replace(/^\uFEFF/, '').trim();
-  if (!text) return {};
-  try {
-    return JSON.parse(text.split(/\r?\n/)[0]);
-  } catch {
-    throw new Error('ورودی تنظیمات نصب‌کننده معتبر نیست (JSON)');
+  const raw = Buffer.concat(chunks).toString('utf8');
+  if (!raw.trim()) return {};
+  const job = parseJobText(raw);
+  if (job === undefined) {
+    throw new Error(
+      'ورودی تنظیمات نصب‌کننده معتبر نیست (JSON). ' +
+      `طول دریافت‌شده: ${raw.trim().length} کاراکتر، ابتدا: ${JSON.stringify(raw.trim().slice(0, 120))}`,
+    );
   }
+  return job ?? {};
 }
 
 function randomHex(bytes) {
@@ -353,7 +409,16 @@ async function stepDependencies() {
 
   const hasLock = fs.existsSync(path.join(ROOT, 'package-lock.json'));
   const npmCommand = process.platform === 'win32' ? 'npm.cmd' : 'npm';
-  const npmArgs = hasLock ? ['ci', '--no-audit', '--no-fund', '--loglevel=error'] : ['install', '--no-audit', '--no-fund', '--loglevel=error'];
+  // Home connections drop; npm's default is 2 retries and a 5 minute timeout,
+  // which is not enough for 670 packages on a slow line. These flags make npm
+  // keep trying instead of failing the whole installation.
+  const npmNetwork = [
+    '--no-audit', '--no-fund', '--loglevel=error',
+    '--fetch-retries=5', '--fetch-retry-mintimeout=5000', '--fetch-retry-maxtimeout=120000',
+    '--fetch-timeout=300000',
+  ];
+  let mode = hasLock ? 'ci' : 'install';
+  let npmArgs = [mode, ...npmNetwork];
   const attempts = 3;
   stepEvent('deps', 'دانلود وابستگی‌ها', 'running', {
     message: `${hasLock ? 'npm ci' : 'npm install'} · ${expected || '?'} بسته`,
@@ -394,6 +459,15 @@ async function stepDependencies() {
       : /ETIMEDOUT|ENOTFOUND|ECONNRESET|network|EAI_AGAIN/i.test(result.stderr + result.stdout)
         ? 'اتصال شبکه قطع شد'
         : 'npm با خطا تمام شد';
+    // A package-lock.json that does not match package.json makes `npm ci` refuse
+    // to run (EUSAGE). That is a package defect, not a network problem: retrying
+    // the same command cannot succeed, but `npm install` repairs the tree.
+    if (mode === 'ci' && /EUSAGE|can only install with an existing package-lock|npm ci can only/i.test(result.stderr + result.stdout)) {
+      log('package-lock.json با package.json هم‌خوان نیست؛ به‌جای npm ci از npm install استفاده می‌شود.', 'warn');
+      mode = 'install';
+      npmArgs = [mode, ...npmNetwork];
+      continue;
+    }
     if (attempt < attempts) {
       const waitMs = attempt * 4000;
       log(`${hint}. تلاش ${attempt} از ${attempts} ناموفق بود؛ ${waitMs / 1000} ثانیه بعد دوباره تلاش می‌شود.`, 'warn');
@@ -610,7 +684,29 @@ async function stepVerify(config, job) {
 /* ---------------------------------- main ---------------------------------- */
 
 async function main() {
-  const job = await readJobFromStdin();
+  let job;
+  try {
+    job = await readJobFromStdin();
+  } catch (error) {
+    // A malformed job must still end with a machine-readable result: the GUI
+    // reads it to show a Persian message instead of a Node stack trace.
+    const message = error?.message ?? String(error);
+    log(message, 'error');
+    const detail = {
+      ok: false,
+      failedAt: new Date().toISOString(),
+      root: ROOT,
+      step: 'job',
+      stepTitle: 'تنظیمات نصب',
+      message,
+      hints: ['تنظیمات را دوباره در پنجرهٔ نصب وارد کنید یا نصب متنی را با PishkanSetup.cmd /console اجرا کنید.'],
+    };
+    if (!DRY_RUN) {
+      try { writeJson(errorReportPath(ROOT), detail); } catch { /* ignore */ }
+    }
+    emit({ type: 'result', ok: false, error: detail, durationMs: Date.now() - startedAt.getTime() });
+    process.exit(1);
+  }
   log(`نصب Pishkan در «${ROOT}» آغاز شد.`);
 
   let config;

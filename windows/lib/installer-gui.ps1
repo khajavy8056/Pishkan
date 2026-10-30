@@ -369,12 +369,81 @@ function Send-ProcessInput([System.Diagnostics.Process]$Process, [string]$Text) 
   $Process.StandardInput.Close()
 }
 
+# ------------------------------------------------------------- prerequisites
+
+<#
+Node.js is the only prerequisite the installer cannot ship inside the package
+(the installer itself runs on Node). So the window installs it: no "press the
+button first" dead end, no manual download from nodejs.org. One UAC prompt is
+expected for the machine-wide MSI; everything else runs unprivileged.
+#>
+function Ensure-NodeReady([switch]$Quiet) {
+  $node = Get-NodeCommand
+  if ($node) {
+    $version = ''
+    try { $version = (& $node -p "process.versions.node" 2>$null) } catch { $version = '' }
+    if (Test-NodeVersion $version) { return $true }
+  }
+
+  Append-Log (Get-NodeInstallSummary)
+  if (-not $Quiet) {
+    Set-Footer 'Node.js آماده نیست — نصب خودکار آغاز شد؛ این کار چند دقیقه طول می‌کشد…' 'warn'
+    $startButton.Enabled = $false
+    $checkButton.Enabled = $false
+    $nodeButton.Visible = $false
+    [System.Windows.Forms.Cursor]::Current = [System.Windows.Forms.Cursors]::WaitCursor
+    [System.Windows.Forms.Application]::DoEvents()
+  }
+  try {
+    $result = Ensure-NodeRuntime
+  } catch {
+    $result = @{ ok = $false; message = ('نصب Node.js با خطا متوقف شد: ' + $_.Exception.Message); version = '' }
+  } finally {
+    if (-not $Quiet) { [System.Windows.Forms.Cursor]::Current = [System.Windows.Forms.Cursors]::Default }
+  }
+  foreach ($line in ($result.message -split "`n")) {
+    if ($line.Trim()) { Append-Log $line }
+  }
+
+  $node = Get-NodeCommand
+  if ($result.ok -and $node) {
+    Append-Log ("Node.js {0} آماده است: {1}" -f $result.version, $node)
+    if (-not $Quiet) {
+      $startButton.Enabled = $true
+      $checkButton.Enabled = $true
+      Set-Footer ("Node.js {0} نصب شد · اکنون «بررسی سیستم» را بزنید." -f $result.version) 'ok'
+    }
+    return $true
+  }
+
+  if (-not $Quiet) {
+    $startButton.Enabled = $true
+    $checkButton.Enabled = $true
+    Set-Footer 'نصب خودکار Node.js ناموفق بود' 'danger'
+    Show-PishkanMessage 'نصب Node.js ناموفق بود' (
+      ($result.message + "`n`n") +
+      'راه‌های جایگزین:' + "`n" +
+      '  1) نصب Node.js 22 LTS از https://nodejs.org/en/download' + "`n" +
+      '  2) اجرای نصب متنی: PishkanSetup.cmd /console' + "`n`n" +
+      'گزارش کامل در .data\windows-gui-error.log') 'error'
+  }
+  return $false
+}
+
 # --------------------------------------------------------------- system check
 
 function Invoke-SystemCheck {
-  $node = Get-Command node -ErrorAction SilentlyContinue
+  # Prerequisites first: if the runtime is missing it is installed right here,
+  # and the check continues on the freshly installed Node.js.
+  if (-not (Ensure-NodeReady)) {
+    Show-PishkanMessage 'پیش‌نیاز نصب نشد' 'نصب خودکار Node.js کامل نشد؛ بدون آن اجرای Pishkan ممکن نیست. راه‌های جایگزین در گزارش پنجره آمده است.' 'error'
+    return $false
+  }
+  $nodeCommand = Get-NodeCommand
+  $node = Get-Command $nodeCommand -ErrorAction SilentlyContinue
+  if (-not $node -and $nodeCommand) { $node = [pscustomobject]@{ Source = $nodeCommand } }
   if (-not $node) {
-    Show-PishkanMessage 'Node.js پیدا نشد' ('برای اجرای Pishkan، Node.js نسخه 22.22.2 یا جدیدتر لازم است.' + "`n`n" + 'دکمهٔ «نصب Node.js» را بزنید؛ نصب‌کننده آن را با winget و در صورت نبود آن با نصب‌کنندهٔ رسمی nodejs.org (با بررسی SHA-256) نصب می‌کند.') 'warning'
+    Show-PishkanMessage 'Node.js پیدا نشد' 'Node.js در PATH و در مسیرهای استاندارد پیدا نشد. ویندوز را دوباره راه‌اندازی کنید یا Node.js را دستی نصب کنید.' 'error'
     return $false
   }
   $process = Start-BackgroundProcess $node.Source ("`"" + (Join-Path $RepoRoot 'windows\lib\syscheck.mjs') + "`" --root `"" + $pathBox.Text + "`" --port " + $portBox.Value) $RepoRoot
@@ -407,9 +476,13 @@ function Invoke-SystemCheck {
 
 function Start-Installation {
   if (-not (Test-FormInput)) { return }
+  if (-not (Ensure-NodeReady)) {
+    Show-PishkanMessage 'Node.js لازم است' 'نصب خودکار Node.js انجام نشد. نصب متنی را امتحان کنید: PishkanSetup.cmd /console' 'error'
+    return
+  }
   $nodeCommand = Get-NodeCommand
   if (-not $nodeCommand) {
-    Show-PishkanMessage 'Node.js لازم است' 'Node.js پیدا نشد. ابتدا «بررسی سیستم» را اجرا کنید و پیش‌نیازها را نصب کنید.' 'error'
+    Show-PishkanMessage 'Node.js لازم است' 'Node.js نصب شد ولی در این نشست پیدا نمی‌شود؛ پنجره را ببندید و دوباره باز کنید.' 'error'
     return
   }
 
@@ -429,7 +502,7 @@ function Start-Installation {
       username = $userBox.Text.Trim()
       password = $passBox.Text
     }
-  } | ConvertTo-Json -Depth 4
+  } | ConvertTo-Json -Depth 4 -Compress
 
   $installer = Join-Path $RepoRoot 'windows\lib\installer.mjs'
   $process = Start-BackgroundProcess $nodeCommand ("`"" + $installer + "`" --root `"" + $pathBox.Text + "`" --json-lines --job-stdin") $pathBox.Text
@@ -539,21 +612,9 @@ $checkButton.Add_Click({
 
 $nodeButton.Add_Click({
   $nodeButton.Enabled = $false
-  Set-Footer 'در حال نصب Node.js — این کار ممکن است چند دقیقه طول بکشد…' 'warn'
-  [System.Windows.Forms.Application]::DoEvents()
   try {
-    $result = Install-NodeRuntime
-    Append-Log $result.message
-    if ($result.ok) {
-      Show-PishkanMessage 'پیش‌نیاز نصب شد' ($result.message + "`n`nاکنون «بررسی سیستم» را اجرا کنید.") 'info'
-      $nodeButton.Visible = $false
-      Set-Footer 'Node.js نصب شد.' 'ok'
-    } else {
-      Show-PishkanMessage 'نصب پیش‌نیاز ناموفق بود' ($result.message + "`n`nمی‌توانید Node.js را دستی از nodejs.org نصب کنید.") 'error'
-      Set-Footer 'نصب Node.js ناموفق بود' 'danger'
-    }
-  } catch {
-    Show-PishkanMessage 'خطا' $_.Exception.Message 'error'
+    $ready = Ensure-NodeReady
+    if (-not $ready) { $nodeButton.Visible = $true }
   } finally {
     $nodeButton.Enabled = $true
   }
@@ -591,13 +652,16 @@ $form.Add_FormClosing({
 Apply-PishkanTheme $form
 Show-Page 'config'
 if (-not $SkipChecks) {
-  $nodeAvailable = Get-Command node -ErrorAction SilentlyContinue
-  if ($nodeAvailable) {
-    Set-Footer 'برای اطمینان از آماده بودن سیستم، «بررسی سیستم» را بزنید.' 'muted'
-  } else {
-    $nodeButton.Visible = $true
-    $startButton.Enabled = $false
-    Set-Footer 'Node.js پیدا نشد — دکمه «نصب Node.js» را بزنید.' 'warn'
-  }
+  $form.Add_Shown({
+    # Do the work, do not ask: the runtime is installed while the window is
+    # already on screen, and the footer explains what is happening.
+    if (-not (Ensure-NodeReady)) {
+      $nodeButton.Visible = $true
+      $startButton.Enabled = $false
+      Set-Footer 'Node.js نصب نشد — دکمه «نصب Node.js» را بزنید یا از /console استفاده کنید.' 'warn'
+      return
+    }
+    Set-Footer 'سیستم آماده است — «بررسی سیستم» را بزنید.' 'muted'
+  })
 }
 [void]$form.ShowDialog()

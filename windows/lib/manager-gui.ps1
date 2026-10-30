@@ -229,7 +229,23 @@ function Set-Footer([string]$Text, [string]$Role = 'muted') {
 
 function Invoke-Manager([string[]]$Arguments) {
   $node = Get-NodeCommand
-  if (-not $node) { throw 'Node.js پیدا نشد؛ نصب برنامه ناقص است.' }
+  if (-not $node) {
+    # The manager itself needs the runtime; install it instead of failing with a
+    # raw exception (the .cmd launcher already does this, this is the safety net
+    # when the script is started from a shortcut or from another shell).
+    if ($script:NodeInstalling) { throw 'Node.js در حال نصب است؛ چند لحظه دیگر دوباره تلاش کنید.' }
+    $script:NodeInstalling = $true
+    try {
+      Set-Footer 'Node.js پیدا نشد — نصب خودکار آغاز شد…' 'warn'
+      [System.Windows.Forms.Application]::DoEvents()
+      $result = Ensure-NodeRuntime
+      $node = Get-NodeCommand
+      if (-not $result.ok -or -not $node) { throw ('نصب خودکار Node.js ناموفق بود: ' + $result.message) }
+      Set-Footer ("Node.js {0} نصب شد." -f $result.version) 'ok'
+    } finally {
+      $script:NodeInstalling = $false
+    }
+  }
   $managerScript = Join-Path $RepoRoot 'windows\lib\manager.mjs'
   $output = & $node $managerScript @Arguments --root $RepoRoot --json 2>&1
   $line = ($output | Where-Object { "$_" -like 'RESULT_JSON:*' } | Select-Object -Last 1)

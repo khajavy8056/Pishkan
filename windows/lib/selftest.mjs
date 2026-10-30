@@ -13,6 +13,7 @@
  */
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
+import { readFileSync } from 'node:fs';
 import net from 'node:net';
 import os from 'node:os';
 import path from 'node:path';
@@ -23,7 +24,7 @@ import {
   MODULE_DIR, compareVersions, findFreePort, formatBytes, isPortBusy, parseArgs, pidAlive, readJson, writeJson,
 } from './common.mjs';
 import { formatEnvValue, readEnvFile, renderEnvFile, restoreEnvFile, upsertEnvFile } from './envfile.mjs';
-import { lintAll, lintFile, parseAll } from './ps-lint.mjs';
+import { fixFile, lintAll, lintFile, parseAll } from './ps-lint.mjs';
 
 const args = parseArgs();
 const verbose = args.has('verbose');
@@ -210,6 +211,77 @@ await testAsync('syscheck گزارش JSON ساخت‌یافته می‌دهد', 
     assert.ok(ids.includes(required), `بررسی ${required} وجود ندارد`);
   }
   assert.equal(report.items.find((item) => item.id === 'node').status, 'ok');
+});
+
+/* --------------------------- one-line JSON payloads ---------------------- */
+
+test('لینتر ConvertTo-Json بدون -Compress را رد می‌کند', () => {
+  const dir = path.join(tmp, 'lint-json');
+  fs.mkdirSync(dir, { recursive: true });
+  const bad = path.join(dir, 'bad.ps1');
+  fs.writeFileSync(bad, '\uFEFF$job = @{ admin = $admin } | ConvertTo-Json -Depth 4\n');
+  const result = lintFile(bad);
+  assert.equal(result.ok, false, 'خروجی چندخطی JSON رد نشد');
+  assert.ok(result.problems.some((p) => p.includes('-Compress')), result.problems.join(' | '));
+
+  const good = path.join(dir, 'good.ps1');
+  fs.writeFileSync(good, '\uFEFF$job = @{ admin = $admin } | ConvertTo-Json -Depth 4 -Compress\n');
+  assert.equal(lintFile(good).ok, true, lintFile(good).problems.join(' | '));
+
+  // The real installer must satisfy it too (the GUI sends this payload on stdin).
+  const gui = readFileSync(path.join(MODULE_DIR, 'installer-gui.ps1'), 'utf8');
+  assert.match(gui, /ConvertTo-Json[^\n]*-Compress/, 'پنجرهٔ نصب خروجی JSON را فشرده نمی‌کند');
+});
+
+await testAsync('نصب‌کننده JSON چندخطی PowerShell 5.1 را می‌پذیرد', async () => {
+  const sandbox = path.join(tmp, 'pretty-job');
+  fs.mkdirSync(sandbox, { recursive: true });
+  writeJson(path.join(sandbox, 'package.json'), { name: 'pishkan-pretty', version: '0.0.0' });
+  // Exactly what `ConvertTo-Json -Depth 4` (without -Compress) emits on PS 5.1.
+  const pretty = [
+    '{',
+    '    "admin":  {',
+    '                  "fullName":  "مدیر سامانه",',
+    '                  "username":  "admin",',
+    '                  "password":  "Pretty#Pass2026x"',
+    '              }',
+    '}',
+  ].join('\r\n');
+  const child = spawnSync(process.execPath, [
+    path.join(MODULE_DIR, 'installer.mjs'), '--root', sandbox, '--port', '45612',
+    '--json-lines', '--dry-run', '--no-start', '--job-stdin',
+  ], { input: `${pretty}\r\n`, encoding: 'utf8' });
+  const events = child.stdout.split('\n').filter(Boolean).map((line) => JSON.parse(line));
+  const result = events.find((event) => event.type === 'result');
+  assert.ok(result, 'رویداد نتیجه صادر نشد');
+  assert.equal(result.ok, true, `نصب با JSON چندخطی شکست خورد: ${JSON.stringify(result.error)}`);
+  assert.ok(!events.some((event) => event.level === 'error'), 'خطای JSON گزارش شد');
+});
+
+await testAsync('JSON خراب پیام روشن و نتیجهٔ ساخت‌یافته می‌دهد', async () => {
+  const sandbox = path.join(tmp, 'bad-job');
+  fs.mkdirSync(sandbox, { recursive: true });
+  writeJson(path.join(sandbox, 'package.json'), { name: 'pishkan-bad', version: '0.0.0' });
+  const child = spawnSync(process.execPath, [
+    path.join(MODULE_DIR, 'installer.mjs'), '--root', sandbox, '--json-lines', '--dry-run', '--job-stdin',
+  ], { input: 'this is not json\n', encoding: 'utf8' });
+  assert.notEqual(child.status, 0, 'ورودی خراب باید کد خروج غیر صفر بدهد');
+  const events = child.stdout.split('\n').filter(Boolean).map((line) => JSON.parse(line));
+  const result = events.find((event) => event.type === 'result');
+  assert.ok(result && result.ok === false, 'رویداد نتیجهٔ ناموفق صادر نشد');
+  assert.match(result.error.message, /JSON/);
+  // No Node stack trace in the machine-readable output.
+  assert.ok(!child.stdout.includes('    at '), 'خروجی شامل ردپای استثناست');
+});
+
+test('--fix فایل .cmd با پایان خط LF را به CRLF برمی‌گرداند', () => {
+  const dir = path.join(tmp, 'fix-eol');
+  fs.mkdirSync(dir, { recursive: true });
+  const file = path.join(dir, 'broken.cmd');
+  fs.writeFileSync(file, '@echo off\ngoto end\n:end\n', 'latin1');
+  const changes = fixFile(file);
+  assert.ok(changes.length > 0, 'تغییری گزارش نشد');
+  assert.equal(readFileSync(file, 'latin1'), '@echo off\r\ngoto end\r\n:end\r\n');
 });
 
 /* --------------------------- .NET compatibility --------------------------- */

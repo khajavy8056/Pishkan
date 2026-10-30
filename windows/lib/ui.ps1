@@ -48,7 +48,7 @@ function Load-UiSettings {
 
 function Save-UiSettings([hashtable]$Settings) {
   try {
-    $Settings | ConvertTo-Json | Set-Content -Encoding UTF8 -Path (Get-PishkanSettingsPath)
+    $Settings | ConvertTo-Json -Compress | Set-Content -Encoding UTF8 -Path (Get-PishkanSettingsPath)
   } catch { }
 }
 
