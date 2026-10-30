@@ -5,6 +5,7 @@ import cookieParser from 'cookie-parser';
 import helmet from 'helmet';
 import fs from 'node:fs';
 import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { env } from '../env.js';
 import { resolveSession } from '../modules/auth/service.js';
 import { errorHandler, notFoundHandler, requestId, rateLimit } from './middleware.js';
@@ -22,6 +23,7 @@ import { accountingRouter } from '../routes/accounting.js';
 import { messagesRouter } from '../routes/messages.js';
 import { settingsRouter } from '../routes/settings.js';
 import { filesRouter } from '../routes/files.js';
+import { documentsRouter } from '../routes/documents.js';
 import { assistantRouter } from '../routes/assistant.js';
 import { dashboardRouter } from '../routes/dashboard.js';
 import { systemRouter } from '../routes/system.js';
@@ -147,14 +149,25 @@ export async function createApp(): Promise<Express> {
   app.use(['/api/messages','/api/v1/messages'],messagesRouter);
   app.use(['/api/settings','/api/v1/settings'],settingsRouter);
   app.use(['/api/files','/api/v1/files'],filesRouter);
+  app.use(['/api/documents','/api/v1/documents'],documentsRouter);
   app.use(['/api/assistant','/api/v1/assistant'],assistantRouter);
   app.use(['/api/dashboard','/api/v1/dashboard'],dashboardRouter);
   app.use(['/api/system','/api/v1/system'],systemRouter);
 
   /* -------------------------- static web application ----------------------- */
-  const webDist = path.resolve(process.cwd(), 'apps/web/dist');
-  const fallbackDist = path.resolve(process.cwd(), 'dist/web');
-  const dist = fs.existsSync(webDist) ? webDist : fs.existsSync(fallbackDist) ? fallbackDist : null;
+  // The SPA can be served from several layouts: a repo checkout started from the
+  // repository root, a packaged install started from elsewhere, or a deploy that
+  // copies the build to dist/web. Resolve against both the working directory and
+  // this module's own location so the API never loses the UI because of `cd`.
+  const moduleDir = path.dirname(fileURLToPath(import.meta.url));
+  const candidates = [
+    path.resolve(process.cwd(), 'apps/web/dist'),
+    path.resolve(process.cwd(), 'dist/web'),
+    path.resolve(moduleDir, '../../../web/dist'),
+    path.resolve(moduleDir, '../../web/dist'),
+    path.resolve(moduleDir, '../../../../web/dist'),
+  ];
+  const dist = candidates.find((candidate) => fs.existsSync(path.join(candidate, 'index.html'))) ?? null;
   const uploadsPublic = path.join(env.uploadDir, 'public');
 
   if (fs.existsSync(uploadsPublic)) {

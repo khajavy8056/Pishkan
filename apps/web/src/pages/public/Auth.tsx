@@ -139,7 +139,7 @@ export function LoginPage() {
               <Field label="کد تأیید">
                 <Input value={mfaCode} onChange={(e) => setMfaCode(e.target.value)} inputMode="numeric" dir="ltr" className="text-center tracking-[0.5em]" maxLength={8} />
               </Field>
-              {error && <p className="text-xs text-rose-600">{error}</p>}
+              {error && <p className="text-xs text-rose-700">{error}</p>}
               <Button className="w-full" loading={loading} onClick={submitMfa}>تأیید و ورود</Button>
               <button className="w-full text-xs text-navy-500 hover:text-navy-800" onClick={() => setMfa(null)}>بازگشت</button>
             </div>
@@ -164,7 +164,7 @@ export function LoginPage() {
               ['پیگیری شفاف', 'هر تغییر وضعیت با تاریخ و کاربر ثبت می‌شود.'],
               ['حریم خصوصی', 'اطلاعات پرونده شما فقط برای کارشناس مسئول قابل مشاهده است.'],
             ].map(([title, text]) => (
-              <div key={title} className="rounded-xl bg-white p-4 ring-1 ring-navy-900/8">
+              <div key={title} className="rounded-xl bg-surface p-4 ring-1 ring-line">
                 <p className="text-sm font-semibold text-navy-900">{title}</p>
                 <p className="mt-1 text-xs leading-6 text-navy-500">{text}</p>
               </div>
@@ -172,22 +172,22 @@ export function LoginPage() {
           </div>
 
           <div className="mt-6 flex items-center gap-2 text-xs text-navy-500">
-            <ShieldCheck className="size-4 text-emerald-600" />
+            <ShieldCheck className="size-4 text-emerald-700" />
             کدهای ورود پس از مدت کوتاه منقضی می‌شوند؛ از نشانی HTTPS معتبر سامانه استفاده کنید.
           </div>
         </div>
 
         <div className="card card-pad">
           <h2 className="mb-2 text-center text-xl font-bold text-navy-900">ورود به سامانه</h2><p className="mb-5 text-center text-xs leading-6 text-navy-500">ورود مشترک کارکنان، حسابداران و مدیران؛ دسترسی‌ها از حساب شما خوانده می‌شوند.</p>
-          <div className="mb-4 flex gap-2">{([['customer','ورود مشتریان'],['staff','ورود کارکنان و مدیران']] as const).map(([kind,label])=><button key={kind} onClick={()=>{setAccountKind(kind);setMode('password');setStep('request');setError('')}} className={clsx('flex-1 rounded-xl border px-3 py-3 text-xs',accountKind===kind?'border-brand-200 bg-brand-50 font-bold text-brand-800':'border-navy-100 text-navy-500')}>{label}</button>)}</div>
-          <div className="mb-5 flex gap-1 rounded-xl bg-navy-50 p-1">
+          <div className="mb-4 flex gap-2">{([['customer','ورود مشتریان'],['staff','ورود کارکنان و مدیران']] as const).map(([kind,label])=><button key={kind} onClick={()=>{setAccountKind(kind);setMode('password');setStep('request');setError('')}} className={clsx('flex-1 rounded-xl border px-3 py-3 text-xs',accountKind===kind?'border-brand-200 bg-brand-50 font-bold text-accent':'border-navy-100 text-navy-500')}>{label}</button>)}</div>
+          <div className="mb-5 flex gap-1 rounded-xl bg-surface-3 p-1">
             {otpEnabled && (
-              <button onClick={() => { setMode('otp'); setError(''); }} className={clsx('flex flex-1 items-center justify-center gap-1.5 rounded-lg px-3 py-2 text-sm transition', mode === 'otp' ? 'bg-white font-medium text-navy-900 shadow-sm' : 'text-navy-600')}>
+              <button onClick={() => { setMode('otp'); setError(''); }} className={clsx('flex flex-1 items-center justify-center gap-1.5 rounded-lg px-3 py-2 text-sm transition', mode === 'otp' ? 'bg-surface font-medium text-navy-900 shadow-sm' : 'text-navy-600')}>
                 <Smartphone className="size-4" /> کد یک‌بارمصرف
               </button>
             )}
             {passwordEnabled && (
-              <button onClick={() => { setMode('password'); setError(''); }} className={clsx('flex flex-1 items-center justify-center gap-1.5 rounded-lg px-3 py-2 text-sm transition', mode === 'password' ? 'bg-white font-medium text-navy-900 shadow-sm' : 'text-navy-600')}>
+              <button onClick={() => { setMode('password'); setError(''); }} className={clsx('flex flex-1 items-center justify-center gap-1.5 rounded-lg px-3 py-2 text-sm transition', mode === 'password' ? 'bg-surface font-medium text-navy-900 shadow-sm' : 'text-navy-600')}>
                 <KeyRound className="size-4" /> نام کاربری و رمز
               </button>
             )}
@@ -203,7 +203,7 @@ export function LoginPage() {
                   <Field label="شماره موبایل" hint="کد تأیید به همین شماره ارسال می‌شود." required>
                     <Input value={mobile} onChange={(e) => setMobile(e.target.value)} placeholder="09123456789" inputMode="tel" dir="ltr" className="text-left" />
                   </Field>
-                  {error && <p className="text-xs text-rose-600">{error}</p>}
+                  {error && <p className="text-xs text-rose-700">{error}</p>}
                   <Button className="w-full" loading={loading} onClick={requestOtp} disabled={mobile.replace(/\D/g, '').length < 10}>
                     دریافت کد تأیید
                   </Button>
@@ -220,12 +220,12 @@ export function LoginPage() {
                       <span>حالت توسعه: پیامک واقعی ارسال نشده است. کد آزمایشی: <b dir="ltr">{debugCode}</b></span>
                     </div>
                   )}
-                  {error && <p className="text-xs text-rose-600">{error}</p>}
+                  {error && <p className="text-xs text-rose-700">{error}</p>}
                   <Button className="w-full" loading={loading} onClick={verifyOtp} disabled={code.length < 4}>ورود به سامانه</Button>
                   <div className="flex items-center justify-between text-xs">
                     <button className="text-navy-500 hover:text-navy-800" onClick={() => { setStep('request'); setCode(''); }}>تغییر شماره</button>
                     <button
-                      className="flex items-center gap-1 text-brand-700 hover:underline disabled:text-navy-400"
+                      className="flex items-center gap-1 text-accent hover:underline disabled:text-navy-400"
                       disabled={countdown > 0 || loading}
                       onClick={requestOtp}
                     >
@@ -254,12 +254,12 @@ export function LoginPage() {
                     autoComplete="current-password"
                     onKeyDown={(e) => e.key === 'Enter' && passwordLogin()}
                   />
-                  <button type="button" onClick={() => setShowPassword((v) => !v)} className="absolute left-2 top-1/2 -translate-y-1/2 rounded-lg p-1.5 text-navy-400 hover:bg-navy-50" aria-label="نمایش رمز">
+                  <button type="button" onClick={() => setShowPassword((v) => !v)} className="absolute left-2 top-1/2 -translate-y-1/2 rounded-lg p-1.5 text-navy-400 hover:bg-surface-3" aria-label="نمایش رمز">
                     {showPassword ? <EyeOff className="size-4" /> : <Eye className="size-4" />}
                   </button>
                 </div>
               </Field>
-              {error && <p className="text-xs text-rose-600">{error}</p>}
+              {error && <p className="text-xs text-rose-700">{error}</p>}
               <Button className="w-full" loading={loading} onClick={passwordLogin}>ورود</Button>
               {site?.authMethods.passwordReset && (
                 <Link to="/reset-password" className="block text-center text-xs text-navy-500 hover:text-navy-800">رمز عبور خود را فراموش کرده‌اید؟</Link>
@@ -268,8 +268,8 @@ export function LoginPage() {
           )}
 
           {site?.authMethods.registrationOpen && (
-            <p className="mt-5 border-t border-navy-900/8 pt-4 text-center text-xs text-navy-500">
-              حساب ندارید؟ <Link to="/register" className="font-medium text-brand-700 hover:underline">ثبت‌نام کنید</Link>
+            <p className="mt-5 border-t border-line pt-4 text-center text-xs text-navy-500">
+              حساب ندارید؟ <Link to="/register" className="font-medium text-accent hover:underline">ثبت‌نام کنید</Link>
             </p>
           )}
         </div>
@@ -359,10 +359,10 @@ export function RegisterPage() {
               <Field label="رمز عبور" hint="حداقل ۸ کاراکتر شامل حرف و رقم." required>
                 <Input type="password" value={form.password} onChange={set('password')} dir="ltr" className="text-left" autoComplete="new-password" />
               </Field>
-              {error && <p className="text-xs text-rose-600">{error}</p>}
+              {error && <p className="text-xs text-rose-700">{error}</p>}
               <Button type="submit" className="w-full" loading={loading}>ثبت‌نام</Button>
               <p className="text-center text-xs text-navy-500">
-                قبلاً ثبت‌نام کرده‌اید؟ <Link to="/login" className="text-brand-700 hover:underline">ورود</Link>
+                قبلاً ثبت‌نام کرده‌اید؟ <Link to="/login" className="text-accent hover:underline">ورود</Link>
               </p>
             </form>
           )}
@@ -423,17 +423,17 @@ export function AssistantPage() {
             {messages.map((message, index) => (
               <div key={index} className={clsx('flex', message.role === 'user' ? 'justify-start' : 'justify-end')}>
                 <div className={clsx('max-w-[85%] rounded-2xl px-4 py-3 text-sm leading-7',
-                  message.role === 'user' ? 'bg-brand-700 text-white' : 'bg-navy-50 text-navy-800')}>
+                  message.role === 'user' ? 'bg-brand-700 text-white' : 'bg-surface-3 text-navy-800')}>
                   <p className="whitespace-pre-wrap">{message.content}</p>
                   {message.questions && message.questions.length > 0 && (
-                    <div className="mt-2 space-y-1 border-t border-navy-900/10 pt-2 text-xs text-navy-600">
+                    <div className="mt-2 space-y-1 border-t border-line pt-2 text-xs text-navy-600">
                       {message.questions.map((q) => <p key={q}>• {q}</p>)}
                     </div>
                   )}
                   {message.suggestions && message.suggestions.length > 0 && (
                     <div className="mt-3 space-y-2">
                       {message.suggestions.map((s: any) => (
-                        <Link key={s.id} to={`/services/${s.slug}`} className="block rounded-xl bg-white p-3 ring-1 ring-navy-900/8 hover:bg-brand-50">
+                        <Link key={s.id} to={`/services/${s.slug}`} className="block rounded-xl bg-surface p-3 ring-1 ring-line hover:bg-brand-50">
                           <span className="block text-xs font-semibold text-navy-900">{s.title}</span>
                           <span className="mt-0.5 block text-[11px] text-navy-500">{s.summary}</span>
                         </Link>
@@ -447,12 +447,12 @@ export function AssistantPage() {
           </div>
 
           {handoff && (
-            <div className="border-t border-navy-900/8 bg-amber-50 px-4 py-2 text-xs text-amber-900">
+            <div className="border-t border-line bg-amber-50 px-4 py-2 text-xs text-amber-900">
               اگر پاسخ کافی نبود، می‌توانید <Link to="/app/messages" className="underline">به کارشناس پیام بدهید</Link>.
             </div>
           )}
 
-          <div className="border-t border-navy-900/8 p-3">
+          <div className="border-t border-line p-3">
             <div className="flex gap-2">
               <input
                 value={input}
@@ -466,7 +466,7 @@ export function AssistantPage() {
             </div>
             <div className="mt-2 flex flex-wrap gap-1.5">
               {['می‌خواهم سابقه بیمه بگیرم', 'چه مدارکی برای ثبت شرکت لازم است؟', 'وضعیت یارانه من چیست؟'].map((q) => (
-                <button key={q} onClick={() => send(q)} className="rounded-full bg-navy-50 px-3 py-1 text-[11px] text-navy-600 hover:bg-brand-50">{q}</button>
+                <button key={q} onClick={() => send(q)} className="rounded-full bg-surface-3 px-3 py-1 text-[11px] text-navy-600 hover:bg-brand-50">{q}</button>
               ))}
             </div>
           </div>
@@ -518,7 +518,7 @@ export function StatusPage() {
       <div className="mx-auto max-w-3xl px-4 py-10 sm:px-6">
         <h1 className="text-2xl font-bold text-navy-900">وضعیت سامانه</h1>
         <div className="card card-pad mt-5">
-          {error && <p className="text-sm text-rose-600">{error}</p>}
+          {error && <p className="text-sm text-rose-700">{error}</p>}
           {!status && !error && <p className="text-sm text-navy-500">در حال دریافت وضعیت…</p>}
           {status && (
             <div className="space-y-4">
@@ -527,10 +527,10 @@ export function StatusPage() {
                 <span className="badge bg-emerald-600 text-white">فعال</span>
               </div>
               <dl className="grid gap-3 sm:grid-cols-2 text-sm">
-                <div className="rounded-xl bg-navy-50/70 p-4"><dt className="text-xs text-navy-500">نسخه سامانه</dt><dd className="mt-1 font-medium text-navy-900">{status.version}</dd></div>
-                <div className="rounded-xl bg-navy-50/70 p-4"><dt className="text-xs text-navy-500">تعداد خدمات فعال</dt><dd className="mt-1 font-medium text-navy-900">{status.services}</dd></div>
-                <div className="rounded-xl bg-navy-50/70 p-4"><dt className="text-xs text-navy-500">دفتر</dt><dd className="mt-1 font-medium text-navy-900">{status.office.name}</dd></div>
-                <div className="rounded-xl bg-navy-50/70 p-4"><dt className="text-xs text-navy-500">ساعات کاری</dt><dd className="mt-1 font-medium text-navy-900">{status.office.workingHours}</dd></div>
+                <div className="rounded-xl bg-surface-3 p-4"><dt className="text-xs text-navy-500">نسخه سامانه</dt><dd className="mt-1 font-medium text-navy-900">{status.version}</dd></div>
+                <div className="rounded-xl bg-surface-3 p-4"><dt className="text-xs text-navy-500">تعداد خدمات فعال</dt><dd className="mt-1 font-medium text-navy-900">{status.services}</dd></div>
+                <div className="rounded-xl bg-surface-3 p-4"><dt className="text-xs text-navy-500">دفتر</dt><dd className="mt-1 font-medium text-navy-900">{status.office.name}</dd></div>
+                <div className="rounded-xl bg-surface-3 p-4"><dt className="text-xs text-navy-500">ساعات کاری</dt><dd className="mt-1 font-medium text-navy-900">{status.office.workingHours}</dd></div>
               </dl>
               <p className="text-xs text-navy-400">آخرین بررسی: {new Date(status.checkedAt).toLocaleString('fa-IR')}</p>
             </div>
@@ -545,7 +545,7 @@ export function NotFoundPage() {
   return (
     <PublicLayout>
       <div className="mx-auto max-w-lg px-4 py-20 text-center">
-        <p className="text-6xl font-black text-brand-200">۴۰۴</p>
+        <p className="text-6xl font-black text-brand-400">۴۰۴</p>
         <h1 className="mt-3 text-xl font-bold text-navy-900">صفحه مورد نظر یافت نشد</h1>
         <p className="mt-2 text-sm text-navy-500">ممکن است نشانی تغییر کرده باشد یا دسترسی به این صفحه مجاز نباشد.</p>
         <div className="mt-6 flex justify-center gap-2">
@@ -611,7 +611,7 @@ export function ResetPasswordPage() {
                 </Field>
               </>
             )}
-            {error && <p className="text-xs text-rose-600">{error}</p>}
+            {error && <p className="text-xs text-rose-700">{error}</p>}
             <Button className="w-full" loading={loading} onClick={step === 'request' ? request : reset}>
               {step === 'request' ? 'دریافت کد بازیابی' : 'تعیین رمز جدید'}
             </Button>

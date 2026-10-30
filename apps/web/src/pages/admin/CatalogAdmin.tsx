@@ -88,10 +88,10 @@ export function AdminServices() {
         actions={can('services.create') ? <Link to="/admin/services/new" className="btn-primary btn-sm"><Plus className="size-4" /> خدمت جدید</Link> : undefined}
       />
 
-      <div className="mb-4 flex gap-1 rounded-xl bg-white p-1 ring-1 ring-navy-900/8 sm:w-fit">
+      <div className="mb-4 flex gap-1 rounded-xl bg-surface p-1 ring-1 ring-line sm:w-fit">
         {[{ key: 'services', label: 'خدمات' }, { key: 'categories', label: 'دسته‌بندی‌ها' }].map((item) => (
           <button key={item.key} onClick={() => setTab(item.key as any)}
-            className={clsx('rounded-lg px-4 py-1.5 text-sm transition', tab === item.key ? 'bg-brand-700 text-white' : 'text-navy-600 hover:bg-navy-50')}>
+            className={clsx('rounded-lg px-4 py-1.5 text-sm transition', tab === item.key ? 'bg-brand-700 text-white' : 'text-navy-600 hover:bg-surface-3')}>
             {item.label}
           </button>
         ))}
@@ -100,7 +100,7 @@ export function AdminServices() {
       {tab === 'services' && (
         <>
           <div className="card mb-4 flex flex-col gap-2 p-3 sm:flex-row">
-            <div className="flex flex-1 items-center gap-2 rounded-xl bg-navy-50 px-3">
+            <div className="flex flex-1 items-center gap-2 rounded-xl bg-surface-3 px-3">
               <Search className="size-4 text-navy-400" />
               <input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="جست‌وجوی خدمت…" className="w-full bg-transparent py-2 text-sm outline-none" />
             </div>
@@ -117,7 +117,7 @@ export function AdminServices() {
                 <div className="flex flex-wrap items-start justify-between gap-3">
                   <div className="min-w-0">
                     <div className="flex flex-wrap items-center gap-2">
-                      <Link to={`/admin/services/${service.id}`} className="font-medium text-navy-900 hover:text-brand-700">{service.title}</Link>
+                      <Link to={`/admin/services/${service.id}`} className="font-medium text-navy-900 hover:text-accent">{service.title}</Link>
                       {!service.isPublished && <Badge tone="default">پنهان از کاتالوگ</Badge>}
                       {service.isPublished && !service.acceptingRequests && <Badge tone="warning">پذیرش متوقف</Badge>}
                       {service.needsReview && <Badge tone="warning">نیازمند بازبینی</Badge>}
@@ -320,11 +320,11 @@ export function AdminServiceEditor() {
 
       {error && <ErrorState message={error} />}
 
-      <div className="mb-4 flex flex-wrap gap-1 rounded-xl bg-white p-1 ring-1 ring-navy-900/8">
+      <div className="mb-4 flex flex-wrap gap-1 rounded-xl bg-surface p-1 ring-1 ring-line">
         {tabs.map((item) => (
           <button key={item.key} onClick={() => setTab(item.key)}
             className={clsx('flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-sm transition',
-              tab === item.key ? 'bg-brand-700 text-white' : 'text-navy-600 hover:bg-navy-50')}>
+              tab === item.key ? 'bg-brand-700 text-white' : 'text-navy-600 hover:bg-surface-3')}>
             {item.icon} {item.label}
           </button>
         ))}
@@ -374,7 +374,7 @@ export function AdminServiceEditor() {
               {service.form.length === 0 && <EmptyState title="فیلدی تعریف نشده" description="حداقل نام و شماره تماس را اضافه کنید." />}
               <div className="space-y-3">
                 {service.form.map((field: FormField, index: number) => (
-                  <div key={index} className="rounded-xl bg-navy-50/50 p-3">
+                  <div key={index} className="rounded-xl bg-surface-3/50 p-3">
                     <div className="mb-2 flex items-center justify-between">
                       <span className="flex items-center gap-1 text-[11px] text-navy-500"><GripVertical className="size-3.5" /> فیلد {faNum(index + 1)}</span>
                       <div className="flex gap-1">
@@ -416,7 +416,7 @@ export function AdminServiceEditor() {
               {service.documents.length === 0 && <EmptyState title="مدرکی تعریف نشده" />}
               <div className="space-y-2">
                 {service.documents.map((doc: DocItem, index: number) => (
-                  <div key={index} className="flex flex-wrap items-center gap-2 rounded-xl bg-navy-50/50 p-2">
+                  <div key={index} className="flex flex-wrap items-center gap-2 rounded-xl bg-surface-3/50 p-2">
                     <Input value={doc.title} onChange={(e) => updateDoc(index, { title: e.target.value })} placeholder="عنوان مدرک (مثلاً: تصویر کارت ملی)" className="flex-1" />
                     <label className="flex items-center gap-1 text-[11px] text-navy-700">
                       <input type="checkbox" checked={doc.required} onChange={(e) => updateDoc(index, { required: e.target.checked })} className="size-3.5" /> الزامی
@@ -442,7 +442,7 @@ export function AdminServiceEditor() {
               {service.workflow.length === 0 && <EmptyState title="مرحله‌ای تعریف نشده" />}
               <div className="space-y-2">
                 {service.workflow.map((step: WorkflowStep, index: number) => (
-                  <div key={index} className="rounded-xl bg-navy-50/50 p-3">
+                  <div key={index} className="rounded-xl bg-surface-3/50 p-3">
                     <div className="flex items-center gap-2">
                       <span className="grid size-6 shrink-0 place-items-center rounded-full bg-brand-700 text-[11px] text-white">{faNum(index + 1)}</span>
                       <Input value={step.title} onChange={(e) => updateStep(index, { title: e.target.value })} placeholder="عنوان مرحله" />
@@ -478,7 +478,7 @@ export function AdminServiceEditor() {
                     {[['online', 'پرداخت آنلاین'], ['cash', 'نقدی در دفتر'], ['pos', 'کارت‌خوان'], ['transfer', 'کارت به کارت']].map(([value, label]) => (
                       <button key={value} type="button" onClick={() => togglePayment(value)}
                         className={clsx('rounded-xl px-3 py-2 text-xs ring-1 transition',
-                          service.paymentMethods.includes(value) ? 'bg-brand-700 text-white ring-brand-700' : 'bg-white text-navy-700 ring-navy-900/10 hover:bg-navy-50')}>
+                          service.paymentMethods.includes(value) ? 'bg-brand-700 text-white ring-brand-700' : 'bg-surface text-navy-700 ring-line hover:bg-surface-3')}>
                         {label}
                       </button>
                     ))}
@@ -496,7 +496,7 @@ export function AdminServiceEditor() {
         <div className="space-y-4">
           <Card>
             <h2 className="mb-2 text-sm font-bold text-navy-900">پیش‌نمایش کارت</h2>
-            <div className="rounded-xl border border-navy-900/8 p-4">
+            <div className="rounded-xl border border-line p-4">
               <Badge tone="info">{categories.find((c) => c.id === service.categoryId)?.title ?? 'بدون دسته'}</Badge>
               <p className="mt-2 font-semibold text-navy-900">{service.title || 'عنوان خدمت'}</p>
               <p className="mt-1 line-clamp-2 text-xs text-navy-500">{service.summary || 'خلاصه خدمت…'}</p>
@@ -513,7 +513,7 @@ export function AdminServiceEditor() {
           </Card>
 
           <Card>
-            <h2 className="mb-2 flex items-center gap-1.5 text-sm font-bold text-navy-900"><AlertTriangle className="size-4 text-amber-600" /> یادآوری</h2>
+            <h2 className="mb-2 flex items-center gap-1.5 text-sm font-bold text-navy-900"><AlertTriangle className="size-4 text-amber-700" /> یادآوری</h2>
             <p className="text-[11px] leading-6 text-navy-600">
               هزینه‌ها و شرایط خدمات دولتی باید از منبع رسمی همان دستگاه تأیید شود. مقادیر نمونه را قبل از انتشار عمومی
               با تعرفه رسمی جایگزین کنید و گزینه «هزینه/شرایط نمونه است» را خاموش کنید.
@@ -523,7 +523,7 @@ export function AdminServiceEditor() {
           {!isNew && (
             <Card>
               <h2 className="mb-2 flex items-center gap-1.5 text-sm font-bold text-navy-900"><Copy className="size-4" /> نشانی عمومی</h2>
-              <code dir="ltr" className="block break-all rounded-lg bg-navy-50 p-2 text-[11px] text-navy-700">/services/{service.slug}</code>
+              <code dir="ltr" className="block break-all rounded-lg bg-surface-3 p-2 text-[11px] text-navy-700">/services/{service.slug}</code>
             </Card>
           )}
         </div>

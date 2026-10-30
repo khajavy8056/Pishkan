@@ -85,6 +85,29 @@ const routes: { match: (url: string) => boolean; body: () => unknown }[] = [
   { match: (u) => u.includes('/api/settings/legal'), body: () => jsonBody({ terms: '', privacy: '', officeName: 'دفتر' }) },
   { match: (u) => u.includes('/api/assistant/chat'), body: () => jsonBody({ reply: 'پاسخ آزمایشی', suggestions: [], followUpQuestions: [] }) },
   { match: (u) => u.includes('/api/customers/me/notifications'), body: () => jsonBody([], { unread: 0, total: 0 }) },
+  {
+    match: (u) => u.includes('/api/documents/mine'),
+    body: () => jsonBody([
+      {
+        id: 'cdoc_1', customerId: 'usr_customer', docType: 'national_card', docTypeLabel: 'کارت ملی',
+        title: 'کارت ملی', status: 'pending', issuedAt: null, expiresAt: null, validity: 'none',
+        verifiedBy: null, verifiedAt: null, reviewNote: null, requestId: null, reusedFrom: null,
+        createdAt: '2026-01-02T00:00:00.000Z', updatedAt: '2026-01-02T00:00:00.000Z',
+        file: {
+          id: 'file_1', name: 'card.png', mime: 'image/webp', size: 42000, originalSize: 210000,
+          savingsPercent: 80, width: 1600, height: 1000, previewUrl: '/api/files/file_1?variant=preview',
+          displayUrl: '/api/files/file_1', originalUrl: '/api/files/file_1?variant=original',
+          processing: { status: 'ready', mode: 'lossless', error: null },
+        },
+      },
+    ], {
+      types: [
+        { code: 'national_card', label: 'کارت ملی', validityDays: 0, counts: { total: 1, approved: 0, pending: 1, rejected: 0 } },
+        { code: 'birth_certificate', label: 'شناسنامه', validityDays: 0, counts: { total: 0, approved: 0, pending: 0, rejected: 0 } },
+      ],
+    }),
+  },
+  { match: (u) => u.includes('/api/requests'), body: () => jsonBody([], { total: 0, page: 1, pageSize: 20 }) },
   { match: (u) => u.includes('/api/dashboard/summary'), body: () => jsonBody(dashboardSummary) },
   {
     match: (u) => u.includes('/api/staff/me/workload'),
@@ -176,20 +199,40 @@ export const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
 vi.stubGlobal('fetch', fetchMock);
 vi.stubGlobal('scrollTo', () => undefined);
 
-if (!window.matchMedia) {
-  // Tailwind/UI components never rely on it, but jsdom lacks the API.
-  Object.defineProperty(window, 'matchMedia', {
-    writable: true,
-    value: (query: string) => ({
-      matches: false, media: query, onchange: null,
-      addListener: () => undefined, removeListener: () => undefined,
-      addEventListener: () => undefined, removeEventListener: () => undefined,
-      dispatchEvent: () => false,
-    }),
-  });
-}
-
 afterEach(() => {
   cleanup();
   fetchMock.mockClear();
+  window.localStorage.clear();
+  document.documentElement.classList.remove('dark');
+  document.documentElement.removeAttribute('data-theme');
+  setSystemPreference(false);
 });
+
+/**
+ * jsdom has no `matchMedia`. The stub is controllable so the theme tests can
+ * simulate a device that prefers dark mode.
+ */
+type MediaListener = (event: { matches: boolean; media: string }) => void;
+const mediaListeners = new Set<MediaListener>();
+let systemPrefersDark = false;
+
+export function setSystemPreference(dark: boolean) {
+  systemPrefersDark = dark;
+  for (const listener of mediaListeners) listener({ matches: dark, media: '(prefers-color-scheme: dark)' });
+}
+
+if (typeof window !== 'undefined' && !window.matchMedia) {
+  window.matchMedia = ((query: string) => ({
+    media: query,
+    get matches() {
+      return query.includes('prefers-color-scheme: dark') ? systemPrefersDark : false;
+    },
+    onchange: null,
+    addEventListener: (_type: string, listener: MediaListener) => { mediaListeners.add(listener); },
+    removeEventListener: (_type: string, listener: MediaListener) => { mediaListeners.delete(listener); },
+    addListener: (listener: MediaListener) => { mediaListeners.add(listener); },
+    removeListener: (listener: MediaListener) => { mediaListeners.delete(listener); },
+    dispatchEvent: () => false,
+  })) as unknown as typeof window.matchMedia;
+}
+

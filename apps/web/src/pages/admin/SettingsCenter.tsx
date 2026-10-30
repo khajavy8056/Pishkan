@@ -175,7 +175,7 @@ export function SettingsCenter() {
         <span>•</span>
         <span>نسخه: {data?.meta?.version}</span>
         <span>•</span>
-        <span>کلید رمزنگاری: {data?.meta?.encryptionConfigured ? <CheckCircle2 className="inline size-3 text-emerald-600" /> : <XCircle className="inline size-3 text-rose-600" />}</span>
+        <span>کلید رمزنگاری: {data?.meta?.encryptionConfigured ? <CheckCircle2 className="inline size-3 text-emerald-700" /> : <XCircle className="inline size-3 text-rose-700" />}</span>
       </div>
 
       <div className="grid gap-6 lg:grid-cols-[260px_1fr]">
@@ -188,7 +188,7 @@ export function SettingsCenter() {
             {filteredGroups.map((group: any) => (
               <button key={group.code} onClick={() => setActiveGroup(group.code)}
                 className={clsx('mb-0.5 flex w-full items-start gap-2 rounded-lg px-3 py-2 text-right transition',
-                  activeGroup === group.code ? 'bg-brand-50 text-brand-900' : 'text-navy-600 hover:bg-navy-50')}>
+                  activeGroup === group.code ? 'bg-brand-50 text-brand-900' : 'text-navy-600 hover:bg-surface-3')}>
                 <span className="text-base leading-5">{GROUP_ICONS[group.code] ?? '⚙️'}</span>
                 <span className="min-w-0">
                   <span className="block text-xs font-medium">{group.title}</span>
@@ -207,7 +207,7 @@ export function SettingsCenter() {
                 <h2 className="font-bold text-navy-900">{groups.find((g: any) => g.code === activeGroup)?.title}</h2>
                 <p className="mt-0.5 text-[11px] text-navy-500">{groups.find((g: any) => g.code === activeGroup)?.description}</p>
               </div>
-              <RotateCcw className="size-4 text-navy-300" />
+              <RotateCcw className="size-4 text-navy-500" />
             </div>
 
             <div className="space-y-5">
@@ -231,7 +231,7 @@ export function SettingsCenter() {
 
           {activeGroup === 'sms' && (
             <Card>
-              <h2 className="mb-1 flex items-center gap-2 font-bold text-navy-900"><MessageSquare className="size-4 text-brand-700" /> آزمون سرویس پیامک</h2>
+              <h2 className="mb-1 flex items-center gap-2 font-bold text-navy-900"><MessageSquare className="size-4 text-accent" /> آزمون سرویس پیامک</h2>
               <p className="mb-3 text-[11px] leading-5 text-navy-500">
                 ارسال پیامک فقط با شماره مقصد مشخص انجام می‌شود. اعتبارنامه‌ها در سرور ذخیره و رمزنگاری می‌شوند و در مرورگر نمایش داده نمی‌شوند.
               </p>
@@ -269,7 +269,7 @@ export function SettingsCenter() {
                             <td className="text-[11px]">{log.kind ?? log.template ?? '—'}</td>
                             <td className="text-[11px]">
                               {log.status === 'sent' || log.success ? <span className="text-emerald-700">ارسال شد</span>
-                                : <span className="text-rose-600">{log.error ?? 'ناموفق'}</span>}
+                                : <span className="text-rose-700">{log.error ?? 'ناموفق'}</span>}
                             </td>
                           </tr>
                         ))}
@@ -284,7 +284,7 @@ export function SettingsCenter() {
           {activeGroup === 'domain' && (
             <Card>
               <div className="mb-3 flex items-center justify-between">
-                <h2 className="flex items-center gap-2 font-bold text-navy-900"><Globe className="size-4 text-brand-700" /> بررسی اتصال دامنه</h2>
+                <h2 className="flex items-center gap-2 font-bold text-navy-900"><Globe className="size-4 text-accent" /> بررسی اتصال دامنه</h2>
                 <Button size="sm" variant="ghost" onClick={checkDomain}>اجرای بررسی</Button>
               </div>
               <p className="mb-3 text-[11px] leading-5 text-navy-500">
@@ -294,10 +294,10 @@ export function SettingsCenter() {
               {domainCheck && (
                 <div className="space-y-2">
                   {domainCheck.checks.map((check: any) => (
-                    <div key={check.key} className="flex items-start gap-2 rounded-xl bg-navy-50/60 px-3 py-2">
-                      {check.status === 'ok' ? <CheckCircle2 className="mt-0.5 size-4 text-emerald-600" />
-                        : check.status === 'warning' ? <AlertTriangle className="mt-0.5 size-4 text-amber-600" />
-                          : <XCircle className="mt-0.5 size-4 text-rose-600" />}
+                    <div key={check.key} className="flex items-start gap-2 rounded-xl bg-surface-3 px-3 py-2">
+                      {check.status === 'ok' ? <CheckCircle2 className="mt-0.5 size-4 text-emerald-700" />
+                        : check.status === 'warning' ? <AlertTriangle className="mt-0.5 size-4 text-amber-700" />
+                          : <XCircle className="mt-0.5 size-4 text-rose-700" />}
                       <div>
                         <p className="text-xs font-medium text-navy-900">{check.label}</p>
                         <p className="text-[11px] text-navy-500">{check.message}</p>
@@ -367,7 +367,7 @@ function SmsTemplatesPanel({ notify }: { notify: (message: string, type: 'succes
 
   return (
     <Card>
-      <h2 className="mb-1 flex items-center gap-2 font-bold text-navy-900"><MessageSquare className="size-4 text-brand-700" /> الگوهای پیامک رویدادها</h2>
+      <h2 className="mb-1 flex items-center gap-2 font-bold text-navy-900"><MessageSquare className="size-4 text-accent" /> الگوهای پیامک رویدادها</h2>
       <p className="mb-4 text-[11px] leading-5 text-navy-500">
         برای هر رویداد، شناسه پترن و متن تأییدشده را از پنل ارائه‌دهنده وارد کنید. فقط نام متغیرهای ثابت زیر به ترتیب مشخص‌شده به پترن فرستاده می‌شود؛ متن آزاد و یادداشت داخلی ارسال نمی‌شود. وضعیت «ساختار کامل» تأیید ارائه‌دهنده یا تحویل واقعی پیامک نیست.
       </p>
@@ -386,7 +386,7 @@ function SmsTemplatesPanel({ notify }: { notify: (message: string, type: 'succes
                     {template.validationStatus === 'configured' ? 'ساختار کامل؛ تطبیق ارائه‌دهنده تأیید نشده' : 'ناقص'}
                   </Badge>
                 </div>
-                <div className="mb-3 rounded-lg bg-navy-50 px-3 py-2 text-[11px] text-navy-600">
+                <div className="mb-3 rounded-lg bg-surface-3 px-3 py-2 text-[11px] text-navy-600">
                   متغیرها، به همین ترتیب: <span dir="ltr" className="font-mono">{template.parameters.map((name: string) => `{${name}}`).join('، ')}</span>
                 </div>
                 <div className="grid gap-3 sm:grid-cols-2">
@@ -456,7 +456,7 @@ function SettingRow({ item, value, onChange, onReset, dirty, revealed, onToggleR
               className="text-left pl-10"
               autoComplete="new-password"
             />
-            <button type="button" onClick={onToggleReveal} className="absolute left-2 top-1/2 -translate-y-1/2 rounded-lg p-1.5 text-navy-400 hover:bg-navy-50" aria-label="نمایش">
+            <button type="button" onClick={onToggleReveal} className="absolute left-2 top-1/2 -translate-y-1/2 rounded-lg p-1.5 text-navy-400 hover:bg-surface-3" aria-label="نمایش">
               {revealed ? <EyeOff className="size-4" /> : <Eye className="size-4" />}
             </button>
           </div>
@@ -494,13 +494,13 @@ function SettingRow({ item, value, onChange, onReset, dirty, revealed, onToggleR
           {item.hint && <p className="mt-0.5 text-[11px] leading-5 text-navy-500">{item.hint}</p>}
         </div>
         <div className="flex items-center gap-1">
-          <button onClick={onReset} className="rounded-lg p-1.5 text-navy-400 hover:bg-navy-50 hover:text-navy-700" title="بازگردانی پیش‌فرض" aria-label="بازگردانی">
+          <button onClick={onReset} className="rounded-lg p-1.5 text-navy-400 hover:bg-surface-3 hover:text-navy-700" title="بازگردانی پیش‌فرض" aria-label="بازگردانی">
             <RotateCcw className="size-3.5" />
           </button>
         </div>
       </div>
       <div className="mt-2">{body}</div>
-      <p dir="ltr" className="mt-1.5 text-right text-[10px] text-navy-300">{item.key}</p>
+      <p dir="ltr" className="mt-1.5 text-right text-[10px] text-navy-500">{item.key}</p>
     </div>
   );
 }

@@ -7,11 +7,13 @@ import {
 } from 'lucide-react';
 import clsx from 'clsx';
 import { AppShell, PageHeader } from '../../components/shell';
-import { Button, Card, EmptyState, ErrorState, Field, Input, Loading, Modal, Select, StatCard, StatusBadge, Textarea, useToast } from '../../components/ui';
+import { Button, Card, EmptyState, ErrorState, Field, Input, Loading, Modal, Select, StatCard, StatusBadge, Textarea, WelcomePanel, useToast } from '../../components/ui';
+import { DocumentViewer, FileSummary, FileThumbnail } from '../../components/documents';
 import { api, ApiFailure } from '../../lib/api';
 import { useAuth } from '../../lib/auth';
 import { faDate, faDateTime, faNum, relative, rial, STATUS_LABELS } from '../../lib/format';
 import { useSite, type FormField } from '../../lib/site';
+import { ThemeSegmented } from '../../lib/theme';
 import { DynamicField } from '../public/Services';
 
 /* ------------------------------- dashboard -------------------------------- */
@@ -37,10 +39,16 @@ export function CustomerDashboard() {
 
   return (
     <AppShell variant="customer">
-      <PageHeader
+      <WelcomePanel
+        badge="پنل مشتریان"
         title={`سلام ${user?.fullName?.split(' ')[0] ?? ''} 👋`}
-        description={setting('site.welcome_message')}
-        actions={<Link to="/services" className="btn-primary btn-sm"><Plus className="size-4" /> درخواست جدید</Link>}
+        subtitle={setting('site.welcome_message') || 'خدمت مورد نظر را انتخاب کنید، مدارک را امن بفرستید و روند پرونده را از همین‌جا پیگیری کنید.'}
+        actions={(
+          <>
+            <Link to="/services" className="btn btn-sm border border-white/20 bg-white text-shell hover:bg-white/90"><Plus className="size-4" /> درخواست جدید</Link>
+            <Link to="/app/documents" className="btn btn-sm border border-white/25 bg-white/10 text-white hover:bg-white/20"><FileText className="size-4" /> مدارک من</Link>
+          </>
+        )}
       />
 
       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
@@ -54,7 +62,7 @@ export function CustomerDashboard() {
         <Card className="lg:col-span-2">
           <div className="mb-4 flex items-center justify-between">
             <h2 className="font-bold text-navy-900">درخواست‌های اخیر</h2>
-            <Link to="/app/requests" className="text-xs text-brand-700 hover:underline">همه درخواست‌ها</Link>
+            <Link to="/app/requests" className="text-xs text-accent hover:underline">همه درخواست‌ها</Link>
           </div>
           {data.recentRequests.length === 0 ? (
             <EmptyState title="هنوز درخواستی ثبت نکرده‌اید" description="از فهرست خدمات، خدمت مورد نظر را انتخاب کنید."
@@ -63,7 +71,7 @@ export function CustomerDashboard() {
             <div className="space-y-2">
               {data.recentRequests.map((request: any) => (
                 <Link key={request.id} to={`/app/requests/${request.id}`}
-                  className="flex items-center justify-between gap-3 rounded-xl bg-navy-50/60 px-4 py-3 transition hover:bg-brand-50">
+                  className="flex items-center justify-between gap-3 rounded-xl bg-surface-3 px-4 py-3 transition hover:bg-brand-50">
                   <div className="min-w-0">
                     <p className="truncate text-sm font-medium text-navy-900">{request.serviceTitle}</p>
                     <p className="mt-0.5 text-[11px] text-navy-500">کد پیگیری {request.trackingCode} • {faDate(request.createdAt)}</p>
@@ -79,12 +87,12 @@ export function CustomerDashboard() {
           <Card>
             <div className="mb-3 flex items-center justify-between">
               <h2 className="font-bold text-navy-900">اعلان‌ها</h2>
-              <Link to="/app/profile" className="text-xs text-brand-700 hover:underline">تنظیمات</Link>
+              <Link to="/app/profile" className="text-xs text-accent hover:underline">تنظیمات</Link>
             </div>
             {data.notifications.length === 0 && <p className="text-sm text-navy-400">اعلانی ندارید.</p>}
             <div className="space-y-2">
               {data.notifications.map((n: any) => (
-                <div key={n.id} className={clsx('rounded-xl p-3', n.readAt ? 'bg-navy-50/50' : 'bg-brand-50/70')}>
+                <div key={n.id} className={clsx('rounded-xl p-3', n.readAt ? 'bg-surface-3/50' : 'bg-brand-50/70')}>
                   <p className="text-sm font-medium text-navy-900">{n.title}</p>
                   {n.body && <p className="mt-0.5 text-xs text-navy-500">{n.body}</p>}
                   <p className="mt-1 text-[10px] text-navy-400">{relative(n.createdAt)}</p>
@@ -98,7 +106,7 @@ export function CustomerDashboard() {
             {data.invoices.length === 0 && <p className="text-sm text-navy-400">فاکتوری ندارید.</p>}
             <div className="space-y-2">
               {data.invoices.map((invoice: any) => (
-                <Link key={invoice.id} to="/app/invoices" className="flex items-center justify-between gap-2 rounded-xl bg-navy-50/60 px-3 py-2.5 hover:bg-brand-50">
+                <Link key={invoice.id} to="/app/invoices" className="flex items-center justify-between gap-2 rounded-xl bg-surface-3 px-3 py-2.5 hover:bg-brand-50">
                   <span className="min-w-0">
                     <span className="block truncate text-xs font-medium text-navy-900">{invoice.title}</span>
                     <span className="block text-[10px] text-navy-500">{invoice.number}</span>
@@ -122,11 +130,12 @@ export function CustomerDashboard() {
           { to: '/app/profile', label: 'تکمیل پروفایل', icon: <User className="size-5" /> },
         ].map((action) => (
           <Link key={action.to} to={action.to} className="card flex items-center gap-3 p-4 transition hover:-translate-y-0.5 hover:shadow-lg">
-            <span className="grid size-10 place-items-center rounded-xl bg-brand-50 text-brand-700">{action.icon}</span>
+            <span className="grid size-10 place-items-center rounded-xl bg-brand-50 text-accent">{action.icon}</span>
             <span className="text-sm font-medium text-navy-800">{action.label}</span>
           </Link>
         ))}
       </div>
+
     </AppShell>
   );
 }
@@ -160,14 +169,14 @@ export function CustomerRequests() {
       <PageHeader title="درخواست‌های من" description="وضعیت هر پرونده، تاریخچه و مدارک را در یک نگاه ببینید."
         actions={<Link to="/services" className="btn-primary btn-sm"><Plus className="size-4" /> درخواست جدید</Link>} />
 
-      <div className="mb-4 flex gap-1 rounded-xl bg-white p-1 ring-1 ring-navy-900/8 sm:w-fit">
+      <div className="mb-4 flex gap-1 rounded-xl bg-surface p-1 ring-1 ring-line sm:w-fit">
         {[
           { key: 'all', label: 'همه' },
           { key: 'open', label: 'در جریان' },
           { key: 'closed', label: 'بسته‌شده' },
         ].map((tab) => (
           <button key={tab.key} onClick={() => setGroup(tab.key)}
-            className={clsx('rounded-lg px-4 py-1.5 text-sm transition', group === tab.key ? 'bg-brand-700 text-white' : 'text-navy-600 hover:bg-navy-50')}>
+            className={clsx('rounded-lg px-4 py-1.5 text-sm transition', group === tab.key ? 'bg-brand-700 text-white' : 'text-navy-600 hover:bg-surface-3')}>
             {tab.label}
           </button>
         ))}
@@ -217,6 +226,11 @@ export function CustomerRequestDetail() {
   const [note, setNote] = useState('');
   const [uploading, setUploading] = useState(false);
   const [paying, setPaying] = useState(false);
+  const [viewer, setViewer] = useState<any>(null);
+  const [reuseOpen, setReuseOpen] = useState(false);
+  const [profileDocs, setProfileDocs] = useState<any[]>([]);
+  const [reuseDocId, setReuseDocId] = useState('');
+  const [reuseConfirm, setReuseConfirm] = useState(false);
   const fileInput = useRef<HTMLInputElement>(null);
 
   const load = (showLoading = true) => {
@@ -249,15 +263,51 @@ export function CustomerRequestDetail() {
   const upload = async (file: File) => {
     setUploading(true);
     try {
-      const uploaded = await api.upload<{ data: { id: string; name: string } }>('/api/files/upload', file, { purpose: 'document' });
+      const uploaded = await api.upload<{ data: { id: string; name: string; processing: { status: string }; savingsPercent: number; notes?: string[] } }>(
+        '/api/files/upload', file, { purpose: 'document' },
+      );
       await api.post(`/api/requests/${id}/documents`, { fileId: uploaded.data.id, title: uploaded.data.name });
-      notify('مدرک بارگذاری شد و در انتظار بررسی است.', 'success');
+      notify(
+        uploaded.data.processing.status === 'ready'
+          ? `مدرک بارگذاری شد و تصویر بدون افت خوانایی بهینه شد (${faNum(uploaded.data.savingsPercent)}٪ کاهش حجم).`
+          : 'مدرک بارگذاری شد؛ نسخه اصلی حفظ شد و در انتظار بررسی است.',
+        'success',
+      );
       load();
     } catch (err) {
       notify(err instanceof ApiFailure ? err.message : 'خطا در بارگذاری', 'error');
     } finally {
       setUploading(false);
       if (fileInput.current) fileInput.current.value = '';
+    }
+  };
+
+  const openReuse = async () => {
+    setReuseOpen(true);
+    setReuseDocId('');
+    setReuseConfirm(false);
+    try {
+      const res = await api.get<{ data: any[] }>('/api/documents/mine');
+      setProfileDocs(res.data.filter((doc) => doc.validity !== 'expired' && doc.status !== 'rejected'));
+    } catch (err) {
+      notify(err instanceof ApiFailure ? err.message : 'خطا در دریافت مدارک پروفایل', 'error');
+      setProfileDocs([]);
+    }
+  };
+
+  const submitReuse = async () => {
+    if (!reuseDocId) { notify('یک مدرک را انتخاب کنید.', 'error'); return; }
+    if (!reuseConfirm) { notify('تأیید استفاده از مدرک الزامی است.', 'error'); return; }
+    setUploading(true);
+    try {
+      await api.post(`/api/requests/${id}/documents`, { customerDocumentId: reuseDocId, confirmReuse: true });
+      notify('مدرک پروفایل به پرونده پیوست شد.', 'success');
+      setReuseOpen(false);
+      load();
+    } catch (err) {
+      notify(err instanceof ApiFailure ? err.message : 'خطا در پیوست مدرک', 'error');
+    } finally {
+      setUploading(false);
     }
   };
 
@@ -355,7 +405,7 @@ export function CustomerRequestDetail() {
             <h2 className="mb-3 font-bold text-navy-900">اطلاعات فرم</h2>
             <dl className="grid gap-3 sm:grid-cols-2">
               {Object.entries(request.formData ?? {}).map(([key, value]) => (
-                <div key={key} className="rounded-xl bg-navy-50/60 px-3 py-2">
+                <div key={key} className="rounded-xl bg-surface-3 px-3 py-2">
                   <dt className="text-[11px] text-navy-500">{key}</dt>
                   <dd className="mt-0.5 text-sm text-navy-800">{String(value)}</dd>
                 </div>
@@ -366,21 +416,31 @@ export function CustomerRequestDetail() {
 
         <div className="space-y-6">
           <Card>
-            <h2 className="mb-3 flex items-center gap-2 font-bold text-navy-900"><FileText className="size-4 text-brand-700" /> مدارک</h2>
+            <h2 className="mb-3 flex items-center gap-2 font-bold text-navy-900"><FileText className="size-4 text-accent" /> مدارک</h2>
             <div className="space-y-2">
               {request.documents.map((doc: any) => (
-                <div key={doc.id} className="rounded-xl bg-navy-50/60 px-3 py-2.5">
-                  <div className="flex items-start justify-between gap-2">
-                    <span className="min-w-0">
-                      <span className="block truncate text-xs font-medium text-navy-900">{doc.title}</span>
-                      <span className="block text-[10px] text-navy-500">{faDate(doc.createdAt)}</span>
-                    </span>
-                    <StatusBadge status={doc.status} />
+                <div key={doc.id} className="flex gap-2 rounded-xl bg-surface-3 p-2.5">
+                  <FileThumbnail file={doc.file} onOpen={() => setViewer(doc)} />
+                  <div className="min-w-0 flex-1">
+                    <div className="flex items-start justify-between gap-2">
+                      <span className="min-w-0">
+                        <span className="block truncate text-xs font-medium text-navy-900">{doc.title}</span>
+                        <span className="block text-[10px] text-navy-500">
+                          {faDate(doc.createdAt)}{doc.documentType ? ` • ${doc.documentType}` : ''}
+                        </span>
+                      </span>
+                      <StatusBadge status={doc.status} />
+                    </div>
+                    <FileSummary file={doc.file} />
+                    {doc.reviewNote && <p className="mt-1 text-[11px] text-rose-700">{doc.reviewNote}</p>}
+                    <div className="mt-1 flex flex-wrap items-center gap-2">
+                      <button type="button" onClick={() => setViewer(doc)} className="inline-flex items-center gap-1 text-[11px] text-accent hover:underline">
+                        <Download className="size-3" /> مشاهده
+                      </button>
+                      <a href={`${doc.file.originalUrl ?? `/api/files/${doc.file.id}?variant=original`}&download=true`}
+                        className="text-[11px] text-navy-500 hover:underline">نسخه اصلی</a>
+                    </div>
                   </div>
-                  {doc.reviewNote && <p className="mt-1 text-[11px] text-rose-600">{doc.reviewNote}</p>}
-                  <a href={`/api/files/${doc.file.id}`} target="_blank" rel="noreferrer" className="mt-1 inline-flex items-center gap-1 text-[11px] text-brand-700 hover:underline">
-                    <Download className="size-3" /> مشاهده فایل
-                  </a>
                 </div>
               ))}
               {request.documents.length === 0 && <p className="text-xs text-navy-400">مدرکی بارگذاری نشده است.</p>}
@@ -396,13 +456,19 @@ export function CustomerRequestDetail() {
             <Button variant="ghost" className="mt-3 w-full" loading={uploading} onClick={() => fileInput.current?.click()}>
               <UploadCloud className="size-4" /> بارگذاری مدرک
             </Button>
+            <Button variant="ghost" className="mt-2 w-full" onClick={openReuse}>
+              <FileText className="size-4" /> افزودن از مدارک من
+            </Button>
+            <p className="mt-2 text-[10px] leading-5 text-navy-500">
+              تصویر پس از بارگذاری به‌طور خودکار اصلاح جهت و به WebP بهینه می‌شود؛ نیازی به فشرده‌سازی قبلی نیست.
+            </p>
           </Card>
 
           <Card>
-            <h2 className="mb-3 flex items-center gap-2 font-bold text-navy-900"><Wallet className="size-4 text-brand-700" /> فاکتورها</h2>
+            <h2 className="mb-3 flex items-center gap-2 font-bold text-navy-900"><Wallet className="size-4 text-accent" /> فاکتورها</h2>
             <div className="space-y-2">
               {request.invoices.map((invoice: any) => (
-                <div key={invoice.id} className="rounded-xl bg-navy-50/60 px-3 py-2.5">
+                <div key={invoice.id} className="rounded-xl bg-surface-3 px-3 py-2.5">
                   <div className="flex items-center justify-between gap-2">
                     <span className="text-xs font-medium text-navy-900">{invoice.number}</span>
                     <StatusBadge status={invoice.status} />
@@ -427,6 +493,46 @@ export function CustomerRequestDetail() {
           </Card>
         </div>
       </div>
+      <DocumentViewer file={viewer?.file ?? null} title={viewer?.title ?? 'مدرک'} open={Boolean(viewer)} onClose={() => setViewer(null)} />
+
+      <Modal
+        open={reuseOpen}
+        onClose={() => setReuseOpen(false)}
+        title="افزودن مدرک از پروفایل"
+        footer={(
+          <div className="flex gap-2">
+            <Button variant="ghost" onClick={() => setReuseOpen(false)}>انصراف</Button>
+            <Button loading={uploading} disabled={!reuseDocId || !reuseConfirm} onClick={submitReuse}>پیوست به پرونده</Button>
+          </div>
+        )}
+      >
+        <div className="space-y-3">
+          {profileDocs.length === 0 && (
+            <p className="text-xs leading-6 text-navy-500">
+              مدرک معتبری در پروفایل شما نیست. از بخش «مدارک من» یک مدرک بارگذاری کنید یا همین‌جا فایل جدید بفرستید.
+            </p>
+          )}
+          {profileDocs.map((doc) => (
+            <label key={doc.id} className={clsx('flex cursor-pointer items-center gap-2 rounded-xl border p-2 text-xs',
+              reuseDocId === doc.id ? 'border-brand-500 bg-brand-50/50' : 'border-navy-100')}>
+              <input type="radio" name="profile-doc" className="size-4" checked={reuseDocId === doc.id}
+                onChange={() => setReuseDocId(doc.id)} />
+              <span className="min-w-0 flex-1">
+                <span className="block truncate font-medium text-navy-900">{doc.docTypeLabel}</span>
+                <span className="block text-[10px] text-navy-500">
+                  {doc.file.width && doc.file.height ? `${faNum(doc.file.width)}×${faNum(doc.file.height)}` : 'سند'}
+                  {doc.expiresAt ? ` • اعتبار تا ${faDate(doc.expiresAt)}` : ' • بدون تاریخ انقضا'}
+                </span>
+              </span>
+              <StatusBadge status={doc.status} />
+            </label>
+          ))}
+          <label className="flex items-start gap-2 rounded-xl bg-amber-50 p-3 text-[11px] leading-6 text-amber-900">
+            <input type="checkbox" className="mt-1 size-4" checked={reuseConfirm} onChange={(e) => setReuseConfirm(e.target.checked)} />
+            <span>تأیید می‌کنم استفاده دوباره این مدرک در این پرونده با اطلاع و موافقت من انجام می‌شود.</span>
+          </label>
+        </div>
+      </Modal>
     </AppShell>
   );
 }
@@ -477,7 +583,7 @@ export function CustomerInvoices() {
               <StatusBadge status={invoice.status} />
             </div>
             <div className="mt-3 grid grid-cols-3 gap-2 text-center">
-              <div className="rounded-xl bg-navy-50/70 p-2">
+              <div className="rounded-xl bg-surface-3 p-2">
                 <p className="text-[10px] text-navy-500">مبلغ کل</p>
                 <p className="mt-0.5 text-xs font-semibold text-navy-900">{rial(invoice.total)}</p>
               </div>
@@ -536,11 +642,11 @@ export function CustomerInvoices() {
                 </tbody>
               </table>
             </div>
-            <div className="rounded-xl bg-navy-50/70 p-3">
+            <div className="rounded-xl bg-surface-3 p-3">
               <div className="flex justify-between"><span>جمع</span><span>{rial(selected.subtotal)}</span></div>
               <div className="flex justify-between"><span>تخفیف</span><span>{rial(selected.discount)}</span></div>
               <div className="flex justify-between"><span>مالیات</span><span>{rial(selected.tax)}</span></div>
-              <div className="mt-1 flex justify-between border-t border-navy-900/10 pt-1 font-bold"><span>مبلغ نهایی</span><span>{rial(selected.total)}</span></div>
+              <div className="mt-1 flex justify-between border-t border-line pt-1 font-bold"><span>مبلغ نهایی</span><span>{rial(selected.total)}</span></div>
             </div>
           </div>
         )}
@@ -726,12 +832,12 @@ export function CustomerMessages() {
       {!loading && (
         <div className="grid gap-4 lg:grid-cols-[320px_1fr]">
           <Card pad={false} className="overflow-hidden">
-            <div className="border-b border-navy-900/8 px-4 py-3 text-sm font-semibold text-navy-900">گفت‌وگوها</div>
+            <div className="border-b border-line px-4 py-3 text-sm font-semibold text-navy-900">گفت‌وگوها</div>
             <div className="max-h-[60vh] overflow-y-auto scrollbar-thin">
               {threads.length === 0 && <p className="px-4 py-6 text-sm text-navy-400">گفت‌وگویی ندارید.</p>}
               {threads.map((thread) => (
                 <button key={thread.id} onClick={() => openThread(thread)}
-                  className={clsx('flex w-full items-start justify-between gap-2 border-b border-navy-900/5 px-4 py-3 text-right transition hover:bg-navy-50',
+                  className={clsx('flex w-full items-start justify-between gap-2 border-b border-navy-900/5 px-4 py-3 text-right transition hover:bg-surface-3',
                     active?.id === thread.id && 'bg-brand-50/60')}>
                   <span className="min-w-0">
                     <span className="block truncate text-sm font-medium text-navy-900">{thread.subject}</span>
@@ -748,7 +854,7 @@ export function CustomerMessages() {
               <div className="grid flex-1 place-items-center text-sm text-navy-400">یک گفت‌وگو را انتخاب کنید.</div>
             ) : (
               <>
-                <div className="border-b border-navy-900/8 px-4 py-3">
+                <div className="border-b border-line px-4 py-3">
                   <p className="text-sm font-semibold text-navy-900">{active.subject}</p>
                   <p className="text-[11px] text-navy-500">
                     {active.scope === 'request' ? 'مرتبط با پرونده' : 'گفت‌وگوی عمومی'} • وضعیت: {STATUS_LABELS[active.status] ?? active.status}
@@ -758,16 +864,16 @@ export function CustomerMessages() {
                   {messages.map((message) => (
                     <div key={message.id} className={clsx('flex', message.senderRole === 'customer' ? 'justify-start' : 'justify-end')}>
                       <div className={clsx('max-w-[80%] rounded-2xl px-3.5 py-2.5 text-sm leading-6',
-                        message.senderRole === 'customer' ? 'bg-brand-700 text-white' : 'bg-navy-50 text-navy-800')}>
+                        message.senderRole === 'customer' ? 'bg-brand-700 text-white' : 'bg-surface-3 text-navy-800')}>
                         <p className="whitespace-pre-wrap">{message.body}</p>
-                        <p className={clsx('mt-1 text-[10px]', message.senderRole === 'customer' ? 'text-brand-100' : 'text-navy-400')}>
+                        <p className={clsx('mt-1 text-[10px]', message.senderRole === 'customer' ? 'text-white/80' : 'text-navy-400')}>
                           {message.senderName ?? 'دفتر'} • {faDateTime(message.createdAt)}
                         </p>
                       </div>
                     </div>
                   ))}
                 </div>
-                <div className="flex gap-2 border-t border-navy-900/8 p-3">
+                <div className="flex gap-2 border-t border-line p-3">
                   <input value={text} onChange={(e) => setText(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && send()}
                     placeholder="پیام خود را بنویسید…" className="input" aria-label="متن پیام" />
                   <Button onClick={send} loading={sending}><Send className="size-4" /></Button>
@@ -894,7 +1000,13 @@ export function CustomerProfile() {
           </Card>
 
           <Card>
-            <h2 className="mb-3 flex items-center gap-2 font-bold text-navy-900"><ShieldCheck className="size-4 text-emerald-600" /> امنیت حساب</h2>
+            <h2 className="mb-1 font-bold text-navy-900">حالت نمایش</h2>
+            <p className="mb-3 text-xs leading-6 text-navy-500">روشنایی رابط را انتخاب کنید؛ گزینهٔ «سیستم» با تنظیم دستگاه هماهنگ می‌شود و انتخاب شما در این مرورگر ذخیره می‌ماند.</p>
+            <ThemeSegmented />
+          </Card>
+
+          <Card>
+            <h2 className="mb-3 flex items-center gap-2 font-bold text-navy-900"><ShieldCheck className="size-4 text-emerald-700" /> امنیت حساب</h2>
             <div className="space-y-3">
               <Field label="رمز عبور فعلی"><Input type="password" value={passwords.currentPassword} onChange={(e) => setPasswords({ ...passwords, currentPassword: e.target.value })} dir="ltr" className="text-left" /></Field>
               <Field label="رمز عبور جدید" hint="حداقل ۸ کاراکتر شامل حرف و رقم."><Input type="password" value={passwords.newPassword} onChange={(e) => setPasswords({ ...passwords, newPassword: e.target.value })} dir="ltr" className="text-left" /></Field>
