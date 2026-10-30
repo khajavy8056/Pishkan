@@ -126,7 +126,7 @@ curl -b cookies.txt https://دامنه/api/auth/me
 | POST | `/:id/auto-assign` | `requests.edit` | ارجاع خودکار تخصص/شیفت/ظرفیت |
 | GET | `/:id/candidates` | `requests.edit` | کارمندان پیشنهادی با امتیاز |
 | POST | `/:id/notes` | `requests.edit` | یادداشت داخلی |
-| POST | `/:id/documents` | مالک/`documents.view` | افزودن مدرک |
+| POST | `/:id/documents` | مالک/`documents.view` | افزودن مدرک؛ `{fileId}` یا `{customerDocumentId, confirmReuse:true}` |
 | POST | `/:id/documents/:docId/review` | `documents.approve` | `{status, note?}` |
 | POST | `/:id/cancel` | مالک پیش از شروع | لغو |
 | GET | `/:id/timeline` | مالک یا `requests.view` | تاریخچه رویدادها |
@@ -223,11 +223,36 @@ Cookie: pishkan_session=…
 
 | متد | مسیر | توضیح |
 | --- | --- | --- |
-| POST | `/upload` | آپلود (نوع/حجم بر اساس تنظیمات) |
-| GET | `/:id` | دانلود با بررسی مالکیت/مجوز |
+| POST | `/upload?purpose=` | آپلود + اعتبارسنجی امضای واقعی + پردازش تصویر؛ پاسخ شامل ابعاد، حجم اولیه/نهایی و درصد کاهش |
+| GET | `/:id` | نسخهٔ بهینه (روزمره) با بررسی مالکیت/مجوز |
+| GET | `/:id?variant=preview` | پیش‌نمایش ۶۴۰px |
+| GET | `/:id?variant=original` | آرشیو اصلی دست‌نخورده؛ هر دسترسی در `file_access_logs` ثبت می‌شود |
+| GET | `/:id/status` | وضعیت پردازش برای polling |
+| GET | `/:id/history` | تاریخچهٔ دسترسی (`documents.view`) |
+| POST | `/:id/reprocess` | پردازش مجدد از روی آرشیو اصلی (`documents.approve`) |
 | GET | `/` | فایل‌های من / مدیریتی |
-| DELETE | `/:id` | حذف (فقط مالک یا مدیر، با ثبت لاگ) |
-| GET | `/meta/config` | `{maxSizeMb, allowedTypes}` |
+| DELETE | `/:id` | حذف (فقط مالک یا مدیر، با ثبت لاگ و فقط اگر متصل نباشد) |
+| GET | `/meta/limits` | `{maxSizeMb, allowedTypes}` |
+| GET | `/media/stats` | آمار پردازش و صرفه‌جویی (`documents.view`) |
+| GET | `/media/diagnostics` | بررسی سلامت آرشیو و نسخه‌های بهینه (`documents.view`) |
+| POST | `/media/prune-originals` | پاک‌سازی آرشیوهای منقضی؛ `{dryRun:true}` پیش‌فرض (`documents.approve`) |
+
+### مدارک پروفایل مشتری — `/api/documents`
+
+| متد | مسیر | مجوز | توضیح |
+| --- | --- | --- | --- |
+| GET | `/types` | عمومی | انواع مدرک و اعتبار پیش‌فرض |
+| GET | `/mine` | مشتری | آرشیو مدارک پروفایل + پوشش انواع |
+| POST | `/mine` | مشتری | ثبت فایل آپلودشده به‌عنوان مدرک پروفایل |
+| POST | `/mine/:docId/reuse` | مشتری | استفادهٔ دوباره در پرونده؛ `confirm: true` الزامی |
+| DELETE | `/mine/:docId` | مشتری | حذف مدرک پروفایل |
+| GET | `/customer/:customerId` | `documents.view` + پروندهٔ ارجاع‌شده | آرشیو مشتری برای کارشناس |
+| POST | `/:docId/review` | `documents.approve` | `{decision: approved|rejected, note?}` |
+| GET | `/:docId` | مالک/کارشناس دارای پرونده/مدیر | جزئیات مدرک |
+
+پیوست مدرک به پرونده (`POST /api/requests/:id/documents`) دو شکل می‌پذیرد:
+`{fileId, title?}` برای فایل تازه و `{customerDocumentId, confirmReuse: true}` برای مدرک موجود پروفایل.
+مدرک رد‌شده یا منقضی قابل استفادهٔ دوباره نیست. جزئیات کامل: [MEDIA-PIPELINE.md](MEDIA-PIPELINE.md).
 
 ## تنظیمات — `/api/settings`
 
@@ -278,7 +303,8 @@ Cookie: pishkan_session=…
 - حداکثر حجم بدنه JSON: ۱MB؛ آپلود فایل بر اساس `files.max_size_mb` (پیش‌فرض ۱۰MB).
 - محدودیت نرخ عمومی: ۳۰۰ درخواست در دقیقه به ازای IP؛ عمومی‌ها (کاتالوگ/جست‌وجو) سقف بالاتر.
 - هیچ مسیری رمز، کلید API یا کلید رمزنگاری را برنمی‌گرداند.
-- برای دانلود فایل‌های حساس، لینک موقت امضاشده استفاده نمی‌شود؛ دانلود با بررسی مجوز در سرور انجام می‌شود.
+- برای دانلود فایل‌های حساس، لینک موقت امضاشده استفاده نمی‌شود؛ دانلود با بررسی مجوز در سرور انجام می‌شود و هر خواندن در `file_access_logs` ثبت می‌گردد.
+- پیوست هر پیام گفت‌وگو فقط برای طرفین همان گفت‌وگو قابل خواندن است.
 - تغییرات مهم در `audit_logs` ثبت می‌شوند (کاربر، IP، قبل/بعد).
 
 
