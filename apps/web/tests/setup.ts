@@ -199,20 +199,40 @@ export const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
 vi.stubGlobal('fetch', fetchMock);
 vi.stubGlobal('scrollTo', () => undefined);
 
-if (!window.matchMedia) {
-  // Tailwind/UI components never rely on it, but jsdom lacks the API.
-  Object.defineProperty(window, 'matchMedia', {
-    writable: true,
-    value: (query: string) => ({
-      matches: false, media: query, onchange: null,
-      addListener: () => undefined, removeListener: () => undefined,
-      addEventListener: () => undefined, removeEventListener: () => undefined,
-      dispatchEvent: () => false,
-    }),
-  });
-}
-
 afterEach(() => {
   cleanup();
   fetchMock.mockClear();
+  window.localStorage.clear();
+  document.documentElement.classList.remove('dark');
+  document.documentElement.removeAttribute('data-theme');
+  setSystemPreference(false);
 });
+
+/**
+ * jsdom has no `matchMedia`. The stub is controllable so the theme tests can
+ * simulate a device that prefers dark mode.
+ */
+type MediaListener = (event: { matches: boolean; media: string }) => void;
+const mediaListeners = new Set<MediaListener>();
+let systemPrefersDark = false;
+
+export function setSystemPreference(dark: boolean) {
+  systemPrefersDark = dark;
+  for (const listener of mediaListeners) listener({ matches: dark, media: '(prefers-color-scheme: dark)' });
+}
+
+if (typeof window !== 'undefined' && !window.matchMedia) {
+  window.matchMedia = ((query: string) => ({
+    media: query,
+    get matches() {
+      return query.includes('prefers-color-scheme: dark') ? systemPrefersDark : false;
+    },
+    onchange: null,
+    addEventListener: (_type: string, listener: MediaListener) => { mediaListeners.add(listener); },
+    removeEventListener: (_type: string, listener: MediaListener) => { mediaListeners.delete(listener); },
+    addListener: (listener: MediaListener) => { mediaListeners.add(listener); },
+    removeListener: (listener: MediaListener) => { mediaListeners.delete(listener); },
+    dispatchEvent: () => false,
+  })) as unknown as typeof window.matchMedia;
+}
+
