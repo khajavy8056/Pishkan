@@ -241,3 +241,56 @@ function Get-PishkanVersion {
   } catch { }
   return '1.2.0'
 }
+
+# --------------------------------------------------------------- error report
+# A GUI must never die with a raw .NET message like
+# "The property 'StandardInputEncoding' cannot be found on this object":
+# the text goes to a log file and the user gets a Persian message with the
+# exact next step. Register-PishkanErrorHandler hooks the WinForms message loop,
+# so an exception inside a click handler is reported instead of silently
+# closing the window.
+
+function Write-PishkanGuiLog([string]$Root, [string]$Text) {
+  try {
+    $dir = Join-Path $Root '.data'
+    if (-not (Test-Path $dir)) { New-Item -ItemType Directory -Force -Path $dir | Out-Null }
+    $line = "[{0}] {1}`r`n" -f (Get-Date -Format 'yyyy-MM-dd HH:mm:ss'), $Text
+    Add-Content -Path (Join-Path $dir 'windows-gui-error.log') -Value $line -Encoding UTF8
+    return (Join-Path $dir 'windows-gui-error.log')
+  } catch {
+    return ''
+  }
+}
+
+function Handle-PishkanFatal($Exception, [string]$Root) {
+  $message = ''
+  $detail = ''
+  try { $message = [string]$Exception.Message } catch { $message = [string]$Exception }
+  try { $detail = [string]$Exception } catch { $detail = $message }
+
+  $friendly = 'خطای غیرمنتظره در پنجره رخ داد. نصب انجام نشده است.'
+  if ($message -match 'StandardInputEncoding|StandardOutputEncoding|StandardErrorEncoding') {
+    $friendly = 'نسخهٔ .NET این ویندوز قدیمی‌تر از آن است که این نسخهٔ پنجره انتظار دارد. ' +
+      'نسخهٔ اصلاح‌شدهٔ Pishkan را از GitHub دریافت کنید؛ نصب متنی (/console) روی همین ویندوز کار می‌کند.'
+  } elseif ($message -match 'No such file|cannot find path|پیدا نشد') {
+    $friendly = 'یکی از فایل‌های برنامه پیدا نشد. مطمئن شوید پوشهٔ Pishkan کامل کپی شده است.'
+  }
+
+  $logPath = Write-PishkanGuiLog $Root ("FATAL: " + $detail)
+  $body = $friendly + "`n`n" + $message
+  if ($logPath) { $body += "`n`nگزارش کامل: " + $logPath }
+  $body += "`n`nجایگزین بدون پنجره:  PishkanSetup.cmd /console"
+  Show-PishkanMessage 'خطای غیرمنتظره' $body 'error'
+}
+
+function Register-PishkanErrorHandler([string]$Root) {
+  try {
+    [System.Windows.Forms.Application]::add_ThreadException({
+      param($sender, $eventArgs)
+      try { Handle-PishkanFatal $eventArgs.Exception $Root } catch { }
+    })
+  } catch { }
+  try {
+    [System.Windows.Forms.Application]::SetUnhandledExceptionMode([System.Windows.Forms.UnhandledExceptionMode]::CatchException)
+  } catch { }
+}

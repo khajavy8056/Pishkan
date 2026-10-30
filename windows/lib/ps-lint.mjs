@@ -94,6 +94,40 @@ export function checkBalance(text) {
   return problems;
 }
 
+/**
+ * Properties that do not exist on every Windows machine.
+ *
+ * `ProcessStartInfo.StandardInputEncoding` needs .NET Framework 4.7.2+ (and .NET
+ * Core 2.1+). A real user on Windows 10 with an older framework got
+ *
+ *   The property 'StandardInputEncoding' cannot be found on this object.
+ *
+ * the moment the installer window opened a child process. Assigning such a
+ * property is only safe behind an existence check, so the linter demands one on
+ * the same statement block. A syntax parser cannot see this; only the runtime
+ * does — and the runtime is a customer machine.
+ */
+const GUARDED_PROPERTIES = ['StandardInputEncoding', 'StandardOutputEncoding', 'StandardErrorEncoding'];
+
+function checkDotNetProperties(text) {
+  const problems = [];
+  const lines = text.split(/\r?\n/);
+  lines.forEach((line, index) => {
+    for (const property of GUARDED_PROPERTIES) {
+      const assignment = new RegExp(`\\.${property}\\s*=`);
+      if (!assignment.test(line)) continue;
+      // Look back a few lines for the guard that makes the assignment safe.
+      const window = lines.slice(Math.max(0, index - 6), index + 1).join('\n');
+      if (window.includes(`Properties.Match('${property}')`) || window.includes(`Properties.Match("${property}")`)) continue;
+      problems.push(
+        `${property} بدون بررسی وجود روی .NET قدیمی خطا می‌دهد ` +
+        `(«The property '${property}' cannot be found on this object») — خط ${index + 1}`,
+      );
+    }
+  });
+  return problems;
+}
+
 export function lintFile(file) {
   const buffer = fs.readFileSync(file);
   const relative = path.relative(WINDOWS_DIR, file).replace(/\\/g, '/');
@@ -123,6 +157,7 @@ export function lintFile(file) {
   if (text.includes('\uFFFD')) problems.push('بایت‌های UTF-8 نامعتبر (کاراکتر جایگزین) پیدا شد');
 
   problems.push(...checkBalance(text));
+  problems.push(...checkDotNetProperties(text));
   return { file: relative, ok: problems.length === 0, problems };
 }
 

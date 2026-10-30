@@ -18,6 +18,7 @@ param(
 $ErrorActionPreference = 'Stop'
 . (Join-Path $PSScriptRoot 'ui.ps1')
 . (Join-Path $PSScriptRoot 'prereq.ps1')
+Register-PishkanErrorHandler (Get-RepositoryRoot $PSScriptRoot)
 
 $settings = Load-UiSettings
 if ($Theme) { Set-PishkanTheme $Theme } else { Set-PishkanTheme $settings.theme }
@@ -319,6 +320,26 @@ function Test-FormInput {
   return $true
 }
 
+# Some Windows machines run Windows PowerShell 5.1 on .NET Framework 4.5–4.7.1.
+# There, ProcessStartInfo has no StandardInputEncoding property and assigning it
+# throws "The property 'StandardInputEncoding' cannot be found on this object" —
+# which is exactly what happened on a real machine. Only touch the properties the
+# framework actually provides, and always send input as UTF-8 *bytes* (below) so
+# no encoding property is needed at all.
+function Set-ProcessStartInfoEncoding($Info) {
+  $encoding = New-Object System.Text.UTF8Encoding($false)
+  if ($Info.PSObject.Properties.Match('StandardOutputEncoding').Count -gt 0) {
+    try { $Info.StandardOutputEncoding = $encoding } catch { }
+  }
+  if ($Info.PSObject.Properties.Match('StandardErrorEncoding').Count -gt 0) {
+    try { $Info.StandardErrorEncoding = $encoding } catch { }
+  }
+  if ($Info.PSObject.Properties.Match('StandardInputEncoding').Count -gt 0) {
+    try { $Info.StandardInputEncoding = $encoding } catch { }
+  }
+  return $Info
+}
+
 function Start-BackgroundProcess([string]$FileName, [string]$Arguments, [string]$WorkingDirectory) {
   $info = New-Object System.Diagnostics.ProcessStartInfo
   $info.FileName = $FileName
@@ -329,14 +350,23 @@ function Start-BackgroundProcess([string]$FileName, [string]$Arguments, [string]
   $info.RedirectStandardInput = $true
   $info.RedirectStandardOutput = $true
   $info.RedirectStandardError = $true
-  $info.StandardOutputEncoding = [System.Text.Encoding]::UTF8
-  $info.StandardErrorEncoding = [System.Text.Encoding]::UTF8
-  # UTF8 without BOM: a BOM would corrupt the single JSON line sent on stdin.
-  $info.StandardInputEncoding = New-Object System.Text.UTF8Encoding($false)
+  $info = Set-ProcessStartInfoEncoding $info
   $process = New-Object System.Diagnostics.Process
   $process.StartInfo = $info
   [void]$process.Start()
   return $process
+}
+
+# UTF-8 without BOM, written straight to the stream: works on every .NET version
+# and keeps Persian text (admin full name) intact. The single JSON line must not
+# carry a BOM or the parser on the Node side would reject it.
+function Send-ProcessInput([System.Diagnostics.Process]$Process, [string]$Text) {
+  $encoding = New-Object System.Text.UTF8Encoding($false)
+  $bytes = $encoding.GetBytes($Text + "`n")
+  $stream = $Process.StandardInput.BaseStream
+  $stream.Write($bytes, 0, $bytes.Length)
+  $stream.Flush()
+  $Process.StandardInput.Close()
 }
 
 # --------------------------------------------------------------- system check
@@ -403,8 +433,7 @@ function Start-Installation {
 
   $installer = Join-Path $RepoRoot 'windows\lib\installer.mjs'
   $process = Start-BackgroundProcess $nodeCommand ("`"" + $installer + "`" --root `"" + $pathBox.Text + "`" --json-lines --job-stdin") $pathBox.Text
-  $process.StandardInput.WriteLine($job)
-  $process.StandardInput.Close()
+  Send-ProcessInput $process $job
   $passBox.Text = ''
   $pass2Box.Text = ''
 

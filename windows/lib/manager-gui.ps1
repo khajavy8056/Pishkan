@@ -18,6 +18,7 @@ $ErrorActionPreference = 'Stop'
 
 $settings = Load-UiSettings
 if ($Theme) { Set-PishkanTheme $Theme } else { Set-PishkanTheme $settings.theme }
+Register-PishkanErrorHandler (Get-RepositoryRoot $PSScriptRoot)
 
 $RepoRoot = Get-RepositoryRoot (Get-Location).Path
 if ($Root) { $RepoRoot = (Resolve-Path $Root).Path }

@@ -54,6 +54,8 @@ node windows\lib\verify.mjs --mode core --url http://127.0.0.1:3000 --env .env.w
 | Symptom | Cause / fix |
 | --- | --- |
 | `Unexpected token ')'` / `Missing closing '}'` when double-clicking `PishkanSetup.cmd` | The `.ps1` file lost its UTF-8 BOM, so PowerShell 5.1 read Persian text with the ANSI code page. Fixed in this version: every script ships with a BOM and the `.cmd` restores it if a tool strips it. Re-download the branch and try again. |
+| `The property 'StandardInputEncoding' cannot be found on this object` | Windows with .NET Framework older than 4.7.2. Fixed in this version (the property is only set when the framework provides it and the job is sent as UTF-8 bytes). Update from GitHub; until then use `PishkanSetup.cmd /console`. |
+| The window closes with «خطای غیرمنتظره» | The full exception is written to `.data\windows-gui-error.log`; send that file. The text installer `PishkanSetup.cmd /console` does not use .NET windows and keeps working. |
 | `Node.js was not found` | The GUI shows a «نصب Node.js» button — press it (winget first, then the official MSI with SHA-256 verification). |
 | `The graphical installer exited with code 1` | Read `.data\install-error.json`; it contains the failing step, the command, the exit code and the tail of the output. |
 | Window opens but nothing happens on «بررسی سیستم» | Run `node windows\lib\syscheck.mjs --root . --port 3000 --pretty` in a terminal to see the same report as text. |

@@ -212,6 +212,34 @@ await testAsync('syscheck گزارش JSON ساخت‌یافته می‌دهد', 
   assert.equal(report.items.find((item) => item.id === 'node').status, 'ok');
 });
 
+/* --------------------------- .NET compatibility --------------------------- */
+
+test('لینتر انتساب StandardInputEncoding بدون گارد وجود را رد می‌کند', () => {
+  const dir = path.join(tmp, 'lint-dotnet');
+  fs.mkdirSync(dir, { recursive: true });
+  const bad = path.join(dir, 'bad.ps1');
+  fs.writeFileSync(
+    bad,
+    '\uFEFF$info = New-Object System.Diagnostics.ProcessStartInfo\n' +
+    '$info.StandardInputEncoding = New-Object System.Text.UTF8Encoding($false)\n',
+  );
+  const result = lintFile(bad);
+  assert.equal(result.ok, false, 'انتساب بدون گارد رد نشد');
+  assert.ok(
+    result.problems.some((problem) => problem.includes('StandardInputEncoding')),
+    `پیام مرتبط صادر نشد: ${result.problems.join(' | ')}`,
+  );
+
+  // The shipped windows must satisfy the very same rule.
+  for (const script of ['installer-gui.ps1', 'manager-gui.ps1']) {
+    const report = lintFile(path.join(MODULE_DIR, script));
+    assert.ok(
+      !report.problems.some((problem) => problem.includes('StandardInputEncoding')),
+      `${script}: ${report.problems.join(' | ')}`,
+    );
+  }
+});
+
 /* ------------------------------ process helpers --------------------------- */
 
 test('pidAlive فرایند زنده را درست تشخیص می‌دهد', () => {
