@@ -1,4 +1,4 @@
-# Pishkan — prerequisite helper (Node.js runtime).
+﻿# Pishkan — prerequisite helper (Node.js runtime).
 #
 # Used by the graphical installer only; it is the single piece of the setup that
 # cannot be written in Node.js (it has to install Node.js itself).

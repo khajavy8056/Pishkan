@@ -1,4 +1,4 @@
-# Pishkan — optional: package the graphical installer as a single .exe
+﻿# Pishkan — optional: package the graphical installer as a single .exe
 #
 #   powershell -NoProfile -ExecutionPolicy Bypass -File windows\build-exe.ps1
 #
@@ -63,7 +63,7 @@ if (Test-Path $Icon) { $arguments['IconFile'] = $Icon }
 Invoke-PS2EXE @arguments
 
 if (Test-Path $OutputPath) {
-  $size = [Math]::Round((Get-Item $OutputPath).Length / 1MB, 2)
+  $size = [Math]::Round((Get-Item $OutputPath).Length / 1048576, 2)
   Write-Host "`nساخته شد: $OutputPath ($size MB)" -ForegroundColor Green
   Write-Host 'یادآوری: فایل امضا نشده است؛ برای توزیع عمومی باید امضای دیجیتال داشته باشد.' -ForegroundColor Yellow
   Write-Host 'پس از ساخت، فایل را کنار PishkanSetup.cmd و پوشه lib نگه دارید.' -ForegroundColor Gray

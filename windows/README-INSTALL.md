@@ -49,6 +49,15 @@ node windows\lib\manager.mjs restore --root . --file .data\backups\<file>.sqlite
 node windows\lib\verify.mjs --mode core --url http://127.0.0.1:3000 --env .env.windows.local
 ```
 
+## Troubleshooting
+
+| Symptom | Cause / fix |
+| --- | --- |
+| `Unexpected token ')'` / `Missing closing '}'` when double-clicking `PishkanSetup.cmd` | The `.ps1` file lost its UTF-8 BOM, so PowerShell 5.1 read Persian text with the ANSI code page. Fixed in this version: every script ships with a BOM and the `.cmd` restores it if a tool strips it. Re-download the branch and try again. |
+| `Node.js was not found` | The GUI shows a «نصب Node.js» button — press it (winget first, then the official MSI with SHA-256 verification). |
+| `The graphical installer exited with code 1` | Read `.data\install-error.json`; it contains the failing step, the command, the exit code and the tail of the output. |
+| Window opens but nothing happens on «بررسی سیستم» | Run `node windows\lib\syscheck.mjs --root . --port 3000 --pretty` in a terminal to see the same report as text. |
+
 ## Important
 
 * The local installation uses **SQLite** with `NODE_ENV=development`. Pishkan only

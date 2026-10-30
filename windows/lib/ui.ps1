@@ -1,4 +1,4 @@
-# Pishkan — shared WinForms UI kit (dark + light themes, RTL, Persian labels).
+﻿# Pishkan — shared WinForms UI kit (dark + light themes, RTL, Persian labels).
 #
 # Windows PowerShell 5.1 compatible: no ternary operator, no null-coalescing,
 # no classes. Every control carries a colour role in its .Tag property so one
@@ -170,12 +170,16 @@ function Apply-PishkanControlTheme($Control) {
   elseif ($role -eq 'accent') {
     $Control.BackColor = Get-PishkanColor 'accent'
     $Control.ForeColor = Get-PishkanColor 'accentText'
-    $Control.FlatAppearance.BorderColor = Get-PishkanColor 'accent'
+    if ($Control.PSObject.Properties.Match('FlatAppearance').Count -gt 0) {
+      $Control.FlatAppearance.BorderColor = Get-PishkanColor 'accent'
+    }
   }
   elseif ($role -eq 'ghost') {
     $Control.BackColor = Get-PishkanColor 'card'
     $Control.ForeColor = Get-PishkanColor 'text'
-    $Control.FlatAppearance.BorderColor = $border
+    if ($Control.PSObject.Properties.Match('FlatAppearance').Count -gt 0) {
+      $Control.FlatAppearance.BorderColor = $border
+    }
   }
   elseif ($role -eq 'log') {
     $Control.BackColor = Get-PishkanColor 'input'

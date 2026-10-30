@@ -1,4 +1,4 @@
-# Pishkan — graphical installer (WinForms).
+﻿# Pishkan — graphical installer (WinForms).
 #
 # Launched by windows\PishkanSetup.cmd (double click). The window only draws and
 # collects input; every installation step runs in windows/lib/installer.mjs so

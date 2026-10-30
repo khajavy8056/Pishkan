@@ -1,4 +1,4 @@
-# Pishkan — graphical manager (WinForms).
+﻿# Pishkan — graphical manager (WinForms).
 #
 # Launched by windows\PishkanManager.cmd and by the Start-menu shortcut.
 # Shows the real state of every local service (backend, API, frontend, database,

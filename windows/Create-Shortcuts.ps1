@@ -1,4 +1,4 @@
-# Pishkan — create Start-menu and desktop shortcuts.
+﻿# Pishkan — create Start-menu and desktop shortcuts.
 #
 #   powershell -NoProfile -ExecutionPolicy Bypass -File windows\Create-Shortcuts.ps1
 #   ... -Remove     (delete the shortcuts again)

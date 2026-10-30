@@ -23,6 +23,7 @@ import {
   MODULE_DIR, compareVersions, findFreePort, formatBytes, isPortBusy, parseArgs, readJson, writeJson,
 } from './common.mjs';
 import { formatEnvValue, readEnvFile, renderEnvFile, restoreEnvFile, upsertEnvFile } from './envfile.mjs';
+import { lintAll, lintFile, parseAll } from './ps-lint.mjs';
 
 const args = parseArgs();
 const verbose = args.has('verbose');
@@ -54,6 +55,45 @@ async function testAsync(name, fn) {
 }
 
 const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'pishkan-selftest-'));
+
+/* ------------------------- Windows script encoding ----------------------- */
+
+test('همهٔ فایل‌های PowerShell دارای BOM و بدون مشکل ساختاری‌اند', () => {
+  const results = lintAll();
+  assert.ok(results.length >= 8, 'فایل‌های PowerShell پیدا نشدند');
+  const broken = results.filter((result) => !result.ok);
+  assert.deepEqual(
+    broken.map((result) => `${result.file}: ${result.problems.join(' | ')}`),
+    [],
+    'فایل ویندوزی ناسالم وجود دارد',
+  );
+  const launchers = results.filter((result) => result.file.endsWith('.cmd'));
+  assert.ok(launchers.length >= 4, 'لانچرهای .cmd پیدا نشدند');
+});
+
+test('نبود BOM در یک اسکریپت فارسی توسط بررسی‌کننده شناسایی می‌شود', () => {
+  // Regression guard for the 2026-10-30 bug: PowerShell 5.1 read the BOM-less
+  // script as ANSI, turned «—» into «”» and failed with "Unexpected token ')'".
+  const file = path.join(tmp, 'bom-check.ps1');
+  fs.writeFileSync(file, '# پیام فارسی — آزمون\nWrite-Host "سلام"\n', 'utf8');
+  const broken = lintFile(file);
+  assert.equal(broken.ok, false, 'نبود BOM تشخیص داده نشد');
+  assert.ok(broken.problems.some((problem) => problem.includes('BOM')), 'پیام BOM داده نشد');
+  fs.writeFileSync(file, Buffer.concat([Buffer.from([0xef, 0xbb, 0xbf]), fs.readFileSync(file)]));
+  assert.equal(lintFile(file).ok, true, 'پس از افزودن BOM باز هم خطا گزارش شد');
+});
+
+await testAsync('پارس واقعی PowerShell برای همهٔ اسکریپت‌های ویندوز', async () => {
+  const parsed = await parseAll();
+  if (!parsed.available) {
+    // Never fake a pass: the check is recorded as skipped with the reason.
+    skipped.push(`پارس PowerShell: ${parsed.reason}`);
+    return;
+  }
+  const broken = parsed.results.filter((result) => !result.ok);
+  assert.deepEqual(broken.map((result) => `${result.file}: ${result.problems.join(' | ')}`), []);
+  assert.ok(parsed.results.length >= 6, 'تعداد اسکریپت‌های پارس‌شده کم است');
+});
 
 /* ------------------------------- env file -------------------------------- */
 

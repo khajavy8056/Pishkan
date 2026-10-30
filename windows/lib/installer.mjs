@@ -96,12 +96,16 @@ function stepEvent(id, title, status, options = {}) {
 
 function runProcess(command, commandArgs, options = {}) {
   const { cwd = ROOT, input, onLine, timeoutMs = 30 * 60 * 1000, env = {} } = options;
+  // `shell: true` is required for npm.cmd on Windows, but it makes Node join the
+  // arguments with spaces without quoting them — so it must never be used for the
+  // node executable with an absolute script path (e.g. "C:\My Projects\…").
+  const shell = options.shell ?? false;
   return new Promise((resolve) => {
     const child = spawn(command, commandArgs, {
       cwd,
       env: { ...process.env, ...env },
       stdio: ['pipe', 'pipe', 'pipe'],
-      shell: process.platform === 'win32',
+      shell,
       windowsHide: true,
     });
     let stdout = '';
@@ -299,6 +303,7 @@ async function stepDependencies() {
     }, 900);
 
     const result = await runProcess(npmCommand, npmArgs, {
+      shell: process.platform === 'win32',
       timeoutMs: 45 * 60 * 1000,
       onLine: (line) => {
         if (/ERR!|error|warn EBADENGINE/i.test(line)) log(line.slice(0, 300), 'warn');
@@ -351,6 +356,7 @@ async function stepBuild() {
   stepEvent('build', 'ساخت نسخه اجرایی', 'running', { message: 'API در حال ساخت است', stepProgress: 10 });
   for (const [index, workspace] of ['apps/api', 'apps/web'].entries()) {
     const result = await runProcess(npmCommand, ['run', 'build', '--workspace', workspace], {
+      shell: process.platform === 'win32',
       timeoutMs: 30 * 60 * 1000,
       onLine: (line) => {
         if (/error/i.test(line)) log(line.slice(0, 300), 'warn');

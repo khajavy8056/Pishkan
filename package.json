@@ -27,5 +27,9 @@
   },
   "engines": {
     "node": ">=22.22.2"
+  },
+  "devDependencies": {
+    "tree-sitter-powershell": "^0.26.6",
+    "web-tree-sitter": "^0.27.1"
   }
 }

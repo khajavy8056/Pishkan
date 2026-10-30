@@ -1,4 +1,4 @@
-# Pishkan — uninstall the local Windows installation.
+﻿# Pishkan — uninstall the local Windows installation.
 #
 #   powershell -NoProfile -ExecutionPolicy Bypass -File windows\Uninstall-Pishkan.ps1            (interactive)
 #   ... -KeepData                                            (remove shortcuts + build, keep .data)
@@ -40,7 +40,7 @@ if ($node) {
 }
 
 Write-Step 'حذف میان‌برها'
-& powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot 'Create-Shortcuts.ps1') -Remove
+& (Join-Path $PSHOME 'powershell.exe') -NoProfile -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot 'Create-Shortcuts.ps1') -Remove
 Write-Ok 'میان‌برها حذف شدند.'
 
 if ($RemoveData) { $KeepData = $false }
