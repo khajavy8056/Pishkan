@@ -22,6 +22,7 @@ import { accountingRouter } from '../routes/accounting.js';
 import { messagesRouter } from '../routes/messages.js';
 import { settingsRouter } from '../routes/settings.js';
 import { filesRouter } from '../routes/files.js';
+import { documentsRouter } from '../routes/documents.js';
 import { assistantRouter } from '../routes/assistant.js';
 import { dashboardRouter } from '../routes/dashboard.js';
 import { systemRouter } from '../routes/system.js';
@@ -147,6 +148,7 @@ export async function createApp(): Promise<Express> {
   app.use(['/api/messages','/api/v1/messages'],messagesRouter);
   app.use(['/api/settings','/api/v1/settings'],settingsRouter);
   app.use(['/api/files','/api/v1/files'],filesRouter);
+  app.use(['/api/documents','/api/v1/documents'],documentsRouter);
   app.use(['/api/assistant','/api/v1/assistant'],assistantRouter);
   app.use(['/api/dashboard','/api/v1/dashboard'],dashboardRouter);
   app.use(['/api/system','/api/v1/system'],systemRouter);

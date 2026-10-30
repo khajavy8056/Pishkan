@@ -1,6 +1,6 @@
 {
   "name": "@pishkan/api",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "type": "module",
   "main": "dist/index.js",
   "scripts": {
@@ -11,7 +11,8 @@
     "seed": "tsx --experimental-sqlite src/cli/seed.ts",
     "create-admin": "tsx --experimental-sqlite src/cli/create-admin.ts",
     "test": "vitest run",
-    "typecheck": "tsc -p tsconfig.json --noEmit"
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "media:benchmark": "tsx --experimental-sqlite scripts/media-benchmark.ts"
   },
   "dependencies": {
     "bcryptjs": "^3.0.3",
@@ -23,6 +24,7 @@
     "pg": "^8.23.1",
     "pino": "^10.4.0",
     "pino-http": "^11.0.0",
+    "sharp": "^0.35.5",
     "zod": "^4.6.7"
   },
   "devDependencies": {

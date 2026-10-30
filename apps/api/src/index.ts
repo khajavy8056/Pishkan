@@ -5,6 +5,7 @@ import { closeDb, getDb } from './db/index.js';
 import { migrate } from './db/migrate.js';
 import { ensureSettingDefaults } from './modules/settings/service.js';
 import { ensureAdmin, upsertRolesOnly, seedCatalog } from './modules/catalog/seed.js';
+import { ensureMediaDirs, recoverStuckMedia } from './modules/media/service.js';
 
 async function bootstrap() {
   const problems = assertProductionSafety();
@@ -16,10 +17,15 @@ async function bootstrap() {
 
   fs.mkdirSync(env.uploadDir, { recursive: true });
   fs.mkdirSync(env.backupDir, { recursive: true });
+  ensureMediaDirs();
 
   await getDb();
   const applied = await migrate({ log: (m) => console.log(`[boot] ${m}`) });
   if (applied.applied.length) console.log(`[boot] applied ${applied.applied.length} migration(s)`);
+
+  // Resume image jobs interrupted by a crash or deploy. Never blocks startup.
+  recoverStuckMedia({ log: (m) => console.log(`[boot] ${m}`) })
+    .catch((err) => console.error('[boot] media recovery failed:', err));
 
   await ensureSettingDefaults();
   await upsertRolesOnly();
