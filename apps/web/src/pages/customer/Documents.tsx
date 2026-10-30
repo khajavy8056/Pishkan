@@ -159,26 +159,26 @@ export function CustomerDocuments() {
 
       <div className="mb-6 grid gap-3 sm:grid-cols-3">
         <Card className="flex items-center gap-3">
-          <ShieldCheck className="size-8 text-emerald-600" />
+          <ShieldCheck className="size-8 text-emerald-700" />
           <div><p className="text-xs text-navy-500">مدارک ثبت‌شده</p><p className="text-lg font-bold text-navy-900">{faNum(totals.count)}</p></div>
         </Card>
         <Card className="flex items-center gap-3">
-          <Wand2 className="size-8 text-brand-600" />
+          <Wand2 className="size-8 text-accent" />
           <div><p className="text-xs text-navy-500">بهینه‌سازی خودکار</p><p className="text-lg font-bold text-navy-900">{faNum(totals.ready)} مدرک</p></div>
         </Card>
         <Card className="flex items-center gap-3">
-          <FileText className="size-8 text-sky-600" />
+          <FileText className="size-8 text-sky-700" />
           <div><p className="text-xs text-navy-500">حجم صرفه‌جویی‌شده</p><p className="text-lg font-bold text-navy-900">{bytes(totals.saved)}</p></div>
         </Card>
       </div>
 
       <Card className="mb-6">
-        <h2 className="mb-2 flex items-center gap-2 font-bold text-navy-900"><Wand2 className="size-4 text-brand-700" /> پردازش خودکار تصاویر</h2>
+        <h2 className="mb-2 flex items-center gap-2 font-bold text-navy-900"><Wand2 className="size-4 text-accent" /> پردازش خودکار تصاویر</h2>
         <ul className="grid gap-2 text-[11px] leading-6 text-navy-600 sm:grid-cols-2">
-          <li className="flex items-start gap-1.5"><CheckCircle2 className="mt-1 size-3.5 shrink-0 text-emerald-600" /> اصلاح خودکار جهت تصویر بر اساس EXIF</li>
-          <li className="flex items-start gap-1.5"><CheckCircle2 className="mt-1 size-3.5 shrink-0 text-emerald-600" /> تبدیل به WebP بدون کاهش رزولوشن</li>
-          <li className="flex items-start gap-1.5"><CheckCircle2 className="mt-1 size-3.5 shrink-0 text-emerald-600" /> نگهداری نسخه اصلی برای بازیابی و بازبینی</li>
-          <li className="flex items-start gap-1.5"><CheckCircle2 className="mt-1 size-3.5 shrink-0 text-emerald-600" /> حذف متادیتای غیرضروری از نسخه نمایشی</li>
+          <li className="flex items-start gap-1.5"><CheckCircle2 className="mt-1 size-3.5 shrink-0 text-emerald-700" /> اصلاح خودکار جهت تصویر بر اساس EXIF</li>
+          <li className="flex items-start gap-1.5"><CheckCircle2 className="mt-1 size-3.5 shrink-0 text-emerald-700" /> تبدیل به WebP بدون کاهش رزولوشن</li>
+          <li className="flex items-start gap-1.5"><CheckCircle2 className="mt-1 size-3.5 shrink-0 text-emerald-700" /> نگهداری نسخه اصلی برای بازیابی و بازبینی</li>
+          <li className="flex items-start gap-1.5"><CheckCircle2 className="mt-1 size-3.5 shrink-0 text-emerald-700" /> حذف متادیتای غیرضروری از نسخه نمایشی</li>
         </ul>
       </Card>
 
@@ -224,7 +224,7 @@ export function CustomerDocuments() {
                   استفاده در پرونده
                 </Button>
                 <Button size="sm" variant="ghost" onClick={() => remove(document)} aria-label="حذف مدرک">
-                  <Trash2 className="size-3.5 text-rose-600" />
+                  <Trash2 className="size-3.5 text-rose-700" />
                 </Button>
               </div>
             </div>
@@ -237,7 +237,7 @@ export function CustomerDocuments() {
           <h2 className="mb-3 font-bold text-navy-900">وضعیت انواع مدارک</h2>
           <div className="flex flex-wrap gap-2">
             {types.map((type) => (
-              <span key={type.code} className="rounded-xl bg-navy-50 px-3 py-2 text-[11px] text-navy-700">
+              <span key={type.code} className="rounded-xl bg-surface-3 px-3 py-2 text-[11px] text-navy-700">
                 {type.label}
                 {type.counts.total > 0
                   ? ` — ${faNum(type.counts.total)} مورد${type.counts.approved ? ` (${faNum(type.counts.approved)} تأییدشده)` : ''}`

@@ -172,14 +172,14 @@ export function AdminFinance() {
         <StatCard label="سود عملیاتی" value={rial(summary?.summary?.operatingProfit ?? 0)} tone={(summary?.summary?.operatingProfit ?? 0) >= 0 ? 'emerald' : 'rose'} icon={<BarChart3 className="size-5" />} />
       </div>
 
-      <div className="mt-4 flex flex-wrap gap-1 rounded-xl bg-white p-1 ring-1 ring-navy-900/8 sm:w-fit">
+      <div className="mt-4 flex flex-wrap gap-1 rounded-xl bg-surface p-1 ring-1 ring-line sm:w-fit">
         {[
           { key: 'invoices', label: `فاکتورها (${faNum(invoices.length)})` },
           { key: 'payments', label: `پرداخت‌ها (${faNum(payments.length)})` },
           { key: 'expenses', label: `هزینه‌ها (${faNum(expenses.length)})` },
         ].map((item) => (
           <button key={item.key} onClick={() => setTab(item.key as any)}
-            className={clsx('rounded-lg px-4 py-1.5 text-sm transition', tab === item.key ? 'bg-brand-700 text-white' : 'text-navy-600 hover:bg-navy-50')}>
+            className={clsx('rounded-lg px-4 py-1.5 text-sm transition', tab === item.key ? 'bg-brand-700 text-white' : 'text-navy-600 hover:bg-surface-3')}>
             {item.label}
           </button>
         ))}
@@ -188,7 +188,7 @@ export function AdminFinance() {
       {tab === 'invoices' && (
         <>
           <div className="card my-4 flex flex-col gap-2 p-3 sm:flex-row">
-            <div className="flex flex-1 items-center gap-2 rounded-xl bg-navy-50 px-3">
+            <div className="flex flex-1 items-center gap-2 rounded-xl bg-surface-3 px-3">
               <Search className="size-4 text-navy-400" />
               <input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="شماره فاکتور، عنوان یا نام مشتری…" className="w-full bg-transparent py-2 text-sm outline-none" />
             </div>
@@ -343,7 +343,7 @@ export function AdminFinance() {
         footer={<><Button variant="ghost" onClick={() => setPaymentModal(null)}>انصراف</Button><Button onClick={registerPayment}>ثبت</Button></>}>
         {paymentModal && (
           <div className="space-y-3">
-            <p className="rounded-xl bg-navy-50/70 p-3 text-sm">فاکتور {paymentModal.number} — باقی‌مانده {rial(paymentModal.remaining)}</p>
+            <p className="rounded-xl bg-surface-3 p-3 text-sm">فاکتور {paymentModal.number} — باقی‌مانده {rial(paymentModal.remaining)}</p>
             <Field label="مبلغ (ریال)" required><Input type="number" value={paymentForm.amount} onChange={(e) => setPaymentForm({ ...paymentForm, amount: Number(e.target.value) })} /></Field>
             <Field label="روش">
               <Select value={paymentForm.method} onChange={(e) => setPaymentForm({ ...paymentForm, method: e.target.value })}
@@ -428,7 +428,7 @@ export function AdminReports() {
             <StatCard label="سود عملیاتی" value={rial(data.summary.operatingProfit)} tone={data.summary.operatingProfit >= 0 ? 'emerald' : 'rose'} icon={<TrendingUp className="size-5" />} hint={`حاشیه ${faNum(data.summary.margin)}٪`} />
           </div>
 
-          <div className="mt-4 flex gap-1 rounded-xl bg-white p-1 ring-1 ring-navy-900/8 sm:w-fit">
+          <div className="mt-4 flex gap-1 rounded-xl bg-surface p-1 ring-1 ring-line sm:w-fit">
             {[
               { key: 'summary', label: 'روند ماهانه' },
               { key: 'service', label: 'درآمد به تفکیک خدمت' },
@@ -436,7 +436,7 @@ export function AdminReports() {
               { key: 'ledger', label: 'دفتر تراکنش' },
             ].map((item) => (
               <button key={item.key} onClick={() => setTab(item.key as any)}
-                className={clsx('rounded-lg px-3 py-1.5 text-xs transition', tab === item.key ? 'bg-brand-700 text-white' : 'text-navy-600 hover:bg-navy-50')}>
+                className={clsx('rounded-lg px-3 py-1.5 text-xs transition', tab === item.key ? 'bg-brand-700 text-white' : 'text-navy-600 hover:bg-surface-3')}>
                 {item.label}
               </button>
             ))}

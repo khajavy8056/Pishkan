@@ -86,7 +86,7 @@ export function FileThumbnail({ file, onOpen, className }: { file: MediaFile; on
       type="button"
       onClick={onOpen}
       className={clsx(
-        'group relative flex h-20 w-16 shrink-0 items-center justify-center overflow-hidden rounded-xl border border-navy-100 bg-navy-50',
+        'group relative flex h-20 w-16 shrink-0 items-center justify-center overflow-hidden rounded-xl border border-navy-100 bg-surface-3',
         onOpen && 'cursor-zoom-in', className,
       )}
       aria-label={onOpen ? 'مشاهده مدرک' : undefined}
@@ -94,12 +94,12 @@ export function FileThumbnail({ file, onOpen, className }: { file: MediaFile; on
       {src && !failed ? (
         <img src={src} alt="" loading="lazy" className="size-full object-cover" onError={() => setFailed(true)} />
       ) : isImage ? (
-        <ImageOff className="size-5 text-navy-300" />
+        <ImageOff className="size-5 text-navy-400" />
       ) : (
         <FileText className="size-6 text-rose-500" />
       )}
       {onOpen && (
-        <span className="absolute inset-0 hidden items-center justify-center bg-navy-950/40 text-white group-hover:flex">
+        <span className="absolute inset-0 hidden items-center justify-center bg-scrim text-white group-hover:flex">
           <Maximize2 className="size-4" />
         </span>
       )}
@@ -139,7 +139,7 @@ export function DocumentViewer({
           </span>
         </div>
       )}>
-      <div className={clsx('overflow-auto rounded-xl bg-navy-50', zoomed ? 'max-h-[60vh]' : 'max-h-[52vh]')}>
+      <div className={clsx('overflow-auto rounded-xl bg-surface-3', zoomed ? 'max-h-[60vh]' : 'max-h-[52vh]')}>
         {isImage && file.displayUrl ? (
           <img src={file.displayUrl} alt={title} className={clsx('mx-auto block', zoomed ? 'max-w-none' : 'max-h-[50vh] w-auto')} />
         ) : file.displayUrl ? (
