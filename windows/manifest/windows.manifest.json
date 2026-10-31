@@ -1,7 +1,7 @@
 {
   "product": "Pishkan",
   "productFa": "پیشکان",
-  "appVersion": "1.3.0",
+  "appVersion": "1.4.0",
   "installerVersion": "1.0.0",
   "channel": "local-test",
   "entry": {

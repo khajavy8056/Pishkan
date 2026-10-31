@@ -31,7 +31,7 @@ export interface SettingDef {
 
 export type SettingGroupCode =
   | 'general' | 'domain' | 'auth' | 'sms' | 'email' | 'security' | 'services'
-  | 'accounting' | 'wallet' | 'workforce' | 'assistant' | 'files' | 'backup'
+  | 'accounting' | 'wallet' | 'workforce' | 'payroll' | 'assistant' | 'files' | 'backup'
   | 'maintenance' | 'monitoring' | 'multibranch';
 
 export const SETTING_GROUPS: {
@@ -56,6 +56,7 @@ export const SETTING_GROUPS: {
   { code: 'backup', title: 'پشتیبان‌گیری', description: 'زمان‌بندی، مقصد ذخیره و نگهداری نسخه‌های پشتیبان', icon: 'database', order: 13 },
   { code: 'maintenance', title: 'نگهداری و گزارش‌ها', description: 'لاگ‌ها، وضعیت سلامت، حالت تعمیر و گزارش‌های خودکار', icon: 'activity', order: 14 },
   { code: 'monitoring', title: 'مانیتورینگ و لاگ', description: 'نمونه‌برداری شاخص‌ها، آستانه هشدارها و نگهداری لاگ فنی', icon: 'activity', order: 15 },
+  { code: 'payroll', title: 'درآمد و تسویه کارکنان', description: 'مبنای محاسبه سهم درصدی، دوره تسویه، حداقل برداشت و اجازه ثبت درخواست برداشت', icon: 'wallet', order: 17 },
   { code: 'multibranch', title: 'چنددفتره', description: 'آماده‌سازی برای مدیریت چند دفتر مستقل (آزمایشی)', icon: 'building', order: 16 },
 ];
 
@@ -207,6 +208,8 @@ export const SETTINGS: SettingDef[] = [
   { key: 'workforce.shift_swap_requires_approval', group: 'workforce', type: 'boolean', label: 'تأیید مدیر برای تغییر شیفت', default: bool(true) },
   { key: 'workforce.max_weekly_hours', group: 'workforce', type: 'number', label: 'حداکثر ساعات کاری هفتگی', default: 44, min: 1, max: 100 },
   { key: 'workforce.default_shift_capacity', group: 'workforce', type: 'number', label: 'ظرفیت پیش‌فرض هر شیفت', default: 10, min: 1, max: 200 },
+  { key: 'workforce.force_assign_enabled', group: 'workforce', type: 'boolean', label: 'واگذاری اجباری پرونده‌های پذیرفته‌نشده', hint: 'اگر تا بخشی از زمان برآوردشده کسی پرونده را از صف برندارد، سیستم آن را خودکار به یک کارمند آزاد واگذار می‌کند.', default: bool(true) },
+  { key: 'workforce.force_assign_ratio', group: 'workforce', type: 'number', label: 'نسبت زمان برای واگذاری اجباری (درصد)', hint: 'مثلاً ۶۶ یعنی وقتی دو سوم زمان برآوردی خدمت سپری شد. مقدار در لحظه ثبت درخواست قطعی می‌شود.', default: 66, min: 10, max: 100 },
   { key: 'workforce.auto_assign_on_shift', group: 'workforce', type: 'boolean', label: 'فقط کارشناسان حاضر در شیفت ارجاع بگیرند', hint: 'برای دفتر تازه‌راه‌اندازی‌شده خاموش است؛ پس از تعریف شیفت‌ها و حضور کارکنان می‌توانید آن را فعال کنید.', default: bool(false) },
 
   /* -------------------------------- assistant ------------------------------ */
@@ -248,6 +251,15 @@ export const SETTINGS: SettingDef[] = [
   { key: 'wallet.refund_to_wallet', group: 'wallet', type: 'boolean', label: 'بازگشت وجه پرداخت‌های کیف پولی به کیف پول', hint: 'اگر خاموش باشد، بازپرداخت تراکنش کیف پولی مسدود می‌شود تا دوبار اعتبار ایجاد نشود.', default: bool(true) },
   { key: 'wallet.admin_credit_requires_reason', group: 'wallet', type: 'boolean', label: 'الزام ثبت دلیل برای شارژ مدیریتی', default: bool(true) },
   { key: 'wallet.admin_credit_max', group: 'wallet', type: 'number', label: 'حداکثر شارژ مدیریتی در هر عملیات (ریال)', default: 100000000, min: 10000, max: 2000000000 },
+
+  /* -------------------------------- payroll -------------------------------- */
+  { key: 'payroll.commission_basis', group: 'payroll', type: 'select', label: 'مبنای محاسبه سهم کارکنان درصدی', hint: '«درآمد دفتر (بدون مالیات)» یعنی مالیات که فقط وصول می‌شود از مبنا کنار می‌رود. تغییر این تنظیم فقط روی سهم‌های جدید اثر دارد.', options: [{ value: 'net_of_tax', label: 'درآمد دفتر بدون مالیات (پیشنهادی)' }, { value: 'gross', label: 'کل مبلغ فاکتور' }], default: 'net_of_tax' },
+  { key: 'payroll.settlement_period', group: 'payroll', type: 'select', label: 'دوره تسویه پیش‌فرض درآمد', hint: 'درآمد هر خدمت در پایان دوره‌ای که به آن تعلق دارد قابل برداشت می‌شود. برای هر کارمند می‌توان در قرارداد مقدار دیگری تعیین کرد.', options: [{ value: 'daily', label: 'روزانه' }, { value: 'weekly', label: 'هفتگی' }, { value: 'monthly', label: 'ماهانه' }, { value: 'custom', label: 'دوره اختصاصی' }], default: 'weekly' },
+  { key: 'payroll.settlement_days', group: 'payroll', type: 'number', label: 'طول دوره اختصاصی (روز)', hint: 'فقط وقتی دوره «اختصاصی» انتخاب شده باشد استفاده می‌شود.', default: 7, min: 1, max: 365 },
+  { key: 'payroll.min_withdrawal', group: 'payroll', type: 'number', label: 'حداقل مبلغ درخواست برداشت (ریال)', hint: 'کارمند نمی‌تواند کمتر از این مبلغ درخواست برداشت ثبت کند.', default: 500000, min: 0, max: 100000000000 },
+  { key: 'payroll.withdrawal_enabled', group: 'payroll', type: 'boolean', label: 'امکان ثبت درخواست برداشت', hint: 'با خاموش‌شدن آن، درآمد کارکنان درصدی ثبت و نمایش داده می‌شود اما درخواست برداشت پذیرفته نمی‌شود.', default: bool(true) },
+  { key: 'payroll.withdrawal_requires_approval', group: 'payroll', type: 'boolean', label: 'تأیید مدیر برای پرداخت برداشت', hint: 'حسابداری بررسی و تأیید می‌کند؛ پرداخت فقط با مجوز تسویه ثبت می‌شود. این کلید برای اطلاع‌رسانی به مدیر است.', default: bool(true) },
+  { key: 'payroll.salary_period', group: 'payroll', type: 'select', label: 'دوره پرداخت حقوق ثابت', options: [{ value: 'monthly', label: 'ماهانه' }], default: 'monthly' },
 
   /* ------------------------------- monitoring ------------------------------ */
   { key: 'monitoring.enabled', group: 'monitoring', type: 'boolean', label: 'جمع‌آوری شاخص‌های مانیتورینگ', hint: 'نمونه‌برداری دوره‌ای CPU، حافظه، دیسک، تأخیر دیتابیس و ترافیک API.', default: bool(true) },

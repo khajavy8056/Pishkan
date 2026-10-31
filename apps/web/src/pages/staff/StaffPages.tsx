@@ -1,5 +1,4 @@
 import { CaseAutomation } from '../shared/Automation';
-import { CompensationPage } from '../shared/Compensation';
 import { useEffect, useRef, useState } from 'react';
 import { Link, useParams, useSearchParams } from 'react-router-dom';
 import {
@@ -33,18 +32,22 @@ export function StaffWorkbench() {
   const { notify } = useToast();
   const [summary, setSummary] = useState<any>(null);
   const [workload, setWorkload] = useState<any>(null);
+  // Cooperation-aware payroll summary: income only exists for percentage staff.
+  const [payroll, setPayroll] = useState<any>(null);
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
 
   const load = async () => {
     setLoading(true);
     try {
-      const [sum, wl] = await Promise.all([
+      const [sum, wl, pay] = await Promise.all([
         api.get<{ data: any }>('/api/dashboard/summary'),
         api.get<{ data: any }>('/api/staff/me/workload').catch(() => null),
+        api.get<{ data: any }>('/api/payroll/me/summary').catch(() => null),
       ]);
       setSummary(sum.data);
       setWorkload(wl?.data ?? null);
+      setPayroll(pay?.data ?? null);
     } finally {
       setLoading(false);
     }
@@ -93,7 +96,13 @@ export function StaffWorkbench() {
       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
         <StatCard label="پرونده‌های فعال من" value={faNum(workload?.activeCount ?? 0)} icon={<ClipboardList className="size-5" />} />
         <StatCard label="مدارک در انتظار" value={faNum(workload?.pendingDocuments?.length ?? 0)} tone="amber" icon={<FileCheck2 className="size-5" />} />
-        <StatCard label="تکمیل‌شده (۳۰ روز)" value={faNum(workload?.completedLast30Days ?? 0)} tone="emerald" icon={<CheckCircle2 className="size-5" />} />
+        <StatCard
+          label="تکمیل‌شده امروز / این هفته"
+          value={`${faNum(payroll?.performance?.completedToday ?? 0)} / ${faNum(payroll?.performance?.completedWeek ?? 0)}`}
+          tone="emerald"
+          icon={<CheckCircle2 className="size-5" />}
+          hint={`منتظر پاسخ سازمان: ${faNum(payroll?.performance?.awaitingOrganization ?? 0)} · نیازمند اقدام: ${faNum(payroll?.performance?.needsAction ?? 0)}`}
+        />
         <StatCard
           label="شیفت امروز"
           value={workload?.shift ? `${workload.shift.startTime} - ${workload.shift.endTime}` : 'بدون شیفت'}
@@ -101,6 +110,43 @@ export function StaffWorkbench() {
           hint={workload?.attendance?.checkIn ? `ورود: ${faDateTime(workload.attendance.checkIn).split('،').pop()}` : 'هنوز ورود ثبت نشده'}
         />
       </div>
+
+      {payroll?.cooperationType === 'commission' && payroll?.income && (
+        <Card className="mt-6 border-emerald-200 bg-emerald-50/40">
+          <div className="flex flex-wrap items-start justify-between gap-4">
+            <div>
+              <h2 className="flex items-center gap-2 font-bold text-navy-900"><Wallet className="size-4 text-emerald-700" /> درآمد من (کارمند درصدی)</h2>
+              <p className="mt-1 text-xs leading-6 text-navy-600">
+                سهم شما از خدمات انجام‌شده؛ بر پایهٔ درصد قرارداد و درآمد دفتر محاسبه می‌شود.
+              </p>
+            </div>
+            <Link to="/staff/finance" className="btn-soft btn-sm">درآمد و تسویه‌حساب</Link>
+          </div>
+          <dl className="mt-4 grid gap-3 text-sm sm:grid-cols-2 lg:grid-cols-4">
+            <div className="rounded-xl bg-surface px-3 py-2 ring-1 ring-line"><dt className="text-[11px] text-navy-500">درآمد امروز</dt><dd className="mt-0.5 font-semibold text-navy-900">{rial(payroll.income.today)}</dd></div>
+            <div className="rounded-xl bg-surface px-3 py-2 ring-1 ring-line"><dt className="text-[11px] text-navy-500">درآمد قطعی این ماه</dt><dd className="mt-0.5 font-semibold text-navy-900">{rial(payroll.income.month)}</dd></div>
+            <div className="rounded-xl bg-surface px-3 py-2 ring-1 ring-line"><dt className="text-[11px] text-navy-500">قابل برداشت</dt><dd className="mt-0.5 font-semibold text-emerald-700">{rial(payroll.balance?.available ?? 0)}</dd></div>
+            <div className="rounded-xl bg-surface px-3 py-2 ring-1 ring-line"><dt className="text-[11px] text-navy-500">در انتظار پایان دوره</dt><dd className="mt-0.5 font-semibold text-amber-700">{rial(payroll.balance?.future ?? 0)}</dd></div>
+          </dl>
+        </Card>
+      )}
+
+      {payroll?.cooperationType === 'monthly' && payroll?.salary && (
+        <Card className="mt-6">
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <h2 className="flex items-center gap-2 font-bold text-navy-900"><Wallet className="size-4 text-accent" /> حقوق و عملکرد ماهانه</h2>
+            <Link to="/staff/finance" className="text-xs text-accent hover:underline">سوابق حقوق</Link>
+          </div>
+          <p className="mt-2 text-xs leading-6 text-navy-500">
+            همکاری شما «حقوق ثابت» است؛ درآمد درصدی برای شما تعریف نشده و برداشت درآمد وجود ندارد.
+          </p>
+          <dl className="mt-3 grid gap-3 text-sm sm:grid-cols-3">
+            <div className="rounded-xl bg-surface-3 px-3 py-2"><dt className="text-[11px] text-navy-500">حقوق ماهانه قرارداد</dt><dd className="mt-0.5 font-semibold">{payroll.salary.contract ? rial(payroll.salary.contract.monthlyAmount) : '—'}</dd></div>
+            <div className="rounded-xl bg-surface-3 px-3 py-2"><dt className="text-[11px] text-navy-500">پرداخت‌شده</dt><dd className="mt-0.5 font-semibold text-emerald-700">{rial(payroll.salary.payments.reduce((sum: number, row: any) => sum + row.amount, 0))}</dd></div>
+            <div className="rounded-xl bg-surface-3 px-3 py-2"><dt className="text-[11px] text-navy-500">مانده حقوق</dt><dd className="mt-0.5 font-semibold text-amber-700">{rial(payroll.salary.outstanding)}</dd></div>
+          </dl>
+        </Card>
+      )}
 
       <div className="mt-6 grid gap-6 lg:grid-cols-3">
         <Card className="lg:col-span-2">
@@ -1192,7 +1238,6 @@ export function StaffShifts() {
 
 /* --------------------------------- finance -------------------------------- */
 
-export function StaffFinance(){return <CompensationPage />;}
 
 export function StaffPerformance() {
   const { user } = useAuth();

@@ -13,6 +13,8 @@ import { logEvent } from '../logging/service.js';
 import { toPersianDigits } from '../../lib/text.js';
 
 import { requireCompleteProfile, requireCoverage, validNationalId } from '../profiles/service.js';
+import { commissionAmount, commissionPercent, cooperationType } from '../payroll/compensation.js';
+import { notifyUser } from '../notifications/service.js';
 
 export const STATUSES = [
   'new', 'assigned', 'in_progress', 'waiting_documents', 'waiting_customer',
@@ -513,7 +515,14 @@ export async function createRequest(input: CreateRequestInput, actor?: { id: str
   const requestId = id('req');
   const ts = nowIso();
   const estimatedMinutes = input.priority === 'high' ? service.urgentMinutes : service.estimatedMinutes;
-  const estimatedCompletionAt = new Date(Date.now() + estimatedMinutes * 60_000).toISOString();
+  const createdAtMs = Date.now();
+  const estimatedCompletionAt = new Date(createdAtMs + estimatedMinutes * 60_000).toISOString();
+  // The request leaves the open pool when this moment passes. The ratio is
+  // frozen here so changing the setting later cannot move an existing request.
+  const forceRatio = Math.min(100, Math.max(1, await getNumber('workforce.force_assign_ratio')));
+  const forceAssignAt = (await getBool('workforce.force_assign_enabled'))
+    ? new Date(createdAtMs + estimatedMinutes * 60_000 * (forceRatio / 100)).toISOString()
+    : null;
 
   // Immutable snapshot: later edits to the profile or service must not silently
   // change what the customer submitted.
@@ -541,10 +550,11 @@ export async function createRequest(input: CreateRequestInput, actor?: { id: str
     }
     await db.run(
       `INSERT INTO requests (id, tracking_code, customer_id, service_id, assigned_to, status, priority, form_data, snapshot,
-        fee, discount, total, payment_method, payment_status, current_step, due_at, estimated_completion_at, created_at, updated_at)
-       VALUES (?, ?, ?, ?, NULL, 'new', ?, ?, ?, ?, ?, ?, ?, ?, 0, NULL, ?, ?, ?)`,
+        fee, discount, total, payment_method, payment_status, current_step, due_at, estimated_completion_at, force_assign_at, created_at, updated_at)
+       VALUES (?, ?, ?, ?, NULL, 'new', ?, ?, ?, ?, ?, ?, ?, ?, 0, NULL, ?, ?, ?, ?)`,
       [requestId, trackingCode, input.customerId, service.id, input.priority === 'high' ? 'high' : 'normal',
-        jsonStringify(formData), jsonStringify(snapshot), fee, discount, total, method, paymentStatus, estimatedCompletionAt, ts, ts],
+        jsonStringify(formData), jsonStringify(snapshot), fee, discount, total, method, paymentStatus,
+        estimatedCompletionAt, forceAssignAt, ts, ts],
     );
     await db.run(
       `INSERT INTO request_events (id, request_id, actor_id, actor_name, type, message, to_status, metadata, visible_to_customer, created_at)
@@ -1176,30 +1186,224 @@ export async function quoteRequest(serviceId: string, customerId: string, priori
  return {baseFee:service.baseFee,discount,urgentFee,tax,total:subtotal-discount+tax,currency:'IRR',estimatedMinutes,estimatedDays:Math.ceil(estimatedMinutes/1440),urgentAvailable:service.urgentEnabled && service.urgentCapacity>Number(active?.c),quotedAt:nowIso()};
 }
 
-/** Queue metadata deliberately excludes customer identity, documents and finances. */
-export async function eligibleQueue(staffId:string) {
- const rows=await q<any>("SELECT r.id,r.tracking_code,r.service_id,r.created_at,r.priority,r.status,s.title FROM requests r JOIN services s ON s.id=r.service_id WHERE r.assigned_to IS NULL AND r.status IN ('new','under_review') ORDER BY r.created_at LIMIT 200");
- const result=[];
- for(const r of rows){const service=await getServiceById(r.service_id);if(service&&(await candidatesForService(service)).some(c=>c.id===staffId))result.push({id:r.id,trackingCode:r.tracking_code,serviceTitle:r.title,priority:r.priority,createdAt:r.created_at})}
- return result;
+/**
+ * Queue for the open request pool.
+ *
+ * Privacy contract kept from before: customer identity, documents and phone
+ * numbers never appear. Added in 1.4.0:
+ *  - the remaining time until the request is forcibly assigned
+ *  - the employee's own share, only for commission employees (a salaried
+ *    employee must never see a percentage they do not earn)
+ *  - the claim that somebody else already accepted it (server-side truth)
+ */
+export async function eligibleQueue(staffId: string) {
+  const rows = await q<any>(
+    `SELECT r.id, r.tracking_code, r.service_id, r.created_at, r.priority, r.status, r.total,
+            r.estimated_completion_at, r.force_assign_at, s.title,
+            (SELECT COALESCE(SUM(i.total - i.tax), 0) FROM invoices i WHERE i.request_id = r.id AND i.status <> 'void') AS net_total
+     FROM requests r JOIN services s ON s.id = r.service_id
+     WHERE r.assigned_to IS NULL AND r.status IN ('new','under_review')
+     ORDER BY CASE r.priority WHEN 'high' THEN 0 ELSE 1 END, r.created_at ASC LIMIT 200`,
+  );
+  const type = await cooperationType(staffId);
+  const percent = type === 'commission' ? await commissionPercent(staffId) : 0;
+  const result: any[] = [];
+  for (const r of rows) {
+    const service = await getServiceById(r.service_id);
+    if (!service) continue;
+    const eligible = (await candidatesForService(service)).some((candidate) => candidate.id === staffId);
+    if (!eligible) continue;
+    const officeRevenue = Number(r.net_total ?? 0) > 0 ? Number(r.net_total) : Math.max(0, Number(r.total ?? 0));
+    result.push({
+      id: r.id,
+      trackingCode: r.tracking_code,
+      serviceTitle: r.title,
+      priority: r.priority,
+      status: r.status,
+      createdAt: r.created_at,
+      estimatedCompletionAt: r.estimated_completion_at,
+      // The moment this request leaves the open pool and is assigned by force.
+      forceAssignAt: r.force_assign_at,
+      remainingMinutes: r.estimated_completion_at
+        ? Math.max(0, Math.round((Date.parse(r.estimated_completion_at) - Date.now()) / 60_000))
+        : null,
+      cooperationType: type,
+      // Only commission employees get an income preview; there is no number
+      // to show for a fixed-salary employee (their pay is a monthly contract).
+      earnings: type === 'commission'
+        ? { percent, officeRevenue, amount: commissionAmount(officeRevenue, percent), estimate: true }
+        : null,
+    });
+  }
+  return result;
 }
-export async function claimRequest(requestId:string,staffId:string,name:string){
- return tx(async()=>{
-  await run('UPDATE users SET updated_at=updated_at WHERE id=?',[staffId]);
-  await run('UPDATE requests SET updated_at=updated_at WHERE id=?',[requestId]);
-  const r=await one<any>('SELECT * FROM requests WHERE id=?',[requestId]);
-  if(!r || r.assigned_to || !['new','under_review'].includes(r.status))throw conflict('این پرونده قبلاً پذیرفته شده یا قابل پذیرش نیست.');
-  const service=await getServiceById(r.service_id);
-  if(!service || !(await candidatesForService(service)).some(c=>c.id===staffId))throw forbidden('مهارت، شیفت یا ظرفیت لازم برای این خدمت را ندارید.');
-  const assignedAt=nowIso();
-  const nextStatus=r.status==='under_review'?'under_review':'assigned';
-  const changed=await run("UPDATE requests SET assigned_to=?,assigned_at=?,status=?,updated_at=? WHERE id=? AND assigned_to IS NULL AND status=?",[staffId,assignedAt,nextStatus,assignedAt,requestId,r.status]);
-  if(!changed.changes)throw conflict('کارمند دیگری پرونده را پذیرفته است.');
-  await addEvent({requestId,type:'assigned',actorId:staffId,actorName:name,message:`پرونده توسط ${name} پذیرفته شد.`,fromStatus:r.status,toStatus:nextStatus});
-  await writeAudit({actorId:staffId,actorName:name,action:'request.claim',entityType:'request',entityId:requestId,
-    before:{staffId:null,status:r.status},after:{staffId,status:nextStatus}});
-  return {id:requestId};
- });
+
+/**
+ * Accept a request from the open pool.
+ *
+ * Concurrency safety is the conditional UPDATE at the end: two employees who
+ * press the button at the same moment both run the check, but only one row
+ * update can match `assigned_to IS NULL`. The loser gets a precise 409 message
+ * naming who took it, and the attempt is recorded in `request_claim_attempts`.
+ */
+export async function claimRequest(requestId: string, staffId: string, name: string) {
+  // The attempt log lives outside the transaction on purpose: a losing claim
+  // is rolled back, but the evidence of "somebody else took it" must survive.
+  let outcome: { result: string; reason?: string } = { result: 'invalid', reason: 'unexpected failure' };
+  try {
+    return await tx(async () => {
+      await run('UPDATE users SET updated_at=updated_at WHERE id=?', [staffId]);
+      const r = await one<any>('SELECT * FROM requests WHERE id=?', [requestId]);
+      if (!r) {
+        outcome = { result: 'invalid', reason: 'request not found' };
+        throw notFound('پرونده یافت نشد.');
+      }
+      if (r.assigned_to) {
+        const other = await one<any>('SELECT full_name FROM users WHERE id=?', [r.assigned_to]);
+        outcome = { result: 'conflict', reason: `already assigned to ${other?.full_name ?? r.assigned_to}` };
+        throw conflict(
+          `این پرونده پیش‌تر${other?.full_name ? ` توسط ${other.full_name}` : ' توسط کارمند دیگری'} پذیرفته شده است.`,
+          { assignedTo: r.assigned_to, assignedToName: other?.full_name ?? null, assignedAt: r.assigned_at ?? null },
+        );
+      }
+      if (!['new', 'under_review'].includes(r.status)) {
+        outcome = { result: 'invalid', reason: `status ${r.status}` };
+        throw conflict('این پرونده در وضعیت قابل پذیرش نیست.');
+      }
+      const service = await getServiceById(r.service_id);
+      const eligible = service ? (await candidatesForService(service)).some((candidate) => candidate.id === staffId) : false;
+      if (!eligible) {
+        outcome = { result: 'ineligible', reason: 'skill, shift or capacity' };
+        throw forbidden('مهارت، شیفت یا ظرفیت لازم برای این خدمت را ندارید.');
+      }
+      const assignedAt = nowIso();
+      const nextStatus = r.status === 'under_review' ? 'under_review' : 'assigned';
+      const changed = await run(
+        'UPDATE requests SET assigned_to=?,assigned_at=?,status=?,updated_at=?,force_assign_at=NULL WHERE id=? AND assigned_to IS NULL AND status=?',
+        [staffId, assignedAt, nextStatus, assignedAt, requestId, r.status],
+      );
+      if (!changed.changes) {
+        const winner = await one<any>('SELECT u.full_name FROM requests r JOIN users u ON u.id=r.assigned_to WHERE r.id=?', [requestId]);
+        outcome = { result: 'conflict', reason: 'lost the race' };
+        throw conflict(
+          `این پرونده همین لحظه${winner?.full_name ? ` توسط ${winner.full_name}` : ' توسط کارمند دیگری'} پذیرفته شد و از صف شما حذف می‌شود.`,
+          { assignedToName: winner?.full_name ?? null },
+        );
+      }
+      await addEvent({
+        requestId, type: 'assigned', actorId: staffId, actorName: name,
+        message: `پرونده توسط ${name} پذیرفته شد.`, fromStatus: r.status, toStatus: nextStatus,
+      });
+      await writeAudit({
+        actorId: staffId, actorName: name, action: 'request.claim', entityType: 'request', entityId: requestId,
+        before: { staffId: null, status: r.status }, after: { staffId, status: nextStatus },
+      });
+      await logEvent({
+        level: 'INFO', category: 'request', action: 'request.claim', result: 'success',
+        actorId: staffId, actorName: name, entityType: 'request', entityId: requestId,
+        message: 'پرونده از صف پذیرش برداشته شد.', details: { trackingCode: r.tracking_code },
+      });
+      outcome = { result: 'won' };
+      return { id: requestId, assignedAt, status: nextStatus };
+    });
+  } catch (error) {
+    await run(
+      `INSERT INTO request_claim_attempts (id,request_id,staff_id,staff_name,result,reason,created_at)
+       VALUES (?,?,?,?,?,?,?)`,
+      [id('clm'), requestId, staffId, name, outcome.result, outcome.reason ?? null, nowIso()],
+    ).catch(() => undefined);
+    throw error;
+  } finally {
+    if (outcome.result === 'won') {
+      await run(
+        `INSERT INTO request_claim_attempts (id,request_id,staff_id,staff_name,result,reason,created_at)
+         VALUES (?,?,?,?,?,?,?)`,
+        [id('clm'), requestId, staffId, name, 'won', null, nowIso()],
+      ).catch(() => undefined);
+    }
+  }
 }
+
+/** Failed claim attempts for a request — evidence for "who took it first". */
+export async function claimAttempts(requestId: string) {
+  return q<any>(
+    'SELECT * FROM request_claim_attempts WHERE request_id=? ORDER BY created_at DESC LIMIT 50', [requestId],
+  );
+}
+
+/**
+ * Forced assignment of requests nobody accepted.
+ *
+ * Trigger: `force_assign_at` (2/3 of the service estimate by default, frozen on
+ * the request when it was created). Prefers employees on a fixed salary, then
+ * employees earning a percentage, then anyone eligible. Only employees who are
+ * available are considered: acceptable capacity (`accepts_new_cases`), below
+ * their active-case limit and — when `workforce.auto_assign_on_shift` is on —
+ * checked in on today's shift.
+ */
+export async function forceAssignSweep(options: { now?: Date; limit?: number } = {}) {
+  const enabled = await getBool('workforce.force_assign_enabled');
+  if (!enabled) return { enabled: false, checked: 0, assigned: [], skipped: [] };
+  const now = options.now ?? new Date();
+  const at = now.toISOString();
+  const rows = await q<any>(
+    `SELECT * FROM requests
+     WHERE assigned_to IS NULL AND status IN ('new','under_review')
+       AND COALESCE(force_assign_at, estimated_completion_at) IS NOT NULL
+       AND COALESCE(force_assign_at, estimated_completion_at) <= ?
+     ORDER BY COALESCE(force_assign_at, estimated_completion_at) ASC LIMIT ?`,
+    [at, options.limit ?? 25],
+  );
+  const assigned: any[] = [];
+  const skipped: any[] = [];
+  for (const request of rows) {
+    const service = await getServiceById(request.service_id);
+    if (!service) { skipped.push({ requestId: request.id, reason: 'service-missing' }); continue; }
+    const candidates = await candidatesForService(service);
+    if (!candidates.length) { skipped.push({ requestId: request.id, reason: 'no-available-staff' }); continue; }
+    const ranked: { id: string; name: string; load: number; onShift: boolean; type: string }[] = [];
+    for (const candidate of candidates) {
+      ranked.push({ ...candidate, type: await cooperationType(candidate.id) });
+    }
+    const priority = (type: string) => (type === 'monthly' ? 0 : type === 'commission' ? 1 : 2);
+    ranked.sort((a, b) => priority(a.type) - priority(b.type) || a.load - b.load || Number(b.onShift) - Number(a.onShift) || a.id.localeCompare(b.id));
+    const chosen = ranked[0];
+    const assignedAt = nowIso();
+    const nextStatus = request.status === 'under_review' ? 'under_review' : 'assigned';
+    const changed = await run(
+      `UPDATE requests SET assigned_to=?, assigned_at=?, status=?, updated_at=?,
+              force_assigned_at=?, force_assign_reason=?, force_assign_at=NULL
+       WHERE id=? AND assigned_to IS NULL AND status=?`,
+      [chosen.id, assignedAt, nextStatus, assignedAt, assignedAt,
+        `forced:${chosen.type}`, request.id, request.status],
+    );
+    if (!changed.changes) { skipped.push({ requestId: request.id, reason: 'claimed-concurrently' }); continue; }
+    await addEvent({
+      requestId: request.id, type: 'assigned', actorId: 'system', actorName: getSystemName(),
+      message: `زمان پذیرش آزاد تمام شد؛ پرونده به‌صورت خودکار به ${chosen.name} واگذار شد.`,
+      fromStatus: request.status, toStatus: nextStatus,
+      metadata: { forced: true, cooperationType: chosen.type, load: chosen.load },
+    });
+    await writeAudit({
+      actorId: 'system', actorName: getSystemName(), action: 'request.force_assign', entityType: 'request',
+      entityId: request.id, before: { staffId: null }, after: { staffId: chosen.id, cooperationType: chosen.type },
+    });
+    await notifyUser(chosen.id, {
+      title: 'پروندهٔ واگذارشدهٔ خودکار',
+      body: `پروندهٔ «${service.title}» چون در زمان مقرر پذیرفته نشد به شما واگذار شد.`,
+      kind: 'warning', link: '/staff/requests', idempotencyKey: `force-assign:${request.id}`,
+    });
+    await logEvent({
+      level: 'INFO', category: 'staff', action: 'request.force_assign', result: 'success',
+      message: 'واگذاری اجباری پرونده انجام شد.',
+      entityType: 'request', entityId: request.id,
+      details: { staffId: chosen.id, cooperationType: chosen.type, reason: 'deadline' },
+    });
+    assigned.push({ requestId: request.id, staffId: chosen.id, staffName: chosen.name, cooperationType: chosen.type });
+  }
+  return { enabled: true, checked: rows.length, assigned, skipped };
+}
+
+function getSystemName() { return 'واگذاری خودکار پشکان'; }
 
 export function nextStatuses(status:RequestStatus){return ALLOWED_TRANSITIONS[status]??[];}

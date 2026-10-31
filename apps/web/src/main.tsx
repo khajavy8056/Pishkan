@@ -1,5 +1,6 @@
 import { AutomationInbox } from './pages/shared/Automation';
-import { CompensationPage } from './pages/shared/Compensation';
+import { AdminPayroll } from './pages/admin/PayrollAdmin';
+import { StaffEarnings } from './pages/staff/Earnings';
 import { EligibleQueue } from './pages/staff/Queue';
 import { StrictMode } from 'react';
 import { createRoot } from 'react-dom/client';
@@ -24,7 +25,7 @@ import { CustomerServices } from './pages/customer/ServicesPane';
 import { CustomerWallet } from './pages/customer/Wallet';
 import { CustomerDocuments } from './pages/customer/Documents';
 import {
-  RequestDetail, StaffCustomers, StaffCustomService, StaffDocuments, StaffFinance,
+  RequestDetail, StaffCustomers, StaffCustomService, StaffDocuments,
   StaffPerformance, StaffRequests, StaffShifts, StaffWorkbench,
 } from './pages/staff/StaffPages';
 import { MessageCenter } from './pages/shared/MessageCenter';
@@ -103,10 +104,10 @@ function App() {
               <Route path="/staff/queue" element={staffOnly(<EligibleQueue />,'requests.edit')} />
               <Route path="/staff/accounting" element={financial(<AdminFinance />,'invoices.view')} />
               <Route path="/staff/reports" element={financial(<AdminReports />,'reports.view')} />
-              <Route path="/staff/payroll" element={financial(<CompensationPage admin />,'payments.approve')} />
+              <Route path="/staff/payroll" element={financial(<AdminPayroll />,'payroll.view')} />
               <Route path="/staff/automation" element={staffOnly(<AutomationInbox />,'requests.view')} />
               <Route path="/admin/automation" element={adminOnly(<AutomationInbox variant="admin" />,'requests.view')} />
-              <Route path="/staff/finance" element={staffOnly(<StaffFinance />)} />
+              <Route path="/staff/finance" element={staffOnly(<StaffEarnings />)} />
               <Route path="/staff/performance" element={staffOnly(<StaffPerformance />)} />
 
               {/* admin */}
@@ -119,7 +120,7 @@ function App() {
               <Route path="/admin/staff" element={adminOnly(<AdminStaff />,'staff.view')} />
               <Route path="/admin/shifts" element={adminOnly(<AdminShifts />,'shifts.view')} />
               <Route path="/admin/messages" element={adminOnly(<MessageCenter variant="admin" />)} />
-              <Route path="/admin/payroll" element={adminOnly(<CompensationPage admin />)} />
+              <Route path="/admin/payroll" element={adminOnly(<AdminPayroll />,'payroll.view')} />
               <Route path="/admin/finance" element={adminOnly(<AdminFinance />,'invoices.view')} />
               <Route path="/admin/reports" element={adminOnly(<AdminReports />,'reports.view')} />
               <Route path="/admin/wallet" element={adminOnly(<AdminWallet />,'wallet.view')} />

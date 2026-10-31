@@ -250,15 +250,17 @@ export async function runSeed(options: SeedOptions = {}) {
 export { upsertRolesOnly, adminRoleId, syncSystemRolePermissions };
 
 /**
- * The wallet/monitoring/log/alert permissions were introduced in schema v2. Existing installs
- * keep their edited roles, so the new defaults are added once, guarded by a
- * version marker. Permissions an administrator removed earlier are not
- * re-created on later boots.
+ * New permission sets are merged into the system roles once, guarded by a
+ * version marker, so existing installs keep their edited roles:
+ *   v2 → wallet / monitoring / logs / alerts  (1.3.0)
+ *   v3 → payroll.withdraw / payroll.approve   (1.4.0)
+ * Permissions an administrator removed earlier are not re-created.
  */
+const PERMISSIONS_VERSION = 3;
 async function syncSystemRolePermissions() {
   const marker = await one<{ value: string }>('SELECT value FROM settings WHERE key = ?', ['system.permissions_version']);
   const current = Number(marker?.value ?? 1);
-  if (current >= 2) return 0;
+  if (current >= PERMISSIONS_VERSION) return 0;
   const roles = await q<any>('SELECT * FROM roles WHERE is_system = 1');
   const defaults = new Map(DEFAULT_ROLES.map((role) => [role.code, role]));
   const available = allPermissions();
@@ -278,7 +280,7 @@ async function syncSystemRolePermissions() {
   await run(
     `INSERT INTO settings (key, value, group_name, is_secret, updated_at) VALUES (?, ?, 'maintenance', 0, ?)
      ON CONFLICT(key) DO UPDATE SET value = ?, updated_at = ?`,
-    ['system.permissions_version', '2', ts, '2', ts],
+    ['system.permissions_version', String(PERMISSIONS_VERSION), ts, String(PERMISSIONS_VERSION), ts],
   );
   return changed;
 }

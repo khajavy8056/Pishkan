@@ -1,10 +1,185 @@
-import { useEffect,useState } from 'react';
+import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
-import { AppShell,PageHeader } from '../../components/shell';
-import { Button,Card,EmptyState,ErrorState,Loading,useToast } from '../../components/ui';
-import { api } from '../../lib/api';
-export function EligibleQueue(){
- const [rows,setRows]=useState<any[]|null>(null);const [error,setError]=useState('');const [busy,setBusy]=useState('');const {notify}=useToast();
- const load=()=>{setError('');api.get<{data:any[]}>('/api/requests/queue/eligible').then(r=>setRows(r.data)).catch(e=>setError(e.message))};useEffect(load,[]);
- return <AppShell variant="staff"><PageHeader title="صف پذیرش خدمات" description="فقط پرونده‌های متناسب با مهارت، شیفت و ظرفیت شما نمایش داده می‌شوند. تا زمان پذیرش، اطلاعات مشتری محرمانه می‌ماند." actions={<Button variant="ghost" onClick={load}>تازه‌سازی صف</Button>} />{error&&<ErrorState message={error} onRetry={load} />}{!rows&&!error&&<Loading />}{rows?.length===0&&<EmptyState title="پرونده واجد شرایطی در صف نیست" description="شیفت فعال، ثبت ورود و ظرفیت کاری خود را بررسی کنید." />}<div className="grid gap-4 md:grid-cols-2">{rows?.map(r=><Card key={r.id}><span className="badge bg-brand-50 text-accent">{r.priority==='high'?'فوری':'عادی'}</span><h2 className="my-4 font-bold">{r.serviceTitle}</h2><p className="mb-4 text-xs text-navy-500">کد پیگیری {r.trackingCode}</p><Button loading={busy===r.id} onClick={async()=>{setBusy(r.id);try{await api.post(`/api/requests/${r.id}/claim`);notify('پرونده به شما اختصاص یافت.','success');load()}catch(e){notify(e instanceof Error?e.message:'خطا','error')}finally{setBusy('')}}}>پذیرش پرونده</Button></Card>)}</div><Link className="btn-soft mt-5" to="/staff/requests">پرونده‌های من</Link></AppShell>;
+import { AlertTriangle, CheckCircle2, Coins, Clock, Inbox, RefreshCw, Timer } from 'lucide-react';
+import clsx from 'clsx';
+import { AppShell, PageHeader } from '../../components/shell';
+import { Badge, Button, Card, EmptyState, ErrorState, Loading, StatCard, useToast } from '../../components/ui';
+import { api, ApiFailure } from '../../lib/api';
+import { faNum, rial } from '../../lib/format';
+
+interface QueueItem {
+  id: string;
+  trackingCode: string;
+  serviceTitle: string;
+  priority: string;
+  status: string;
+  createdAt: string;
+  estimatedCompletionAt: string | null;
+  forceAssignAt: string | null;
+  remainingMinutes: number | null;
+  cooperationType: 'commission' | 'monthly' | 'none';
+  earnings: { percent: number; officeRevenue: number; amount: number; estimate: boolean } | null;
+}
+
+/** Human readable remaining time from a minute count. */
+function remaining(forceAssignAt: string | null, remainingMinutes: number | null) {
+  if (!forceAssignAt) {
+    return remainingMinutes === null ? 'بدون برآورد' : `${faNum(remainingMinutes)} دقیقه تا پایان برآورد`;
+  }
+  const minutes = Math.round((Date.parse(forceAssignAt) - Date.now()) / 60_000);
+  if (minutes <= 0) return 'زمان پذیرش آزاد تمام شده است';
+  if (minutes < 60) return `${faNum(minutes)} دقیقه تا واگذاری خودکار`;
+  const hours = Math.round(minutes / 60);
+  return hours < 48 ? `${faNum(hours)} ساعت تا واگذاری خودکار` : `${faNum(Math.round(hours / 24))} روز تا واگذاری خودکار`;
+}
+
+export function EligibleQueue() {
+  const [rows, setRows] = useState<QueueItem[] | null>(null);
+  const [error, setError] = useState('');
+  const [busy, setBusy] = useState('');
+  const [conflict, setConflict] = useState<{ requestId: string; message: string } | null>(null);
+  const { notify } = useToast();
+
+  const load = () => {
+    setError('');
+    api.get<{ data: QueueItem[] }>('/api/requests/queue/eligible')
+      .then((res) => setRows(res.data))
+      .catch((err) => setError(err instanceof ApiFailure ? err.message : 'خطا در دریافت صف'));
+  };
+  useEffect(load, []);
+
+  const accept = async (item: QueueItem) => {
+    setBusy(item.id);
+    setConflict(null);
+    try {
+      await api.post(`/api/requests/${item.id}/claim`);
+      notify('پرونده به شما سپرده شد و از صف سایر همکاران حذف شد.', 'success');
+      load();
+    } catch (err) {
+      const message = err instanceof ApiFailure ? err.message : 'پذیرش پرونده ناموفق بود.';
+      setConflict({ requestId: item.id, message });
+      // Refresh immediately: the request is very likely gone from the pool now.
+      load();
+    } finally {
+      setBusy('');
+    }
+  };
+
+  const commission = rows?.some((row) => row.cooperationType === 'commission') ?? false;
+
+  return (
+    <AppShell variant="staff">
+      <PageHeader
+        title="صف درخواست‌های آزاد"
+        description="هر درخواستی که هنوز کسی آن را برنداشته در این صف است. با «می‌پذیرم» پرونده به شما سپرده می‌شود و همان لحظه از فهرست همه کارکنان دیگر حذف می‌شود."
+        actions={<Button variant="ghost" onClick={load}><RefreshCw className="size-4" /> تازه‌سازی صف</Button>}
+      />
+
+      <div className="mb-6 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+        <StatCard label="درخواست آزاد" value={faNum(rows?.length ?? 0)} icon={<Inbox className="size-5" />} />
+        <StatCard
+          label="فوری"
+          value={faNum(rows?.filter((row) => row.priority === 'high').length ?? 0)}
+          tone="amber"
+          icon={<AlertTriangle className="size-5" />}
+        />
+        <StatCard
+          label="نزدیک واگذاری خودکار"
+          value={faNum(rows?.filter((row) => (row.remainingMinutes ?? 9_999) < 120).length ?? 0)}
+          tone="rose"
+          icon={<Timer className="size-5" />}
+          hint="اگر کسی نپذیرد، سیستم خودش به یک کارمند آزاد می‌دهد"
+        />
+        <StatCard
+          label={commission ? 'سهم من از صف' : 'نوع همکاری من'}
+          value={commission
+            ? rial(rows?.reduce((sum, row) => sum + (row.earnings?.amount ?? 0), 0) ?? 0)
+            : 'حقوق ثابت'}
+          tone={commission ? 'emerald' : 'brand'}
+          icon={commission ? <Coins className="size-5" /> : <Clock className="size-5" />}
+          hint={commission ? 'برآورد؛ پس از پرداخت مشتری قطعی می‌شود' : 'درآمد درصدی برای شما تعریف نشده است'}
+        />
+      </div>
+
+      {conflict && (
+        <Card className="mb-5 border-amber-300 bg-amber-50/70">
+          <div className="flex items-start gap-3">
+            <AlertTriangle className="mt-0.5 size-5 text-amber-700" />
+            <div>
+              <p className="font-semibold text-navy-900">پرونده پذیرفته نشد</p>
+              <p className="mt-1 text-sm leading-6 text-navy-700">{conflict.message}</p>
+              <p className="mt-1 text-xs text-navy-500">این پرونده از فهرست شما حذف شد؛ نیازی به تلاش دوباره نیست.</p>
+            </div>
+          </div>
+        </Card>
+      )}
+
+      {error && <ErrorState message={error} onRetry={load} />}
+      {!rows && !error && <Loading />}
+      {rows?.length === 0 && (
+        <EmptyState
+          title="در حال حاضر درخواست آزادی در صف نیست"
+          description="درخواست‌های تازه که هنوز پذیرفته نشده‌اند اینجا نمایش داده می‌شوند. اگر شیفت فعال و ظرفیت دارید، چند لحظه بعد دوباره سر بزنید."
+        />
+      )}
+
+      <div className="grid gap-4 md:grid-cols-2">
+        {rows?.map((item) => (
+          <Card key={item.id} className={clsx('flex flex-col', item.priority === 'high' && 'ring-1 ring-rose-200')}>
+            <div className="flex items-start justify-between gap-2">
+              <div className="min-w-0">
+                <Badge tone={item.priority === 'high' ? 'danger' : 'info'}>
+                  {item.priority === 'high' ? 'فوری' : 'عادی'}
+                </Badge>
+                <h2 className="mt-3 truncate font-bold text-navy-900">{item.serviceTitle}</h2>
+                <p className="mt-1 text-xs text-navy-500">کد پیگیری {item.trackingCode}</p>
+              </div>
+              {item.earnings ? (
+                <div className="shrink-0 rounded-xl bg-emerald-50 px-3 py-2 text-center ring-1 ring-emerald-100">
+                  <p className="text-[10px] text-emerald-800">سهم شما ({faNum(item.earnings.percent)}٪)</p>
+                  <p className="mt-0.5 text-sm font-bold text-emerald-900">{rial(item.earnings.amount)}</p>
+                  <p className="mt-0.5 text-[10px] text-emerald-700">برآوردی</p>
+                </div>
+              ) : (
+                <div className="shrink-0 rounded-xl bg-surface-3 px-3 py-2 text-center ring-1 ring-line">
+                  <p className="text-[10px] text-navy-500">نوع همکاری</p>
+                  <p className="mt-0.5 text-xs font-semibold text-navy-800">حقوق ثابت</p>
+                </div>
+              )}
+            </div>
+
+            <dl className="mt-4 space-y-1.5 text-xs text-navy-600">
+              <div className="flex items-center justify-between gap-2">
+                <dt className="flex items-center gap-1"><Clock className="size-3.5" /> زمان ثبت</dt>
+                <dd>{item.createdAt ? new Date(item.createdAt).toLocaleDateString('fa-IR') : '—'}</dd>
+              </div>
+              <div className="flex items-center justify-between gap-2">
+                <dt className="flex items-center gap-1"><Timer className="size-3.5" /> مهلت آزاد</dt>
+                <dd className={clsx((item.remainingMinutes ?? 9_999) < 120 && 'font-semibold text-rose-700')}>
+                  {remaining(item.forceAssignAt, item.remainingMinutes)}
+                </dd>
+              </div>
+            </dl>
+
+            <Button
+              className="mt-4 w-full"
+              loading={busy === item.id}
+              onClick={() => accept(item)}
+              icon={<CheckCircle2 className="size-4" />}
+            >
+              می‌پذیرم — این کار را انجام می‌دهم
+            </Button>
+          </Card>
+        ))}
+      </div>
+
+      <div className="mt-6 flex flex-wrap items-center justify-between gap-3">
+        <p className="text-xs leading-6 text-navy-500">
+          اطلاعات هویتی مشتری تا لحظه پذیرش نمایش داده نمی‌شود. اگر دو همکار هم‌زمان بپذیرند، فقط یکی موفق می‌شود و
+          به دیگری پیام روشن «توسط شخص دیگر پذیرفته شد» داده می‌شود.
+        </p>
+        <Link className="btn-soft" to="/staff/requests">پرونده‌های من</Link>
+      </div>
+    </AppShell>
+  );
 }

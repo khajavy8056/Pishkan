@@ -239,7 +239,7 @@ function Get-PishkanVersion {
       return (Get-Content -Raw -Encoding UTF8 -Path $manifest | ConvertFrom-Json).appVersion
     }
   } catch { }
-  return '1.3.0'
+  return '1.4.0'
 }
 
 # --------------------------------------------------------------- error report

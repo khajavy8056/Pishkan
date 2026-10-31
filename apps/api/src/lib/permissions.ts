@@ -46,6 +46,10 @@ export const PAYROLL_PERMISSIONS = [
   'payroll.accrue',
   'payroll.settle',
   'payroll.reports.view',
+  /** submit my own withdrawal request (employees) */
+  'payroll.withdraw',
+  /** review/approve/reject withdrawal requests and see every employee file */
+  'payroll.approve',
 ] as const;
 
 export type Permission =
@@ -54,7 +58,11 @@ export type Permission =
   | (typeof WALLET_PERMISSIONS)[number];
 
 export function allPermissions(): Permission[] {
-  return [...RESOURCES.flatMap((r) => ACTIONS.map((a) => `${r}.${a}` as Permission)), ...PAYROLL_PERMISSIONS];
+  return [
+    ...RESOURCES.flatMap((r) => ACTIONS.map((a) => `${r}.${a}` as Permission)),
+    ...PAYROLL_PERMISSIONS,
+    ...WALLET_PERMISSIONS,
+  ];
 }
 
 export const PERMISSION_LABELS: Record<Action, string> = {
@@ -151,6 +159,7 @@ export const DEFAULT_ROLES: {
       'payments.view',
       'messages.view', 'messages.create',
       'documents.view', 'documents.approve',
+      'payroll.withdraw',
     ],
   },
   {
@@ -166,6 +175,7 @@ export const DEFAULT_ROLES: {
       'messages.view', 'messages.create',
       'documents.view',
       'shifts.view',
+      'payroll.withdraw',
     ],
   },
   {
@@ -178,6 +188,7 @@ export const DEFAULT_ROLES: {
       'requests.view',
       'documents.view', 'documents.approve',
       'messages.view', 'messages.create',
+      'payroll.withdraw',
     ],
   },
   {
@@ -194,6 +205,7 @@ export const DEFAULT_ROLES: {
       'expenses.view', 'expenses.create', 'expenses.edit', 'expenses.export',
       'reports.view', 'reports.export',
       'payroll.view', 'payroll.contracts.edit', 'payroll.accrue', 'payroll.settle', 'payroll.reports.view',
+      'payroll.approve',
       'wallet.view', 'wallet.credit', 'wallet.adjust',
       'logs.view',
     ],

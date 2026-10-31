@@ -1,6 +1,6 @@
 # گزارش آزمون و آمادگی انتشار
 
-> **وضعیت فعلی ۲۰۲۶-۱۱-۰۱ (نسخهٔ ۱٫۳٫۰):** آخرین اجرای واقعی — API **۱۶۵ آزمون / ۲۳ فایل**، وب **۲۷ / ۴**، کتابخانهٔ ویندوز **۳۸/۳۸** (۱ skip فقط-ویندوز)، ps-lint **۱۳/۱۳**، typecheck و build هر دو workspace سبز، و آزمون واقعی شبکهٔ محلی **۱۷/۱۷**. گزارش کامل همراه با شاهد اجرایی و محدودیت‌های صادقانه: [گزارش نسخهٔ ۱٫۳٫۰](RELEASE-REPORT-1.3.0.md). بخش‌های زیر **تاریخی** هستند.
+> **وضعیت فعلی ۲۰۲۶-۱۱-۰۱ (نسخهٔ ۱٫۴٫۰):** آخرین اجرای واقعی — API **۱۹۰ آزمون / ۲۴ فایل**، وب **۴۱ آزمون / ۵ فایل**، کتابخانهٔ ویندوز **۳۸/۳۸** (۱ skip فقط-ویندوز)، ps-lint **۱۳/۱۳**، typecheck و build هر دو workspace سبز، و آزمون واقعی شبکهٔ محلی **۱۷/۱۷**. گزارش کامل همراه با شاهد اجرایی و محدودیت‌های صادقانه: [گزارش نسخهٔ ۱٫۴٫۰](RELEASE-REPORT-1.4.0.md) و [گزارش نسخهٔ ۱٫۳٫۰](RELEASE-REPORT-1.3.0.md). بخش‌های زیر **تاریخی** هستند.
 
 > **گزارش به‌روز ۲۰۲۶-۱۰-۲۹:** این فایل حاوی نتایج تاریخی است. برای وضعیت آزمون، ممیزی قابلیت‌ها و دروازه‌های انتشار فعلی، [ممیزی آمادگی انتشار ۲۹ اکتبر](PRODUCTION-READINESS-AUDIT-2026-10-29.md) را بخوانید.
 >
@@ -85,7 +85,7 @@ bash scripts/pishkan --help
 | Typecheck API | `npx --workspace apps/api tsc -p tsconfig.json --noEmit` | بدون خطا |
 | Typecheck وب | `npx --workspace apps/web tsc -p tsconfig.json --noEmit` | بدون خطا |
 | آزمون API | `npx --workspace apps/api vitest run` | ۱۶۵ / ۲۳ فایل، همه موفق |
-| آزمون وب | `npx --workspace apps/web vitest run` | ۲۷ / ۴ فایل، همه موفق |
+| آزمون وب | `npx --workspace apps/web vitest run` | ۴۱ / ۵ فایل، همه موفق (نسخهٔ ۱٫۴٫۰) |
 | آزمون کتابخانهٔ ویندوز | `node windows/lib/selftest.mjs` | ۳۸/۳۸ (۱ skip: فایروال/وی‌فای واقعی ویندوز) |
 | parse/lint PowerShell | `node windows/lib/ps-lint.mjs` | ۱۳/۱۳ |
 | Build | `npm run build` | API و وب موفق |

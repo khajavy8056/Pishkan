@@ -393,3 +393,71 @@ Cookie: pishkan_session=…
 ### مسیرهای حذف‌شده
 
 - `POST /api/accounting/payments` و `POST /api/accounting/payments/:id/confirm` با کد ۴۰۰ و پیام فارسی بازنشسته شده‌اند؛ ثبت دستی پرداخت نقدی/کارت‌خوان دیگر وجود ندارد. ردیف‌های تاریخی فقط خواندنی‌اند.
+
+
+## حقوق، درآمد و تسویهٔ کارکنان (نسخهٔ ۱٫۴٫۰ — migration 019)
+
+همهٔ مبالغ در سرور محاسبه می‌شوند؛ هیچ مسیری مبلغ نهایی را از مرورگر نمی‌پذیرد و هیچ ردیفی
+حذف یا بازنویسی نمی‌شود. هر تغییر درصد/حقوق فقط از تاریخ اجرا به بعد اثر دارد و سهم‌های
+ثبت‌شده دست‌نخورده می‌مانند.
+
+### صف درخواست‌های آزاد — `/api/requests`
+
+| متد | مسیر | دسترسی | توضیح |
+|---|---|---|---|
+| GET | `/queue/eligible` | `requests.view` | فقط پرونده‌های بدون مسئول که این کارمند برایشان واجد شرط است؛ `earnings` تنها برای کارکنان درصدی پر می‌شود |
+| POST | `/:id/claim` | `requests.edit` | پذیرش اتمیک؛ برنده فقط یکی است و بازنده ۴۰۹ با ذکر پذیرنده می‌گیرد |
+| GET | `/:id/claim-attempts` | `requests.view` | همهٔ تلاش‌ها (won/conflict/ineligible/invalid) با نام و زمان |
+| POST | `/force-assign/sweep` | `requests.edit` | اجرای دستی واگذاری اجباری (کرون هم خودکار اجرا می‌کند) |
+| GET | `/force-assign/state` | `requests.view` | وضعیت زمان‌بند، آخرین اجرا و شمار واگذاری‌ها |
+
+`force_assign_at` در لحظهٔ ثبت درخواست از `estimated_minutes × workforce.force_assign_ratio`
+(دو‌سوم به‌صورت پیش‌فرض) محاسبه و ذخیره می‌شود، بنابراین تغییر تنظیمات گذشته را جابه‌جا نمی‌کند.
+واگذاری اجباری ابتدا کارکنان **حقوق ثابت** آنلاین/شیفت‌دار را با کمترین بار انتخاب می‌کند و
+تنها در نبود آن‌ها سراغ کارکنان **درصدی** می‌رود؛ دلیل در `force_assign_reason` ثبت می‌شود.
+
+### خود کارمند — `/api/payroll`
+
+| متد | مسیر | توضیح |
+|---|---|---|
+| GET | `/me/summary` | داشبورد متناسب با نوع همکاری: عملکرد برای همه، درآمد/برداشت فقط درصدی، حقوق فقط ثابت |
+| GET | `/me/earnings?from&to` | ردیف‌های درآمد با مبنای درآمد دفتر، درصد، سهم، وضعیت تسویه و پیوند پرونده |
+| GET | `/me/withdrawals` | ۵۰ درخواست برداشت آخر خود کارمند |
+| POST | `/me/withdrawals` | ثبت درخواست برداشت؛ فقط از موجودی واجد شرط و بالای حداقل مجاز |
+| POST | `/me/withdrawals/:id/cancel` | لغو تا پیش از تأیید (submitted/reviewing) |
+| GET | `/me/salary` | دوره‌های حقوق، پرداخت‌ها، مانده و تاریخچه قرارداد |
+
+### مدیریت و حسابداری — `/api/payroll`
+
+| متد | مسیر | دسترسی | توضیح |
+|---|---|---|---|
+| GET | `/overview` | `payroll.view` | کارکنان درصدی/ثابت، درخواست‌های در انتظار، برداشت پرداخت‌شده، جمع سهم‌ها |
+| GET | `/staff` | `payroll.view` | فهرست کارکنان با `cooperationType` (commission/monthly/none) |
+| GET | `/staff/:id` | `payroll.view` | قرارداد فعال و جمع درآمد |
+| GET | `/staff/:id/file` | `payroll.view` | پروندهٔ کامل: مشخصات، شیفت/حضور، عملکرد، درآمد یا حقوق، برداشت‌ها، تاریخچه قرارداد |
+| GET | `/reports?from&to` | `payroll.reports.view` | درآمد هر کارمند، درآمد دفتر، سهم کارکنان، برداشت‌ها به تفکیک وضعیت |
+| GET | `/withdrawals?status&userId&from&to&minAmount&page` | `payroll.view` | صندوق ورودی برداشت‌ها |
+| GET | `/withdrawals/:id` | مالک یا `payroll.view` | جزئیات + تاریخچهٔ اقدامات؛ هر کارمند فقط درخواست خودش را می‌بیند |
+| POST | `/withdrawals/:id/decision` | `payroll.approve` | `action: review|approve|reject|cancel|paying`؛ رد بدون علت ۴۰۰ |
+| POST | `/withdrawals/:id/pay` | `payroll.settle` | ثبت واریز واقعی با `method` و `trackingCode`؛ پرداخت دوباره ۴۰۹ |
+| GET | `/salary-payments?userId` | `payroll.view` | دوره‌های حقوق یک کارمند یا فهرست کارکنان حقوق‌بگیر |
+| POST | `/salary-payments` | `payroll.settle` | پرداخت حقوق؛ `amount ≤ accrued − paid` و کلید یکتا |
+| POST | `/contracts` , `/contracts/:id/close` | `payroll.contracts.edit` | قرارداد جدید/بستن قرارداد؛ هم‌پوشانی ممنوع |
+| GET | `/contracts/:userId/history` | `payroll.view` | تاریخچهٔ درصد و حقوق |
+
+### فرمول‌ها
+
+- `سهم کارمند = round(درآمد دفتر × درصد / ۱۰۰)` (گرد کردن نیم‌به‌بالا با `Math.round`).
+- `درآمد دفتر` = جمع `invoices.total − invoices.tax` پرونده (و در نبود فاکتور، `requests.total`)؛
+  یعنی «درآمد دفتر»، نه کل دریافتی مشتری و نه سود خالص.
+- درآمد فقط با **پرداخت تأییدشده** قطعی می‌شود؛ عملیات مالی هر پرداخت یک ردیف با کلید یکتا
+  `commission:<paymentId>` می‌سازد. پردرداخت/برگشت، ردیف `reversal` منفی با همان پیوند می‌سازد
+  و ردیف اصلی را دست نمی‌زند.
+- `available = Σ(ردیف‌های باز‌شدهٔ واجد شرط) − Σ(درخواست‌های رزرو‌شده)`؛ ردیف وقتی «واجد شرط»
+  است که `withdrawable_at ≤ now` و `withdrawal_id IS NULL` باشد.
+- پرداخت برداشت به روش FIFO از قدیمی‌ترین ردیف‌ها مصرف می‌کند و ردیف `settlement` منفی با کلید
+  `withdraw:<id>` می‌نویسد.
+
+وضعیت‌های درخواست برداشت: `submitted → reviewing → approved → paying → paid` و همچنین
+`rejected` (با علت اجباری) و `cancelled`. حالت‌های رزرو‌کنندهٔ مبلغ:
+`submitted, reviewing, approved, paying`.
