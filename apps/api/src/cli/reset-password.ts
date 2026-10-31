@@ -38,7 +38,7 @@ const user = await one<any>(
 );
 
 if (!user) {
-  console.error(`[reset] no account found for "${username}".`);
+  console.error('[reset] no account found for the supplied identifier.');
   await closeDb();
   process.exit(1);
 }
@@ -66,7 +66,7 @@ await writeAudit({
   after: { username: user.username, generated: generate },
 });
 
-console.log(`[reset] password updated for "${user.username ?? username}" (${user.kind}) — all sessions revoked.`);
+console.log(`[reset] password updated for a ${user.kind} account — all sessions revoked.`);
 console.log(`[reset] must change password on next login: yes`);
 if (generate) {
   console.log('');

@@ -167,14 +167,15 @@ customersRouter.get('/:id', requirePermission('customers.view'), asyncRoute(asyn
     listRequests({ customerId: user.id, assignedTo:office?undefined:req.auth!.user.id,pageSize: 10 }),
     office?listInvoices({ customerId: user.id, pageSize: 10 }):Promise.resolve({items:[]}),
   ]);
-  const documents = await q<any>(
+  const canViewDocuments = hasPermission(req.auth!.permissions, 'documents.view');
+  const documents = canViewDocuments ? await q<any>(
     `SELECT d.id, d.title, d.status, d.created_at, d.document_type, f.id AS file_id, f.name AS file_name,
             f.mime, f.size, f.processing_status, f.savings_percent, f.width, f.height
      FROM request_documents d
      JOIN files f ON f.id = d.file_id JOIN requests r ON r.id = d.request_id
      WHERE r.customer_id = ? AND (?=1 OR r.assigned_to=?) ORDER BY d.created_at DESC`, [user.id,Number(office),req.auth!.user.id],
-  );
-  const profileDocuments = await listCustomerDocuments(user.id);
+  ) : [];
+  const profileDocuments = canViewDocuments ? await listCustomerDocuments(user.id) : [];
   ok(res, {
     id: user.id,
     fullName: user.full_name,

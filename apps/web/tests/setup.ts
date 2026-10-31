@@ -84,6 +84,7 @@ const routes: { match: (url: string) => boolean; body: () => unknown }[] = [
   { match: (u) => u.includes('/api/public/search'), body: () => jsonBody([]) },
   { match: (u) => u.includes('/api/settings/legal'), body: () => jsonBody({ terms: '', privacy: '', officeName: 'دفتر' }) },
   { match: (u) => u.includes('/api/assistant/chat'), body: () => jsonBody({ reply: 'پاسخ آزمایشی', suggestions: [], followUpQuestions: [] }) },
+  { match: (u) => u.includes('/api/requests/quote'), body: () => jsonBody({ baseFee: 100000, discount: 0, urgentFee: 0, tax: 0, total: 100000, estimatedMinutes: 240, estimatedDays: 1, urgentAvailable: true }) },
   { match: (u) => u.includes('/api/customers/me/notifications'), body: () => jsonBody([], { unread: 0, total: 0 }) },
   {
     match: (u) => u.includes('/api/documents/mine'),
@@ -235,4 +236,3 @@ if (typeof window !== 'undefined' && !window.matchMedia) {
     dispatchEvent: () => false,
   })) as unknown as typeof window.matchMedia;
 }
-

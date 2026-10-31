@@ -66,6 +66,6 @@ const id_ = await ensureAdmin(
   { username, password, fullName, mobile },
   (m) => console.log(`[admin] ${m}`),
 );
-console.log(id_ ? `[admin] created ${username} (db=${env.dbDriver})` : '[admin] an admin account already exists — nothing changed.');
+console.log(id_ ? `[admin] initial account created (db=${env.dbDriver})` : '[admin] an admin account already exists — nothing changed.');
 await closeDb();
 process.exit(0);

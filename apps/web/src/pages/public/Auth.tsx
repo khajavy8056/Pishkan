@@ -3,7 +3,7 @@ import { Link, useNavigate, useSearchParams } from 'react-router-dom';
 import { Smartphone, KeyRound, ArrowRight, ShieldCheck, Eye, EyeOff, RefreshCw, Info } from 'lucide-react';
 import clsx from 'clsx';
 import { PublicLayout } from '../../components/public-layout';
-import { useSite } from '../../lib/site';
+import { formatDuration, useSite } from '../../lib/site';
 import { useAuth, homeFor } from '../../lib/auth';
 import { api, ApiFailure } from '../../lib/api';
 import { Button, Field, Input, useToast } from '../../components/ui';
@@ -436,6 +436,7 @@ export function AssistantPage() {
                         <Link key={s.id} to={`/services/${s.slug}`} className="block rounded-xl bg-surface p-3 ring-1 ring-line hover:bg-brand-50">
                           <span className="block text-xs font-semibold text-navy-900">{s.title}</span>
                           <span className="mt-0.5 block text-[11px] text-navy-500">{s.summary}</span>
+                          <span className="mt-1 block text-[10px] font-medium text-accent">زمان تخمینی: {formatDuration(s.estimatedMinutes, s.estimatedDays)}</span>
                         </Link>
                       ))}
                     </div>

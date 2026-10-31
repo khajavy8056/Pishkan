@@ -7,6 +7,8 @@ import { migrate } from './db/migrate.js';
 import { ensureSettingDefaults } from './modules/settings/service.js';
 import { ensureAdmin, upsertRolesOnly, seedCatalog } from './modules/catalog/seed.js';
 import { ensureMediaDirs, recoverStuckMedia } from './modules/media/service.js';
+import { isLanFirewallLeaseValid, resolveListenHost } from './lib/server-bind.js';
+import { safeErrorText } from './lib/safe-log.js';
 
 async function bootstrap() {
   const problems = assertProductionSafety();
@@ -26,7 +28,7 @@ async function bootstrap() {
 
   // Resume image jobs interrupted by a crash or deploy. Never blocks startup.
   recoverStuckMedia({ log: (m) => console.log(`[boot] ${m}`) })
-    .catch((err) => console.error('[boot] media recovery failed:', err));
+    .catch((err) => console.error(`[boot] media recovery failed: ${safeErrorText(err)}`));
 
   await ensureSettingDefaults();
   await upsertRolesOnly();
@@ -45,18 +47,50 @@ async function bootstrap() {
   }
 
   const app = await createApp();
-  const server = app.listen(env.port, env.host, () => {
-    console.log(`[boot] Pishkan API ${env.version} listening on http://${env.host}:${env.port} (${env.nodeEnv}, db=${env.dbDriver})`);
+  const lanAccessRequested = process.platform === 'win32'
+    && env.host.trim().toLowerCase() === '0.0.0.0'
+    && process.env.LAN_ACCESS?.trim().toLowerCase() === 'true';
+  const firewallLeaseFile = process.env.PISHKAN_LAN_FIREWALL_STATUS_FILE;
+  const firewallLeaseToken = process.env.PISHKAN_LAN_FIREWALL_TOKEN;
+  const firewallLeasePort = Number(process.env.PISHKAN_LAN_FIREWALL_PORT ?? env.port);
+  const firewallLeaseValid = () => firewallLeasePort === env.port && isLanFirewallLeaseValid(
+    firewallLeaseFile, firewallLeaseToken, firewallLeasePort,
+  );
+  const listenHost = resolveListenHost(env.host);
+  if (lanAccessRequested && (listenHost !== '0.0.0.0' || !firewallLeaseValid())) {
+    throw new Error('LAN requested but the Windows firewall verification lease is missing, expired, or invalid.');
+  }
+  if (listenHost !== env.host) {
+    console.warn('[boot] Windows safety: binding to loopback because LAN opt-in and verified firewall lease were not both present.');
+  }
+  const server = app.listen(env.port, listenHost, () => {
+    console.log(`[boot] Pishkan API ${env.version} listening on http://${listenHost}:${env.port} (${env.nodeEnv}, db=${env.dbDriver})`);
   });
 
-  const shutdown = (signal: string) => {
+  let shuttingDown = false;
+  let leaseTimer: NodeJS.Timeout | null = null;
+  const shutdown = (signal: string, exitCode = 0) => {
+    if (shuttingDown) return;
+    shuttingDown = true;
+    if (leaseTimer) clearInterval(leaseTimer);
     console.log(`[shutdown] received ${signal}`);
-    server.close(async () => {
-      await closeDb().catch(() => undefined);
-      process.exit(0);
+    server.close(() => {
+      void closeDb().catch(() => undefined).finally(() => process.exit(exitCode));
     });
+    if (exitCode !== 0) server.closeAllConnections?.();
     setTimeout(() => process.exit(1), 10_000).unref();
   };
+
+  // PowerShell/Windows Firewall inspection remains in the Windows launcher.
+  // The cross-platform API only trusts its short-lived lease and closes the
+  // listener if that independent watchdog stops refreshing it.
+  if (lanAccessRequested && listenHost === '0.0.0.0') {
+    leaseTimer = setInterval(() => {
+      if (firewallLeaseValid() || shuttingDown) return;
+      console.error('[boot] Windows safety: firewall lease expired; closing the LAN listener.');
+      shutdown('firewall-lease', 1);
+    }, 1_000);
+  }
   process.on('SIGTERM', () => shutdown('SIGTERM'));
   process.on('SIGINT', () => shutdown('SIGINT'));
 
@@ -90,18 +124,18 @@ async function bootstrap() {
       socket.on('error', () => undefined);
     });
     control.on('error', (error: NodeJS.ErrnoException) => {
-      console.error(`[boot] control pipe failed: ${error.message}`);
+      console.error(`[boot] control pipe failed: ${safeErrorText(error)}`);
     });
     if (process.platform !== 'win32' && fs.existsSync(controlPipe)) {
       // A stale unix socket from a crashed process would block listen().
       try { fs.unlinkSync(controlPipe); } catch { /* ignore */ }
     }
-    control.listen(controlPipe, () => console.log(`[boot] control pipe ready: ${controlPipe}`));
+    control.listen(controlPipe, () => console.log('[boot] control pipe ready'));
     control.unref();
   }
 }
 
 bootstrap().catch((err) => {
-  console.error('[boot] fatal:', err);
+  console.error(`[boot] fatal: ${safeErrorText(err)}`);
   process.exit(1);
 });

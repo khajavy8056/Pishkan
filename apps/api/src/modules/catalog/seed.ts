@@ -68,13 +68,13 @@ export async function seedCatalog(log: (m: string) => void = () => undefined) {
     }
     await run(
       `INSERT INTO services (id, category_id, slug, title, summary, description, icon, form_schema, documents,
-        workflow_steps, base_fee, discount_percent, estimated_days, payment_methods, tags, search_text,
+        workflow_steps, base_fee, discount_percent, estimated_days, estimated_minutes, payment_methods, tags, search_text,
         contact_notice, is_published, accepting_requests, is_custom, sort_order, needs_review, created_at, updated_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?, ?, ?, ?, 1, 1, 0, ?, 1, ?, ?)`,
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?, ?, ?, ?, ?, 1, 1, 0, ?, 1, ?, ?)`,
       [
         id('svc'), categoryId, svc.slug, svc.title, svc.summary, svc.description, svc.icon,
         jsonStringify(svc.form), jsonStringify(svc.documents), jsonStringify(svc.workflow),
-        svc.baseFee, svc.estimatedDays, jsonStringify(svc.paymentMethods ?? ['online', 'cash', 'pos']),
+        svc.baseFee, svc.estimatedDays, svc.estimatedDays * 1440, jsonStringify(svc.paymentMethods ?? ['online', 'cash', 'pos']),
         jsonStringify(svc.tags), searchText,
         svc.contactNotice ?? 'هزینه و زمان نمایش‌داده‌شده نمونه است و پس از بررسی مدارک تأیید می‌شود.',
         index, ts, ts,
@@ -126,7 +126,7 @@ export async function ensureAdmin(admin: SeedOptions['admin'] = undefined, log: 
       await hashPassword(admin.password), admin.fullName ?? 'مدیر سامانه', ts, ts,
     ],
   );
-  log(`admin: account "${admin.username}" created`);
+  log('admin: initial account created');
   return userId;
 }
 

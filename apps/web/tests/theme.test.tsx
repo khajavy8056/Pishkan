@@ -81,11 +81,13 @@ it('follows the operating-system preference while "system" is selected', async (
 });
 
 it('exposes a three-way control with an accessible pressed state', () => {
-  render(<Harness><ThemeSegmented /><ThemeToggle /></Harness>);
+  render(<ThemeProvider><ThemeSegmented /><ThemeToggle /></ThemeProvider>);
   const group = screen.getByRole('group', { name: 'حالت نمایش' });
   expect(group).toBeTruthy();
   expect(screen.getByRole('button', { name: 'تیره' }).getAttribute('aria-pressed')).toBe('false');
   fireEvent.click(screen.getByRole('button', { name: 'تیره' }));
   expect(screen.getByRole('button', { name: 'تیره' }).getAttribute('aria-pressed')).toBe('true');
-  expect(toggleTheme()).toBe('light');
+  let toggledMode = '';
+  act(() => { toggledMode = toggleTheme(); });
+  expect(toggledMode).toBe('light');
 });

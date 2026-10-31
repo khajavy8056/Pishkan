@@ -8,8 +8,8 @@
 ## شروع سریع (فارسی)
 
 1. `PishkanSetup.cmd` را دوبار کلیک کنید (نصب‌کنندهٔ گرافیکی باز می‌شود).
-2. مسیر نصب، پورت و اطلاعات «مدیر کل» را وارد کنید و «شروع نصب» را بزنید.
-3. پس از پایان، دکمهٔ «باز کردن Pishkan» را بزنید یا از `PishkanManager.cmd` استفاده کنید.
+2. مسیر نصب، پورت و اطلاعات «مدیر کل» را وارد کنید. دسترسی موبایل در Wi‑Fi به‌صورت پیش‌فرض خاموش است؛ فقط اگر عمداً می‌خواهید از شبکهٔ محلی وصل شوید، گزینهٔ LAN را روشن کنید (نیازمند اجرای نصب‌کننده با Administrator).
+3. «شروع نصب» را بزنید. پس از پایان، دکمهٔ «باز کردن Pishkan» را بزنید یا از `PishkanManager.cmd` برای دیدن URLهای خصوصی استفاده کنید.
 
 راهنمای کامل: [`docs/WINDOWS-INSTALL-FA.md`](../docs/WINDOWS-INSTALL-FA.md)
 حذف نصب: [`docs/WINDOWS-UNINSTALL-FA.md`](../docs/WINDOWS-UNINSTALL-FA.md)
@@ -27,7 +27,8 @@
 | `Uninstall-Pishkan.ps1` | Stops the server, removes shortcuts, optionally deletes the local data. |
 | `build-exe.ps1` | Optional: package the installer as `PishkanSetup.exe` (Windows only, unsigned). |
 | `lib/installer.mjs` | Installation engine (env file, dependencies, build, database, admin, start, verify). |
-| `lib/manager.mjs` | Service manager engine (used by the GUI and by `npm run windows:manager`). |
+| `lib/manager.mjs` | Service manager engine (used by the GUI and by `npm run windows:manager`); writes diagnostics to `.data/logs/pishkan-manager.log`. |
+| `lib/lan-access.mjs`, `lib/lan-firewall.mjs`, `lib/lan-firewall.ps1`, `lib/lan-guard.mjs` | Optional LAN opt-in, private IPv4 discovery, exact scoped Windows Firewall rules, and a watchdog that fails closed if the firewall changes or becomes unavailable while the API is running. |
 | `lib/verify.mjs` | Runtime verification + 19-step end-to-end workflow test. |
 | `lib/syscheck.mjs` | System check (OS, Node, npm, disk, network, port, write access). |
 | `lib/setup-console.mjs` | Text installer (`PishkanSetup.cmd /console`). |

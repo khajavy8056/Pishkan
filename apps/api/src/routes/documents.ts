@@ -6,6 +6,7 @@ import { created, ok } from '../http/respond.js';
 import { param } from '../http/params.js';
 import { one } from '../db/index.js';
 import { officeScope } from '../lib/scope.js';
+import { hasPermission } from '../lib/permissions.js';
 import { notifyUser } from '../modules/notifications/service.js';
 import {
   DOCUMENT_TYPES, DOCUMENT_TYPE_CODES, addCustomerDocument, deleteCustomerDocument,
@@ -45,6 +46,7 @@ documentsRouter.post('/mine', asyncRoute(async (req, res) => {
     title: z.string().max(200).optional(),
     issuedAt: z.string().max(40).optional().or(z.literal('')),
     expiresAt: z.string().max(40).optional().or(z.literal('')),
+    replacesDocumentId: z.string().min(3).max(80).optional(),
   }).parse(req.body);
   const document = await addCustomerDocument({
     customerId: req.auth!.user.id,
@@ -53,6 +55,7 @@ documentsRouter.post('/mine', asyncRoute(async (req, res) => {
     title: body.title || documentTypeLabel(body.docType),
     issuedAt: body.issuedAt || null,
     expiresAt: body.expiresAt || null,
+    replacesDocumentId: body.replacesDocumentId,
   }, { id: req.auth!.user.id, name: req.auth!.user.fullName, ip: req.ip });
   created(res, document);
 }));
@@ -62,12 +65,14 @@ documentsRouter.post('/mine/:docId/reuse', asyncRoute(async (req, res) => {
   const body = z.object({
     requestId: z.string().min(3).max(80),
     confirm: z.boolean(),
+    requirementKey: z.string().min(2).max(80).optional(),
   }).parse(req.body);
   const result = await reuseDocumentInRequest({
     documentId: param(req, 'docId'),
     requestId: body.requestId,
     customerId: req.auth!.user.id,
     confirm: body.confirm,
+    requirementKey: body.requirementKey,
     actor: { id: req.auth!.user.id, name: req.auth!.user.fullName },
   });
   ok(res, result);
@@ -96,7 +101,7 @@ documentsRouter.get('/customer/:customerId', requirePermission('documents.view')
   ok(res, documents, { customer: { id: customer.id, fullName: customer.full_name, mobile: customer.mobile } });
 }));
 
-documentsRouter.post('/:docId/review', requirePermission('documents.approve'), asyncRoute(async (req, res) => {
+documentsRouter.post('/:docId/review', requirePermission('documents.view', 'documents.approve'), asyncRoute(async (req, res) => {
   const body = z.object({
     decision: z.enum(['approved', 'rejected']),
     note: z.string().max(1000).optional(),
@@ -112,7 +117,7 @@ documentsRouter.post('/:docId/review', requirePermission('documents.approve'), a
   });
   await notifyUser(existing.customer_id, {
     title: 'وضعیت مدرک پروفایل بررسی شد',
-    body: `${documentTypeLabel(existing.doc_type)}: ${body.decision === 'approved' ? 'تأیید شد' : 'نیازمند اصلاح است'}`,
+    body: `${documentTypeLabel(existing.doc_type)}: ${body.decision === 'approved' ? 'تأیید شد' : `نیازمند اصلاح است${document.reviewNote ? ` — ${document.reviewNote}` : ''}`}`,
     kind: body.decision === 'approved' ? 'success' : 'warning',
     link: '/app/documents',
     idempotencyKey: `customer-document:${document.id}:${body.decision}:${document.updatedAt}`,
@@ -121,9 +126,12 @@ documentsRouter.post('/:docId/review', requirePermission('documents.approve'), a
 }));
 
 documentsRouter.get('/:docId', asyncRoute(async (req, res) => {
+  const auth = req.auth!;
+  if (auth.user.kind !== 'customer' && !hasPermission(auth.permissions, 'documents.view')) {
+    throw forbidden('برای مشاهده مدارک، مجوز documents.view لازم است.');
+  }
   const document = await getCustomerDocument(param(req, 'docId'));
   if (!document) throw notFound('مدرک پروفایل یافت نشد.');
-  const auth = req.auth!;
   if (auth.user.kind === 'customer') {
     if (document.customerId !== auth.user.id) throw forbidden();
     return ok(res, document);

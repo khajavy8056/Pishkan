@@ -5,8 +5,8 @@ import clsx from 'clsx';
 import { AppShell, PageHeader } from '../../components/shell';
 import { EmptyState, Loading, Select } from '../../components/ui';
 import { api } from '../../lib/api';
-import { useSite } from '../../lib/site';
-import { faNum, rial } from '../../lib/format';
+import { formatDuration, useSite } from '../../lib/site';
+import { rial } from '../../lib/format';
 
 export function CustomerServices() {
   const { site } = useSite();
@@ -51,7 +51,7 @@ export function CustomerServices() {
             <p className="mt-2 font-semibold text-navy-900">{service.title}</p>
             <p className="mt-1 line-clamp-2 flex-1 text-xs leading-6 text-navy-500">{service.summary}</p>
             <div className="mt-3 flex items-center justify-between border-t border-navy-900/5 pt-2 text-[11px]">
-              <span className="flex items-center gap-1 text-navy-500"><Clock className="size-3.5" /> {faNum(service.estimatedDays)} روز</span>
+              <span className="flex items-center gap-1 text-navy-500"><Clock className="size-3.5" /> {formatDuration(service.estimatedMinutes, service.estimatedDays)}</span>
               <span className="font-semibold text-navy-900">{rial(service.finalFee)}</span>
             </div>
             <Link to={`/services/${service.slug}`}

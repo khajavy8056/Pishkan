@@ -37,6 +37,38 @@ export interface ServiceRow {
   updated_at: string;
 }
 
+export interface ServiceDocumentRequirement {
+  key: string;
+  title: string;
+  required: boolean;
+  note?: string;
+}
+
+const MAX_DURATION_MINUTES = 5_256_000; // ten years, well beyond supported service SLAs
+
+function durationMinutes(minutes: number | undefined, days: number | undefined, fallback: number): number {
+  const value = minutes !== undefined ? Number(minutes)
+    : days !== undefined ? Number(days) * 1440 : fallback;
+  if (!Number.isInteger(value) || value < 1 || value > MAX_DURATION_MINUTES) {
+    throw badRequest('مدت خدمت باید بین یک دقیقه تا ده سال باشد.');
+  }
+  return value;
+}
+
+function durationDays(minutes: number): number {
+  return Math.max(1, Math.ceil(minutes / 1440));
+}
+
+function normalizedDocuments(value: unknown): ServiceDocumentRequirement[] {
+  const parsed = Array.isArray(value) ? value : [];
+  return parsed.map((item: any, index) => ({
+    key: typeof item?.key === 'string' && item.key.trim() ? item.key.trim() : `document_${index + 1}`,
+    title: String(item?.title ?? ''),
+    required: Boolean(item?.required),
+    ...(item?.note ? { note: String(item.note) } : {}),
+  }));
+}
+
 export interface ServiceDTO {
   id: string;
   slug: string;
@@ -52,16 +84,18 @@ export interface ServiceDTO {
   cityIds: string[];
   urgentEnabled: boolean;
   urgentPercent: number;
+  urgentMinutes: number;
   urgentDays: number;
   urgentCapacity: number;
   baseFee: number;
   discountPercent: number;
   finalFee: number;
+  estimatedMinutes: number;
   estimatedDays: number;
   paymentMethods: string[];
   tags: string[];
   form: FormField[];
-  documents: { title: string; required: boolean; note?: string }[];
+  documents: ServiceDocumentRequirement[];
   workflow: WorkflowStep[];
   contactNotice: string | null;
   isPublished: boolean;
@@ -95,15 +129,19 @@ export function mapService(row: ServiceRow & { category_title?: string | null; c
     coverage: (row as any).coverage ?? 'nationwide',
     cityIds: jsonParse((row as any).city_ids, []),
     urgentEnabled: Boolean((row as any).urgent_enabled), urgentPercent: Number((row as any).urgent_percent ?? 0),
-    urgentDays: Number((row as any).urgent_days ?? 1), urgentCapacity: Number((row as any).urgent_capacity ?? 0),
+    urgentMinutes: Number((row as any).urgent_minutes ?? Number((row as any).urgent_days ?? 1) * 1440),
+    urgentDays: durationDays(Number((row as any).urgent_minutes ?? Number((row as any).urgent_days ?? 1) * 1440)),
+    urgentCapacity: Number((row as any).urgent_capacity ?? 0),
     baseFee: Number(row.base_fee),
     discountPercent: Number(row.discount_percent),
     finalFee: finalFee(row.base_fee, row.discount_percent),
-    estimatedDays: Number(row.estimated_days),
+    estimatedMinutes: Number((row as any).estimated_minutes ?? Number(row.estimated_days) * 1440),
+    estimatedDays: durationDays(Number((row as any).estimated_minutes ?? Number(row.estimated_days) * 1440)),
+
     paymentMethods: jsonParse<string[]>(row.payment_methods, ['online', 'cash']),
     tags: jsonParse<string[]>(row.tags, []),
     form: jsonParse<FormField[]>(row.form_schema, []),
-    documents: jsonParse(row.documents, []),
+    documents: normalizedDocuments(jsonParse(row.documents, [])),
     workflow: jsonParse<WorkflowStep[]>(row.workflow_steps, []),
     contactNotice: row.contact_notice,
     isPublished: Boolean(row.is_published),
@@ -265,12 +303,13 @@ export interface ServiceInput {
   image?: string | null;
   icon?: string | null;
   form?: FormField[];
-  documents?: { title: string; required: boolean; note?: string }[];
+  documents?: ServiceDocumentRequirement[];
   workflow?: WorkflowStep[];
   coverage?: 'nationwide' | 'cities'; cityIds?: string[];
-  urgentEnabled?: boolean; urgentPercent?: number; urgentDays?: number; urgentCapacity?: number;
+  urgentEnabled?: boolean; urgentPercent?: number; urgentMinutes?: number; urgentDays?: number; urgentCapacity?: number;
   baseFee?: number;
   discountPercent?: number;
+  estimatedMinutes?: number;
   estimatedDays?: number;
   paymentMethods?: string[];
   tags?: string[];
@@ -330,13 +369,18 @@ function validateWorkflow(steps: unknown): WorkflowStep[] {
   });
 }
 
-function validateDocuments(docs: unknown) {
+function validateDocuments(docs: unknown): ServiceDocumentRequirement[] {
   if (docs === undefined) return [];
   if (!Array.isArray(docs)) throw badRequest('فهرست مدارک باید آرایه باشد.');
+  const seen = new Set<string>();
   return docs.map((raw, i) => {
-    const doc = raw as { title?: string; required?: boolean; note?: string };
+    const doc = raw as { key?: string; title?: string; required?: boolean; note?: string };
     if (!doc?.title || String(doc.title).trim().length < 2) throw badRequest(`عنوان مدرک ${i + 1} الزامی است.`);
-    return { title: String(doc.title).trim(), required: Boolean(doc.required), note: doc.note ? String(doc.note) : undefined };
+    const key = String(doc.key ?? `document_${i + 1}`).trim();
+    if (!/^[a-zA-Z][a-zA-Z0-9_]{1,40}$/.test(key)) throw badRequest(`شناسه مدرک شماره ${i + 1} نامعتبر است.`);
+    if (seen.has(key)) throw badRequest(`شناسه مدرک «${key}» تکراری است.`);
+    seen.add(key);
+    return { key, title: String(doc.title).trim(), required: Boolean(doc.required), note: doc.note ? String(doc.note).trim().slice(0, 300) : undefined };
   });
 }
 
@@ -354,20 +398,21 @@ export async function createService(input: ServiceInput, actor: { id: string; na
 
   const tags = Array.isArray(input.tags) ? input.tags.map(String).filter(Boolean) : [];
   const searchText = normalizePersian([title, input.summary ?? '', input.description ?? '', ...tags].join(' '));
+  const estimatedMinutes = durationMinutes(input.estimatedMinutes, input.estimatedDays, 3 * 1440);
   const ts = nowIso();
   const serviceId = id('svc');
 
   await run(
     `INSERT INTO services (id, category_id, slug, title, summary, description, image, icon, form_schema, documents,
-      workflow_steps, base_fee, discount_percent, estimated_days, payment_methods, tags, search_text, contact_notice,
+      workflow_steps, base_fee, discount_percent, estimated_days, estimated_minutes, payment_methods, tags, search_text, contact_notice,
       is_published, accepting_requests, is_custom, owner_customer_id, created_by, sort_order, needs_review, created_at, updated_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, NULL, ?, ?, ?, ?, ?)`,
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, NULL, ?, ?, ?, ?, ?)`,
     [
       serviceId, input.categoryId ?? null, slug, title, input.summary ?? null, input.description ?? null,
       input.image ?? null, input.icon ?? null, jsonStringify(validateFormSchema(input.form)),
       jsonStringify(validateDocuments(input.documents)), jsonStringify(validateWorkflow(input.workflow)),
       Math.max(0, Math.round(Number(input.baseFee ?? 0))), Math.min(100, Math.max(0, Number(input.discountPercent ?? 0))),
-      Math.max(1, Number(input.estimatedDays ?? 3)),
+      durationDays(estimatedMinutes), estimatedMinutes,
       jsonStringify(input.paymentMethods ?? ['online', 'cash', 'pos']), jsonStringify(tags), searchText,
       input.contactNotice ?? null,
       input.isPublished === false ? 0 : 1, input.acceptingRequests === false ? 0 : 1,
@@ -402,12 +447,13 @@ export async function updateService(serviceId: string, input: ServiceInput, acto
   const description = input.description !== undefined ? String(input.description) : existing.description;
   const tags = input.tags !== undefined ? input.tags.map(String).filter(Boolean) : existing.tags;
   const searchText = normalizePersian([title, summary, description, ...tags].join(' '));
+  const estimatedMinutes = durationMinutes(input.estimatedMinutes, input.estimatedDays, existing.estimatedMinutes);
 
   await run(
     `UPDATE services SET
       category_id = ?, title = ?, summary = ?, description = ?, image = ?, icon = ?,
       form_schema = ?, documents = ?, workflow_steps = ?, base_fee = ?, discount_percent = ?,
-      estimated_days = ?, payment_methods = ?, tags = ?, search_text = ?, contact_notice = ?,
+      estimated_days = ?, estimated_minutes = ?, payment_methods = ?, tags = ?, search_text = ?, contact_notice = ?,
       is_published = ?, accepting_requests = ?, sort_order = ?, needs_review = ?, updated_at = ?
      WHERE id = ?`,
     [
@@ -420,7 +466,7 @@ export async function updateService(serviceId: string, input: ServiceInput, acto
       jsonStringify(input.workflow !== undefined ? validateWorkflow(input.workflow) : existing.workflow),
       input.baseFee !== undefined ? Math.max(0, Math.round(Number(input.baseFee))) : existing.baseFee,
       input.discountPercent !== undefined ? Math.min(100, Math.max(0, Number(input.discountPercent))) : existing.discountPercent,
-      input.estimatedDays !== undefined ? Math.max(1, Number(input.estimatedDays)) : existing.estimatedDays,
+      durationDays(estimatedMinutes), estimatedMinutes,
       jsonStringify(input.paymentMethods ?? existing.paymentMethods),
       jsonStringify(tags), searchText,
       input.contactNotice !== undefined ? input.contactNotice : existing.contactNotice,
@@ -514,9 +560,10 @@ export interface CustomServiceInput {
   urgentCapacity?: number;
   baseFee: number;
   discountPercent?: number;
-  documents?: { title: string; required: boolean }[];
+  documents?: { key?: string; title: string; required: boolean; note?: string }[];
   workflow?: WorkflowStep[];
   form?: FormField[];
+  estimatedMinutes?: number;
   estimatedDays?: number;
   createInvoice?: boolean;
 }
@@ -535,20 +582,21 @@ export async function createCustomService(input: CustomServiceInput, actor: { id
   }
   const fee = Math.max(0, Math.round(Number(input.baseFee ?? 0)));
   const discount = Math.min(100, Math.max(0, Number(input.discountPercent ?? 0)));
+  const estimatedMinutes = durationMinutes(input.estimatedMinutes, input.estimatedDays, 3 * 1440);
   const ts = nowIso();
   const serviceId = id('svc');
   const slug = `custom-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 6)}`;
 
   await run(
     `INSERT INTO services (id, category_id, slug, title, summary, description, image, icon, form_schema, documents,
-      workflow_steps, base_fee, discount_percent, estimated_days, payment_methods, tags, search_text, contact_notice,
+      workflow_steps, base_fee, discount_percent, estimated_days, estimated_minutes, payment_methods, tags, search_text, contact_notice,
       is_published, accepting_requests, is_custom, owner_customer_id, created_by, sort_order, needs_review, created_at, updated_at)
-     VALUES (?, NULL, ?, ?, ?, ?, NULL, 'sparkles', ?, ?, ?, ?, ?, ?, ?, '[]', ?, ?, 0, 1, 1, ?, ?, 9999, 0, ?, ?)`,
+     VALUES (?, NULL, ?, ?, ?, ?, NULL, 'sparkles', ?, ?, ?, ?, ?, ?, ?, ?, '[]', ?, ?, 0, 1, 1, ?, ?, 9999, 0, ?, ?)`,
     [
       serviceId, slug, title, input.summary ?? title.slice(0, 120), input.description,
       jsonStringify(validateFormSchema(input.form)), jsonStringify(validateDocuments(input.documents)),
       jsonStringify(validateWorkflow(input.workflow)), fee, discount,
-      Math.max(1, Number(input.estimatedDays ?? 3)), jsonStringify(['online', 'cash', 'pos']),
+      durationDays(estimatedMinutes), estimatedMinutes, jsonStringify(['online', 'cash', 'pos']),
       normalizePersian([title, input.description].join(' ')),
       'این خدمت اختصاصی برای شما تعریف شده است.', input.customerId, actor.id, ts, ts,
     ],
@@ -567,8 +615,9 @@ async function updateServicePolicy(serviceId: string, input: ServiceInput) {
  const cityIds = input.cityIds ?? (await q<any>('SELECT city_id FROM service_cities WHERE service_id=?',[serviceId])).map(r=>r.city_id);
  if ((input.coverage ?? current.coverage) === 'cities' && !cityIds.length) throw badRequest('حداقل یک شهر مجاز انتخاب کنید.');
  for (const city of cityIds) if (!await one('SELECT id FROM cities WHERE id=? AND is_active=1',[city])) throw badRequest('شهر نامعتبر است.');
- await run('UPDATE services SET coverage=?, urgent_enabled=?,urgent_percent=?,urgent_days=?,urgent_capacity=? WHERE id=?',[
- input.coverage ?? current.coverage,input.urgentEnabled === undefined ? current.urgent_enabled : Number(input.urgentEnabled),input.urgentPercent ?? current.urgent_percent,input.urgentDays ?? current.urgent_days,input.urgentCapacity ?? current.urgent_capacity,serviceId]);
+ const urgentMinutes = durationMinutes(input.urgentMinutes, input.urgentDays, Number(current.urgent_minutes ?? Number(current.urgent_days ?? 1) * 1440));
+ await run('UPDATE services SET coverage=?, urgent_enabled=?,urgent_percent=?,urgent_days=?,urgent_minutes=?,urgent_capacity=? WHERE id=?',[
+ input.coverage ?? current.coverage,input.urgentEnabled === undefined ? current.urgent_enabled : Number(input.urgentEnabled),input.urgentPercent ?? current.urgent_percent,durationDays(urgentMinutes),urgentMinutes,input.urgentCapacity ?? current.urgent_capacity,serviceId]);
  if(input.cityIds) {
   await run('DELETE FROM service_cities WHERE service_id=?',[serviceId]);
   for(const city of cityIds) await run('INSERT INTO service_cities(service_id,city_id) VALUES(?,?)',[serviceId,city]);

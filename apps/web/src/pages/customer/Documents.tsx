@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import {
   AlertTriangle, CheckCircle2, FileText, Plus, RefreshCw, ShieldCheck, Trash2, UploadCloud, Wand2, XCircle,
 } from 'lucide-react';
@@ -9,6 +9,7 @@ import {
 import { DocumentViewer, FileSummary, FileThumbnail, ProcessingBadge, bytes, type MediaFile } from '../../components/documents';
 import { api, ApiFailure } from '../../lib/api';
 import { faDate, faNum } from '../../lib/format';
+import { availableRequestDocumentRequirements, defaultRequestDocumentRequirementKey, requestDocumentRequirements } from '../../lib/request-documents';
 
 interface CustomerDocument {
   id: string;
@@ -20,6 +21,8 @@ interface CustomerDocument {
   expiresAt: string | null;
   validity: 'none' | 'valid' | 'expiring' | 'expired';
   reviewNote: string | null;
+  replacesDocumentId?: string | null;
+  reviewHistory?: { decision: string; note: string | null; reviewerName: string; createdAt: string }[];
   createdAt: string;
   file: MediaFile;
 }
@@ -41,9 +44,14 @@ export function CustomerDocuments() {
   const [uploadOpen, setUploadOpen] = useState(false);
   const [busy, setBusy] = useState(false);
   const [viewer, setViewer] = useState<CustomerDocument | null>(null);
+  const [replacing, setReplacing] = useState<CustomerDocument | null>(null);
   const [reuse, setReuse] = useState<CustomerDocument | null>(null);
   const [requests, setRequests] = useState<any[]>([]);
   const [reuseRequestId, setReuseRequestId] = useState('');
+  const [reuseRequest, setReuseRequest] = useState<any>(null);
+  const [reuseRequestLoading, setReuseRequestLoading] = useState(false);
+  const [reuseRequirementKey, setReuseRequirementKey] = useState('');
+  const reuseRequestLoadId = useRef('');
   const [reuseConfirm, setReuseConfirm] = useState(false);
   const [form, setForm] = useState({ docType: 'national_card', issuedAt: '', expiresAt: '', title: '' });
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
@@ -62,6 +70,13 @@ export function CustomerDocuments() {
     setTypes(res.meta?.types ?? []);
   };
 
+  const openUpload = (replacement: CustomerDocument | null = null) => {
+    setReplacing(replacement);
+    setSelectedFile(null);
+    setForm({ docType: replacement?.docType ?? 'national_card', issuedAt: '', expiresAt: '', title: replacement?.title ?? '' });
+    setUploadOpen(true);
+  };
+
   const upload = async () => {
     if (!selectedFile) { notify('ابتدا فایل را انتخاب کنید.', 'error'); return; }
     setBusy(true);
@@ -75,6 +90,7 @@ export function CustomerDocuments() {
         title: form.title || undefined,
         issuedAt: form.issuedAt || undefined,
         expiresAt: form.expiresAt || undefined,
+        replacesDocumentId: replacing?.id,
       });
       notify(
         uploaded.data.processing.status === 'ready'
@@ -84,6 +100,7 @@ export function CustomerDocuments() {
       );
       if (uploaded.data.notes?.length) notify(uploaded.data.notes.join(' '), 'info');
       setUploadOpen(false);
+      setReplacing(null);
       setSelectedFile(null);
       setForm({ docType: form.docType, issuedAt: '', expiresAt: '', title: '' });
       load();
@@ -111,6 +128,10 @@ export function CustomerDocuments() {
     setReuse(document);
     setReuseConfirm(false);
     setReuseRequestId('');
+    setReuseRequest(null);
+    setReuseRequirementKey('');
+    setReuseRequestLoading(false);
+    reuseRequestLoadId.current = '';
     try {
       const res = await api.list<any>('/api/requests', { group: 'open', pageSize: 50 });
       setRequests(res.data);
@@ -119,13 +140,39 @@ export function CustomerDocuments() {
     }
   };
 
+  const selectReuseRequest = async (requestId: string) => {
+    reuseRequestLoadId.current = requestId;
+    setReuseRequestId(requestId);
+    setReuseRequest(null);
+    setReuseRequirementKey('');
+    if (!requestId) return;
+    setReuseRequestLoading(true);
+    try {
+      const result = await api.get<{ data: any }>(`/api/requests/${requestId}`);
+      if (reuseRequestLoadId.current !== requestId) return;
+      setReuseRequest(result.data);
+      setReuseRequirementKey(defaultRequestDocumentRequirementKey(result.data));
+    } catch (err) {
+      if (reuseRequestLoadId.current === requestId) notify(err instanceof ApiFailure ? err.message : 'خطا در دریافت الزامات پرونده', 'error');
+    } finally {
+      if (reuseRequestLoadId.current === requestId) setReuseRequestLoading(false);
+    }
+  };
+
   const submitReuse = async () => {
     if (!reuse) return;
-    if (!reuseRequestId) { notify('پرونده مقصد را انتخاب کنید.', 'error'); return; }
+    if (!reuseRequestId || !reuseRequest) { notify('پرونده مقصد را انتخاب کنید.', 'error'); return; }
+    if (requestDocumentRequirements(reuseRequest).length && !availableRequestDocumentRequirements(reuseRequest).some((item) => item.key === reuseRequirementKey)) {
+      notify('نیازمندی‌ای که برای این مدرک انتخاب شده دیگر قابل پیوست نیست.', 'error'); return;
+    }
     if (!reuseConfirm) { notify('تأیید استفاده دوباره از مدرک الزامی است.', 'error'); return; }
     setBusy(true);
     try {
-      await api.post(`/api/documents/mine/${reuse.id}/reuse`, { requestId: reuseRequestId, confirm: true });
+      await api.post(`/api/documents/mine/${reuse.id}/reuse`, {
+        requestId: reuseRequestId,
+        confirm: true,
+        requirementKey: reuseRequirementKey || undefined,
+      });
       notify('مدرک با تأیید شما به پرونده انتخابی پیوست شد.', 'success');
       setReuse(null);
     } catch (err) {
@@ -143,6 +190,8 @@ export function CustomerDocuments() {
       return sum + Math.max(0, original - document.file.size);
     }, 0),
   }), [documents]);
+  const reuseRequirements = requestDocumentRequirements(reuseRequest);
+  const availableReuseRequirements = availableRequestDocumentRequirements(reuseRequest);
 
   return (
     <AppShell variant="customer">
@@ -152,7 +201,7 @@ export function CustomerDocuments() {
         actions={(
           <div className="flex gap-2">
             <Button size="sm" variant="ghost" onClick={() => load()}><RefreshCw className="size-4" /> بازبینی</Button>
-            <Button size="sm" onClick={() => setUploadOpen(true)}><Plus className="size-4" /> افزودن مدرک</Button>
+            <Button size="sm" onClick={() => openUpload()}><Plus className="size-4" /> افزودن مدرک</Button>
           </div>
         )}
       />
@@ -187,7 +236,7 @@ export function CustomerDocuments() {
         <EmptyState
           title="هنوز مدرکی ثبت نشده است"
           description="یک تصویر کارت ملی یا شناسنامه بارگذاری کنید؛ نیازی به فشرده‌سازی یا ویرایش قبلی نیست."
-          action={<Button onClick={() => setUploadOpen(true)}><UploadCloud className="size-4" /> بارگذاری مدرک</Button>}
+          action={<Button onClick={() => openUpload()}><UploadCloud className="size-4" /> بارگذاری مدرک</Button>}
         />
       )}
 
@@ -217,16 +266,29 @@ export function CustomerDocuments() {
                   } />
                 ) : <span className="text-navy-600">بدون تاریخ انقضا</span>}
               </p>
-              {document.reviewNote && <p className="mt-1 text-[11px] text-rose-700">{document.reviewNote}</p>}
+              {document.reviewNote && <p className="mt-1 text-[11px] text-rose-700">دلیل بررسی: {document.reviewNote}</p>}
+              {document.replacesDocumentId && <p className="mt-1 text-[10px] text-navy-500">این نسخه جایگزین مدرک ردشده است.</p>}
+              {document.reviewHistory && document.reviewHistory.length > 0 && (
+                <details className="mt-1 text-[10px] text-navy-500">
+                  <summary className="cursor-pointer">تاریخچه بررسی ({faNum(document.reviewHistory.length)})</summary>
+                  <ul className="mt-1 space-y-1">
+                    {document.reviewHistory.map((review, index) => (
+                      <li key={`${review.createdAt}-${index}`}>{review.decision === 'approved' ? 'تأیید' : 'رد'} توسط {review.reviewerName} — {faDate(review.createdAt)}{review.note ? `: ${review.note}` : ''}</li>
+                    ))}
+                  </ul>
+                </details>
+              )}
               <div className="mt-2 flex flex-wrap gap-1">
                 <Button size="sm" variant="ghost" onClick={() => setViewer(document)}>مشاهده</Button>
-                <Button size="sm" variant="ghost" onClick={() => openReuse(document)} disabled={document.validity === 'expired'}>
+                {document.status === 'rejected' && <Button size="sm" variant="primary" onClick={() => openUpload(document)}>بارگذاری نسخه جایگزین</Button>}
+                <Button size="sm" variant="ghost" onClick={() => openReuse(document)} disabled={document.validity === 'expired' || document.status !== 'approved'}>
                   استفاده در پرونده
                 </Button>
-                <Button size="sm" variant="ghost" onClick={() => remove(document)} aria-label="حذف مدرک">
+                {document.status === 'pending' && <Button size="sm" variant="ghost" onClick={() => remove(document)} aria-label="حذف مدرک در انتظار بررسی">
                   <Trash2 className="size-3.5 text-rose-700" />
-                </Button>
+                </Button>}
               </div>
+              {document.status !== 'pending' && <p className="mt-1 text-[10px] text-navy-500">مدرک بررسی‌شده برای حفظ دلیل و سابقه حذف نمی‌شود.</p>}
             </div>
           </Card>
         ))}
@@ -257,8 +319,8 @@ export function CustomerDocuments() {
 
       <Modal
         open={uploadOpen}
-        onClose={() => setUploadOpen(false)}
-        title="افزودن مدرک به پروفایل"
+        onClose={() => { setUploadOpen(false); setReplacing(null); setSelectedFile(null); }}
+        title={replacing ? 'بارگذاری نسخه جایگزین' : 'افزودن مدرک به پروفایل'}
         footer={(
           <div className="flex gap-2">
             <Button variant="ghost" onClick={() => setUploadOpen(false)}>انصراف</Button>
@@ -267,9 +329,11 @@ export function CustomerDocuments() {
         )}
       >
         <div className="space-y-4">
+          {replacing && <p className="rounded-xl bg-amber-50 p-3 text-[11px] leading-6 text-amber-900">این فایل به‌عنوان نسخهٔ جایگزین «{replacing.docTypeLabel}» ثبت می‌شود. مدرک ردشده و سابقهٔ آن برای پیگیری باقی می‌ماند.</p>}
           <Field label="نوع مدرک" required>
             <Select
               value={form.docType}
+              disabled={Boolean(replacing)}
               onChange={(event) => setForm({ ...form, docType: event.target.value })}
               options={types.map((type) => ({ value: type.code, label: type.label }))}
             />
@@ -304,7 +368,10 @@ export function CustomerDocuments() {
         footer={(
           <div className="flex gap-2">
             <Button variant="ghost" onClick={() => setReuse(null)}>انصراف</Button>
-            <Button loading={busy} onClick={submitReuse} disabled={!reuseRequestId || !reuseConfirm}>پیوست به پرونده</Button>
+            <Button loading={busy} onClick={submitReuse}
+              disabled={!reuseRequestId || !reuseRequest || reuseRequestLoading || !reuseConfirm || (reuseRequirements.length > 0 && !availableReuseRequirements.some((item) => item.key === reuseRequirementKey))}>
+              پیوست به پرونده
+            </Button>
           </div>
         )}
       >
@@ -315,13 +382,27 @@ export function CustomerDocuments() {
           <Field label="پرونده مقصد" required>
             <Select
               value={reuseRequestId}
-              onChange={(event) => setReuseRequestId(event.target.value)}
+              onChange={(event) => { void selectReuseRequest(event.target.value); }}
               options={[{ value: '', label: 'انتخاب پرونده در جریان' }, ...requests.map((request) => ({
                 value: request.id,
                 label: `${request.serviceTitle} — ${request.trackingCode} (${request.statusLabel})`,
               }))]}
             />
           </Field>
+          {reuseRequestLoading && <p className="text-[11px] text-navy-500">در حال دریافت مدارک موردنیاز پرونده…</p>}
+          {reuseRequirements.length > 0 && (
+            <Field label="مدرک موردنیاز پرونده" required>
+              <Select
+                value={reuseRequirementKey}
+                onChange={(event) => setReuseRequirementKey(event.target.value)}
+                options={[
+                  { value: '', label: 'انتخاب مدرک موردنیاز' },
+                  ...availableReuseRequirements.map((item) => ({ value: item.key, label: item.title })),
+                ]}
+              />
+              {availableReuseRequirements.length === 0 && <p className="mt-1 text-[10px] text-navy-500">نیازمندی قابل پیوست جدیدی وجود ندارد.</p>}
+            </Field>
+          )}
           {requests.length === 0 && (
             <p className="text-[11px] text-navy-500">پرونده در جریانی وجود ندارد. ابتدا از بخش خدمات، درخواست جدید ثبت کنید.</p>
           )}

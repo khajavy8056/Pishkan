@@ -73,16 +73,23 @@ staffRouter.get('/', requirePermission('staff.view'), asyncRoute(async (req, res
 staffRouter.get('/me/workload', asyncRoute(async (req, res) => {
   const userId = req.auth!.user.id;
   const active = await q<any>(
-    `SELECT r.id, r.tracking_code, r.status, r.priority, r.due_at, s.title AS service_title, u.full_name AS customer_name
+    `SELECT r.id, r.tracking_code, r.status, r.priority, r.due_at, r.estimated_completion_at, s.title AS service_title, u.full_name AS customer_name
      FROM requests r JOIN services s ON s.id = r.service_id JOIN users u ON u.id = r.customer_id
      WHERE r.assigned_to = ? AND r.status NOT IN ('completed','cancelled','rejected')
      ORDER BY CASE r.priority WHEN 'high' THEN 0 ELSE 1 END, r.due_at ASC LIMIT 50`, [userId],
   );
-  const pendingDocs = hasPermission(req.auth!.permissions,'documents.view') ? await q<any>(
-    `SELECT d.id, d.title, d.created_at, r.tracking_code, r.id AS request_id
-     FROM request_documents d JOIN requests r ON r.id = d.request_id
-     WHERE d.status = 'pending' AND (r.assigned_to = ? OR ? = 1) LIMIT 20`,
-    [userId, officeScope(req.auth!) && hasPermission(req.auth!.permissions, 'documents.approve') ? 1 : 0],
+  const canSeeOfficeQueue = officeScope(req.auth!) && hasPermission(req.auth!.permissions, 'documents.approve');
+  const pendingDocs = hasPermission(req.auth!.permissions, 'documents.view') ? await q<any>(
+    `SELECT * FROM (
+       SELECT 'request' AS record_type, d.id, d.title, d.created_at, r.tracking_code, r.id AS request_id
+       FROM request_documents d JOIN requests r ON r.id=d.request_id
+       WHERE d.status='pending' AND (r.assigned_to=? OR ?=1)
+       UNION ALL
+       SELECT 'profile' AS record_type, d.id, COALESCE(d.title,d.doc_type) AS title, d.created_at, NULL AS tracking_code, NULL AS request_id
+       FROM customer_documents d
+       WHERE d.status='pending' AND (?=1 OR EXISTS(SELECT 1 FROM requests r WHERE r.customer_id=d.customer_id AND r.assigned_to=?))
+     ) pending_queue ORDER BY created_at ASC LIMIT 20`,
+    [userId, canSeeOfficeQueue ? 1 : 0, canSeeOfficeQueue ? 1 : 0, userId],
   ) : [];
   const today = new Date().toISOString().slice(0, 10);
   const shift = await one<any>('SELECT * FROM shifts WHERE user_id = ? AND shift_date = ? AND status <> ?', [userId, today, 'leave']);
@@ -98,9 +105,10 @@ staffRouter.get('/me/workload', asyncRoute(async (req, res) => {
   ok(res, {
     activeRequests: active.map((r) => ({
       id: r.id, trackingCode: r.tracking_code, status: r.status, priority: r.priority,
-      dueAt: r.due_at, serviceTitle: r.service_title, customerName: r.customer_name,
+      dueAt: r.due_at, deadlineAt: r.due_at, estimatedCompletionAt: r.estimated_completion_at,
+      serviceTitle: r.service_title, customerName: r.customer_name,
     })),
-    pendingDocuments: pendingDocs.map((d) => ({ id: d.id, title: d.title, requestId: d.request_id, trackingCode: d.tracking_code, createdAt: d.created_at })),
+    pendingDocuments: pendingDocs.map((d) => ({ id: d.id, recordType: d.record_type, title: d.title, requestId: d.request_id, trackingCode: d.tracking_code, createdAt: d.created_at })),
     shift: shift ? { id: shift.id, startTime: shift.start_time, endTime: shift.end_time } : null,
     attendance: attendance ? { checkIn: attendance.check_in, checkOut: attendance.check_out } : null,
     completedLast30Days: Number(monthly?.c ?? 0),

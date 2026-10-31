@@ -21,10 +21,13 @@ import http from 'node:http';
 import { spawnSync } from 'node:child_process';
 
 import {
-  MODULE_DIR, compareVersions, findFreePort, formatBytes, isPortBusy, parseArgs, pidAlive, readJson, writeJson,
+  MODULE_DIR, compareVersions, envFilePath, findFreePort, formatBytes, isPortBusy, parseArgs, pidAlive, readJson, writeJson,
 } from './common.mjs';
 import { formatEnvValue, readEnvFile, renderEnvFile, restoreEnvFile, upsertEnvFile } from './envfile.mjs';
+import { firewallRuleName, isPrivateLanIPv4, isSafeWindowsBindConfig, privateLanIPv4Addresses, privateLanUrls, resolveLanAccess } from './lan-access.mjs';
 import { fixFile, lintAll, lintFile, parseAll } from './ps-lint.mjs';
+import { runLanFirewall } from './lan-firewall.mjs';
+import { formatManagerLogLine, sanitizeManagerLogMessage } from './manager-log.mjs';
 
 const args = parseArgs();
 const verbose = args.has('verbose');
@@ -56,6 +59,19 @@ async function testAsync(name, fn) {
 }
 
 const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'pishkan-selftest-'));
+
+test('گزارش مدیر خطاهای فنی را با حذف اسرار و داده هویتی ثبت می‌کند', () => {
+  const sample = 'password="hunter2" Bearer abc.def token=secrettoken authority=AUTH-123 database_url=postgres://dbuser:dbpass@db.local/pishkan raw=redis://cache:cachepass@cache.local/0 callback_url=https://gateway.example.test/callback?paymentId=PAY-456 username=manager_admin full_name=AliceExample national=1234567890 mobile=09123456789 email=person@example.com path=/home/alice/Pishkan\nstack line';
+  const safe = sanitizeManagerLogMessage(sample);
+  for (const secret of ['hunter2', 'abc.def', 'secrettoken', 'AUTH-123', 'dbpass', 'cachepass', 'PAY-456', 'gateway.example.test', 'manager_admin', 'AliceExample', '1234567890', '09123456789', 'person@example.com', '/home/alice']) {
+    assert.equal(safe.includes(secret), false, `مقدار حساس در گزارش مانده است: ${secret}`);
+  }
+  assert.equal(safe.includes('stack line'), true);
+  assert.equal(safe.includes('\n'), false, 'پیام چندخطی باید به یک خط تبدیل شود');
+  const line = formatManagerLogLine(sample, new Date('2026-10-31T12:00:00.000Z'));
+  assert.match(line, /^\[2026-10-31T12:00:00\.000Z\] /);
+  assert.ok(line.endsWith('\n'));
+});
 
 /* ------------------------- Windows script encoding ----------------------- */
 
@@ -145,6 +161,124 @@ test('بازگردانی نسخه پشتیبان تنظیمات', () => {
 test('renderEnvFile همه مقادیر را نقل‌قول می‌کند', () => {
   const text = renderEnvFile({ A: '1', B: 'x y' });
   assert.equal(text, 'A="1"\nB="x y"\n');
+});
+
+test('دسترسی LAN در نصب‌کننده فقط با انتخاب صریح فعال می‌شود و پیش‌فرض loopback است', () => {
+  assert.deepEqual(resolveLanAccess(undefined, {}), { enabled: false, host: '127.0.0.1', value: 'false' });
+  assert.deepEqual(resolveLanAccess(undefined, { LAN_ACCESS: 'true' }), { enabled: true, host: '0.0.0.0', value: 'true' });
+  assert.deepEqual(resolveLanAccess(false, { LAN_ACCESS: 'true' }), { enabled: false, host: '127.0.0.1', value: 'false' });
+  assert.deepEqual(resolveLanAccess(true, {}), { enabled: true, host: '0.0.0.0', value: 'true' });
+  assert.equal(isSafeWindowsBindConfig('127.0.0.1', false), true);
+  assert.equal(isSafeWindowsBindConfig('0.0.0.0', false), false);
+  assert.equal(isSafeWindowsBindConfig('0.0.0.0', true), true);
+  assert.equal(isSafeWindowsBindConfig('192.168.1.5', true), false);
+});
+
+test('آدرس‌های موبایل فقط IPv4 خصوصی را نمایش می‌دهند', () => {
+  const interfaces = {
+    wifi: [
+      { address: '192.168.1.18', family: 'IPv4', internal: false },
+      { address: '10.0.0.8', family: 4, internal: false },
+      { address: '172.31.0.9', family: 'IPv4', internal: false },
+      { address: '172.32.0.9', family: 'IPv4', internal: false },
+      { address: '169.254.2.3', family: 'IPv4', internal: false },
+      { address: '8.8.8.8', family: 'IPv4', internal: false },
+      { address: '127.0.0.1', family: 'IPv4', internal: true },
+      { address: 'fd00::1', family: 'IPv6', internal: false },
+    ],
+  };
+  assert.equal(isPrivateLanIPv4('172.16.0.1'), true);
+  assert.equal(isPrivateLanIPv4('172.32.0.1'), false);
+  assert.deepEqual(privateLanIPv4Addresses(interfaces), ['10.0.0.8', '172.31.0.9', '192.168.1.18']);
+  assert.deepEqual(privateLanUrls(3000, interfaces), [
+    'http://10.0.0.8:3000', 'http://172.31.0.9:3000', 'http://192.168.1.18:3000',
+  ]);
+  assert.deepEqual(privateLanUrls(70000, interfaces), []);
+});
+
+test('اجرای مدیریت Firewall خارج از Windows بدون تغییر تنظیمات رد می‌شود', () => {
+  if (process.platform === 'win32') {
+    skipped.push('بررسی عدم اجرای PowerShell خارج از Windows: پلتفرم جاری Windows است.');
+    return;
+  }
+  const result = runLanFirewall('ensure', { root: tmp, port: 3000, program: process.execPath });
+  assert.equal(result.ok, false);
+  assert.match(result.message, /فقط در نصب Windows/);
+});
+
+test('شناسه‌های قانون فایروال به نصب محدود و پایدارند', () => {
+  const first = firewallRuleName(path.join(tmp, 'Pishkan'));
+  assert.equal(first, firewallRuleName(path.join(tmp, 'Pishkan')));
+  assert.notEqual(first, firewallRuleName(path.join(tmp, 'Other')));
+  assert.match(first, /^PishkanLAN_[a-f0-9]{16}$/);
+});
+
+test('اسکریپت فایروال فقط Private/LocalSubnet را مجاز و Public/Domain را مسدود می‌کند', () => {
+  const firewall = readFileSync(path.join(MODULE_DIR, 'lan-firewall.ps1'), 'utf8').replace(/^\uFEFF/, '');
+  assert.match(firewall, /-Profile Private -Protocol TCP -LocalPort \$port -RemoteAddress LocalSubnet/);
+  assert.match(firewall, /-Profile Public,Domain -Protocol TCP -LocalPort \$port -RemoteAddress Any/);
+  assert.match(firewall, /DefaultInboundAction -ne 'Block'/);
+  assert.match(firewall, /Find-BroadAllowRule/);
+  assert.match(firewall, /function Test-ExactProfileSet/);
+  assert.match(firewall, /Test-ExactProfileSet \$Rule\.Profile \$Profile/);
+  assert.match(firewall, /function Test-ExactPort/);
+  assert.match(firewall, /Test-ExactPort \$portFilter\.LocalPort \$Port/);
+  assert.match(firewall, /function Test-ExactValueSet/);
+  assert.match(firewall, /Test-ExactValueSet \$addressFilter\.RemoteAddress \$RemoteAddress/);
+  assert.match(firewall, /Rule\.EdgeTraversalPolicy -ne 'Block'/);
+  assert.match(firewall, /Test-RuleShape \$block 'Block' 'Public,Domain'/);
+  assert.match(firewall, /-EdgeTraversalPolicy Block/);
+  assert.doesNotMatch(firewall, /Set-NetFirewallProfile/);
+});
+
+test('ناظر LAN نحو JavaScript معتبر دارد', () => {
+  const guard = spawnSync(process.execPath, ['--check', path.join(MODULE_DIR, 'lan-guard.mjs')], { encoding: 'utf8' });
+  assert.equal(guard.status, 0, guard.stderr || guard.stdout);
+});
+
+test('installer, manager و API فقط پس از opt-in و تأیید Firewall به LAN bind می‌کنند', () => {
+  const installer = readFileSync(path.join(MODULE_DIR, 'installer.mjs'), 'utf8');
+  const manager = readFileSync(path.join(MODULE_DIR, 'manager.mjs'), 'utf8');
+  const lanGuard = readFileSync(path.join(MODULE_DIR, 'lan-guard.mjs'), 'utf8');
+  const apiGate = readFileSync(path.join(MODULE_DIR, '..', '..', 'apps', 'api', 'src', 'lib', 'server-bind.ts'), 'utf8');
+  const apiEntry = readFileSync(path.join(MODULE_DIR, '..', '..', 'apps', 'api', 'src', 'index.ts'), 'utf8');
+  assert.match(installer, /HOST: lan\.host/);
+  assert.match(installer, /LAN_ACCESS: lan\.value/);
+  assert.match(installer, /ZARINPAL_CALLBACK_BASE_URL/);
+  assert.match(installer, /runLanFirewall\('ensure'/);
+  assert.match(manager, /runLanFirewall\('ensure'/);
+  assert.match(manager, /launchLanGuard/);
+  assert.match(manager, /PISHKAN_LAN_FIREWALL_STATUS_FILE/);
+  assert.match(manager, /PISHKAN_LAN_FIREWALL_TOKEN/);
+  assert.match(manager, /PISHKAN_LAN_FIREWALL_VERIFIED: LAN_ACCESS \? 'true' : 'false'/);
+  assert.match(lanGuard, /runLanFirewall\('status'/);
+  assert.match(lanGuard, /writeLease\(false/);
+  assert.match(lanGuard, /stopOwnedServer/);
+  assert.match(apiGate, /isLanFirewallLeaseValid/);
+  assert.match(apiEntry, /firewall lease expired; closing the LAN listener/);
+  assert.match(manager, /mobileUrls/);
+  assert.match(manager, /formatManagerLogLine/);
+  assert.match(manager, /Unhandled manager failure/);
+  assert.match(apiGate, /platform !== 'win32'\) return configuredHost/);
+  assert.match(apiGate, /PISHKAN_LAN_FIREWALL_VERIFIED/);
+});
+
+await testAsync('installer dry-run persists opt-in LAN exactly and never touches Windows Firewall', async () => {
+  for (const enabled of [false, true]) {
+    const root = path.join(tmp, enabled ? 'installer-lan-on' : 'installer-lan-off');
+    const result = spawnSync(process.execPath, [
+      path.join(MODULE_DIR, 'installer.mjs'), '--root', root, '--dry-run', '--json-lines', '--job-stdin',
+    ], {
+      input: JSON.stringify({ port: enabled ? 45871 : 45872, lanAccess: enabled }),
+      encoding: 'utf8',
+      timeout: 60_000,
+    });
+    assert.equal(result.status, 0, result.stderr || result.stdout);
+    const settings = readEnvFile(envFilePath(root));
+    assert.equal(settings.LAN_ACCESS, enabled ? 'true' : 'false');
+    assert.equal(settings.HOST, enabled ? '0.0.0.0' : '127.0.0.1');
+    assert.equal(settings.ZARINPAL_CALLBACK_BASE_URL, '');
+  }
 });
 
 test('کلید تنظیمات نامعتبر رد می‌شود', () => {
@@ -420,6 +554,10 @@ await testAsync('پشتیبان‌گیری بدون پایگاه داده با �
 });
 
 /* -------------------------------- reporting ------------------------------ */
+
+if (process.platform !== 'win32') {
+  skipped.push('قانون واقعی Windows Defender Firewall و دسترسی موبایل روی Wi‑Fi: فقط روی Windows واقعی قابل اجراست.');
+}
 
 fs.rmSync(tmp, { recursive: true, force: true });
 const failed = results.filter((result) => !result.ok);

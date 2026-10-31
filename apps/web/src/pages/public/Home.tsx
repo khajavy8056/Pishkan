@@ -5,7 +5,7 @@ import {
   ClipboardList, Bell, UserRound, ChevronLeft, Star, Users, BadgeCheck,
 } from 'lucide-react';
 import { PublicLayout } from '../../components/public-layout';
-import { useSite, type Service } from '../../lib/site';
+import { formatDuration, useSite, type Service } from '../../lib/site';
 import { useAuth,homeFor } from '../../lib/auth';
 import { api } from '../../lib/api';
 import { faNum, rial } from '../../lib/format';
@@ -112,7 +112,7 @@ export function HomePage() {
                 <h3 className="text-sm font-semibold leading-6 text-navy-900">{service.title}</h3>
                 <p className="line-clamp-2 text-xs leading-5 text-navy-500">{service.summary}</p>
                 <div className="mt-auto flex items-center justify-between pt-2 text-[11px] text-navy-500">
-                  <span>{service.estimatedDays ? `${faNum(service.estimatedDays)} روز کاری` : '—'}</span>
+                  <span>{formatDuration(service.estimatedMinutes, service.estimatedDays)}</span>
                   <span className="font-medium text-navy-800">{rial(service.finalFee)}</span>
                 </div>
               </Link>

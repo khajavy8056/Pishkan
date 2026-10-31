@@ -17,7 +17,14 @@ import {
 import { api, ApiFailure } from '../../lib/api';
 import { faDate, faDateTime, faNum, relative, rial, STATUS_LABELS } from '../../lib/format';
 import { useAuth } from '../../lib/auth';
-import { useSite } from '../../lib/site';
+import { formatDuration, useSite } from '../../lib/site';
+
+const SERVICE_DURATION_UNITS = [
+  { value: 'minute', label: 'دقیقه', factor: 1 },
+  { value: 'hour', label: 'ساعت', factor: 60 },
+  { value: 'day', label: 'روز', factor: 1440 },
+] as const;
+const serviceDurationFactor = (unit: string) => SERVICE_DURATION_UNITS.find((item) => item.value === unit)?.factor ?? 1;
 
 /* -------------------------------- workbench ------------------------------- */
 
@@ -112,7 +119,7 @@ export function StaffWorkbench() {
                     <p className="truncate text-sm font-medium text-navy-900">{item.serviceTitle}</p>
                     <p className="mt-0.5 text-[11px] text-navy-500">
                       {item.customerName} • {item.trackingCode}
-                      {item.dueAt ? ` • مهلت ${faDate(item.dueAt)}` : ''}
+                      {item.estimatedCompletionAt ? ` • برآورد ${faDate(item.estimatedCompletionAt)}` : ''}{item.deadlineAt ? ` • مهلت قطعی ${faDate(item.deadlineAt)}` : ''}
                     </p>
                   </div>
                   <div className="flex items-center gap-2">
@@ -133,9 +140,9 @@ export function StaffWorkbench() {
             ) : (
               <div className="space-y-2">
                 {workload.pendingDocuments.map((doc: any) => (
-                  <Link key={doc.id} to={`/staff/requests/${doc.requestId}`} className="block rounded-xl bg-amber-50/70 px-3 py-2.5 hover:bg-amber-100/70">
+                  <Link key={`${doc.recordType}:${doc.id}`} to={doc.recordType === 'profile' ? '/staff/documents' : `/staff/requests/${doc.requestId}`} className="block rounded-xl bg-amber-50/70 px-3 py-2.5 hover:bg-amber-100/70">
                     <p className="truncate text-xs font-medium text-navy-900">{doc.title}</p>
-                    <p className="mt-0.5 text-[10px] text-navy-500">{doc.trackingCode} • {relative(doc.createdAt)}</p>
+                    <p className="mt-0.5 text-[10px] text-navy-500">{doc.recordType === 'profile' ? 'مدرک پروفایل' : doc.trackingCode} • {relative(doc.createdAt)}</p>
                   </Link>
                 ))}
               </div>
@@ -303,6 +310,8 @@ export function RequestDetail({ variant = 'staff' }: { variant?: 'staff' | 'admi
   const [error, setError] = useState('');
   const [note, setNote] = useState('');
   const [statusModal, setStatusModal] = useState(false);
+  const [deadlineModal, setDeadlineModal] = useState(false);
+  const [deadlineInput, setDeadlineInput] = useState('');
   const [assignModal, setAssignModal] = useState(false);
   const [candidates, setCandidates] = useState<any[]>([]);
   const [nextStatus, setNextStatus] = useState('');
@@ -331,6 +340,27 @@ export function RequestDetail({ variant = 'staff' }: { variant?: 'staff' | 'admi
       load();
     } catch (err) {
       notify(err instanceof ApiFailure ? err.message : 'خطا', 'error');
+    } finally { setBusy(false); }
+  };
+
+  const openDeadline = () => {
+    if (!request?.deadlineAt) setDeadlineInput('');
+    else {
+      const value = new Date(request.deadlineAt);
+      setDeadlineInput(new Date(value.getTime() - value.getTimezoneOffset() * 60_000).toISOString().slice(0, 16));
+    }
+    setDeadlineModal(true);
+  };
+
+  const saveDeadline = async (deadlineAt: string | null) => {
+    setBusy(true);
+    try {
+      await api.patch(`/api/requests/${id}/deadline`, { deadlineAt });
+      notify(deadlineAt ? 'مهلت قطعی ذخیره شد.' : 'مهلت قطعی برداشته شد.', 'success');
+      setDeadlineModal(false);
+      load();
+    } catch (err) {
+      notify(err instanceof ApiFailure ? err.message : 'ذخیره مهلت ناموفق بود.', 'error');
     } finally { setBusy(false); }
   };
 
@@ -418,6 +448,7 @@ export function RequestDetail({ variant = 'staff' }: { variant?: 'staff' | 'admi
         actions={
           <div className="flex flex-wrap gap-2">
             {can('requests.edit')&&<Button size="sm" variant="ghost" onClick={() => { setNextStatus(request.status); setStatusModal(true); }}>تغییر وضعیت</Button>}
+            {can('requests.edit')&&<Button size="sm" variant="ghost" onClick={openDeadline}><CalendarClock className="size-4" /> مهلت قطعی</Button>}
             {office&&can('requests.edit')&&<Button size="sm" variant="ghost" onClick={openAssign}><UserPlus className="size-4" /> ارجاع مسئول</Button>}
             <Link to={`${base}/messages?request=${request.id}`} className="btn-ghost btn-sm"><MessageSquare className="size-4" /> گفت‌وگو</Link>
           </div>
@@ -431,7 +462,8 @@ export function RequestDetail({ variant = 'staff' }: { variant?: 'staff' | 'admi
               <div className="flex flex-wrap items-center gap-2">
                 <StatusBadge status={request.status} label={request.statusLabel} />
                 <StatusBadge status={request.paymentStatus} />
-                {request.dueAt && <span className="text-xs text-navy-500">مهلت: {faDate(request.dueAt)}</span>}
+                {request.estimatedCompletionAt && <span className="text-xs text-navy-500">برآورد پایان: {faDate(request.estimatedCompletionAt)}</span>}
+                {request.deadlineAt && <span className="text-xs font-medium text-rose-700">مهلت قطعی: {faDate(request.deadlineAt)}</span>}
               </div>
               <span className="text-sm font-bold text-navy-900">{rial(request.total)}</span>
             </div>
@@ -580,6 +612,25 @@ export function RequestDetail({ variant = 'staff' }: { variant?: 'staff' | 'admi
         </div>
       </Modal>
 
+      <Modal open={deadlineModal} onClose={() => setDeadlineModal(false)} title="تعیین مهلت قطعی"
+        footer={<>
+          <Button variant="ghost" onClick={() => setDeadlineModal(false)}>انصراف</Button>
+          {request.deadlineAt && <Button variant="danger" loading={busy} onClick={() => saveDeadline(null)}>برداشتن مهلت</Button>}
+          <Button loading={busy} onClick={() => {
+            if (!deadlineInput) { notify('زمان مهلت را انتخاب کنید یا از گزینهٔ برداشتن مهلت استفاده کنید.', 'error'); return; }
+            const value = new Date(deadlineInput);
+            if (Number.isNaN(value.getTime())) { notify('تاریخ و ساعت معتبر نیست.', 'error'); return; }
+            void saveDeadline(value.toISOString());
+          }}>ثبت مهلت</Button>
+        </>}>
+        <div className="space-y-3">
+          <Field label="تاریخ و ساعت مهلت قطعی" required>
+            <Input type="datetime-local" value={deadlineInput} onChange={(event) => setDeadlineInput(event.target.value)} dir="ltr" />
+          </Field>
+          {request.estimatedCompletionAt && <p className="rounded-lg bg-surface-3 p-3 text-[11px] leading-6 text-navy-600">برآورد فعلی پایان خدمت: {faDateTime(request.estimatedCompletionAt)}. این مقدار جدا از مهلت قطعی عملیات است.</p>}
+        </div>
+      </Modal>
+
       <Modal open={assignModal} onClose={() => setAssignModal(false)} title="ارجاع پرونده"
         footer={<><Button variant="ghost" onClick={() => setAssignModal(false)}>بستن</Button><Button loading={busy} onClick={autoAssign}><RefreshCw className="size-4" /> ارجاع خودکار</Button></>}>
         <p className="mb-2 text-xs leading-6 text-navy-500">
@@ -615,6 +666,7 @@ export function RequestDetail({ variant = 'staff' }: { variant?: 'staff' | 'admi
 
 export function StaffDocuments() {
   const { notify } = useToast();
+  const { can } = useAuth();
   const [items, setItems] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [onlyMine, setOnlyMine] = useState(false);
@@ -630,10 +682,17 @@ export function StaffDocuments() {
   useEffect(load, [onlyMine]);
 
   const review = async (doc: any, decision: 'approved' | 'rejected') => {
-    const note = decision === 'rejected' ? window.prompt('دلیل رد مدرک:') ?? '' : '';
+    const note = decision === 'rejected' ? window.prompt('دلیل رد مدرک (حداقل ۳ نویسه):') : '';
+    if (decision === 'rejected' && (note ?? '').trim().length < 3) {
+      if (note !== null) notify('برای رد مدرک دلیل حداقل سه‌حرفی لازم است.', 'error');
+      return;
+    }
+    const path = doc.recordType === 'profile'
+      ? `/api/documents/${doc.id}/review`
+      : `/api/requests/${doc.requestId}/documents/${doc.id}/review`;
     try {
-      await api.post(`/api/requests/${doc.requestId}/documents/${doc.id}/review`, { decision, note: note || undefined });
-      notify(decision === 'approved' ? 'مدرک تأیید شد.' : 'مدرک رد شد.', 'success');
+      await api.post(path, { decision, note: note?.trim() || undefined });
+      notify(decision === 'approved' ? 'مدرک تأیید شد.' : 'مدرک رد شد و دلیل برای مشتری ثبت شد.', 'success');
       load();
     } catch (err) {
       notify(err instanceof ApiFailure ? err.message : 'خطا', 'error');
@@ -642,7 +701,7 @@ export function StaffDocuments() {
 
   return (
     <AppShell variant="staff">
-      <PageHeader title="بررسی مدارک" description="مدارک بارگذاری‌شده توسط مشتریان که در انتظار تأیید یا رد هستند."
+      <PageHeader title="بررسی مدارک" description="مدارک پرونده و پروفایل مشتری که در انتظار بررسی و ثبت تصمیم هستند."
         actions={<Button size="sm" variant={onlyMine ? 'primary' : 'ghost'} onClick={() => setOnlyMine((v) => !v)}>فقط پرونده‌های من</Button>} />
       {loading && <Loading />}
       {!loading && items.length === 0 && <EmptyState title="مدرکی در انتظار بررسی نیست" description="به‌محض بارگذاری مدرک جدید، در این فهرست نمایش داده می‌شود." />}
@@ -655,7 +714,7 @@ export function StaffDocuments() {
                 <div className="min-w-0">
                   <p className="font-medium text-navy-900">{doc.title}</p>
                   <p className="mt-0.5 text-xs text-navy-500">
-                    {doc.customerName} • {doc.serviceTitle} • {doc.trackingCode} • {relative(doc.createdAt)}
+                    {doc.customerName} • {doc.recordType === 'profile' ? `مدرک پروفایل${doc.docTypeLabel ? ` (${doc.docTypeLabel})` : ''}` : `${doc.serviceTitle} • ${doc.trackingCode}`} • {relative(doc.createdAt)}
                   </p>
                   <p className="mt-1 truncate text-[11px] text-navy-400" dir="ltr">{doc.file.name}</p>
                   <FileSummary file={doc.file} />
@@ -666,9 +725,11 @@ export function StaffDocuments() {
               </div>
               <div className="flex flex-wrap gap-2">
                 <Button size="sm" variant="ghost" onClick={() => setViewer(doc)}><Download className="size-3.5" /> مشاهده</Button>
-                <Link to={`/staff/requests/${doc.requestId}`} className="btn-ghost btn-sm"><ArrowRight className="size-3.5" /> پرونده</Link>
-                <Button size="sm" onClick={() => review(doc, 'approved')}>تأیید</Button>
-                <Button size="sm" variant="danger" onClick={() => review(doc, 'rejected')}>رد</Button>
+                {doc.requestId && <Link to={`/staff/requests/${doc.requestId}`} className="btn-ghost btn-sm"><ArrowRight className="size-3.5" /> پرونده</Link>}
+                {can('documents.approve') && <>
+                  <Button size="sm" onClick={() => review(doc, 'approved')}>تأیید</Button>
+                  <Button size="sm" variant="danger" onClick={() => review(doc, 'rejected')}>رد</Button>
+                </>}
               </div>
             </div>
           </Card>
@@ -694,7 +755,11 @@ export function StaffCustomers() {
   const can = (permission: string) => user?.permissions === '*' || Boolean(user?.permissions?.includes(permission));
 
   const reviewProfile = async (document: any, decision: 'approved' | 'rejected') => {
-    const noteText = decision === 'rejected' ? window.prompt('دلیل رد مدرک پروفایل:') ?? '' : '';
+    const noteText = decision === 'rejected' ? window.prompt('دلیل رد مدرک پروفایل (حداقل ۳ نویسه):') : '';
+    if (decision === 'rejected' && (noteText ?? '').trim().length < 3) {
+      if (noteText !== null) notify('برای رد مدرک دلیل حداقل سه‌حرفی لازم است.', 'error');
+      return;
+    }
     try {
       await api.post(`/api/documents/${document.id}/review`, { decision, note: noteText || undefined });
       notify(decision === 'approved' ? 'مدرک پروفایل تأیید شد.' : 'مدرک پروفایل رد شد.', 'success');
@@ -862,7 +927,7 @@ export function StaffCustomService() {
   const [services, setServices] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [form, setForm] = useState({
-    customerId: '', title: '', description: '', baseFee: 0, estimatedDays: 3,
+    customerId: '', title: '', description: '', baseFee: 0, estimatedMinutes: 4320, durationUnit: 'day',
     message: '', expiryHours: 72, documents: '', steps: '',
   });
   const [creating, setCreating] = useState(false);
@@ -885,14 +950,14 @@ export function StaffCustomService() {
         title: form.title,
         description: form.description,
         baseFee: Number(form.baseFee),
-        estimatedDays: Number(form.estimatedDays),
+        estimatedMinutes: Number(form.estimatedMinutes),
         message: form.message,
         expiryHours: Number(form.expiryHours),
         documents: form.documents.split('\n').map((t) => t.trim()).filter(Boolean).map((title) => ({ title, required: true })),
         workflow: form.steps.split('\n').map((t) => t.trim()).filter(Boolean).map((title) => ({ title })),
       });
       notify('خدمت اختصاصی ایجاد شد و پیشنهاد برای مشتری ارسال شد.', 'success');
-      setForm({ customerId: '', title: '', description: '', baseFee: 0, estimatedDays: 3, message: '', expiryHours: 72, documents: '', steps: '' });
+      setForm({ customerId: '', title: '', description: '', baseFee: 0, estimatedMinutes: 4320, durationUnit: 'day', message: '', expiryHours: 72, documents: '', steps: '' });
       load();
     } catch (err) {
       notify(err instanceof ApiFailure ? err.message : 'خطا', 'error');
@@ -919,7 +984,15 @@ export function StaffCustomService() {
             <Field label="توضیحات"><Textarea value={form.description} onChange={(e) => setForm({ ...form, description: e.target.value })} /></Field>
             <div className="grid gap-3 sm:grid-cols-3">
               <Field label="هزینه (ریال)" required><Input type="number" value={form.baseFee} onChange={(e) => setForm({ ...form, baseFee: Number(e.target.value) })} /></Field>
-              <Field label="روز کاری"><Input type="number" value={form.estimatedDays} onChange={(e) => setForm({ ...form, estimatedDays: Number(e.target.value) })} /></Field>
+              <Field label="زمان تخمینی">
+                <div className="flex gap-2">
+                  <Input type="number" min={1} step={form.durationUnit === 'minute' ? 1 : 0.5}
+                    value={Math.round((Number(form.estimatedMinutes) / serviceDurationFactor(form.durationUnit)) * 100) / 100}
+                    onChange={(e) => setForm({ ...form, estimatedMinutes: Number(e.target.value) * serviceDurationFactor(form.durationUnit) })} />
+                  <Select value={form.durationUnit} onChange={(e) => setForm({ ...form, durationUnit: e.target.value })}
+                    options={SERVICE_DURATION_UNITS.map((unit) => ({ value: unit.value, label: unit.label }))} className="w-32" />
+                </div>
+              </Field>
               <Field label="اعتبار پیشنهاد (ساعت)"><Input type="number" value={form.expiryHours} onChange={(e) => setForm({ ...form, expiryHours: Number(e.target.value) })} /></Field>
             </div>
             <Field label="پیام به مشتری"><Textarea value={form.message} onChange={(e) => setForm({ ...form, message: e.target.value })} placeholder="توضیح شرایط و مبلغ پیشنهادی…" /></Field>
@@ -939,7 +1012,7 @@ export function StaffCustomService() {
                 <div className="flex items-start justify-between gap-2">
                   <div className="min-w-0">
                     <p className="truncate text-sm font-medium text-navy-900">{service.title}</p>
-                    <p className="mt-0.5 text-[11px] text-navy-500">{service.customerName} • {rial(service.baseFee)}</p>
+                    <p className="mt-0.5 text-[11px] text-navy-500">{service.customerName} • {rial(service.baseFee)} • {formatDuration(service.estimatedMinutes, service.estimatedDays)}</p>
                   </div>
                   <StatusBadge status={service.offerStatus ?? 'draft'} />
                 </div>

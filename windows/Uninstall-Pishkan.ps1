@@ -35,6 +35,18 @@ if ($node) {
   Write-Step 'توقف سرویس'
   & $node.Source (Join-Path $PSScriptRoot 'lib\manager.mjs') stop --root $RepoRoot
   Write-Ok 'درخواست توقف ارسال شد.'
+  Write-Step 'پاک‌کردن قانون فایروال LAN'
+  $lanOutput = & $node.Source (Join-Path $PSScriptRoot 'lib\manager.mjs') firewall-remove --root $RepoRoot --json 2>&1
+  $lanLine = $lanOutput | Where-Object { "$_" -like 'RESULT_JSON:*' } | Select-Object -Last 1
+  if ($lanLine) {
+    try {
+      $lanResult = ("$lanLine".Substring(12) | ConvertFrom-Json)
+      if ($lanResult.ok) { Write-Ok ([string]$lanResult.message) }
+      else { Write-Warn ([string]$lanResult.message) }
+    } catch { Write-Warn 'وضعیت قانون فایروال خوانده نشد؛ برای پاک‌سازی، حذف نصب‌کننده را با Administrator اجرا کنید.' }
+  } else {
+    Write-Warn 'قانون فایروال پاک نشد؛ حذف نصب‌کننده را با Administrator اجرا کنید.'
+  }
 } else {
   Write-Warn 'Node.js پیدا نشد؛ اگر سرویس در حال اجراست آن را از Task Manager ببندید.'
 }

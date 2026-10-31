@@ -32,6 +32,8 @@ import {
   isPortBusy, findFreePort, parseArgs, pidAlive, readJson, sleep, stateFile, uploadDir, writeJson,
 } from './common.mjs';
 import { readEnvFile, upsertEnvFile } from './envfile.mjs';
+import { privateLanUrls, resolveLanAccess } from './lan-access.mjs';
+import { runLanFirewall } from './lan-firewall.mjs';
 
 const args = parseArgs();
 const ROOT = path.resolve(args.get('root', DEFAULT_ROOT));
@@ -57,7 +59,7 @@ function emit(event) {
     return;
   }
   if (event.type === 'step') {
-    const mark = event.status === 'ok' ? '✓' : event.status === 'fail' ? '✗' : event.status === 'skip' ? '–' : '…';
+    const mark = event.status === 'ok' ? '✓' : event.status === 'fail' ? '✗' : event.status === 'warn' ? '!' : event.status === 'skip' ? '–' : '…';
     process.stdout.write(`[${mark}] ${event.title}${event.message ? ` — ${event.message}` : ''}\n`);
   } else if (event.type === 'result') {
     process.stdout.write(event.ok ? '\nنصب با موفقیت پایان یافت.\n' : '\nنصب ناموفق بود.\n');
@@ -73,7 +75,7 @@ function log(message, level = 'info') {
 }
 
 /** Overall progress weights (sum = 100). */
-const WEIGHTS = { check: 3, env: 3, deps: 41, build: 18, database: 13, admin: 6, start: 6, verify: 10 };
+const WEIGHTS = { check: 3, env: 2, lan: 2, deps: 40, build: 18, database: 13, admin: 6, start: 6, verify: 10 };
 let completedWeight = 0;
 
 function stepEvent(id, title, status, options = {}) {
@@ -88,8 +90,8 @@ function stepEvent(id, title, status, options = {}) {
     stepProgress: options.stepProgress ?? 0,
     at: new Date().toISOString(),
   };
-  if (status === 'ok' || status === 'skip' || status === 'fail') {
-    if (!events.steps.some((s) => s.id === id && ['ok', 'fail', 'skip'].includes(s.status))) {
+  if (status === 'ok' || status === 'skip' || status === 'fail' || status === 'warn') {
+    if (!events.steps.some((s) => s.id === id && ['ok', 'fail', 'skip', 'warn'].includes(s.status))) {
       completedWeight += WEIGHTS[id] ?? 0;
       event.progress = Math.min(completedWeight, 100);
     }
@@ -301,14 +303,67 @@ async function stepEnv(job) {
     port = free;
   }
 
+  if (job.lanAccess !== undefined && typeof job.lanAccess !== 'boolean') {
+    throw Object.assign(new Error('گزینهٔ دسترسی LAN باید روشن/خاموش باشد.'), { step: 'lan' });
+  }
+  const lan = resolveLanAccess(job.lanAccess, existing);
+  const wasLanEnabled = String(existing.LAN_ACCESS ?? '').toLowerCase() === 'true';
+  let firewallWarning = '';
+  if (lan.enabled) {
+    stepEvent('lan', 'دسترسی شبکه محلی', 'running', { stepProgress: 10 });
+    if (DRY_RUN) {
+      stepEvent('lan', 'دسترسی شبکه محلی', 'skip', { message: 'dry-run: فقط فایل تنظیمات نمونه ساخته می‌شود و فایروال تغییر نمی‌کند.' });
+    } else {
+      const firewall = runLanFirewall('ensure', { root: ROOT, port, program: process.execPath });
+      if (!firewall.ok) {
+        stepEvent('lan', 'دسترسی شبکه محلی', 'fail', { message: firewall.message });
+        throw Object.assign(new Error(firewall.message), { step: 'lan', command: 'PowerShell lan-firewall.ps1' });
+      }
+      stepEvent('lan', 'دسترسی شبکه محلی', 'ok', {
+        message: 'فایروال فقط Private/LocalSubnet را مجاز و Public/Domain را مسدود می‌کند.', stepProgress: 100,
+      });
+    }
+  } else if (wasLanEnabled) {
+    stepEvent('lan', 'دسترسی شبکه محلی', 'running', { stepProgress: 10 });
+    if (DRY_RUN) {
+      stepEvent('lan', 'دسترسی شبکه محلی', 'skip', { message: 'dry-run: قانون فایروال موجود دست‌نخورده می‌ماند.' });
+    } else {
+      if (ourServerRunning) {
+        const stopped = await managerCommand('stop', ['--json']);
+        const stopPayload = JSON.parse(stopped.stdout.split('\n').find((line) => line.startsWith('RESULT_JSON:'))?.slice(12) ?? '{}');
+        if (stopped.code !== 0 || !stopPayload.ok) {
+          const message = stopPayload.message || 'سرور قبلی LAN پیش از خاموش‌کردن فایروال متوقف نشد.';
+          stepEvent('lan', 'دسترسی شبکه محلی', 'fail', { message });
+          throw Object.assign(new Error(message), { step: 'lan', output: tail(stopped.stderr || stopped.stdout, 20) });
+        }
+      }
+      const firewall = runLanFirewall('remove', { root: ROOT, port: Number(existing.PORT || port), program: process.execPath });
+      if (!firewall.ok) {
+        firewallWarning = firewall.message;
+        log(`توجه: ${firewall.message} سرویس در تنظیم جدید فقط روی loopback اجرا خواهد شد.`, 'warn');
+        stepEvent('lan', 'دسترسی شبکه محلی', 'warn', { message: 'اتصال LAN خاموش شد؛ حذف قانون فایروال به دسترسی Administrator نیاز دارد.' });
+      } else {
+        stepEvent('lan', 'دسترسی شبکه محلی', 'ok', { message: firewall.message, stepProgress: 100 });
+      }
+    }
+  } else {
+    stepEvent('lan', 'دسترسی شبکه محلی', DRY_RUN ? 'skip' : 'skip', {
+      message: DRY_RUN ? 'dry-run: دسترسی پیش‌فرض loopback حفظ شد.' : 'پیش‌فرض امن؛ برنامه فقط روی همین رایانه در دسترس است.',
+    });
+  }
+
   const values = {
     NODE_ENV: 'development',
     DB_DRIVER: 'sqlite',
     SQLITE_FILE: database.replace(/\\/g, '/'),
-    HOST: '127.0.0.1',
+    HOST: lan.host,
+    LAN_ACCESS: lan.value,
     PORT: String(port),
+    // APP_URL/API_URL stay loopback: browser requests use same-origin relative
+    // paths. External Zarinpal callbacks use a separately configured public HTTPS base.
     APP_URL: `http://127.0.0.1:${port}`,
     API_URL: `http://127.0.0.1:${port}`,
+    ZARINPAL_CALLBACK_BASE_URL: existing.ZARINPAL_CALLBACK_BASE_URL || '',
     CORS_ORIGINS: `http://127.0.0.1:${port}`,
     COOKIE_SECURE: 'false',
     APP_ENCRYPTION_KEY: existing.APP_ENCRYPTION_KEY || randomHex(32),
@@ -342,11 +397,16 @@ async function stepEnv(job) {
     fs.mkdirSync(path.join(dataDir(ROOT), dir), { recursive: true });
   }
   stepEvent('env', 'آماده‌سازی تنظیمات محلی', 'ok', {
-    message: `${reinstall ? 'تنظیمات موجود حفظ شد' : 'فایل تنظیمات ساخته شد'} · پورت ${port}`,
+    message: `${reinstall ? 'تنظیمات موجود بازبینی شد' : 'فایل تنظیمات ساخته شد'} · پورت ${port} · ${lan.enabled ? 'LAN با فایروال محدود' : 'فقط loopback'}`,
     detail: file,
     stepProgress: 100,
   });
-  return { port, file, values, reinstall, database };
+  return {
+    port, file, values, reinstall, database,
+    lanAccess: lan.enabled,
+    mobileUrls: process.platform === 'win32' && lan.enabled && !DRY_RUN ? privateLanUrls(port) : [],
+    firewallWarning,
+  };
 }
 
 function countInstalledPackages(nodeModules) {
@@ -625,14 +685,18 @@ async function stepStart(config) {
   const result = await managerCommand('start', ['--json']);
   const payload = JSON.parse(result.stdout.split('\n').find((line) => line.startsWith('RESULT_JSON:'))?.slice(12) ?? '{}');
   if (result.code !== 0 || !payload.ok) {
-    throw Object.assign(new Error(payload.error || `راه‌اندازی ناموفق بود: ${tail(result.stderr || result.stdout, 10)}`), {
+    throw Object.assign(new Error(payload.error || payload.message || `راه‌اندازی ناموفق بود: ${tail(result.stderr || result.stdout, 10)}`), {
       step: 'start', command: 'node windows/lib/manager.mjs start', exitCode: result.code,
       output: tail(result.stderr || result.stdout, 40),
     });
   }
   serverStartedHere = true;
+  if (config.lanAccess && Array.isArray(payload.mobileUrls)) config.mobileUrls = payload.mobileUrls;
+  const mobileText = config.lanAccess
+    ? (payload.mobileUrls?.length ? ` · آدرس موبایل: ${payload.mobileUrls.join('، ')}` : ' · LAN فعال است؛ برای دیدن آدرس، به Wi‑Fi خصوصی وصل شوید و Manager را تازه‌سازی کنید.')
+    : ' · دسترسی شبکه خاموش و محدود به همین رایانه است.';
   stepEvent('start', 'راه‌اندازی سرویس‌ها', 'ok', {
-    message: `سرور روی ${payload.url ?? `http://127.0.0.1:${config.port}`} پاسخ می‌دهد`,
+    message: `سرور روی ${payload.url ?? `http://127.0.0.1:${config.port}`} پاسخ می‌دهد${mobileText}`,
     stepProgress: 100,
   });
 }
@@ -728,12 +792,15 @@ async function main() {
       root: ROOT,
       url: `http://127.0.0.1:${config.port}`,
       port: config.port,
+      lanAccess: config.lanAccess,
+      mobileUrls: config.mobileUrls,
+      firewallWarning: config.firewallWarning || null,
       envFile: config.file,
       database: config.database,
       databaseDriver: 'sqlite',
       dataDir: dataDir(ROOT),
       admin: job.admin?.username ? { username: job.admin.username, createdByInstaller: true } : null,
-      steps: events.steps.filter((s) => ['ok', 'skip'].includes(s.status)),
+      steps: events.steps.filter((s) => ['ok', 'skip', 'warn'].includes(s.status)),
       verification: { checks: verification.checks?.length ?? 0, steps: verification.steps?.length ?? 0 },
       preflight: checks ? { items: checks.items?.length ?? 0, warnings: checks.warnings ?? [] } : null,
       node: process.versions.node,

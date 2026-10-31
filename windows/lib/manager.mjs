@@ -22,16 +22,20 @@
  * read-only. Backups use SQLite's `VACUUM INTO`, which is consistent while the
  * server keeps running.
  */
+import crypto from 'node:crypto';
 import fs from 'node:fs';
 import net from 'node:net';
 import path from 'node:path';
 import { spawn } from 'node:child_process';
 import {
   backupDir, controlPipePath, dataDir, dbFile, envFilePath, errorLogFile, isPortBusy,
-  isWindows, logFile, parseArgs, readJson, sleep, stateFile, uploadDir, writeJson,
+  isWindows, logFile, MODULE_DIR, parseArgs, readJson, sleep, stateFile, uploadDir, writeJson,
   pidAlive,
 } from './common.mjs';
 import { readEnvFile } from './envfile.mjs';
+import { isSafeWindowsBindConfig, privateLanUrls } from './lan-access.mjs';
+import { runLanFirewall } from './lan-firewall.mjs';
+import { formatManagerLogLine, sanitizeManagerLogMessage } from './manager-log.mjs';
 
 const args = parseArgs();
 const ROOT = path.resolve(args.get('root', process.cwd()));
@@ -40,9 +44,42 @@ const command = process.argv[2] && !process.argv[2].startsWith('--') ? process.a
 
 const env = readEnvFile(envFilePath(ROOT));
 const PORT = Number(env.PORT || 3000);
+const LAN_ACCESS = String(env.LAN_ACCESS ?? '').toLowerCase() === 'true';
+const BIND_HOST = env.HOST || '127.0.0.1';
 const URL_BASE = `http://127.0.0.1:${PORT}`;
+
+function networkConfigError() {
+  if (!Number.isInteger(PORT) || PORT < 1024 || PORT > 65535) return 'پورت برنامه در فایل تنظیمات معتبر نیست.';
+  if (!isSafeWindowsBindConfig(BIND_HOST, LAN_ACCESS)) {
+    return LAN_ACCESS
+      ? 'تنظیم LAN با HOST سازگار نیست؛ برای LAN باید HOST=0.0.0.0 باشد.'
+      : 'اتصال عمومی در فایل تنظیمات غیرفعال نیست؛ برای امنیت، HOST را روی 127.0.0.1 بگذارید یا LAN را از نصب‌کننده با فایروال محدود فعال کنید.';
+  }
+  return '';
+}
+
+function lanAddresses() {
+  return LAN_ACCESS ? privateLanUrls(PORT) : [];
+}
+
+function publicAccessDetails() {
+  const urls = lanAddresses();
+  return urls.length ? ` · موبایل (Wi‑Fi خصوصی): ${urls.join('، ')}` : ' · LAN فعال است ولی آدرس IPv4 خصوصی پیدا نشد؛ به Wi‑Fi با نمایهٔ Private وصل شوید.';
+}
 const PIPE = env.PISHKAN_CONTROL_PIPE || controlPipePath(ROOT);
 const DB = env.SQLITE_FILE || dbFile(ROOT);
+const MANAGER_LOG = path.join(dataDir(ROOT), 'logs', 'pishkan-manager.log');
+const FIREWALL_LEASE_FILE = path.join(dataDir(ROOT), 'lan-firewall-lease.json');
+
+function log(message) {
+  const line = formatManagerLogLine(message);
+  try {
+    fs.mkdirSync(path.dirname(MANAGER_LOG), { recursive: true });
+    fs.appendFileSync(MANAGER_LOG, line, 'utf8');
+  } catch {
+    console.error(`[manager] failed to persist diagnostic: ${sanitizeManagerLogMessage(message, 300)}`);
+  }
+}
 
 function out(payload) {
   if (JSON_MODE) process.stdout.write(`RESULT_JSON:${JSON.stringify(payload)}\n`);
@@ -52,6 +89,37 @@ function out(payload) {
 
 function state() {
   return readJson(stateFile(ROOT), null);
+}
+
+function firewallLeaseFresh(token) {
+  const lease = readJson(FIREWALL_LEASE_FILE, null);
+  if (!lease || lease.ok !== true || lease.token !== token || Number(lease.port) !== PORT) return false;
+  const checkedAt = Date.parse(lease.checkedAt ?? '');
+  return Number.isFinite(checkedAt) && checkedAt <= Date.now() + 2_000 && Date.now() - checkedAt <= 12_000;
+}
+
+function lanGuardHealthy(current) {
+  return Boolean(current?.lanGuardPid && pidAlive(current.lanGuardPid)
+    && current.firewallLeaseToken && firewallLeaseFresh(current.firewallLeaseToken));
+}
+
+function launchLanGuard(serverPid, token) {
+  const script = path.join(MODULE_DIR, 'lan-guard.mjs');
+  const child = spawn(process.execPath, [
+    script, '--root', ROOT, '--server-pid', String(serverPid), '--port', String(PORT),
+    '--token', token, '--program', process.execPath, '--pipe', PIPE,
+    '--lease-file', FIREWALL_LEASE_FILE,
+  ], {
+    cwd: ROOT,
+    env: { ...process.env },
+    detached: true,
+    stdio: 'ignore',
+    windowsHide: true,
+  });
+  child.once('error', (error) => log(`LAN firewall watchdog failed to launch: ${sanitizeManagerLogMessage(error?.message ?? error, 300)}`));
+  child.unref();
+  if (!child.pid) throw new Error('LAN firewall watchdog process did not start.');
+  return child.pid;
 }
 
 /**
@@ -112,12 +180,39 @@ function closeControlPipe(ms = 1500) {
 /* --------------------------------- start ---------------------------------- */
 
 async function start() {
+  const configError = networkConfigError();
+  if (configError) return out({ ok: false, port: PORT, url: URL_BASE, message: configError });
+
   const current = state();
   const owned = Boolean(current?.pid) && current.root === ROOT && pidAlive(current.pid);
   const existing = await health();
   if (existing.up && owned) {
+    if (LAN_ACCESS) {
+      const firewall = runLanFirewall('ensure', { root: ROOT, port: PORT, program: process.execPath });
+      if (!firewall.ok) {
+        // If the existing server belongs to this install, fail closed even when
+        // its old state file lacks bind metadata from a previous manager version.
+        const stopped = await stop();
+        log(`LAN start refused; firewall check failed: ${firewall.message}; owned service stopped=${stopped.ok}`);
+        return out({ ok: false, port: PORT, url: URL_BASE, lanAccess: true, firewall, serviceStopped: stopped.ok, message: firewall.message });
+      }
+    }
+    const previousHost = current?.bindHost || (current?.lanAccess ? '0.0.0.0' : '127.0.0.1');
+    const guardMissing = LAN_ACCESS && !lanGuardHealthy(current);
+    if (previousHost !== BIND_HOST || Boolean(current?.lanAccess) !== LAN_ACCESS || guardMissing) {
+      const stopped = await stop();
+      if (!stopped.ok) return out({ ok: false, port: PORT, url: URL_BASE, message: 'پیکربندی شبکه تغییر کرده اما سرویس قبلی متوقف نشد؛ تنظیم جدید اعمال نشد.' });
+      if (!LAN_ACCESS && current?.lanAccess) {
+        const removed = runLanFirewall('remove', { root: ROOT, port: PORT, program: process.execPath });
+        if (!removed.ok) log(`قانون فایروال قدیمی حذف نشد؛ سرویس جدید loopback-only خواهد بود: ${removed.message}`);
+      }
+      await sleep(600);
+      return start();
+    }
+    const mobileUrls = lanAddresses();
     return out({ ok: true, alreadyRunning: true, port: PORT, url: URL_BASE, pid: current.pid,
-      message: `Pishkan این نصب از قبل در حال اجراست: ${URL_BASE}` });
+      lanAccess: LAN_ACCESS, mobileUrls,
+      message: `Pishkan این نصب از قبل در حال اجراست: ${URL_BASE}${LAN_ACCESS ? publicAccessDetails() : ''}` });
   }
   if (existing.up) {
     // Something answers on the port but this installation does not own it: it is
@@ -136,13 +231,43 @@ async function start() {
   if (!fs.existsSync(envFilePath(ROOT))) {
     return out({ ok: false, message: 'فایل تنظیمات محلی پیدا نشد. ابتدا نصب‌کننده را اجرا کنید.' });
   }
+  if (LAN_ACCESS) {
+    const firewall = runLanFirewall('ensure', { root: ROOT, port: PORT, program: process.execPath });
+    if (!firewall.ok) {
+      log(`LAN start refused; firewall setup failed: ${firewall.message}`);
+      return out({ ok: false, port: PORT, url: URL_BASE, lanAccess: true, firewall, message: firewall.message });
+    }
+  }
+
+  const firewallLeaseToken = LAN_ACCESS ? crypto.randomBytes(24).toString('hex') : null;
+  if (firewallLeaseToken) {
+    try {
+      writeJson(FIREWALL_LEASE_FILE, {
+        ok: true, token: firewallLeaseToken, port: PORT, checkedAt: new Date().toISOString(),
+      });
+    } catch (error) {
+      log(`LAN start refused; initial firewall lease could not be written: ${sanitizeManagerLogMessage(error?.message ?? error, 300)}`);
+      return out({ ok: false, port: PORT, url: URL_BASE, lanAccess: true, message: 'تأیید زندهٔ فایروال ذخیره نشد؛ دسترسی LAN فعال نشد.' });
+    }
+  }
 
   fs.mkdirSync(path.dirname(logFile(ROOT)), { recursive: true });
   const logStream = fs.openSync(logFile(ROOT), 'a');
   const errorStream = fs.openSync(errorLogFile(ROOT), 'a');
   const child = spawn(process.execPath, ['--experimental-sqlite', apiEntry], {
     cwd: ROOT,
-    env: { ...process.env, PISHKAN_ENV_FILE: envFilePath(ROOT), PISHKAN_CONTROL_PIPE: PIPE },
+    env: {
+      ...process.env,
+      PISHKAN_ENV_FILE: envFilePath(ROOT),
+      PISHKAN_CONTROL_PIPE: PIPE,
+      PORT: String(PORT),
+      HOST: BIND_HOST,
+      LAN_ACCESS: LAN_ACCESS ? 'true' : 'false',
+      PISHKAN_LAN_FIREWALL_VERIFIED: LAN_ACCESS ? 'true' : 'false',
+      PISHKAN_LAN_FIREWALL_STATUS_FILE: LAN_ACCESS ? FIREWALL_LEASE_FILE : '',
+      PISHKAN_LAN_FIREWALL_TOKEN: firewallLeaseToken ?? '',
+      PISHKAN_LAN_FIREWALL_PORT: String(PORT),
+    },
     detached: true,
     stdio: ['ignore', logStream, errorStream],
     windowsHide: true,
@@ -152,7 +277,26 @@ async function start() {
   fs.closeSync(errorStream);
 
   const startedAt = new Date().toISOString();
-  writeJson(stateFile(ROOT), { pid: child.pid, port: PORT, startedAt, root: ROOT, log: logFile(ROOT) });
+  const nextState = {
+    pid: child.pid, port: PORT, startedAt, root: ROOT, log: logFile(ROOT),
+    bindHost: BIND_HOST, lanAccess: LAN_ACCESS,
+    firewallLeaseToken, lanGuardPid: null,
+  };
+  writeJson(stateFile(ROOT), nextState);
+  if (LAN_ACCESS) {
+    try {
+      nextState.lanGuardPid = launchLanGuard(child.pid, firewallLeaseToken);
+      writeJson(stateFile(ROOT), nextState);
+    } catch (error) {
+      fs.rmSync(FIREWALL_LEASE_FILE, { force: true });
+      log(`LAN start failed closed because its watchdog did not start: ${sanitizeManagerLogMessage(error?.message ?? error, 300)}`);
+      await closeControlPipe(1_000);
+      for (let attempt = 0; attempt < 12 && pidAlive(child.pid); attempt += 1) await sleep(250);
+      if (pidAlive(child.pid)) forceKill(child.pid);
+      fs.rmSync(stateFile(ROOT), { force: true });
+      return out({ ok: false, port: PORT, url: URL_BASE, lanAccess: true, message: 'ناظر فایروال اجرا نشد؛ سرویس LAN متوقف شد.' });
+    }
+  }
 
   for (let attempt = 0; attempt < 60; attempt += 1) {
     await sleep(500);
@@ -160,10 +304,11 @@ async function start() {
     if (probe.up) {
       const reachable = await fetch(`${URL_BASE}/`, { signal: AbortSignal.timeout(2000) })
         .then((r) => r.ok).catch(() => false);
+      const mobileUrls = lanAddresses();
       return out({
         ok: true, port: PORT, url: URL_BASE, pid: child.pid, startedAt,
-        web: reachable,
-        message: `Pishkan راه‌اندازی شد: ${URL_BASE}${reachable ? '' : ' (رابط کاربری پاسخ نداد)'}`,
+        web: reachable, lanAccess: LAN_ACCESS, mobileUrls,
+        message: `Pishkan راه‌اندازی شد: ${URL_BASE}${reachable ? '' : ' (رابط کاربری پاسخ نداد)'}${LAN_ACCESS ? publicAccessDetails() : ''}`,
       });
     }
     if (!pidAlive(child.pid)) break;
@@ -219,6 +364,8 @@ async function stop() {
   }
   const known = owned;
   if (!probe.up && !known) {
+    fs.rmSync(FIREWALL_LEASE_FILE, { force: true });
+    if (current?.root === ROOT && fs.existsSync(stateFile(ROOT))) fs.rmSync(stateFile(ROOT), { force: true });
     return out({ ok: true, alreadyStopped: true, message: 'Pishkan در حال اجرا نبود.' });
   }
   const graceful = await closeControlPipe();
@@ -244,6 +391,7 @@ async function stop() {
     }
   }
   if (fs.existsSync(stateFile(ROOT))) fs.rmSync(stateFile(ROOT), { force: true });
+  if (stopped || !current?.pid || !pidAlive(current.pid)) fs.rmSync(FIREWALL_LEASE_FILE, { force: true });
   return out({
     ok: stopped,
     graceful,
@@ -276,7 +424,8 @@ function processDetail(pid) {
 function readLogTail(lines = 40) {
   try {
     const text = fs.readFileSync(logFile(ROOT), 'utf8');
-    return text.trim().split(/\r?\n/).slice(-lines).join('\n');
+    // Sanitize legacy log files too; older versions may have written raw errors.
+    return text.trim().split(/\r?\n/).slice(-lines).map((line) => sanitizeManagerLogMessage(line)).join('\n');
   } catch {
     return '';
   }
@@ -311,6 +460,18 @@ async function status() {
   const disk = fs.existsSync(DB);
   const current = state();
   const control = probe.up ? await pingControlPipe(800) : false;
+  const configError = networkConfigError();
+  const candidateMobileUrls = lanAddresses();
+  const firewall = LAN_ACCESS && !configError
+    ? runLanFirewall('status', { root: ROOT, port: PORT, program: process.execPath })
+    : null;
+  const guardHealthy = LAN_ACCESS && lanGuardHealthy(current);
+  const lanService = LAN_ACCESS ? {
+    id: 'lan',
+    title: 'دسترسی موبایل در شبکه محلی',
+    ok: !configError && Boolean(firewall?.ok) && candidateMobileUrls.length > 0 && (!probe.up || guardHealthy),
+    detail: configError || (probe.up && !guardHealthy ? 'ناظر فایروال فعال نیست یا تأیید آن منقضی شده؛ سرویس باید متوقف شود.' : firewall?.message) || 'فایروال LAN بررسی نشد',
+  } : null;
 
   const services = [
     {
@@ -347,6 +508,7 @@ async function status() {
       ok: fs.existsSync(uploadDir(ROOT)),
       detail: `${uploadDir(ROOT)} · ${countFiles(uploadDir(ROOT))} فایل`,
     },
+    ...(lanService ? [lanService] : []),
   ];
   const current2 = state();
   const ownedNow = Boolean(current2?.pid) && current2.root === ROOT && pidAlive(current2.pid);
@@ -357,6 +519,16 @@ async function status() {
     foreignOccupied: probe.up && !ownedNow,
     port: PORT,
     url: URL_BASE,
+    lanAccess: {
+      enabled: LAN_ACCESS,
+      host: BIND_HOST,
+      ready: LAN_ACCESS ? Boolean(lanService?.ok) : false,
+      mobileUrls: LAN_ACCESS && firewall?.ok && (!probe.up || guardHealthy) ? candidateMobileUrls : [],
+      candidateUrls: candidateMobileUrls,
+      firewall: firewall ?? null,
+      watchdog: { running: guardHealthy, pid: current?.lanGuardPid ?? null, leaseFresh: firewallLeaseFresh(current?.firewallLeaseToken) },
+      message: LAN_ACCESS ? (configError || firewall?.message || 'فقط loopback فعال است.') : 'دسترسی LAN خاموش است؛ برنامه فقط روی همین رایانه در دسترس است.',
+    },
     pid: current?.pid ?? null,
     startedAt: current?.startedAt ?? null,
     uptimeSeconds: current?.startedAt ? Math.round((Date.now() - new Date(current.startedAt).getTime()) / 1000) : 0,
@@ -366,6 +538,7 @@ async function status() {
     dataDir: dataDir(ROOT),
     envFile: envFilePath(ROOT),
     logFile: logFile(ROOT),
+    managerLogFile: MANAGER_LOG,
     process: processDetail(current?.pid),
   };
   if (JSON_MODE) {
@@ -454,9 +627,15 @@ function openData() {
   return out({ ok: true, path: dir, message: `پوشه داده باز شد: ${dir}` });
 }
 
+function removeLanFirewall() {
+  const result = runLanFirewall('remove', { root: ROOT, port: PORT, program: process.execPath });
+  log(`Firewall cleanup ${result.ok ? 'completed' : 'failed'}: ${result.message}`);
+  return out(result);
+}
+
 /* ---------------------------------- main ---------------------------------- */
 
-const commands = { start, stop, restart, status, backup, restore, open: openApp, 'open-data': openData };
+const commands = { start, stop, restart, status, backup, restore, open: openApp, 'open-data': openData, 'firewall-remove': removeLanFirewall };
 
 async function main() {
   if (command === 'logs') {
@@ -473,6 +652,8 @@ async function main() {
 }
 
 main().catch((error) => {
-  out({ ok: false, message: `خطا: ${error?.message ?? error}` });
+  const diagnostic = error instanceof Error ? `${error.name}: ${error.message}\n${error.stack ?? ''}` : String(error);
+  log(`Unhandled manager failure; command=${command}; ${diagnostic}`);
+  out({ ok: false, message: 'اجرای عملیات مدیر محلی ناموفق بود. جزئیات فنیِ پاک‌سازی‌شده در گزارش مدیر ثبت شد.' });
   process.exit(2);
 });

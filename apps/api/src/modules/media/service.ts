@@ -6,6 +6,7 @@ import path from 'node:path';
 import { env } from '../../env.js';
 import { one, q, run, nowIso } from '../../db/index.js';
 import { id } from '../../lib/crypto.js';
+import { safeErrorText, sanitizeLogText } from '../../lib/safe-log.js';
 import { badRequest, notFound } from '../../http/errors.js';
 import { getBool, getJson, getNumber, getString } from '../settings/service.js';
 import { writeAudit } from '../audit/service.js';
@@ -500,16 +501,18 @@ export async function processFileRecord(
     const message = error instanceof ImageRejectedError
       ? error.message
       : error instanceof Error ? error.message : String(error);
-    console.error(`[media] processing failed for ${fileId}:`, message);
-    // The original is untouched and remains the served version.
+    const safeMessage = sanitizeLogText(message, 500);
+    console.error(`[media] processing failed for ${sanitizeLogText(fileId, 100)}: ${safeErrorText(error)}`);
+    // The original is untouched and remains the served version. Error details
+    // stored on the file record follow the same redaction as logs.
     await run(
       `UPDATE files SET processing_status = 'failed', processing_error = ?, storage_key = ?,
          mime = ?, size = ?, processed_at = ? WHERE id = ?`,
-      [message.slice(0, 500), originalKey, originalMime, Number(existing.original_size ?? existing.size), nowIso(), fileId],
+      [safeMessage, originalKey, originalMime, Number(existing.original_size ?? existing.size), nowIso(), fileId],
     );
     await writeAudit({
       actorId: actor.id, actorName: actor.name, action: 'file.process_failed',
-      entityType: 'file', entityId: fileId, after: { error: message.slice(0, 300) }, ip: actor.ip,
+      entityType: 'file', entityId: fileId, after: { error: safeMessage.slice(0, 300) }, ip: actor.ip,
     });
     notes.push('پردازش تصویر ناموفق بود؛ نسخه اصلی بدون تغییر حفظ شد.');
     return { file: (await getFile(fileId))!, notes };
@@ -629,7 +632,7 @@ export async function logFileAccess(input: {
       ],
     );
   } catch (error) {
-    console.error('[media] failed to write file access log', error);
+    console.error(`[media] failed to write file access log: ${safeErrorText(error)}`);
   }
 }
 

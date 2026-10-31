@@ -1,6 +1,19 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useState, type ReactNode } from 'react';
 import { api } from './api';
 
+export function formatDuration(minutes: number | null | undefined, legacyDays?: number | null): string {
+  const preciseMinutes = Number(minutes);
+  const fallbackDays = Number(legacyDays);
+  const total = Number.isFinite(preciseMinutes) && preciseMinutes > 0
+    ? preciseMinutes
+    : Number.isFinite(fallbackDays) && fallbackDays > 0 ? fallbackDays * 1440 : 0;
+  if (!Number.isFinite(total) || total < 1) return '—';
+  const formatNumber = (value: number) => value.toLocaleString('fa-IR');
+  if (total % 1440 === 0) return `${formatNumber(total / 1440)} روز`;
+  if (total % 60 === 0) return `${formatNumber(total / 60)} ساعت`;
+  return `${formatNumber(total)} دقیقه`;
+}
+
 export interface Category {
   id: string;
   slug: string;
@@ -23,15 +36,16 @@ export interface Service {
   categoryId: string | null;
   categoryTitle?: string | null;
   categorySlug?: string | null;
-  coverage?:string;cityIds?:string[];urgentEnabled?:boolean;urgentPercent?:number;urgentDays?:number;urgentCapacity?:number;
+  coverage?:string;cityIds?:string[];urgentEnabled?:boolean;urgentPercent?:number;urgentDays?:number;urgentMinutes?:number;urgentCapacity?:number;
   baseFee: number;
   discountPercent: number;
   finalFee: number;
   estimatedDays: number;
+  estimatedMinutes: number;
   paymentMethods: string[];
   tags: string[];
   form: FormField[];
-  documents: { title: string; required: boolean; note?: string }[];
+  documents: { key: string; title: string; required: boolean; note?: string }[];
   workflow: { title: string; description?: string; role?: string; requiresDocument?: boolean }[];
   contactNotice: string | null;
   isPublished: boolean;

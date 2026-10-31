@@ -58,6 +58,8 @@ export const env = {
   sqliteFile: str('SQLITE_FILE', path.resolve(process.cwd(), '.data/pishkan.db')),
   appUrl: str('APP_URL', 'http://localhost:5173'),
   apiUrl: str('API_URL', 'http://localhost:3000'),
+  /** Public HTTPS API base used only for callbacks from the external payment gateway. */
+  zarinpalCallbackBaseUrl: str('ZARINPAL_CALLBACK_BASE_URL', ''),
   corsOrigins: str('CORS_ORIGINS', 'http://localhost:5173,http://localhost:4173')
     .split(',').map((s) => s.trim()).filter(Boolean),
   trustProxy: str('TRUST_PROXY', 'true') === 'true',

@@ -29,6 +29,7 @@ let admin: { cookie: string[] };
 let customer: { cookie: string[] };
 let otherCustomer: { cookie: string[] };
 let operator: { cookie: string[] };
+let accountant: { cookie: string[] };
 let customerId: string;
 let operatorId: string;
 let documentPng: Buffer;
@@ -106,6 +107,7 @@ beforeAll(async () => {
   customerId = (await request(server).get('/api/auth/me').set('Cookie', customer.cookie)).body.data.id;
   otherCustomer = await logoutRegister();
   operator = await createStaff('service_expert', { username: 'media_operator', password: 'Operator#12345', fullName: 'کارشناس رسانه' });
+  accountant = await createStaff('accountant', { username: 'media_accountant', password: 'Accountant#12345', fullName: 'حسابدار رسانه' });
   operatorId = (await request(server).get('/api/auth/me').set('Cookie', operator.cookie)).body.data.id;
   const service = await request(server).post('/api/catalog/services').set('Cookie', admin.cookie).send({
     title: 'خدمت آزمایشی مدارک', baseFee: 100000, form: [], documents: [], workflow: [],
@@ -403,7 +405,9 @@ describe('intelligent image pipeline', () => {
 describe('customer profile document archive', () => {
   let profileFileId: string;
   let profileDocumentId: string;
+  let reviewProfileDocumentId: string;
   let requestId: string;
+  let otherCustomerId: string;
 
   it('registers an uploaded file as a profile document and derives its validity', async () => {
     const uploaded = await upload(customer, documentPng, 'profile-card.png');
@@ -435,6 +439,11 @@ describe('customer profile document archive', () => {
     expect(createdRequest.status).toBe(201);
     requestId = createdRequest.body.data.id;
 
+    const approvedProfile = await request(server).post(`/api/documents/${profileDocumentId}/review`).set('Cookie', admin.cookie)
+      .send({ decision: 'approved', note: 'مدرک معتبر و خوانا است.' }).expect(200);
+    expect(approvedProfile.body.data.status).toBe('approved');
+    expect(approvedProfile.body.data.reviewHistory).toHaveLength(1);
+
     const withoutConfirmation = await request(server).post(`/api/requests/${requestId}/documents`)
       .set('Cookie', customer.cookie)
       .send({ customerDocumentId: profileDocumentId, confirmReuse: false });
@@ -463,6 +472,8 @@ describe('customer profile document archive', () => {
       .send({ fileId: expiredUpload.body.data.id, docType: 'utility_bill', issuedAt: '2020-01-01', expiresAt: '2020-06-01' });
     expect(expired.status).toBe(201);
     expect(expired.body.data.validity).toBe('expired');
+    await request(server).post(`/api/documents/${expired.body.data.id}/review`).set('Cookie', admin.cookie)
+      .send({ decision: 'approved', note: 'مدرک معتبر اما منقضی است.' }).expect(200);
     const expiredReuse = await request(server).post(`/api/requests/${requestId}/documents`)
       .set('Cookie', customer.cookie)
       .send({ customerDocumentId: expired.body.data.id, confirmReuse: true });
@@ -478,17 +489,42 @@ describe('customer profile document archive', () => {
 
   it('lets authorised staff review profile documents and keeps other staff out', async () => {
     // A customer with no case assigned to this expert: permission alone is not enough.
-    const otherCustomerId = (await request(server).get('/api/auth/me').set('Cookie', otherCustomer.cookie)).body.data.id;
+    otherCustomerId = (await request(server).get('/api/auth/me').set('Cookie', otherCustomer.cookie)).body.data.id;
     const foreignList = await request(server).get(`/api/documents/customer/${otherCustomerId}`).set('Cookie', operator.cookie);
     expect(foreignList.status).toBe(403);
     const adminList = await request(server).get(`/api/documents/customer/${customerId}`).set('Cookie', admin.cookie).expect(200);
     expect(adminList.body.data.length).toBeGreaterThan(0);
 
-    const review = await request(server).post(`/api/documents/${profileDocumentId}/review`).set('Cookie', admin.cookie)
-      .send({ decision: 'approved', note: 'بررسی شد' });
-    expect(review.status).toBe(200);
-    expect(review.body.data.status).toBe('approved');
-    expect(review.headers).toBeTruthy();
+    const reviewSource = await sharp({ create: { width: 177, height: 101, channels: 3, background: '#ddddee' } }).png().toBuffer();
+    const secondUpload = await upload(customer, reviewSource, 'review-history.png');
+    const secondDocument = await request(server).post('/api/documents/mine').set('Cookie', customer.cookie)
+      .send({ fileId: secondUpload.body.data.id, docType: 'other' }).expect(201);
+    reviewProfileDocumentId = secondDocument.body.data.id;
+    const missingReason = await request(server).post(`/api/documents/${reviewProfileDocumentId}/review`).set('Cookie', admin.cookie)
+      .send({ decision: 'rejected' });
+    expect(missingReason.status).toBe(400);
+    const rejection = await request(server).post(`/api/documents/${reviewProfileDocumentId}/review`).set('Cookie', admin.cookie)
+      .send({ decision: 'rejected', note: 'تصویر مدرک خوانا نیست.' }).expect(200);
+    expect(rejection.body.data.status).toBe('rejected');
+    expect(rejection.body.data.reviewHistory).toHaveLength(1);
+    expect(rejection.body.data.reviewHistory[0].note).toBe('تصویر مدرک خوانا نیست.');
+    // A reviewed archive record cannot be deleted, even before it is linked to a live request.
+    await request(server).delete(`/api/documents/mine/${reviewProfileDocumentId}`).set('Cookie', customer.cookie).expect(409);
+
+    const replacementImage = await sharp({ create: { width: 179, height: 103, channels: 3, background: '#eeddcc' } }).png().toBuffer();
+    const replacementUpload = await upload(customer, replacementImage, 'review-history-replacement.png');
+    const replacement = await request(server).post('/api/documents/mine').set('Cookie', customer.cookie)
+      .send({ fileId: replacementUpload.body.data.id, docType: 'other', replacesDocumentId: reviewProfileDocumentId }).expect(201);
+    expect(replacement.body.data.status).toBe('pending');
+    expect(replacement.body.data.replacesDocumentId).toBe(reviewProfileDocumentId);
+    const approvedReplacement = await request(server).post(`/api/documents/${replacement.body.data.id}/review`).set('Cookie', admin.cookie)
+      .send({ decision: 'approved', note: 'نسخه جایگزین خواناست.' }).expect(200);
+    expect(approvedReplacement.body.data.status).toBe('approved');
+    expect(approvedReplacement.body.data.reviewHistory).toHaveLength(1);
+    const retainedRejectedVersion = await request(server).get(`/api/documents/${reviewProfileDocumentId}`).set('Cookie', customer.cookie).expect(200);
+    expect(retainedRejectedVersion.body.data.status).toBe('rejected');
+    expect(retainedRejectedVersion.body.data.reviewHistory).toHaveLength(1);
+    expect(retainedRejectedVersion.body.data.replacesDocumentId).toBeNull();
 
     // An expert with no case for this customer cannot review their archive either.
     const foreignUpload = await upload(otherCustomer, smallPng, 'foreign.png');
@@ -507,10 +543,24 @@ describe('customer profile document archive', () => {
     const customerDetail = await request(server).get(`/api/customers/${customerId}`).set('Cookie', admin.cookie).expect(200);
     expect(customerDetail.body.data.profileDocuments.some((row: any) => row.id === profileDocumentId)).toBe(true);
 
+    // Accounting can view customer records but has no document-view capability.
+    const accountantDetail = await request(server).get(`/api/customers/${customerId}`).set('Cookie', accountant.cookie).expect(200);
+    expect(accountantDetail.body.data.documents).toEqual([]);
+    expect(accountantDetail.body.data.profileDocuments).toEqual([]);
+    await request(server).get(`/api/documents/${profileDocumentId}`).set('Cookie', accountant.cookie).expect(403);
+
     // Staff can see the archive of a customer they own a case for.
     await run("UPDATE requests SET assigned_to = ?, status = 'in_progress' WHERE id = ?", [operatorId, requestId]);
     const scopedList = await request(server).get(`/api/documents/customer/${customerId}`).set('Cookie', operator.cookie);
     expect(scopedList.status).toBe(200);
+
+    const workloadImage = await sharp({ create: { width: 181, height: 107, channels: 3, background: '#ccddee' } }).png().toBuffer();
+    const workloadUpload = await upload(customer, workloadImage, 'pending-profile-workload.png');
+    const workloadDocument = await request(server).post('/api/documents/mine').set('Cookie', customer.cookie)
+      .send({ fileId: workloadUpload.body.data.id, docType: 'other' }).expect(201);
+    const workload = await request(server).get('/api/staff/me/workload').set('Cookie', operator.cookie).expect(200);
+    expect(workload.body.data.pendingDocuments.some((row: any) => row.recordType === 'profile' && row.id === workloadDocument.body.data.id)).toBe(true);
+    expect(workload.body.data.pendingDocuments.some((row: any) => row.id === foreignDoc.body.data.id)).toBe(false);
   }, 60_000);
 
   it('reveals processing status of every attachment in the staff review queue', async () => {
@@ -521,6 +571,10 @@ describe('customer profile document archive', () => {
     expect(item.file.processing.status).toBe('ready');
     expect(item.file.displayUrl).toBe(`/api/files/${item.file.id}`);
     expect(item.file.previewUrl).toContain('variant=preview');
+    expect(queue.body.data.some((row: any) => row.recordType === 'profile')).toBe(true);
+
+    const scopedQueue = await request(server).get('/api/requests/pending-documents').set('Cookie', operator.cookie).expect(200);
+    expect(scopedQueue.body.data.every((row: any) => row.customerId !== otherCustomerId)).toBe(true);
   }, 30_000);
 });
 

@@ -90,12 +90,13 @@ $script:StepLabels = @{}
 $stepDefs = @(
   @{ id = 'check'; text = '۱. بررسی سیستم' },
   @{ id = 'env'; text = '۲. تنظیمات محلی' },
-  @{ id = 'deps'; text = '۳. دانلود وابستگی‌ها' },
-  @{ id = 'build'; text = '۴. ساخت برنامه' },
-  @{ id = 'database'; text = '۵. پایگاه داده و مهاجرت' },
-  @{ id = 'admin'; text = '۶. حساب مدیر کل' },
-  @{ id = 'start'; text = '۷. راه‌اندازی سرویس' },
-  @{ id = 'verify'; text = '۸. آزمون نهایی' }
+  @{ id = 'lan'; text = '۳. دسترسی LAN (اختیاری)' },
+  @{ id = 'deps'; text = '۴. دانلود وابستگی‌ها' },
+  @{ id = 'build'; text = '۵. ساخت برنامه' },
+  @{ id = 'database'; text = '۶. پایگاه داده و مهاجرت' },
+  @{ id = 'admin'; text = '۷. حساب مدیر کل' },
+  @{ id = 'start'; text = '۸. راه‌اندازی سرویس' },
+  @{ id = 'verify'; text = '۹. آزمون نهایی' }
 )
 $offset = 52
 foreach ($def in $stepDefs) {
@@ -109,8 +110,8 @@ foreach ($def in $stepDefs) {
 }
 
 $sidebarHint = New-PishkanLabel "پوشه برنامه:`n$RepoRoot" 'muted' 9 $false
-$sidebarHint.Location = New-Object System.Drawing.Point(24, 330)
-$sidebarHint.Size = New-Object System.Drawing.Size(250, 120)
+$sidebarHint.Location = New-Object System.Drawing.Point(24, 352)
+$sidebarHint.Size = New-Object System.Drawing.Size(250, 100)
 $sidebarHint.TextAlign = 'TopRight'
 $sidebar.Controls.Add($sidebarHint)
 
@@ -134,26 +135,76 @@ function New-Field([string]$Label, [int]$Top, $Control) {
 $pathBox = New-PishkanTextBox $RepoRoot 600
 [void](New-Field 'مسیر نصب (همان پوشه پروژه؛ پوشه داده و تنظیمات داخل آن ساخته می‌شود)' 10 $pathBox)
 
+function Get-ExistingPort([string]$RootPath, [int]$Fallback) {
+  $envPath = Join-Path $RootPath '.env.windows.local'
+  if (-not (Test-Path $envPath)) { return $Fallback }
+  try {
+    $content = Get-Content -Raw -Encoding UTF8 -Path $envPath
+    if ($content -match '(?im)^\s*PORT\s*=\s*"?([0-9]+)"?\s*$') {
+      $candidate = [int]$Matches[1]
+      if ($candidate -ge 1024 -and $candidate -le 65535) { return $candidate }
+    }
+  } catch { }
+  return $Fallback
+}
+
 $portBox = New-Object System.Windows.Forms.NumericUpDown
 $portBox.Minimum = 1024
-$portBox.Maximum = 65000
-$portBox.Value = $Port
+$portBox.Maximum = 65535
+$portBox.Value = Get-ExistingPort $pathBox.Text $Port
 $portBox.Width = 140
 $portBox.Font = Get-PishkanFont 10 $false
 $portBox.Tag = 'input'
 [void](New-Field 'پورت برنامه (پیش‌فرض ۳۰۰۰)' 78 $portBox)
 
+function Test-ExistingLanSetting([string]$RootPath) {
+  $envPath = Join-Path $RootPath '.env.windows.local'
+  if (-not (Test-Path $envPath)) { return $false }
+  try {
+    $content = Get-Content -Raw -Encoding UTF8 -Path $envPath
+    return [bool]($content -match '(?im)^\s*LAN_ACCESS\s*=\s*"?true"?\s*$')
+  } catch { return $false }
+}
+
+$lanAccessCheckBox = New-Object System.Windows.Forms.CheckBox
+$lanAccessCheckBox.Text = 'دسترسی موبایل در Wi‑Fi (اختیاری؛ فقط Private/LocalSubnet؛ نیازمند Administrator؛ پیش‌فرض خاموش)'
+$lanAccessCheckBox.Location = New-Object System.Drawing.Point(80, 134)
+$lanAccessCheckBox.Size = New-Object System.Drawing.Size(600, 38)
+$lanAccessCheckBox.RightToLeft = [System.Windows.Forms.RightToLeft]::Yes
+$lanAccessCheckBox.TextAlign = 'MiddleRight'
+$lanAccessCheckBox.Checked = Test-ExistingLanSetting $pathBox.Text
+$lanAccessCheckBox.Tag = 'input'
+$pageConfig.Controls.Add($lanAccessCheckBox)
+$script:LanChoiceTouched = $false
+$script:UpdatingLanFromPath = $false
+$script:PortChoiceTouched = $false
+$script:UpdatingPortFromPath = $false
+$lanAccessCheckBox.Add_CheckedChanged({ if (-not $script:UpdatingLanFromPath) { $script:LanChoiceTouched = $true } })
+$portBox.Add_ValueChanged({ if (-not $script:UpdatingPortFromPath) { $script:PortChoiceTouched = $true } })
+$pathBox.Add_TextChanged({
+  if (-not $script:LanChoiceTouched) {
+    $script:UpdatingLanFromPath = $true
+    $lanAccessCheckBox.Checked = Test-ExistingLanSetting $pathBox.Text
+    $script:UpdatingLanFromPath = $false
+  }
+  if (-not $script:PortChoiceTouched) {
+    $script:UpdatingPortFromPath = $true
+    $portBox.Value = Get-ExistingPort $pathBox.Text $Port
+    $script:UpdatingPortFromPath = $false
+  }
+})
+
 $nameBox = New-PishkanTextBox 'مدیر کل محلی' 600
-[void](New-Field 'نام و نام خانوادگی مدیر کل' 146 $nameBox)
+[void](New-Field 'نام و نام خانوادگی مدیر کل' 176 $nameBox)
 
 $userBox = New-PishkanTextBox 'admin' 600
-[void](New-Field 'نام کاربری مدیر کل (حروف انگلیسی، رقم، نقطه، خط تیره)' 214 $userBox)
+[void](New-Field 'نام کاربری مدیر کل (حروف انگلیسی، رقم، نقطه، خط تیره)' 236 $userBox)
 
 $passBox = New-PishkanTextBox '' 600 -Password
-[void](New-Field 'رمز عبور (حداقل ۱۰ کاراکتر، ترکیب حرف و رقم)' 282 $passBox)
+[void](New-Field 'رمز عبور (حداقل ۱۰ کاراکتر، ترکیب حرف و رقم)' 296 $passBox)
 
 $pass2Box = New-PishkanTextBox '' 600 -Password
-[void](New-Field 'تکرار رمز عبور' 350 $pass2Box)
+[void](New-Field 'تکرار رمز عبور' 356 $pass2Box)
 
 $checkButton = New-PishkanButton 'بررسی سیستم' 'ghost' 150 38
 $checkButton.Location = New-Object System.Drawing.Point(520, 424)
@@ -265,6 +316,7 @@ function Update-StepLabel([string]$Id, [string]$Status, [string]$Text) {
   $role = 'muted'
   if ($Status -eq 'running') { $prefix = '◐'; $role = 'warn' }
   if ($Status -eq 'ok') { $prefix = '●'; $role = 'ok' }
+  if ($Status -eq 'warn') { $prefix = '!'; $role = 'warn' }
   if ($Status -eq 'fail') { $prefix = '✕'; $role = 'danger' }
   if ($Status -eq 'skip') { $prefix = '–'; $role = 'muted' }
   $label.Text = "$prefix  $Text"
@@ -497,7 +549,8 @@ function Start-Installation {
 
   $job = @{
     port = [int]$portBox.Value
-    admin = @{
+    lanAccess = [bool]$lanAccessCheckBox.Checked
+    admin = {
       fullName = $nameBox.Text.Trim()
       username = $userBox.Text.Trim()
       password = $passBox.Text
@@ -575,8 +628,18 @@ function Show-InstallResult([bool]$Ok) {
   $url = "http://127.0.0.1:$($portBox.Value)"
   $report = $script:LastResult.report
   if ($report -and $report.url) { $url = $report.url }
+  $lanSummary = 'دسترسی موبایل خاموش است؛ برنامه فقط روی همین رایانه قابل دسترسی است.'
+  if ($report -and $report.lanAccess) {
+    $mobileUrls = @($report.mobileUrls | Where-Object { $_ })
+    if ($mobileUrls.Count -gt 0) {
+      $lanSummary = "LAN فعال است (فقط شبکه Private و Subnet محلی):`n" + ($mobileUrls -join "`n")
+    } else {
+      $lanSummary = 'LAN با فایروال محدود فعال است؛ به Wi‑Fi با نمایه Private وصل شوید و آدرس را در Pishkan Manager ببینید.'
+    }
+    if ($report.firewallWarning) { $lanSummary += "`nتوجه: $($report.firewallWarning)" }
+  }
   $finishSummary.Text = ("نصب با موفقیت انجام شد.`n`n" +
-    "آدرس برنامه: $url`n`n" +
+    "آدرس همین رایانه: $url`n" + $lanSummary + "`n`n" +
     "نام کاربری مدیر کل: $($userBox.Text.Trim())`n" +
     "پوشه داده: " + (Join-Path $pathBox.Text '.data') + "`n`n" +
     "برای اتصال دوباره از «Pishkan Manager» استفاده کنید. گزارش نصب در .data\install-report.json ذخیره شد.")

@@ -286,8 +286,17 @@ function Update-Status {
       $restartButton.Enabled = $false
       $openButton.Enabled = $false
     }
-    $infoText.Text = ("پورت: {0}`nپایگاه داده: {1}`nپوشه داده: {2}`nفایل تنظیمات: {3}`nگزارش: {4}" -f `
-      $status.port, (Split-Path $status.envFile -Leaf), $status.dataDir, $status.envFile, $status.logFile)
+    $lanText = 'دسترسی موبایل: خاموش (فقط loopback)'
+    if ($status.lanAccess.enabled) {
+      $mobileUrls = @($status.lanAccess.mobileUrls | Where-Object { $_ })
+      if ($mobileUrls.Count -gt 0) {
+        $lanText = "آدرس موبایل فقط در Wi‑Fi خصوصی:`n" + ($mobileUrls -join "`n")
+      } else {
+        $lanText = [string]$status.lanAccess.message
+      }
+    }
+    $infoText.Text = ("پورت: {0}`n{1}`nپایگاه داده: {2}`nپوشه داده: {3}`nفایل تنظیمات: {4}`nگزارش سرور: {5}`nگزارش مدیر: {6}" -f `
+      $status.port, $lanText, (Split-Path $status.envFile -Leaf), $status.dataDir, $status.envFile, $status.logFile, $status.managerLogFile)
     if ($autoRefresh.Checked -and $status.running) {
       $log = Invoke-Manager @('logs', '--lines', '40')
       if ($log -and $log.lines) { $logBox.Text = ($log.lines -join "`r`n") }

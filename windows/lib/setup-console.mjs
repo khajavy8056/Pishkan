@@ -15,7 +15,8 @@
 import { createInterface } from 'node:readline';
 import path from 'node:path';
 import { spawn } from 'node:child_process';
-import { DEFAULT_PORT, DEFAULT_ROOT, compareVersions, MIN_NODE_VERSION, parseArgs } from './common.mjs';
+import { DEFAULT_PORT, DEFAULT_ROOT, compareVersions, envFilePath, MIN_NODE_VERSION, parseArgs } from './common.mjs';
+import { readEnvFile } from './envfile.mjs';
 
 const args = parseArgs();
 const ROOT = path.resolve(args.get('root', DEFAULT_ROOT));
@@ -99,8 +100,16 @@ async function main() {
   }
 
   const root = path.resolve(await ask(`مسیر نصب [${ROOT}]: `, ROOT));
-  const portAnswer = await ask(`پورت برنامه [${DEFAULT_PORT}]: `, String(DEFAULT_PORT));
-  const port = Number.parseInt(portAnswer, 10) || DEFAULT_PORT;
+  const existingEnv = readEnvFile(envFilePath(root));
+  const defaultPort = Number(existingEnv.PORT) || DEFAULT_PORT;
+  const portAnswer = await ask(`پورت برنامه [${defaultPort}]: `, String(defaultPort));
+  const port = Number.parseInt(portAnswer, 10) || defaultPort;
+  const existingLan = String(existingEnv.LAN_ACCESS ?? '').toLowerCase() === 'true';
+  const lanPrompt = existingLan
+    ? 'دسترسی گوشی در Wi‑Fi خصوصی را فعال نگه دارید؟ (Y/n؛ نیازمند Administrator): '
+    : 'دسترسی گوشی در Wi‑Fi خصوصی را فعال می‌کنید؟ (y/N؛ نیازمند Administrator): ';
+  const lanAnswer = await ask(lanPrompt, existingLan ? 'y' : 'n');
+  const lanAccess = /^(y|yes|بله|ب)$/i.test(lanAnswer);
 
   let admin = null;
   for (;;) {
@@ -123,7 +132,7 @@ async function main() {
     '--root', root, '--json-lines', '--job-stdin',
   ], { cwd: root, stdio: ['pipe', 'pipe', 'inherit'] });
 
-  child.stdin.end(`${JSON.stringify({ port, admin })}\n`);
+  child.stdin.end(`${JSON.stringify({ port, admin, lanAccess })}\n`);
 
   let lastKey = '';
   let ok = false;
@@ -150,7 +159,13 @@ async function main() {
     } else if (event.type === 'result') {
       ok = Boolean(event.ok);
       if (event.ok) {
-        process.stdout.write(`\nنصب کامل شد. آدرس: ${event.report.url}\n`);
+        process.stdout.write(`\nنصب کامل شد. آدرس همین رایانه: ${event.report.url}\n`);
+        if (event.report.lanAccess) {
+          const urls = event.report.mobileUrls ?? [];
+          process.stdout.write(urls.length
+            ? `آدرس‌های Wi‑Fi خصوصی: ${urls.join('، ')}\n`
+            : 'LAN فعال است؛ برای دیدن آدرس به Wi‑Fi خصوصی وصل شوید و Pishkan Manager را تازه‌سازی کنید.\n');
+        } else process.stdout.write('دسترسی LAN خاموش است (loopback-only).\n');
         process.stdout.write(`گزارش نصب: ${path.join(root, '.data', 'install-report.json')}\n`);
       } else {
         process.stdout.write(`\nنصب ناموفق بود: ${event.error?.message ?? ''}\n`);

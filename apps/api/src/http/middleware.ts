@@ -3,6 +3,7 @@ import { ZodError } from 'zod';
 import { HttpError, forbidden, tooMany, unauthorized } from './errors.js';
 import type { AuthContext } from '../modules/auth/types.js';
 import { hasPermission } from '../lib/permissions.js';
+import { safeErrorText, sanitizeLogText } from '../lib/safe-log.js';
 
 declare global {
   // eslint-disable-next-line @typescript-eslint/no-namespace
@@ -148,7 +149,9 @@ export function errorHandler(err: any, req: Request, res: Response, _next: NextF
   }
 
   if (status >= 500) {
-    console.error(`[error] ${req.method} ${req.originalUrl}`, err);
+    // req.path excludes query parameters (payment authorities/tokens may be there).
+    const routePath = sanitizeLogText(req.path || '/', 300);
+    console.error(sanitizeLogText(`[error] ${req.method} ${routePath} status=${status} code=${code}: ${safeErrorText(err)}`, 3200));
   }
 
   res.status(status).json({

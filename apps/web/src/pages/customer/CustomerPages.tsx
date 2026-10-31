@@ -13,6 +13,7 @@ import { api, ApiFailure } from '../../lib/api';
 import { useAuth } from '../../lib/auth';
 import { faDate, faDateTime, faNum, relative, rial, STATUS_LABELS } from '../../lib/format';
 import { useSite, type FormField } from '../../lib/site';
+import { availableRequestDocumentRequirements, defaultRequestDocumentRequirementKey, requestDocumentRequirements } from '../../lib/request-documents';
 import { ThemeSegmented } from '../../lib/theme';
 import { DynamicField } from '../public/Services';
 
@@ -231,6 +232,7 @@ export function CustomerRequestDetail() {
   const [profileDocs, setProfileDocs] = useState<any[]>([]);
   const [reuseDocId, setReuseDocId] = useState('');
   const [reuseConfirm, setReuseConfirm] = useState(false);
+  const [requirementKey, setRequirementKey] = useState('');
   const fileInput = useRef<HTMLInputElement>(null);
 
   const load = (showLoading = true) => {
@@ -266,7 +268,11 @@ export function CustomerRequestDetail() {
       const uploaded = await api.upload<{ data: { id: string; name: string; processing: { status: string }; savingsPercent: number; notes?: string[] } }>(
         '/api/files/upload', file, { purpose: 'document' },
       );
-      await api.post(`/api/requests/${id}/documents`, { fileId: uploaded.data.id, title: uploaded.data.name });
+      await api.post(`/api/requests/${id}/documents`, {
+        fileId: uploaded.data.id,
+        title: uploaded.data.name,
+        requirementKey: requirementKey || undefined,
+      });
       notify(
         uploaded.data.processing.status === 'ready'
           ? `مدرک بارگذاری شد و تصویر بدون افت خوانایی بهینه شد (${faNum(uploaded.data.savingsPercent)}٪ کاهش حجم).`
@@ -286,6 +292,7 @@ export function CustomerRequestDetail() {
     setReuseOpen(true);
     setReuseDocId('');
     setReuseConfirm(false);
+    setRequirementKey(defaultRequestDocumentRequirementKey(request));
     try {
       const res = await api.get<{ data: any[] }>('/api/documents/mine');
       setProfileDocs(res.data.filter((doc) => doc.validity !== 'expired' && doc.status !== 'rejected'));
@@ -297,10 +304,17 @@ export function CustomerRequestDetail() {
 
   const submitReuse = async () => {
     if (!reuseDocId) { notify('یک مدرک را انتخاب کنید.', 'error'); return; }
+    if (requestDocumentRequirements(request).length && !availableRequestDocumentRequirements(request).some((item) => item.key === requirementKey)) {
+      notify('نیازمندی‌ای که برای این مدرک انتخاب شده دیگر قابل پیوست نیست.', 'error'); return;
+    }
     if (!reuseConfirm) { notify('تأیید استفاده از مدرک الزامی است.', 'error'); return; }
     setUploading(true);
     try {
-      await api.post(`/api/requests/${id}/documents`, { customerDocumentId: reuseDocId, confirmReuse: true });
+      await api.post(`/api/requests/${id}/documents`, {
+        customerDocumentId: reuseDocId,
+        requirementKey: requirementKey || undefined,
+        confirmReuse: true,
+      });
       notify('مدرک پروفایل به پرونده پیوست شد.', 'success');
       setReuseOpen(false);
       load();
@@ -340,6 +354,8 @@ export function CustomerRequestDetail() {
   if (error || !request) return <AppShell variant="customer"><ErrorState message={error || 'درخواست یافت نشد'} onRetry={load} /></AppShell>;
 
   const steps = request.workflow ?? [];
+  const documentRequirements = requestDocumentRequirements(request);
+  const availableDocumentRequirements = availableRequestDocumentRequirements(request);
   const canCancel = ['new', 'assigned', 'waiting_documents', 'waiting_customer'].includes(request.status);
 
   return (
@@ -363,7 +379,8 @@ export function CustomerRequestDetail() {
               <div className="flex items-center gap-2">
                 <StatusBadge status={request.status} label={request.statusLabel} />
                 <StatusBadge status={request.paymentStatus} />
-                {request.dueAt && <span className="text-xs text-navy-500">مهلت تخمینی: {faDate(request.dueAt)}</span>}
+                {request.estimatedCompletionAt && <span className="text-xs text-navy-500">برآورد پایان: {faDate(request.estimatedCompletionAt)}</span>}
+                {request.deadlineAt && <span className="text-xs font-medium text-rose-700">مهلت قطعی: {faDate(request.deadlineAt)}</span>}
               </div>
               <span className="text-sm font-semibold text-navy-900">{rial(request.total)}</span>
             </div>
@@ -433,6 +450,7 @@ export function CustomerRequestDetail() {
                     </div>
                     <FileSummary file={doc.file} />
                     {doc.reviewNote && <p className="mt-1 text-[11px] text-rose-700">{doc.reviewNote}</p>}
+                    {doc.replacesDocumentId && <p className="mt-1 text-[10px] text-brand-700">نسخه جایگزین مدرک قبلی است.</p>}
                     <div className="mt-1 flex flex-wrap items-center gap-2">
                       <button type="button" onClick={() => setViewer(doc)} className="inline-flex items-center gap-1 text-[11px] text-accent hover:underline">
                         <Download className="size-3" /> مشاهده
@@ -446,6 +464,21 @@ export function CustomerRequestDetail() {
               {request.documents.length === 0 && <p className="text-xs text-navy-400">مدرکی بارگذاری نشده است.</p>}
             </div>
 
+            {documentRequirements.length > 0 && (
+              <Field label="مدرک موردنیاز" required hint="برای ثبت جایگزین، همان مدرکی را انتخاب کنید که پیش‌تر رد شده است.">
+                <Select
+                  value={requirementKey}
+                  onChange={(event) => setRequirementKey(event.target.value)}
+                  options={[
+                    { value: '', label: 'انتخاب مدرک موردنیاز' },
+                    ...availableDocumentRequirements.map((item) => ({ value: item.key, label: item.title })),
+                  ]}
+                />
+                {availableDocumentRequirements.length === 0 && (
+                  <p className="mt-1 text-[10px] text-navy-500">همه نیازمندی‌ها مدرک در انتظار بررسی یا تأییدشده دارند.</p>
+                )}
+              </Field>
+            )}
             <input
               ref={fileInput}
               type="file"
@@ -453,10 +486,13 @@ export function CustomerRequestDetail() {
               accept=".jpg,.jpeg,.png,.webp,.pdf"
               onChange={(e) => e.target.files?.[0] && upload(e.target.files[0])}
             />
-            <Button variant="ghost" className="mt-3 w-full" loading={uploading} onClick={() => fileInput.current?.click()}>
+            <Button variant="ghost" className="mt-3 w-full" loading={uploading}
+              disabled={documentRequirements.length > 0 && !availableDocumentRequirements.some((item) => item.key === requirementKey)}
+              onClick={() => fileInput.current?.click()}>
               <UploadCloud className="size-4" /> بارگذاری مدرک
             </Button>
-            <Button variant="ghost" className="mt-2 w-full" onClick={openReuse}>
+            <Button variant="ghost" className="mt-2 w-full" onClick={openReuse}
+              disabled={documentRequirements.length > 0 && availableDocumentRequirements.length === 0}>
               <FileText className="size-4" /> افزودن از مدارک من
             </Button>
             <p className="mt-2 text-[10px] leading-5 text-navy-500">
@@ -502,7 +538,9 @@ export function CustomerRequestDetail() {
         footer={(
           <div className="flex gap-2">
             <Button variant="ghost" onClick={() => setReuseOpen(false)}>انصراف</Button>
-            <Button loading={uploading} disabled={!reuseDocId || !reuseConfirm} onClick={submitReuse}>پیوست به پرونده</Button>
+            <Button loading={uploading}
+              disabled={!reuseDocId || !reuseConfirm || (documentRequirements.length > 0 && !availableDocumentRequirements.some((item) => item.key === requirementKey))}
+              onClick={submitReuse}>پیوست به پرونده</Button>
           </div>
         )}
       >
@@ -511,6 +549,19 @@ export function CustomerRequestDetail() {
             <p className="text-xs leading-6 text-navy-500">
               مدرک معتبری در پروفایل شما نیست. از بخش «مدارک من» یک مدرک بارگذاری کنید یا همین‌جا فایل جدید بفرستید.
             </p>
+          )}
+          {documentRequirements.length > 0 && (
+            <Field label="مدرک موردنیاز پرونده" required>
+              <Select
+                value={requirementKey}
+                onChange={(event) => setRequirementKey(event.target.value)}
+                options={[
+                  { value: '', label: 'انتخاب مدرک موردنیاز' },
+                  ...availableDocumentRequirements.map((item) => ({ value: item.key, label: item.title })),
+                ]}
+              />
+              {availableDocumentRequirements.length === 0 && <p className="mt-1 text-[10px] text-navy-500">نیازمندی قابل پیوست جدیدی وجود ندارد.</p>}
+            </Field>
           )}
           {profileDocs.map((doc) => (
             <label key={doc.id} className={clsx('flex cursor-pointer items-center gap-2 rounded-xl border p-2 text-xs',
