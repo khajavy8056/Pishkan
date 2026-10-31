@@ -29,7 +29,7 @@ sudo pishkan update
 ### گزینه‌ها
 
 ```bash
-sudo pishkan update --ref v1.2.0      # نصب یک تگ/شاخه مشخص
+sudo pishkan update --ref v1.3.0      # نصب یک تگ/شاخه مشخص
 sudo pishkan update --no-backup       # فقط وقتی پشتیبان تازه دارید
 ```
 
@@ -48,6 +48,14 @@ sudo pishkan rollback --to 20260101120000
   sudo pishkan restore /var/backups/pishkan/pishkan-backup-<timestamp>.tar.gz
   ```
 - همیشه پیش از بازگشت، پشتیبان فعلی را نگه دارید (`sudo pishkan backup`).
+
+## یادداشت ارتقا از ۱٫۲٫۰ به ۱٫۳٫۰
+
+- مهاجرت `018_wallet_gateway_monitoring.sql` به‌صورت افزایشی اجرا می‌شود: جداول جدید (`wallets`, `wallet_transactions`, `payment_callbacks`, `system_logs`, `metric_samples`, `alerts`) و ستون‌های تازهٔ `payments` (`purpose`, `wallet_id`, `provider_reference`) و ایندکس‌ها؛ **هیچ ستون یا ردیف مالی حذف نمی‌شود**.
+- مجوزهای نقش‌های سیستمی یک بار با نشانگر `system.permissions_version = 2` همگام می‌شوند: فقط مجوزهای جدید (`wallet.*`, `monitoring.*`, `logs.*`, `alerts.*`) اضافه می‌شوند و مجوزهایی که مدیر قبلاً برداشته است برنمی‌گردند.
+- پس از ارتقا: در «تنظیمات → حسابداری و پرداخت» درگاه را تنظیم کنید (شبیه‌ساز برای آزمون، زرین‌پال برای واقعی)، «کیف پول مشتریان» را بررسی کنید و در «زیرساخت → مرکز پایش» سلامت را ببینید.
+- **پرداخت نقدی/دستی دیگر در دسترس نیست.** اگر کارکنان از روش نقدی استفاده می‌کردند، پیش از ارتقا رویه را به «شارژ کیف پول با دلیل + تسویه از کیف پول» تغییر دهید. فاکتورهای نقدی قبلی و سوابق دست‌نخورده و فقط خواندنی می‌مانند.
+- پرداخت‌هایی که **در حین ارتقا** در درگاه باز بودند از مسیر قدیمی callback (`/api/accounting/gateway/zarinpal`) تسویه می‌شوند؛ پرداخت‌های جدید از `/api/payments/callback/:provider` استفاده می‌کنند.
 
 ## رویه توصیه‌شده برای به‌روزرسانی روی سرور عملیاتی
 

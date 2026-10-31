@@ -321,7 +321,7 @@ Cookie: pishkan_session=…
 - `POST /api/requests/quote {serviceId,priority}`: فقط مشتری با پروفایل کامل؛ مبالغ IRR سمت سرور.
 - `GET /api/requests/queue/eligible` و `POST /api/requests/:id/claim`.
 - `GET /api/payroll/me`؛ مسیرهای مدیریتی `/staff`, `/staff/:id`, `POST /contracts`, `/accrue {month:YYYY-MM}`, `/settlements {userId,amount,idempotencyKey,note}`.
-- callback عمومی `GET /api/accounting/gateway/zarinpal?paymentId=...&Authority=...&Status=OK`؛ مبلغ هرگز از query پذیرفته نمی‌شود.
+- callback عمومی `GET /api/accounting/gateway/zarinpal?paymentId=...&Authority=...&Status=OK`؛ مبلغ هرگز از query پذیرفته نمی‌شود. **از نسخهٔ ۱٫۳٫۰ این مسیر فقط برای پرداخت‌های در جریان قبل از ارتقا نگه داشته شده است**؛ مسیر جدید `GET /api/payments/callback/:provider` است (بخش ۱٫۳٫۰ را ببینید).
 - `DELETE /api/system/backups/:id` نیازمند body با `confirmation: DELETE` است.
 
 جزییات سیاست‌ها و محدودیت‌ها در [گزارش اصلاحات](CORRECTIONS-2026-10-27.md).
@@ -332,3 +332,64 @@ Cookie: pishkan_session=…
 کارمند مسئول می‌تواند پس از ورود/داشتن `requests.edit` خروجی خصوصی را با `POST /api/requests/:id/deliver {files:[{fileId,title}],summary}` بفرستد. همه فایل‌ها باید قبلاً با نشست خود کارمند آپلود شده باشند. پرونده به `under_review` می‌رود و ارجاع مدیریت اتمیک ساخته می‌شود. مشتری تا تصویب مدیریت نه فایل، نه متادیتای آن و نه رویداد داخلی تحویل را می‌بیند/دانلود می‌کند.
 
 `POST /api/requests/:id/handoffs {department:management|accounting,reason}`؛ `GET /api/requests/:id/handoffs` (با کنترل همان دسترسی پرونده)؛ `GET /api/automation/inbox` بر مبنای مجوز واحد؛ `POST /api/automation/:id/decision {decision:approved|returned,note}`. مسیرهای `/api/v1` نیز موجودند. تأیید تکراری 409؛ تصمیم به واحد دیگر 403. وضعیت `ready/completed` تا پاسخ همه ارجاع‌های باز و تأیید فایل خروجی 409 است. تأیید حسابدار فقط گام بازبینی مالی این ارجاع است، نه ایجاد پرداخت؛ پرداخت واقعی فقط از مسیر accounting انجام می‌شود.
+
+
+## کیف پول، پرداخت آنلاین و پایش (نسخهٔ ۱٫۳٫۰ — migration 018)
+
+مسیرهای زیر هم با `/api` و هم با `/api/v1` در دسترس‌اند. هیچ‌کدام مبلغ را از سمت مرورگر نمی‌پذیرند؛ مبلغ همیشه از ردیف `payments` ساخته‌شده در سرور خوانده می‌شود.
+
+### کیف پول — `/api/wallet`
+
+| متد | مسیر | دسترسی | توضیح |
+|---|---|---|---|
+| GET | `/meta` | عمومی/نشست | موجود بودن کیف پول، سقف شارژ، وضعیت درگاه، انواع تراکنش |
+| GET | `/my` | مشتری | موجودی، جمع‌های شارژ/خرید/بازپرداخت/اصلاحیه، ۱۰ تراکنش آخر |
+| GET | `/my/transactions` | مشتری | فهرست صفحه‌بندی‌شدهٔ تراکنش‌ها با فیلتر type/direction/from/to/search |
+| POST | `/my/topup/validate` | مشتری | بررسی مبلغ شارژ بدون ایجاد تراکنش |
+| POST | `/my/topup` | مشتری | ایجاد پرداخت درگاه و بازگرداندن `paymentUrl` |
+| POST | `/my/invoices/:id/pay` | مشتری | پرداخت فاکتور از کیف پول (کسر و دفتر کل در یک تراکنش) |
+| GET | `/admin/summary` | `wallet.view` | جمع‌های دوره، تطابق دفتر کل با موجودی‌ها، وضعیت درگاه |
+| GET | `/admin/transactions` | `wallet.view` | همهٔ تراکنش‌ها با فیلتر مشتری/نوع/منبع/بازه |
+| GET | `/admin/customers` , `/admin/customers/:id` | `wallet.view` | فهرست و جزئیات کیف پول مشتریان |
+| POST | `/admin/credit` | `wallet.credit` | شارژ مدیریتی/هدیه/اصلاحیه؛ دلیل حداقل ۵ نویسه اجباری |
+| POST | `/admin/transactions/:id/reverse` | `wallet.adjust` | ثبت ردیف معکوس؛ ردیف اصلی حذف نمی‌شود |
+| POST | `/admin/customers/:id/status` | `wallet.adjust` | فعال/مسدودسازی کیف پول با دلیل و ثبت audit |
+| POST | `/admin/test-topup` | `wallet.credit` | آزمون سرتاسری درگاه در حالت Sandbox |
+
+انواع تراکنش: `topup` (درگاه)، `admin_credit`، `gift`، `correction`، `purchase`، `refund`. هر ردیف `balance_before`/`balance_after`، `tracking_code`، منبع، اپراتور و دلیل دارد.
+
+### پرداخت آنلاین — `/api/payments`
+
+| متد | مسیر | دسترسی | توضیح |
+|---|---|---|---|
+| GET | `/callback/:provider` | عمومی | بازگشت از درگاه؛ فقط با استعلام سرور تأیید می‌شود |
+| GET | `/sandbox/:paymentId` | عمومی (غیر production) | شبیه‌ساز درگاه با توکن امضاشدهٔ منقضی |
+| POST | `/sandbox/:paymentId/finish` | عمومی (غیر production) | تکمیل/لغو پرداخت آزمایشی |
+| GET | `/my/:paymentId` | مشتری | وضعیت پرداخت خود مشتری (برای polling) |
+| GET | `/admin/diagnostics` | `payments.approve` | وضعیت درگاه و آمار callback؛ بدون هیچ رمزی |
+| GET | `/admin/callbacks` | `payments.view` | فهرست callbackها (start/verify، accepted/duplicate/rejected) |
+| POST | `/admin/:paymentId/cancel` | `payments.cancel` | لغو تراکنش در انتظار با دلیل (بدون ایجاد درآمد) |
+
+### پایش و لاگ — `/api/monitoring`
+
+| متد | مسیر | دسترسی |
+|---|---|---|
+| GET | `/overview` , `/health` | `monitoring.view` |
+| GET | `/charts?from&to&bucket=hour|day|week|month` | `monitoring.view` |
+| POST | `/sample` | `monitoring.view` |
+| GET | `/meta` | `monitoring.view` یا `logs.view` یا `alerts.view` |
+| GET | `/logs` , `/logs/stats` , `/logs/:id` | `logs.view` |
+| GET | `/logs/export` | `logs.export` (با ثبت audit) |
+| DELETE | `/logs/prune` | `logs.delete` (body: `{"confirmation":"PRUNE"}`) |
+| GET | `/alerts` , `/alerts/summary` | `alerts.view` |
+| POST | `/alerts/evaluate` , `/alerts/:id/acknowledge` , `/alerts/:id/resolve` | `alerts.edit` |
+
+### مسیرهای مرتبط دیگر
+
+- `GET /api/accounting/payment-policy` — روش‌های مجاز (`online`, `wallet`) و روش‌های حذف‌شده.
+- `POST /api/accounting/my/invoices/:id/pay` — شروع پرداخت آنلاین فاکتور مشتری.
+- `GET /api/system/lan` — آدرس‌های شبکهٔ خصوصی برای اتصال موبایل (بدون هیچ رمز/توکن).
+
+### مسیرهای حذف‌شده
+
+- `POST /api/accounting/payments` و `POST /api/accounting/payments/:id/confirm` با کد ۴۰۰ و پیام فارسی بازنشسته شده‌اند؛ ثبت دستی پرداخت نقدی/کارت‌خوان دیگر وجود ندارد. ردیف‌های تاریخی فقط خواندنی‌اند.
