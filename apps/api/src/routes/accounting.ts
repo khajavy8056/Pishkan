@@ -16,8 +16,15 @@ import { notifyUser } from '../modules/notifications/service.js';
 import { notifyPaymentStatus } from '../modules/notifications/events.js';
 import { param } from '../http/params.js';
 
-import { startZarinpal, verifyZarinpal } from '../modules/accounting/zarinpal.js';
+import { verifyZarinpal } from '../modules/accounting/zarinpal.js';
+import { startInvoicePayment } from '../modules/payments/service.js';
+import { ALLOWED_PAYMENT_METHODS } from '../modules/requests/service.js';
+
 export const accountingRouter = Router();
+/**
+ * Legacy callback URL kept so that payments already started before the upgrade
+ * still settle. New payments use `/api/payments/callback/zarinpal`.
+ */
 accountingRouter.get('/gateway/zarinpal', asyncRoute(async (req,res) => {
  const result = await verifyZarinpal(String(req.query.paymentId ?? ''),String(req.query.Authority ?? ''),String(req.query.Status ?? ''));
  res.redirect(303,`/app/invoices?payment=${result.confirmed ? 'confirmed':'unconfirmed'}`);
@@ -38,54 +45,27 @@ accountingRouter.get('/my/payments', asyncRoute(async (req, res) => {
   ok(res, result.items, { total: result.total, page: result.page, pageSize: result.pageSize });
 }));
 
-/** Start an online payment for an invoice (amount is always read server-side). */
+/**
+ * Start an online payment for an invoice. The amount always comes from the
+ * invoice row; nothing about the money is accepted from the browser.
+ */
 accountingRouter.post('/my/invoices/:id/pay', asyncRoute(async (req, res) => {
   if (req.auth!.user.kind !== 'customer') throw forbidden();
-  if (!(await getBool('accounting.online_payment_enabled'))) throw badRequest('پرداخت آنلاین در حال حاضر فعال نیست.');
-  const invoice = await getInvoice(param(req, 'id'));
-  if (!invoice || invoice.customerId !== req.auth!.user.id) throw notFound('فاکتور یافت نشد.');
-  if (invoice.remaining <= 0) throw badRequest('این فاکتور تسویه شده است.');
-
-  const min = await getNumber('accounting.min_online_payment');
-  if (invoice.remaining < min) throw badRequest(`حداقل مبلغ پرداخت آنلاین ${min} ریال است.`);
-
-  const gateway = await getString('accounting.gateway');
-  if (gateway === 'zarinpal') return ok(res,await startZarinpal(invoice.id,req.auth!.user.id));
-  if (gateway !== 'test' || !(await getBool('accounting.gateway_sandbox')) || process.env.NODE_ENV === 'production') throw badRequest('درگاه واقعی انتخاب‌شده پیاده‌سازی یا پیکربندی نشده است.');
-  const payment = await createPayment({invoiceId:invoice.id,customerId:invoice.customerId,amount:invoice.remaining,method:'online',gateway:'mock'},{id:req.auth!.user.id,name:req.auth!.user.fullName});
-  ok(res,{paymentId:payment.id,paymentUrl:null,message:'پرداخت شبیه‌سازی است؛ لینک بانکی واقعی وجود ندارد.'});
+  const started = await startInvoicePayment(param(req, 'id'), req.auth!.user.id, {
+    id: req.auth!.user.id, name: req.auth!.user.fullName, ip: req.ip,
+  });
+  ok(res, started);
 }));
 
-/**
- * Gateway callback endpoint. A payment is only treated as successful after the
- * gateway proves the transaction. The `mock` gateway exists for development and
- * is rejected in production.
- */
-accountingRouter.post('/payments/callback/:gateway', asyncRoute(async (req, res) => {
-  const gatewayName = param(req, 'gateway');
-  const body = z.object({
-    paymentId: z.string(),
-    success: z.union([z.boolean(), z.string()]).optional(),
-    reference: z.string().optional(),
-    authority: z.string().optional(),
-  }).parse(req.body);
-
-  if (gatewayName === 'mock') {
-    if (process.env.NODE_ENV === 'production') throw forbidden('درگاه آزمایشی در محیط عملیاتی غیرفعال است.');
-    const payment = await one<any>('SELECT * FROM payments WHERE id = ?', [body.paymentId]);
-    if (!payment) throw notFound('تراکنش یافت نشد.');
-    if (payment.gateway !== 'mock' || await getString('accounting.gateway') !== 'test' || !(await getBool('accounting.gateway_sandbox'))) throw forbidden('پرداخت متعلق به درگاه آزمایشی نیست.');
-    if (body.success === false || body.success === 'false') {
-      await run('UPDATE payments SET status = ?, updated_at = ? WHERE id = ?', ['failed', nowIso(), payment.id]);
-      await notifyPaymentStatus(payment.id, 'پرداخت ناموفق بود').catch(() => undefined);
-      return ok(res, { status: 'failed' });
-    }
-    const confirmed = await confirmPayment(payment.id, { id: 'system', name: 'درگاه آزمایشی', ip: req.ip }, body.reference ?? 'MOCK-REF');
-    await notifyPaymentStatus(payment.id, 'پرداخت تأیید شد').catch(() => undefined);
-    return ok(res, confirmed);
-  }
-
-  throw badRequest('درگاه پرداخت پشتیبانی نمی‌شود.');
+/** Payment policy for the customer UI (no secrets). */
+accountingRouter.get('/payment-policy', asyncRoute(async (_req, res) => {
+  ok(res, {
+    allowedMethods: [...ALLOWED_PAYMENT_METHODS],
+    onlineEnabled: await getBool('accounting.online_payment_enabled'),
+    walletEnabled: await getBool('wallet.enabled') && await getBool('wallet.allow_wallet_payment'),
+    currency: 'IRR',
+    retiredMethods: ['cash', 'pos', 'transfer'],
+  });
 }));
 
 // Office accounting is distinct from personal compensation. A permission to
@@ -167,41 +147,24 @@ accountingRouter.get('/payments', requirePermission('payments.view'), asyncRoute
     customerId: typeof req.query.customerId === 'string' ? req.query.customerId : undefined,
     status: typeof req.query.status === 'string' ? req.query.status : undefined,
     method: typeof req.query.method === 'string' ? req.query.method : undefined,
+    purpose: typeof req.query.purpose === 'string' ? req.query.purpose : undefined,
     ...dateRange(req),
   });
   ok(res, result.items, { total: result.total, page: result.page, pageSize: result.pageSize });
 }));
 
-/** Manual (in-person) payment registration by an authorised staff member. */
-accountingRouter.post('/payments', requirePermission('payments.create'), asyncRoute(async (req, res) => {
-  if (!(await getBool('accounting.cash_payment_enabled'))) throw badRequest('ثبت پرداخت حضوری غیرفعال است.');
-  const body = z.object({
-    customerId: z.string().min(3),
-    invoiceId: z.string().optional(),
-    requestId: z.string().optional(),
-    amount: z.number().positive(),
-    method: z.enum(['cash', 'pos', 'transfer', 'online']),
-    reference: z.string().max(120).optional(),
-    note: z.string().max(1000).optional(),
-  }).parse(req.body);
-
-  if (body.method === 'online') {
-    const payment = await createPayment({ ...body, status: 'pending' }, { id: req.auth!.user.id, name: req.auth!.user.fullName, ip: req.ip });
-    return created(res, payment);
-  }
-
-  const payment = await createPayment({ ...body, status: 'confirmed' }, { id: req.auth!.user.id, name: req.auth!.user.fullName, ip: req.ip });
-  await notifyPaymentStatus(payment.id, 'پرداخت حضوری ثبت شد').catch(() => undefined);
-  created(res, payment);
+/**
+ * Manual cash/POS/transfer registration is retired. Customer money can
+ * only arrive through a verified gateway callback or the customer wallet, so no
+ * endpoint exists that would create revenue from a staff-entered amount.
+ * Historical rows stay readable through GET /payments.
+ */
+accountingRouter.post('/payments', asyncRoute(async (_req, _res) => {
+  throw badRequest('ثبت دستی پرداخت حذف شده است؛ پرداخت فقط از درگاه آنلاین یا کیف پول مشتری انجام می‌شود.');
 }));
 
-accountingRouter.post('/payments/:id/confirm', requirePermission('payments.approve'), asyncRoute(async (req, res) => {
-  const body = z.object({ reference: z.string().max(120).optional() }).parse(req.body ?? {});
-  const pending = await one<any>('SELECT * FROM payments WHERE id=?',[param(req,'id')]);
-  if (pending?.method === 'online' && pending.gateway !== 'mock') throw forbidden('پرداخت آنلاین فقط با تأیید سروری درگاه قابل تأیید است.');
-  const payment = await confirmPayment(param(req, 'id'), { id: req.auth!.user.id, name: req.auth!.user.fullName, ip: req.ip }, body.reference);
-  await notifyPaymentStatus(param(req, 'id'), 'پرداخت تأیید شد').catch(() => undefined);
-  ok(res, payment);
+accountingRouter.post('/payments/:id/confirm', asyncRoute(async (_req, _res) => {
+  throw badRequest('تأیید دستی پرداخت حذف شده است؛ تأیید فقط با استعلام سروری درگاه انجام می‌شود.');
 }));
 
 accountingRouter.post('/payments/:id/refund', requirePermission('payments.cancel'), asyncRoute(async (req, res) => {
@@ -330,7 +293,10 @@ accountingRouter.get('/meta/settings', asyncRoute(async (req, res) => {
   if (!hasPermission(req.auth!.permissions, 'invoices.view') && req.auth!.user.kind === 'customer') throw forbidden();
   ok(res, {
     onlineEnabled: await getBool('accounting.online_payment_enabled'),
-    cashEnabled: await getBool('accounting.cash_payment_enabled'),
+    cashEnabled: false,
+    walletEnabled: await getBool('wallet.enabled'),
+    allowedMethods: [...ALLOWED_PAYMENT_METHODS],
+    retiredMethods: ['cash', 'pos', 'transfer'],
     gateway: await getString('accounting.gateway'),
     taxPercent: await getNumber('accounting.tax_percent'),
     allowRefund: await getBool('accounting.allow_refund'),

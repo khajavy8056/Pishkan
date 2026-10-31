@@ -14,6 +14,7 @@ import { invalidateSettingsCache } from '../modules/settings/service.js';
 import { writeAudit } from '../modules/audit/service.js';
 import { getBool, getNumber, getString } from '../modules/settings/service.js';
 import { param } from '../http/params.js';
+import { lanAccessInfo } from '../lib/server-bind.js';
 
 export const systemRouter = Router();
 systemRouter.use(requireAuth);
@@ -42,6 +43,11 @@ systemRouter.get('/status', requirePermission('system.view'), asyncRoute(async (
     apiUrl: env.apiUrl,
     maintenance: await getBool('maintenance.mode'),
   });
+}));
+
+/** Read-only LAN address discovery for the admin panel (no secrets, no tokens). */
+systemRouter.get('/lan', requirePermission('system.view'), asyncRoute(async (_req, res) => {
+  ok(res, lanAccessInfo({ host: env.host, port: env.port }));
 }));
 
 /* --------------------------------- audit ---------------------------------- */

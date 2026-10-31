@@ -7,6 +7,9 @@ import { getBool, getNumber, getString } from '../settings/service.js';
 import { getServiceById, finalFee, type ServiceDTO } from '../catalog/service.js';
 import { createInvoice } from '../accounting/service.js';
 import { writeAudit } from '../audit/service.js';
+import { assertWalletUsable } from '../wallet/service.js';
+import { settleInvoiceWithWallet } from '../payments/service.js';
+import { logEvent } from '../logging/service.js';
 import { toPersianDigits } from '../../lib/text.js';
 
 import { requireCompleteProfile, requireCoverage, validNationalId } from '../profiles/service.js';
@@ -305,6 +308,9 @@ export async function addEvent(input: {
   return eventId;
 }
 
+/** Customer payment methods. Everything else is retired from the workflow. */
+export const ALLOWED_PAYMENT_METHODS = ['online', 'wallet'] as const;
+
 /* --------------------------------- create ---------------------------------- */
 
 export interface CreateRequestInput {
@@ -468,18 +474,40 @@ export async function createRequest(input: CreateRequestInput, actor?: { id: str
     }
     total = Number(existingInvoice.total);
   }
-  const methods = service.paymentMethods;
-  if (total > 0 && methods.length === 0) throw badRequest('برای این خدمت روش پرداخت تعریف نشده است؛ با دفتر تماس بگیرید.');
-  if (total > 0 && input.paymentMethod && !methods.includes(input.paymentMethod)) {
+  // Only two customer payment paths exist: the online gateway and the wallet.
+  // Legacy values (cash/pos/transfer) are rejected explicitly instead of being
+  // silently mapped, so no hidden offline path survives in the API.
+  const methods = ALLOWED_PAYMENT_METHODS.filter((candidate) => service.paymentMethods.includes(candidate));
+  const offered: readonly string[] = methods.length ? methods : [...ALLOWED_PAYMENT_METHODS];
+  if (total > 0 && input.paymentMethod && !(ALLOWED_PAYMENT_METHODS as readonly string[]).includes(input.paymentMethod)) {
+    throw badRequest('این روش پرداخت حذف شده است؛ فقط پرداخت آنلاین یا کیف پول مجاز است.', [{
+      field: 'paymentMethod', message: 'روش مجاز: درگاه پرداخت آنلاین یا کیف پول.',
+    }]);
+  }
+  if (total > 0 && input.paymentMethod && !offered.includes(input.paymentMethod)) {
     throw badRequest('روش پرداخت انتخاب‌شده برای این خدمت مجاز نیست.', [{ field: 'paymentMethod', message: 'روش دیگری از گزینه‌های مجاز انتخاب کنید.' }]);
   }
-  const method = total <= 0 ? 'none' : input.paymentMethod ?? methods[0]!;
+  const method = total <= 0 ? 'none' : input.paymentMethod ?? offered[0]!;
+  if (method === 'wallet') {
+    if (!(await getBool('wallet.enabled')) || !(await getBool('wallet.allow_wallet_payment'))) {
+      throw badRequest('پرداخت از کیف پول در حال حاضر غیرفعال است.');
+    }
+    const wallet = await assertWalletUsable(input.customerId);
+    if (Number(wallet.balance) < total) {
+      throw conflict('موجودی کیف پول برای این خدمت کافی نیست.', [{
+        field: 'wallet',
+        message: `موجودی: ${wallet.balance} ریال — مبلغ لازم: ${total} ریال`,
+        available: Number(wallet.balance),
+        required: total,
+        action: 'wallet_topup',
+      }]);
+    }
+  }
   const existingPaid = Number(existingInvoice?.paid_amount ?? 0);
   const paymentStatus = total <= 0 ? 'not_required'
     : existingPaid >= total ? 'paid'
       : existingPaid > 0 ? 'partial'
-        : method === 'cash' ? 'cash_due'
-          : method === 'pos' || method === 'transfer' ? 'awaiting_manual_payment' : 'unpaid';
+        : method === 'wallet' ? 'paid' : 'unpaid';
 
   const trackingCode = await generateTrackingCode();
   const requestId = id('req');
@@ -504,6 +532,7 @@ export async function createRequest(input: CreateRequestInput, actor?: { id: str
     submittedAt: ts,
   };
 
+  let createdInvoice: any = null;
   await tx(async (db) => {
     if (input.priority === 'high') {
       const lock = await db.run('UPDATE services SET updated_at=updated_at WHERE id=?',[service.id]);
@@ -538,6 +567,39 @@ export async function createRequest(input: CreateRequestInput, actor?: { id: str
           jsonStringify({ invoiceId: existingInvoice.id, total: Number(existingInvoice.total) }), ts],
       );
     }
+
+    if (total > 0 && !input.existingInvoiceId) {
+      createdInvoice = await createInvoice({
+        customerId: input.customerId,
+        requestId,
+        serviceId: service.id,
+        kind: service.isCustom ? 'custom' : 'public',
+        title: `هزینه خدمت ${service.title}`,
+        items: [{ title: service.title, qty: 1, unitPrice: fee, amount: fee }, ...(urgentFee ? [{title:'هزینه انجام فوری',qty:1,unitPrice:urgentFee,amount:urgentFee}] : [])],
+        discount,
+        notes: `شماره پیگیری ${trackingCode} — هزینه نمایشی است و پس از بررسی نهایی تأیید می‌شود.`,
+      }, actor);
+      await db.run(
+        `INSERT INTO request_events (id, request_id, actor_id, actor_name, type, message, metadata, visible_to_customer, created_at)
+         VALUES (?, ?, ?, ?, 'invoice', ?, ?, 1, ?)`,
+        [id('evt'), requestId, actor?.id ?? input.customerId, actor?.name ?? customer.full_name,
+          `پیش‌فاکتور ${toPersianDigits(createdInvoice.number)} صادر شد.`,
+          jsonStringify({ invoiceId: createdInvoice.id, total: Number(createdInvoice.total) }), ts],
+      );
+    }
+
+    // Wallet settlement happens in the same transaction as the request. If the
+    // balance moved or the invoice could not be paid, the whole request is
+    // rolled back: money is never taken without a case (and vice versa).
+    if (method === 'wallet' && total > 0) {
+      const targetInvoice = createdInvoice ?? existingInvoice;
+      if (!targetInvoice) throw conflict('فاکتور قابل پرداخت برای این درخواست یافت نشد.');
+      await settleInvoiceWithWallet(targetInvoice.id, input.customerId, {
+        id: actor?.id ?? input.customerId,
+        name: actor?.name ?? customer.full_name,
+        ip: actor?.ip,
+      });
+    }
   });
 
   await run('UPDATE requests SET urgent_fee=? WHERE id=?',[urgentFee,requestId]);
@@ -547,30 +609,19 @@ export async function createRequest(input: CreateRequestInput, actor?: { id: str
       { ownerId: input.customerId, requirementKey: document.requirementKey });
   }
 
-  if (total > 0 && !input.existingInvoiceId) {
-    const invoice = await createInvoice({
-      customerId: input.customerId,
-      requestId,
-      serviceId: service.id,
-      kind: service.isCustom ? 'custom' : 'public',
-      title: `هزینه خدمت ${service.title}`,
-      items: [{ title: service.title, qty: 1, unitPrice: fee, amount: fee }, ...(urgentFee ? [{title:'هزینه انجام فوری',qty:1,unitPrice:urgentFee,amount:urgentFee}] : [])],
-      discount,
-      notes: `شماره پیگیری ${trackingCode} — هزینه نمایشی است و پس از بررسی نهایی تأیید می‌شود.`,
-    }, actor);
-    await addEvent({
-      requestId, type: 'invoice', message: `پیش‌فاکتور ${toPersianDigits(invoice!.number)} صادر شد.`,
-      metadata: { invoiceId: invoice!.id, total: invoice!.total }, actorId: actor?.id, actorName: actor?.name,
-    });
-    await run('UPDATE requests SET updated_at = ? WHERE id = ?', [nowIso(), requestId]);
-  }
-
   await autoAssign(requestId);
 
   await writeAudit({
     actorId: actor?.id ?? input.customerId, actorName: actor?.name ?? customer.full_name,
     action: 'request.create', entityType: 'request', entityId: requestId,
-    after: { trackingCode, serviceId: service.id, total }, ip: actor?.ip,
+    after: { trackingCode, serviceId: service.id, total, paymentMethod: method, paymentStatus }, ip: actor?.ip,
+  });
+  await logEvent({
+    level: 'INFO', category: 'request', action: 'request.create', actorId: actor?.id ?? input.customerId,
+    actorName: actor?.name ?? customer.full_name, ip: actor?.ip,
+    entityType: 'request', entityId: requestId, transactionId: createdInvoice?.id ?? undefined,
+    message: 'درخواست خدمت ثبت شد.',
+    details: { trackingCode, serviceId: service.id, total, method, priority: input.priority ?? 'normal' },
   });
   if (idempotencyKey) {
     await run('UPDATE request_submission_keys SET request_id = ? WHERE customer_id = ? AND idempotency_key = ?',

@@ -31,7 +31,8 @@ export interface SettingDef {
 
 export type SettingGroupCode =
   | 'general' | 'domain' | 'auth' | 'sms' | 'email' | 'security' | 'services'
-  | 'accounting' | 'workforce' | 'assistant' | 'files' | 'backup' | 'maintenance' | 'multibranch';
+  | 'accounting' | 'wallet' | 'workforce' | 'assistant' | 'files' | 'backup'
+  | 'maintenance' | 'monitoring' | 'multibranch';
 
 export const SETTING_GROUPS: {
   code: SettingGroupCode;
@@ -48,12 +49,14 @@ export const SETTING_GROUPS: {
   { code: 'security', title: 'امنیت', description: 'HTTPS، سیاست نشست‌ها، محدودیت تلاش ورود و نگهداری لاگ', icon: 'shield', order: 6 },
   { code: 'services', title: 'خدمات و گردش کار', description: 'ارجاع خودکار، مدارک، خدمات اختصاصی و وضعیت پذیرش', icon: 'layers', order: 7 },
   { code: 'accounting', title: 'حسابداری و پرداخت', description: 'درگاه پرداخت، مالیات، شماره‌گذاری فاکتور و قوانین بازپرداخت', icon: 'wallet', order: 8 },
-  { code: 'workforce', title: 'کارکنان و شیفت‌ها', description: 'قوانین شیفت، حضور و غیاب و ظرفیت کاری', icon: 'calendar', order: 9 },
-  { code: 'assistant', title: 'دستیار هوشمند', description: 'رفتار دستیار، منابع پاسخ‌گویی و مدل زبانی', icon: 'sparkles', order: 10 },
-  { code: 'files', title: 'فایل‌ها و مدارک', description: 'محدودیت حجم و نوع فایل و نگهداری مدارک', icon: 'folder', order: 11 },
-  { code: 'backup', title: 'پشتیبان‌گیری', description: 'زمان‌بندی، مقصد ذخیره و نگهداری نسخه‌های پشتیبان', icon: 'database', order: 12 },
-  { code: 'maintenance', title: 'نگهداری و گزارش‌ها', description: 'لاگ‌ها، وضعیت سلامت، حالت تعمیر و گزارش‌های خودکار', icon: 'activity', order: 13 },
-  { code: 'multibranch', title: 'چنددفتره', description: 'آماده‌سازی برای مدیریت چند دفتر مستقل (آزمایشی)', icon: 'building', order: 14 },
+  { code: 'wallet', title: 'کیف پول مشتریان', description: 'سقف شارژ، محدودیت موجودی و سیاست بازگشت وجه به کیف پول', icon: 'wallet', order: 9 },
+  { code: 'workforce', title: 'کارکنان و شیفت‌ها', description: 'قوانین شیفت، حضور و غیاب و ظرفیت کاری', icon: 'calendar', order: 10 },
+  { code: 'assistant', title: 'دستیار هوشمند', description: 'رفتار دستیار، منابع پاسخ‌گویی و مدل زبانی', icon: 'sparkles', order: 11 },
+  { code: 'files', title: 'فایل‌ها و مدارک', description: 'محدودیت حجم و نوع فایل و نگهداری مدارک', icon: 'folder', order: 12 },
+  { code: 'backup', title: 'پشتیبان‌گیری', description: 'زمان‌بندی، مقصد ذخیره و نگهداری نسخه‌های پشتیبان', icon: 'database', order: 13 },
+  { code: 'maintenance', title: 'نگهداری و گزارش‌ها', description: 'لاگ‌ها، وضعیت سلامت، حالت تعمیر و گزارش‌های خودکار', icon: 'activity', order: 14 },
+  { code: 'monitoring', title: 'مانیتورینگ و لاگ', description: 'نمونه‌برداری شاخص‌ها، آستانه هشدارها و نگهداری لاگ فنی', icon: 'activity', order: 15 },
+  { code: 'multibranch', title: 'چنددفتره', description: 'آماده‌سازی برای مدیریت چند دفتر مستقل (آزمایشی)', icon: 'building', order: 16 },
 ];
 
 const bool = (v: boolean) => v;
@@ -178,12 +181,15 @@ export const SETTINGS: SettingDef[] = [
   { key: 'services.catalog_notice', group: 'services', type: 'textarea', label: 'یادداشت بالای کاتالوگ خدمات', hint: 'برای اعلام «هزینه‌ها نمونه و نیازمند تأیید است».', default: 'هزینه‌ها و شرایط نمایش‌داده‌شده نمونه هستند و هزینه نهایی پس از بررسی مدارک اعلام می‌شود.', public: true },
 
   /* ------------------------------- accounting ------------------------------ */
-  { key: 'accounting.online_payment_enabled', group: 'accounting', type: 'boolean', label: 'پرداخت آنلاین فعال', default: bool(false), public: true },
-  { key: 'accounting.cash_payment_enabled', group: 'accounting', type: 'boolean', label: 'ثبت پرداخت حضوری توسط کارمند', default: bool(true) },
-  { key: 'accounting.gateway', group: 'accounting', type: 'select', label: 'درگاه پرداخت', options: [{ value: 'none', label: 'بدون درگاه' }, { value: 'test', label: 'درگاه آزمایشی (شبیه‌ساز)' }, { value: 'zarinpal', label: 'زرین‌پال' }, { value: 'idpay', label: 'آیدی‌پی' }], default: 'none' },
+  { key: 'accounting.online_payment_enabled', group: 'accounting', type: 'boolean', label: 'پرداخت آنلاین فعال', hint: 'با خاموش‌بودن آن، فقط پرداخت از کیف پول در دسترس است.', default: bool(false), public: true },
+  { key: 'accounting.cash_payment_enabled', group: 'accounting', type: 'boolean', label: 'ثبت پرداخت حضوری (منسوخ — حذف شد)', hint: 'از نسخه ۱٫۳ روش‌های نقدی/کارت‌خوان/حواله از گردش پرداخت مشتری حذف شده‌اند و این کلید دیگر اثری ندارد. داده‌های تاریخی حفظ می‌شوند.', default: bool(false) },
+  { key: 'accounting.gateway', group: 'accounting', type: 'select', label: 'درگاه پرداخت', hint: '«شبیه‌ساز» فقط برای آزمون در محیط غیرعملیاتی است و در production غیرفعال می‌شود.', options: [{ value: 'none', label: 'بدون درگاه' }, { value: 'sandbox', label: 'شبیه‌ساز آزمایشی (Sandbox داخلی)' }, { value: 'zarinpal', label: 'زرین‌پال' }], default: 'none' },
   { key: 'accounting.gateway_merchant_id', group: 'accounting', type: 'password', secret:true, label: 'شناسه پذیرنده / Merchant ID', default: '' },
   { key: 'accounting.gateway_api_key', group: 'accounting', type: 'password', secret: true, label: 'کلید API درگاه', default: '' },
-  { key: 'accounting.gateway_sandbox', group: 'accounting', type: 'boolean', label: 'حالت آزمایشی درگاه', default: bool(true) },
+  { key: 'accounting.gateway_sandbox', group: 'accounting', type: 'boolean', label: 'حالت آزمایشی درگاه (Sandbox)', hint: 'در زرین‌پال به محیط sandbox وصل می‌شود؛ هیچ تراکنش واقعی انجام نمی‌شود.', default: bool(true) },
+  { key: 'accounting.gateway_callback_url', group: 'accounting', type: 'url', label: 'نشانی بازگشت از درگاه (Callback)', hint: 'اگر خالی باشد از ZARINPAL_CALLBACK_BASE_URL یا API_URL استفاده می‌شود. برای درگاه واقعی باید HTTPS عمومی باشد.', default: '' },
+  { key: 'accounting.gateway_timeout_seconds', group: 'accounting', type: 'number', label: 'مهلت پاسخ درگاه (ثانیه)', default: 15, min: 5, max: 60 },
+  { key: 'accounting.gateway_health_check', group: 'accounting', type: 'boolean', label: 'بررسی دوره‌ای وضعیت درگاه', hint: 'نتیجه در مرکز مانیتورینگ نمایش داده می‌شود؛ در حالت زنده، درخواست پرداخت واقعی ارسال نمی‌شود.', default: bool(true) },
   { key: 'accounting.tax_percent', group: 'accounting', type: 'number', label: 'درصد مالیات بر ارزش افزوده', default: 0, min: 0, max: 50 },
   { key: 'accounting.office_share_percent', group: 'accounting', type: 'number', label: 'سهم دفتر از مبلغ خدمت (درصد)', hint: 'برای گزارش سود عملیاتی؛ مابقی سهم سازمان متولی در نظر گرفته می‌شود.', default: 100, min: 0, max: 100 },
   { key: 'accounting.invoice_prefix', group: 'accounting', type: 'text', label: 'پیشوند شماره فاکتور', default: 'INV' },
@@ -232,6 +238,30 @@ export const SETTINGS: SettingDef[] = [
   { key: 'files.original_retention_days', group: 'files', type: 'number', label: 'نگهداری نسخه اصلی پس از بهینه‌سازی (روز)', hint: 'صفر یعنی نگهداری دائمی. حذف فقط با اجرای دستی و تأیید انجام می‌شود.', default: 0, min: 0, max: 3650 },
   { key: 'files.require_reuse_confirmation', group: 'files', type: 'boolean', label: 'الزام تأیید مشتری برای استفاده دوباره از مدرک', default: bool(true) },
   { key: 'files.document_default_validity_days', group: 'files', type: 'number', label: 'اعتبار پیش‌فرض مدارک بدون تاریخ انقضا (روز)', default: 365, min: 1, max: 3650 },
+
+  /* --------------------------------- wallet -------------------------------- */
+  { key: 'wallet.enabled', group: 'wallet', type: 'boolean', label: 'کیف پول مشتریان فعال', hint: 'با خاموش‌شدن آن، شارژ و پرداخت از کیف پول در دسترس نیست (موجودی و سابقه حفظ می‌شود).', default: bool(true), public: true },
+  { key: 'wallet.min_topup', group: 'wallet', type: 'number', label: 'حداقل مبلغ شارژ (ریال)', default: 10000, min: 1000, max: 10000000 },
+  { key: 'wallet.max_topup', group: 'wallet', type: 'number', label: 'حداکثر مبلغ شارژ در هر تراکنش (ریال)', default: 50000000, min: 10000, max: 500000000 },
+  { key: 'wallet.max_balance', group: 'wallet', type: 'number', label: 'حداکثر موجودی مجاز کیف پول (ریال)', hint: 'از انباشت مبلغ غیرعادی جلوگیری می‌کند.', default: 200000000, min: 100000, max: 2000000000 },
+  { key: 'wallet.allow_wallet_payment', group: 'wallet', type: 'boolean', label: 'امکان پرداخت هزینه خدمات از کیف پول', default: bool(true), public: true },
+  { key: 'wallet.refund_to_wallet', group: 'wallet', type: 'boolean', label: 'بازگشت وجه پرداخت‌های کیف پولی به کیف پول', hint: 'اگر خاموش باشد، بازپرداخت تراکنش کیف پولی مسدود می‌شود تا دوبار اعتبار ایجاد نشود.', default: bool(true) },
+  { key: 'wallet.admin_credit_requires_reason', group: 'wallet', type: 'boolean', label: 'الزام ثبت دلیل برای شارژ مدیریتی', default: bool(true) },
+  { key: 'wallet.admin_credit_max', group: 'wallet', type: 'number', label: 'حداکثر شارژ مدیریتی در هر عملیات (ریال)', default: 100000000, min: 10000, max: 2000000000 },
+
+  /* ------------------------------- monitoring ------------------------------ */
+  { key: 'monitoring.enabled', group: 'monitoring', type: 'boolean', label: 'جمع‌آوری شاخص‌های مانیتورینگ', hint: 'نمونه‌برداری دوره‌ای CPU، حافظه، دیسک، تأخیر دیتابیس و ترافیک API.', default: bool(true) },
+  { key: 'monitoring.sample_interval_seconds', group: 'monitoring', type: 'number', label: 'فاصله نمونه‌برداری (ثانیه)', default: 30, min: 10, max: 600 },
+  { key: 'monitoring.retain_metrics_days', group: 'monitoring', type: 'number', label: 'نگهداری شاخص‌ها (روز)', default: 30, min: 1, max: 365 },
+  { key: 'monitoring.log_level', group: 'monitoring', type: 'select', label: 'کمترین سطح لاگ ذخیره‌شده', options: [{ value: 'DEBUG', label: 'DEBUG' }, { value: 'INFO', label: 'INFO' }, { value: 'WARNING', label: 'WARNING' }, { value: 'ERROR', label: 'ERROR' }, { value: 'CRITICAL', label: 'CRITICAL' }, { value: 'SECURITY', label: 'SECURITY' }], default: 'INFO' },
+  { key: 'monitoring.log_retention_days', group: 'monitoring', type: 'number', label: 'نگهداری لاگ ساختاریافته (روز)', default: 90, min: 7, max: 3650 },
+  { key: 'monitoring.alert_error_rate_percent', group: 'monitoring', type: 'number', label: 'آستانه نرخ خطای API (درصد)', default: 5, min: 1, max: 100 },
+  { key: 'monitoring.alert_latency_ms', group: 'monitoring', type: 'number', label: 'آستانه زمان پاسخ API (میلی‌ثانیه)', default: 2000, min: 200, max: 60000 },
+  { key: 'monitoring.alert_disk_percent', group: 'monitoring', type: 'number', label: 'آستانه مصرف دیسک (درصد)', default: 85, min: 50, max: 99 },
+  { key: 'monitoring.alert_memory_percent', group: 'monitoring', type: 'number', label: 'آستانه مصرف حافظه Node (درصد)', default: 85, min: 50, max: 99 },
+  { key: 'monitoring.alert_payment_failures', group: 'monitoring', type: 'number', label: 'تعداد پرداخت ناموفق برای هشدار (در ۱۵ دقیقه)', default: 3, min: 1, max: 100 },
+  { key: 'monitoring.alert_failed_logins', group: 'monitoring', type: 'number', label: 'تعداد ورود ناموفق برای هشدار امنیتی (در ۵ دقیقه)', default: 5, min: 1, max: 100 },
+  { key: 'monitoring.notify_critical', group: 'monitoring', type: 'boolean', label: 'اعلان داخلی برای هشدارهای بحرانی', hint: 'از زیرساخت اعلان موجود برای مدیران دارای مجوز استفاده می‌کند.', default: bool(true) },
 
   /* --------------------------------- backup -------------------------------- */
   { key: 'backup.enabled', group: 'backup', type: 'boolean', label: 'پشتیبان‌گیری خودکار فعال', default: bool(true) },

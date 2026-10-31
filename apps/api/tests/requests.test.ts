@@ -3,6 +3,7 @@ import request from 'supertest';
 import sharp from 'sharp';
 import { app, createStaff, customerSession, adminSession, EXPERT } from './helpers.js';
 import { updateSettings } from '../src/modules/settings/service.js';
+import { confirmPayment, createPayment } from '../src/modules/accounting/service.js';
 import { autoAssign, validateFormData } from '../src/modules/requests/service.js';
 import { one, q, run } from '../src/db/index.js';
 import { id } from '../src/lib/crypto.js';
@@ -151,8 +152,13 @@ describe('request lifecycle', () => {
     await request(server).post('/api/accounting/invoices').set('Cookie', admin.cookie)
       .send({ customerId: created.body.data.customerId, requestId: created.body.data.id, serviceId: service.id,
         title: 'هزینه تکمیلی', items: [{ title: 'هزینه تکمیلی', qty: 1, unitPrice: 10000 }] }).expect(201);
-    await request(server).post('/api/accounting/payments').set('Cookie', admin.cookie)
-      .send({ customerId: created.body.data.customerId, invoiceId: invoice.id, amount: invoice.total, method: 'cash' }).expect(201);
+    // Settlement now happens through the verified gateway/wallet flows; the test
+    // uses the same service call the gateway callback performs.
+    const payment = await createPayment({
+      customerId: created.body.data.customerId, invoiceId: invoice.id, amount: invoice.total,
+      method: 'online', gateway: 'zarinpal', status: 'pending',
+    }, { id: 'system', name: 'test-payments' });
+    await confirmPayment(payment.id, { id: 'system', name: 'test-payments' }, 'GW-AGG-1');
     const detail = await request(server).get(`/api/requests/${created.body.data.id}`).set('Cookie', customer.cookie);
     expect(detail.body.data.paymentStatus).toBe('partial');
   });
@@ -166,7 +172,7 @@ describe('request lifecycle', () => {
     const res = await request(server)
       .post('/api/requests')
       .set('Cookie', customer.cookie)
-      .send(await requestInput(server, customer, service, { paymentMethod: 'cash' }));
+      .send(await requestInput(server, customer, service, { paymentMethod: 'online' }));
 
     expect(res.status).toBe(201);
     expect(res.body.data.trackingCode).toMatch(/^PK-/);
@@ -181,7 +187,7 @@ describe('request lifecycle', () => {
     const customer = await customerSession();
     const server = await app();
     const service = (await request(server).get('/api/public/services/insurance-history')).body.data;
-    const payload = await requestInput(server, customer, service, { paymentMethod: 'cash' });
+    const payload = await requestInput(server, customer, service, { paymentMethod: 'online' });
     const submit = () => request(server).post('/api/requests').set('Cookie', customer.cookie)
       .set('Idempotency-Key', 'request-submit-test-0001').send(payload);
 
@@ -205,7 +211,7 @@ describe('request lifecycle', () => {
     const service = (await request(server).get('/api/public/services/insurance-history')).body.data;
     await updateSettings({ 'services.auto_assign': false, 'workforce.auto_assign_on_shift': false }, { id: 'system', name: 'test-atomic-assignment' });
     const created = await request(server).post('/api/requests').set('Cookie', customer.cookie)
-      .send(await requestInput(server, customer, service, { paymentMethod: 'cash' })).expect(201);
+      .send(await requestInput(server, customer, service, { paymentMethod: 'online' })).expect(201);
     expect(created.body.data.assignedTo).toBeFalsy();
 
     await updateSettings({ 'services.auto_assign': true }, { id: 'system', name: 'test-atomic-assignment' });
@@ -232,7 +238,7 @@ describe('request lifecycle', () => {
     try {
       const noDocumentService = (await request(server).get('/api/public/services/insurance-history')).body.data;
       const created = await request(server).post('/api/requests').set('Cookie', customer.cookie)
-        .send(await requestInput(server, customer, noDocumentService, { paymentMethod: 'cash' })).expect(201);
+        .send(await requestInput(server, customer, noDocumentService, { paymentMethod: 'online' })).expect(201);
       const requestId = created.body.data.id;
       expect(created.body.data).toMatchObject({ assignedTo: null, status: 'new' });
 
@@ -269,7 +275,7 @@ describe('request lifecycle', () => {
     let created: any;
     try {
       created = await request(server).post('/api/requests').set('Cookie', customer.cookie)
-        .send(await requestInput(server, customer, service, { paymentMethod: 'cash' })).expect(201);
+        .send(await requestInput(server, customer, service, { paymentMethod: 'online' })).expect(201);
     } finally {
       await updateSettings({ 'services.auto_assign': true }, { id: 'system', name: 'test-claim-race' });
     }
@@ -419,13 +425,13 @@ describe('request lifecycle', () => {
     expect(JSON.stringify(res.body.error.details)).toContain('کد ملی');
   });
 
-  it('keeps cash collection separate and requires per-document review before completion or replacement', async () => {
+  it('keeps online settlement separate from case progress and requires per-document review before completion or replacement', async () => {
     const admin = await adminSession();
     const customer = await customerSession();
     const server = await app();
     await updateSettings({ 'services.auto_assign': false, 'services.require_document_approval': true }, { id: 'system', name: 'test-document-workflow' });
     const serviceResponse = await request(server).post('/api/catalog/services').set('Cookie', admin.cookie).send({
-      title: 'آزمون چرخه مدرک نقدی', slug: 'request-review-cash-flow', baseFee: 50000, paymentMethods: ['cash'],
+      title: 'آزمون چرخه مدرک نقدی', slug: 'request-review-cash-flow', baseFee: 50000, paymentMethods: ['online'],
       form: [], documents: [
         { key: 'identity_front', title: 'روی مدرک هویتی', required: true },
         { key: 'identity_back', title: 'پشت مدرک هویتی', required: true },
@@ -434,10 +440,10 @@ describe('request lifecycle', () => {
     expect(serviceResponse.status).toBe(201);
     const service = serviceResponse.body.data;
     const created = await request(server).post('/api/requests').set('Cookie', customer.cookie)
-      .send(await requestInput(server, customer, service, { paymentMethod: 'cash' })).expect(201);
+      .send(await requestInput(server, customer, service, { paymentMethod: 'online' })).expect(201);
     const requestId = created.body.data.id;
-    expect(created.body.data.paymentMethod).toBe('cash');
-    expect(created.body.data.paymentStatus).toBe('cash_due');
+    expect(created.body.data.paymentMethod).toBe('online');
+    expect(created.body.data.paymentStatus).toBe('unpaid');
     expect(created.body.data.status).not.toBe('completed');
     expect(created.body.data.invoices).toHaveLength(1);
     expect(Number((await one<any>('SELECT COUNT(*) AS c FROM payments WHERE invoice_id=?', [created.body.data.invoices[0].id]))?.c ?? 0)).toBe(0);
@@ -485,7 +491,7 @@ describe('request lifecycle', () => {
     const ready = await request(server).patch(`/api/requests/${requestId}/status`).set('Cookie', admin.cookie).send({ status: 'ready' }).expect(200);
     const completed = await request(server).patch(`/api/requests/${requestId}/status`).set('Cookie', admin.cookie).send({ status: 'completed' }).expect(200);
     expect(completed.body.data.status).toBe('completed');
-    expect(completed.body.data.paymentStatus).toBe('cash_due');
+    expect(completed.body.data.paymentStatus).toBe('unpaid');
     expect(completed.body.data.estimatedCompletionAt).toBeTruthy();
     expect(completed.body.data.deadlineAt).toBeNull();
     expect(ready.body.data.status).toBe('ready');
@@ -496,16 +502,16 @@ describe('request lifecycle', () => {
     const customer = await customerSession();
     const server = await app();
     const serviceResponse = await request(server).post('/api/catalog/services').set('Cookie', admin.cookie).send({
-      title: 'خدمت با مدرک فرم', slug: 'form-file-review-lifecycle', baseFee: 65000, paymentMethods: ['cash'],
+      title: 'خدمت با مدرک فرم', slug: 'form-file-review-lifecycle', baseFee: 65000, paymentMethods: ['online'],
       form: [{ key: 'supporting_file', label: 'مدرک پشتیبان', type: 'file', required: true }], documents: [], workflow: [],
     }).expect(201);
     const service = serviceResponse.body.data;
     const missing = await request(server).post('/api/requests').set('Cookie', customer.cookie)
-      .send({ serviceId: service.id, formData: {}, paymentMethod: 'cash' });
+      .send({ serviceId: service.id, formData: {}, paymentMethod: 'online' });
     expect(missing.status).toBe(400);
 
     const created = await request(server).post('/api/requests').set('Cookie', customer.cookie)
-      .send(await requestInput(server, customer, service, { paymentMethod: 'cash' })).expect(201);
+      .send(await requestInput(server, customer, service, { paymentMethod: 'online' })).expect(201);
     const requestId = created.body.data.id;
     const accountant = await createStaff('accountant', { username: 'requests_file_accountant', password: 'Accountant#File123', fullName: 'حسابدار بدون دسترسی مدرک' });
     const restrictedView = await request(server).get(`/api/requests/${requestId}`).set('Cookie', accountant.cookie).expect(200);
@@ -529,7 +535,7 @@ describe('request lifecycle', () => {
     await request(server).patch(`/api/requests/${requestId}/status`).set('Cookie', admin.cookie).send({ status: 'ready' }).expect(200);
     const completed = await request(server).patch(`/api/requests/${requestId}/status`).set('Cookie', admin.cookie)
       .send({ status: 'completed' }).expect(200);
-    expect(completed.body.data.paymentStatus).toBe('cash_due');
+    expect(completed.body.data.paymentStatus).toBe('unpaid');
   });
 
   it('uses an approved profile document as a linked replacement for a rejected request requirement', async () => {
@@ -538,10 +544,10 @@ describe('request lifecycle', () => {
     const server = await app();
     const serviceResponse = await request(server).post('/api/catalog/services').set('Cookie', admin.cookie).send({
       title: 'خدمت با استفاده دوباره از پروفایل', slug: 'profile-reuse-request-replacement', baseFee: 40000,
-      paymentMethods: ['cash'], form: [], documents: [{ key: 'identity_front', title: 'مدرک هویتی', required: true }], workflow: [],
+      paymentMethods: ['online'], form: [], documents: [{ key: 'identity_front', title: 'مدرک هویتی', required: true }], workflow: [],
     }).expect(201);
     const created = await request(server).post('/api/requests').set('Cookie', customer.cookie)
-      .send(await requestInput(server, customer, serviceResponse.body.data, { paymentMethod: 'cash' })).expect(201);
+      .send(await requestInput(server, customer, serviceResponse.body.data, { paymentMethod: 'online' })).expect(201);
     const requestId = created.body.data.id;
     const rejected = created.body.data.documents.find((document: any) => document.requirementKey === 'identity_front');
     await request(server).post(`/api/requests/${requestId}/documents/${rejected.id}/review`).set('Cookie', admin.cookie)
@@ -580,7 +586,7 @@ describe('request lifecycle', () => {
       title: 'خدمت رایگان آزمون', slug: 'free-service-payment-state', baseFee: 0, paymentMethods: [], form: [], documents: [], workflow: [],
     }).expect(201);
     const created = await request(server).post('/api/requests').set('Cookie', customer.cookie)
-      .send(await requestInput(server, customer, service.body.data, { paymentMethod: 'cash' })).expect(201);
+      .send(await requestInput(server, customer, service.body.data, { paymentMethod: 'online' })).expect(201);
     expect(created.body.data.total).toBe(0);
     expect(created.body.data.paymentMethod).toBe('none');
     expect(created.body.data.paymentStatus).toBe('not_required');

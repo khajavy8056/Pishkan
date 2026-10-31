@@ -435,7 +435,7 @@ describe('customer profile document archive', () => {
 
   it('requires explicit confirmation, blocks expired documents and refuses duplicates', async () => {
     const createdRequest = await request(server).post('/api/requests').set('Cookie', customer.cookie)
-      .send({ serviceId, formData: {}, paymentMethod: 'cash' });
+      .send({ serviceId, formData: {}, paymentMethod: 'online' });
     expect(createdRequest.status).toBe(201);
     requestId = createdRequest.body.data.id;
 

@@ -4,6 +4,7 @@ import { id } from '../../lib/crypto.js';
 import { getBool, getNumber, getString } from '../settings/service.js';
 import { badRequest, conflict, notFound, forbidden } from '../../http/errors.js';
 import { writeAudit } from '../audit/service.js';
+import { creditFromGateway, refundToWallet } from '../wallet/service.js';
 
 export type InvoiceStatus = 'draft' | 'issued' | 'partially_paid' | 'paid' | 'void';
 export type PaymentStatus = 'pending' | 'confirmed' | 'failed' | 'refunded' | 'cancelled';
@@ -222,11 +223,16 @@ export function mapPayment(row: any) {
     amount: Number(row.amount),
     method: row.method,
     status: row.status,
+    purpose: row.purpose ?? 'invoice',
+    walletId: row.wallet_id ?? null,
     reference: row.reference,
+    providerReference: row.provider_reference ?? null,
     gateway: row.gateway,
+    gatewaySandbox: Number(row.gateway_sandbox ?? 0) === 1,
     paidAt: row.paid_at,
     note: row.note,
     createdAt: row.created_at,
+    updatedAt: row.updated_at,
   };
 }
 
@@ -236,13 +242,24 @@ export function mapPayment(row: any) {
  */
 export async function createPayment(input: {
   customerId: string; invoiceId?: string | null; requestId?: string | null;
-  amount: number; method: 'online' | 'cash' | 'pos' | 'transfer';
+  amount: number; method: 'online' | 'cash' | 'pos' | 'transfer' | 'wallet';
   reference?: string; note?: string; gateway?: string; status?: PaymentStatus;
   confirmedBy?: string;
+  purpose?: 'invoice' | 'wallet_topup';
+  walletId?: string | null;
 }, actor?: { id: string; name: string; ip?: string }) {
   return tx(async () => {
   const amount = Math.round(Number(input.amount));
   if (!Number.isFinite(amount) || amount <= 0) throw badRequest('مبلغ پرداخت معتبر نیست.');
+  // Wallet debits only ever settle a service invoice; `purpose` defaults to
+  // `invoice` so callers that omit it cannot create an unattached wallet debit.
+  const purpose = input.purpose ?? 'invoice';
+  if (input.method === 'wallet' && purpose !== 'invoice') throw badRequest('پرداخت کیف پولی فقط برای فاکتور خدمت مجاز است.');
+  if (purpose === 'wallet_topup') {
+    if (input.invoiceId) throw badRequest('شارژ کیف پول به فاکتور متصل نمی‌شود.');
+    if (input.method !== 'online') throw badRequest('شارژ کیف پول فقط از درگاه پرداخت آنلاین انجام می‌شود.');
+    if (!input.walletId) throw badRequest('کیف پول مقصد مشخص نیست.');
+  }
 
   if (input.invoiceId) {
     await run('UPDATE invoices SET updated_at=updated_at WHERE id=?',[input.invoiceId]);
@@ -263,13 +280,13 @@ export async function createPayment(input: {
   const paymentId = id('pay');
   const status: PaymentStatus = input.status ?? (input.method === 'online' ? 'pending' : 'confirmed');
   await run(
-    `INSERT INTO payments (id, invoice_id, request_id, customer_id, amount, method, status, reference, gateway, paid_at, confirmed_by, note, created_at, updated_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    `INSERT INTO payments (id, invoice_id, request_id, customer_id, amount, method, status, reference, gateway, paid_at, confirmed_by, note, created_at, updated_at, purpose, wallet_id)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     [
       paymentId, input.invoiceId ?? null, input.requestId ?? null, input.customerId, amount, input.method,
       status, input.reference ?? null, input.gateway ?? null,
       status === 'confirmed' ? ts : null, status === 'confirmed' ? actor?.id ?? null : null,
-      input.note ?? null, ts, ts,
+      input.note ?? null, ts, ts, purpose, input.walletId ?? null,
     ],
   );
 
@@ -307,10 +324,32 @@ async function applyConfirmedPayment(paymentId: string) {
     const operation=await db.run('INSERT INTO financial_operations(operation_key,created_at) VALUES(?,?) ON CONFLICT(operation_key) DO NOTHING',[`payment:${paymentId}`,ts]);
     if(!operation.changes)return;
     const mode = await getString('accounting.revenue_recognition');
+
+    // Wallet top-ups are not revenue: money moves from the PSP to customer
+    // custody (wallet liability). Revenue is recognised later, when the wallet
+    // is spent on a service.
+    if (payment.purpose === 'wallet_topup') {
+      await db.run(
+        `INSERT INTO ledger_entries (id, entry_date, account, direction, amount, ref_type, ref_id, description, created_at)
+         VALUES (?, ?, ?, 'debit', ?, 'payment', ?, ?, ?)`,
+        [id('led'), ts, `cash:gateway:${payment.gateway ?? 'unknown'}`, amount, paymentId, 'دریافت شارژ کیف پول', ts],
+      );
+      await db.run(
+        `INSERT INTO ledger_entries (id, entry_date, account, direction, amount, ref_type, ref_id, description, created_at)
+         VALUES (?, ?, ?, 'credit', ?, 'payment', ?, ?, ?)`,
+        [id('led'), ts, 'wallet:liability', amount, paymentId, 'بدهی کیف پول مشتری', ts],
+      );
+      await creditFromGateway(payment);
+      return;
+    }
+
+    // Wallet-funded service payments settle against the customer's custody
+    // balance instead of office cash.
+    const settlementAccount = payment.method === 'wallet' ? 'wallet:liability' : `cash:${payment.method}`;
     await db.run(
       `INSERT INTO ledger_entries (id, entry_date, account, direction, amount, ref_type, ref_id, description, created_at)
        VALUES (?, ?, ?, 'debit', ?, 'payment', ?, ?, ?)`,
-      [id('led'), ts, `cash:${payment.method}`, amount, paymentId, `دریافت وجه (${payment.method})`, ts],
+      [id('led'), ts, settlementAccount, amount, paymentId, `تسویه پرداخت (${payment.method})`, ts],
     );
     await db.run(
       `INSERT INTO ledger_entries (id, entry_date, account, direction, amount, ref_type, ref_id, description, created_at)
@@ -384,13 +423,19 @@ export async function refundPayment(paymentId: string, reason: string, actor: { 
   }
   if (requestId) await refreshRequestPaymentStatus(requestId);
   const recognition = await getString('accounting.revenue_recognition');
+  const isWalletPayment = payment.method === 'wallet';
+  if (isWalletPayment) {
+    if (!(await getBool('wallet.refund_to_wallet'))) throw badRequest('بازگشت وجه پرداخت کیف پولی در تنظیمات غیرفعال است.');
+    await refundToWallet(payment);
+  }
   await addLedgerEntry({
     account: recognition === 'on_invoice' ? `receivable:${payment.customer_id}` : `revenue:${(payment.invoice_id ? (await one<any>('SELECT service_id FROM invoices WHERE id=?',[payment.invoice_id]))?.service_id : null) ?? 'other'}`,
     direction: 'debit', amount: Number(payment.amount), refType: 'refund', refId: paymentId,
     description: `برگشت دریافت — ${reason}`,
   });
   await addLedgerEntry({
-    account: `cash:${payment.method}`, direction: 'credit', amount: Number(payment.amount),
+    account: isWalletPayment ? 'wallet:liability' : `cash:${payment.method === 'online' ? (payment.gateway ?? 'online') : payment.method}`,
+    direction: 'credit', amount: Number(payment.amount),
     refType: 'refund', refId: paymentId, description: `بازپرداخت — ${reason}`,
   });
   await accrueCommission(paymentId,true);
@@ -401,7 +446,7 @@ export async function refundPayment(paymentId: string, reason: string, actor: { 
   });
 }
 
-export async function listPayments(params: { page?: number; pageSize?: number; customerId?: string; status?: string; method?: string; from?: string; to?: string }) {
+export async function listPayments(params: { page?: number; pageSize?: number; customerId?: string; status?: string; method?: string; purpose?: string; from?: string; to?: string }) {
   const page = Math.max(1, params.page ?? 1);
   const pageSize = Math.min(100, Math.max(1, params.pageSize ?? 25));
   const where: string[] = [];
@@ -409,6 +454,7 @@ export async function listPayments(params: { page?: number; pageSize?: number; c
   if (params.customerId) { where.push('p.customer_id = ?'); args.push(params.customerId); }
   if (params.status) { where.push('p.status = ?'); args.push(params.status); }
   if (params.method) { where.push('p.method = ?'); args.push(params.method); }
+  if (params.purpose) { where.push('p.purpose = ?'); args.push(params.purpose); }
   if (params.from) { where.push('p.created_at >= ?'); args.push(params.from); }
   if (params.to) { where.push('p.created_at <= ?'); args.push(params.to); }
   const clause = where.length ? `WHERE ${where.join(' AND ')}` : '';

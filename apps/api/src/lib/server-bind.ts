@@ -1,4 +1,5 @@
 import fs from 'node:fs';
+import os from 'node:os';
 
 const MAX_FIREWALL_LEASE_AGE_MS = 12_000;
 
@@ -52,4 +53,53 @@ export function resolveListenHost(
       now,
     );
   return verifiedLanOptIn ? '0.0.0.0' : '127.0.0.1';
+}
+
+const PRIVATE_IPV4 = [/^10\./, /^192\.168\./, /^172\.(1[6-9]|2\d|3[01])\./];
+
+/** RFC1918 IPv4 detection; public, loopback and link-local addresses are excluded. */
+export function isPrivateIpv4(address: string): boolean {
+  const parts = String(address ?? '').split('.');
+  if (parts.length !== 4 || parts.some((part) => !/^\d{1,3}$/.test(part) || Number(part) > 255)) return false;
+  return PRIVATE_IPV4.some((pattern) => pattern.test(address))
+    && !address.startsWith('127.') && !address.startsWith('169.254.');
+}
+
+/** Private LAN addresses of this host, for the copyable mobile URL. */
+export function privateLanAddresses(interfaces = os.networkInterfaces()): string[] {
+  const found = new Set<string>();
+  for (const entries of Object.values(interfaces ?? {})) {
+    for (const entry of entries ?? []) {
+      if (entry.internal) continue;
+      if (entry.family !== 'IPv4' && (entry.family as unknown) !== 4) continue;
+      if (isPrivateIpv4(entry.address)) found.add(entry.address);
+    }
+  }
+  return [...found].sort();
+}
+
+/**
+ * What the admin panel may show about LAN access. Only private addresses are
+ * advertised and no token/credential is ever part of the URL.
+ */
+export function lanAccessInfo(options: {
+  host: string; port: number; platform?: NodeJS.Platform; interfaces?: Record<string, any>;
+} = { host: '127.0.0.1', port: 3000 }) {
+  const platform = options.platform ?? process.platform;
+  const exposed = String(options.host ?? '').trim().toLowerCase() === '0.0.0.0';
+  const urls = exposed && Number.isInteger(options.port) && options.port > 0 && options.port <= 65535
+    ? privateLanAddresses(options.interfaces ?? os.networkInterfaces()).map((address) => `http://${address}:${options.port}`)
+    : [];
+  return {
+    platform,
+    host: options.host,
+    port: options.port,
+    lanEnabled: exposed,
+    urls,
+    // Windows additionally requires the verified firewall lease before binding.
+    firewallLeaseRequired: platform === 'win32',
+    note: exposed
+      ? 'این آدرس‌ها فقط در شبکهٔ خصوصی (LAN/Wi‑Fi) همان مکان معتبرند و ورود با نام کاربری الزامی است.'
+      : 'سرویس فقط روی همین رایانه در دسترس است؛ برای دسترسی موبایل، LAN را از مدیر/نصب‌کننده فعال کنید.',
+  };
 }

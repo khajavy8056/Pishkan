@@ -27,12 +27,19 @@ export const RESOURCES = [
   'audit',
   'backup',
   'system',
+  'wallet',
+  'monitoring',
+  'logs',
+  'alerts',
 ] as const;
 
 export const ACTIONS = ['view', 'create', 'edit', 'approve', 'cancel', 'delete', 'export'] as const;
 
 export type Resource = (typeof RESOURCES)[number];
 export type Action = (typeof ACTIONS)[number];
+/** Wallet operations are financial actions, not plain CRUD. */
+export const WALLET_PERMISSIONS = ['wallet.credit', 'wallet.adjust'] as const;
+
 export const PAYROLL_PERMISSIONS = [
   'payroll.view',
   'payroll.contracts.edit',
@@ -41,7 +48,10 @@ export const PAYROLL_PERMISSIONS = [
   'payroll.reports.view',
 ] as const;
 
-export type Permission = `${Resource}.${Action}` | (typeof PAYROLL_PERMISSIONS)[number];
+export type Permission =
+  | `${Resource}.${Action}`
+  | (typeof PAYROLL_PERMISSIONS)[number]
+  | (typeof WALLET_PERMISSIONS)[number];
 
 export function allPermissions(): Permission[] {
   return [...RESOURCES.flatMap((r) => ACTIONS.map((a) => `${r}.${a}` as Permission)), ...PAYROLL_PERMISSIONS];
@@ -78,6 +88,10 @@ export const RESOURCE_LABELS: Record<Resource, string> = {
   audit: 'تاریخچه عملیات',
   backup: 'پشتیبان‌گیری',
   system: 'زیرساخت',
+  wallet: 'کیف پول مشتریان',
+  monitoring: 'مرکز مانیتورینگ',
+  logs: 'لاگ‌های سامانه',
+  alerts: 'هشدارهای عملیاتی',
 };
 
 /** Default roles shipped with the system. Admins can edit them afterwards. */
@@ -116,6 +130,10 @@ export const DEFAULT_ROLES: {
       'messages.view', 'messages.create',
       'documents.view', 'documents.approve',
       'audit.view',
+      'wallet.view',
+      'monitoring.view',
+      'logs.view',
+      'alerts.view', 'alerts.edit',
     ],
   },
   {
@@ -176,6 +194,8 @@ export const DEFAULT_ROLES: {
       'expenses.view', 'expenses.create', 'expenses.edit', 'expenses.export',
       'reports.view', 'reports.export',
       'payroll.view', 'payroll.contracts.edit', 'payroll.accrue', 'payroll.settle', 'payroll.reports.view',
+      'wallet.view', 'wallet.credit', 'wallet.adjust',
+      'logs.view',
     ],
   },
 ];

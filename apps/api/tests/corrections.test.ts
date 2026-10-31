@@ -25,7 +25,7 @@ afterEach(()=>vi.unstubAllGlobals());
 describe('corrected workflows',()=>{
  it('quotes exact integer IRR and issues matching urgent invoice once under capacity contention',async()=>{
   const quote=await request(server).post('/api/requests/quote').set('Cookie',customer.cookie).send({serviceId,priority:'high'});expect(quote.status).toBe(200);expect(quote.body.data.urgentFee).toBe(25000);expect(quote.body.data.total).toBe(115001);
-  const results=await Promise.all([1,2].map(()=>request(server).post('/api/requests').set('Cookie',customer.cookie).send({serviceId,priority:'high',paymentMethod:'cash',formData:{}})));
+  const results=await Promise.all([1,2].map(()=>request(server).post('/api/requests').set('Cookie',customer.cookie).send({serviceId,priority:'high',paymentMethod:'online',formData:{}})));
   expect(results.map(r=>r.status).sort()).toEqual([201,409]);
   const created=results.find(r=>r.status===201)!.body.data;
   const invoice=await one<any>('SELECT * FROM invoices WHERE request_id=?',[created.id]);expect(invoice.total).toBe(quote.body.data.total);expect(JSON.parse(invoice.items)).toHaveLength(2);
@@ -39,7 +39,7 @@ describe('corrected workflows',()=>{
   await request(server).patch(`/api/catalog/services/${serviceId}`).set('Cookie',admin.cookie).send({coverage:'nationwide'}).expect(200);
  });
  it('atomically claims a case and shows no customer details in eligible queue',async()=>{
-  const r=await request(server).post('/api/requests').set('Cookie',customer.cookie).send({serviceId,formData:{},paymentMethod:'cash'});expect(r.status).toBe(201);
+  const r=await request(server).post('/api/requests').set('Cookie',customer.cookie).send({serviceId,formData:{},paymentMethod:'online'});expect(r.status).toBe(201);
   const queue=await request(server).get('/api/requests/queue/eligible').set('Cookie',staff.cookie);expect(queue.status).toBe(200);const item=queue.body.data.find((x:any)=>x.id===r.body.data.id);expect(item).toBeTruthy();expect(item.customerId).toBeUndefined();
   const claims=await Promise.all([1,2].map(()=>request(server).post(`/api/requests/${r.body.data.id}/claim`).set('Cookie',staff.cookie)));expect(claims.map(x=>x.status).sort()).toEqual([200,409]);
  });
@@ -72,7 +72,7 @@ describe('corrected workflows',()=>{
  });
  it('snapshots commission and reverses the original share after refund',async()=>{
   await createContract({userId:staffId,kind:'commission',monthlyAmount:0,commissionPercent:20,startsOn:'2026-11-01'},actor.id);
-  const r=await request(server).post('/api/requests').set('Cookie',customer.cookie).send({serviceId,formData:{},paymentMethod:'cash'});expect(r.status).toBe(201);
+  const r=await request(server).post('/api/requests').set('Cookie',customer.cookie).send({serviceId,formData:{},paymentMethod:'online'});expect(r.status).toBe(201);
   await run('UPDATE requests SET assigned_to=? WHERE id=?',[staffId,r.body.data.id]);
   const invoice=await one<any>('SELECT * FROM invoices WHERE request_id=?',[r.body.data.id]);
   // Select a commission date via fake clock; no historical records are modified.

@@ -2,7 +2,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { describe, expect, it } from 'vitest';
-import { isLanFirewallLeaseValid, resolveListenHost } from '../src/lib/server-bind.js';
+import { isLanFirewallLeaseValid, lanAccessInfo, privateLanAddresses, resolveListenHost } from '../src/lib/server-bind.js';
 import { isPublicHttpsUrl } from '../src/lib/public-url.js';
 import { sanitizeLogText, safeErrorText } from '../src/lib/safe-log.js';
 
@@ -104,5 +104,38 @@ describe('external payment callback URL validation', () => {
       'https://preview.example.com',
       'https://service.onion',
     ]) expect(isPublicHttpsUrl(url), url).toBe(false);
+  });
+});
+
+describe('LAN address discovery', () => {
+  const interfaces = {
+    Ethernet: [
+      { address: '192.168.1.24', family: 'IPv4', internal: false },
+      { address: 'fe80::1', family: 'IPv6', internal: false },
+    ],
+    WiFi: [
+      { address: '10.0.0.7', family: 4 as const, internal: false },
+      { address: '8.8.8.8', family: 'IPv4', internal: false },
+      { address: '127.0.0.1', family: 'IPv4', internal: true },
+    ],
+  } as any;
+
+  it('advertises only RFC1918 IPv4 addresses', () => {
+    expect(privateLanAddresses(interfaces)).toEqual(['10.0.0.7', '192.168.1.24']);
+  });
+
+  it('returns copyable URLs only while the server binds a LAN interface', () => {
+    const lan = lanAccessInfo({ host: '0.0.0.0', port: 3000, platform: 'linux', interfaces });
+    expect(lan.lanEnabled).toBe(true);
+    expect(lan.urls).toEqual(['http://10.0.0.7:3000', 'http://192.168.1.24:3000']);
+    expect(lan.urls.every((url) => url.startsWith('http://') && !url.includes('@'))).toBe(true);
+
+    const loopback = lanAccessInfo({ host: '127.0.0.1', port: 3000, platform: 'linux', interfaces });
+    expect(loopback.lanEnabled).toBe(false);
+    expect(loopback.urls).toEqual([]);
+    expect(loopback.note).toContain('همین رایانه');
+
+    const windows = lanAccessInfo({ host: '0.0.0.0', port: 3000, platform: 'win32', interfaces });
+    expect(windows.firewallLeaseRequired).toBe(true);
   });
 });

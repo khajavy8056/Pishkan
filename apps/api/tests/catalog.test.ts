@@ -139,9 +139,9 @@ describe('service catalogue', () => {
     expect(new Date(offer.body.data.expiresAt).getTime()).toBeLessThanOrEqual(Date.now() + 3_600_000);
 
     const accepted = await request(server).post(`/api/catalog/offers/${offer.body.data.offerId}/accept`)
-      .set('Cookie', customer.cookie).send({ formData: {}, paymentMethod: 'cash' }).expect(200);
+      .set('Cookie', customer.cookie).send({ formData: {}, paymentMethod: 'online' }).expect(200);
     const createdRequest = accepted.body.data.request;
-    expect(createdRequest.paymentStatus).toBe('cash_due');
+    expect(createdRequest.paymentStatus).toBe('unpaid');
     expect(createdRequest.invoices).toHaveLength(1);
     expect(createdRequest.invoices[0]).toMatchObject({ id: offer.body.data.invoiceId, status: 'issued', total: 55000 });
     expect(createdRequest.events.some((event: any) => event.type === 'invoice')).toBe(true);

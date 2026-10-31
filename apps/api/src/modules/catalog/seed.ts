@@ -1,4 +1,4 @@
-import { one, q, run, nowIso, jsonStringify } from '../../db/index.js';
+import { one, q, run, nowIso, jsonStringify, jsonParse } from '../../db/index.js';
 import { id, hashPassword } from '../../lib/crypto.js';
 import { DEFAULT_ROLES, allPermissions } from '../../lib/permissions.js';
 import { ensureSettingDefaults } from '../settings/service.js';
@@ -74,7 +74,7 @@ export async function seedCatalog(log: (m: string) => void = () => undefined) {
       [
         id('svc'), categoryId, svc.slug, svc.title, svc.summary, svc.description, svc.icon,
         jsonStringify(svc.form), jsonStringify(svc.documents), jsonStringify(svc.workflow),
-        svc.baseFee, svc.estimatedDays, svc.estimatedDays * 1440, jsonStringify(svc.paymentMethods ?? ['online', 'cash', 'pos']),
+        svc.baseFee, svc.estimatedDays, svc.estimatedDays * 1440, jsonStringify(svc.paymentMethods ?? ['online', 'wallet']),
         jsonStringify(svc.tags), searchText,
         svc.contactNotice ?? 'هزینه و زمان نمایش‌داده‌شده نمونه است و پس از بررسی مدارک تأیید می‌شود.',
         index, ts, ts,
@@ -247,7 +247,41 @@ export async function runSeed(options: SeedOptions = {}) {
   return { adminId };
 }
 
-export { upsertRolesOnly, adminRoleId };
+export { upsertRolesOnly, adminRoleId, syncSystemRolePermissions };
+
+/**
+ * The wallet/monitoring/log/alert permissions were introduced in schema v2. Existing installs
+ * keep their edited roles, so the new defaults are added once, guarded by a
+ * version marker. Permissions an administrator removed earlier are not
+ * re-created on later boots.
+ */
+async function syncSystemRolePermissions() {
+  const marker = await one<{ value: string }>('SELECT value FROM settings WHERE key = ?', ['system.permissions_version']);
+  const current = Number(marker?.value ?? 1);
+  if (current >= 2) return 0;
+  const roles = await q<any>('SELECT * FROM roles WHERE is_system = 1');
+  const defaults = new Map(DEFAULT_ROLES.map((role) => [role.code, role]));
+  const available = allPermissions();
+  let changed = 0;
+  for (const role of roles) {
+    if (role.permissions === '*' || !role.permissions) continue;
+    const target = defaults.get(role.code);
+    if (!target || target.permissions === '*') continue;
+    const currentPermissions = jsonParse<string[]>(role.permissions, []);
+    const additions = (target.permissions as string[]).filter((p) => !currentPermissions.includes(p));
+    const merged = [...new Set([...currentPermissions, ...additions])].filter((p) => (available as string[]).includes(p));
+    if (merged.length === currentPermissions.length && !additions.length) continue;
+    await run('UPDATE roles SET permissions = ?, updated_at = ? WHERE id = ?', [jsonStringify(merged), nowIso(), role.id]);
+    changed += 1;
+  }
+  const ts = nowIso();
+  await run(
+    `INSERT INTO settings (key, value, group_name, is_secret, updated_at) VALUES (?, ?, 'maintenance', 0, ?)
+     ON CONFLICT(key) DO UPDATE SET value = ?, updated_at = ?`,
+    ['system.permissions_version', '2', ts, '2', ts],
+  );
+  return changed;
+}
 async function upsertRolesOnly() { await upsertRoles(() => undefined); }
 async function adminRoleId(): Promise<string | null> {
   const row = await one<{ id: string }>('SELECT id FROM roles WHERE code = ?', ['super_admin']);

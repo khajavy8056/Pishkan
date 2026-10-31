@@ -1,104 +1,39 @@
-import { env } from '../../env.js';
-import { isPublicHttpsUrl } from '../../lib/public-url.js';
-import { one, run, tx, nowIso } from '../../db/index.js';
+/**
+ * Backwards-compatible Zarinpal entry points.
+ *
+ * The real work lives in `modules/payments/*` so that every provider (Zarinpal,
+ * internal sandbox) follows one verified, idempotent flow. These wrappers exist
+ * because the admin UI and the historical test suite use them directly.
+ */
+import { one } from '../../db/index.js';
 import { badRequest, forbidden, notFound } from '../../http/errors.js';
-import { getBool, getString, getSecret } from '../settings/service.js';
-import { createPayment, confirmPayment, getInvoice } from './service.js';
-import { notifyPaymentStatus } from '../notifications/events.js';
+import { providerReadiness, selectedProvider } from '../payments/providers.js';
+import { handleGatewayCallback, startInvoicePayment } from '../payments/service.js';
 
-function base(sandbox: boolean) { return sandbox ? 'https://sandbox.zarinpal.com' : 'https://payment.zarinpal.com'; }
-function gatewayLog(event: string, fields: Record<string, unknown> = {}) {
- // Do not log request bodies: they contain the merchant id, payment authority,
- // amount and callback URL. Only bounded diagnostic metadata is retained.
- console.error('[gateway:zarinpal]', { event, ...fields });
-}
-async function call(sandbox: boolean, operation: 'request'|'verify', payload: object) {
- let response: Response;
- try {
-  response = await fetch(`${base(sandbox)}/pg/v4/payment/${operation}.json`, {
-   method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload),
-   signal: AbortSignal.timeout(15000), redirect: 'error',
-  });
- } catch (error: any) {
-  gatewayLog('network_failure', { operation, errorName: String(error?.name ?? 'Error'), causeCode: String(error?.cause?.code ?? '').slice(0, 40) });
-  throw badRequest('درگاه پاسخ نداد؛ وضعیت را بررسی و دوباره تلاش کنید.');
- }
- if (!response.ok) {
-  gatewayLog('http_failure', { operation, status: response.status });
-  throw badRequest('درگاه پرداخت پاسخ معتبر نداد.');
- }
- let result: any;
- try { result = await response.json(); }
- catch (error: any) {
-  gatewayLog('invalid_json', { operation, errorName: String(error?.name ?? 'Error') });
-  throw badRequest('پاسخ درگاه معتبر نیست.');
- }
- if (!result?.data || typeof result.data.code !== 'number') {
-  gatewayLog('invalid_response_shape', { operation, dataPresent: Boolean(result?.data), codeType: typeof result?.data?.code });
-  throw badRequest('پاسخ درگاه معتبر نیست.');
- }
- return result.data;
-}
-async function configuration() {
- if (!(await getBool('accounting.online_payment_enabled')) || await getString('accounting.gateway') !== 'zarinpal') throw forbidden('درگاه زرین‌پال فعال نیست.');
- const merchant = await getSecret('accounting.gateway_merchant_id');
- if (!/^[0-9a-f-]{36}$/i.test(merchant)) throw badRequest('شناسه پذیرنده زرین‌پال تنظیم نشده یا معتبر نیست.');
- const sandbox = await getBool('accounting.gateway_sandbox');
- const callbackBaseUrl = env.zarinpalCallbackBaseUrl || env.apiUrl;
- if (!env.isTest && !isPublicHttpsUrl(callbackBaseUrl)) {
-  throw badRequest('برای callback درگاه، ZARINPAL_CALLBACK_BASE_URL باید یک نشانی عمومی HTTPS باشد؛ API_URL لوپ‌بک یا شبکه داخلی قابل دسترسی درگاه نیست.');
- }
- return {merchant,sandbox,callbackBaseUrl};
-}
 export async function startZarinpal(invoiceId: string, customerId: string) {
- const config = await configuration();
- return tx(async () => {
-  await run('UPDATE invoices SET updated_at=updated_at WHERE id=?',[invoiceId]);
-  const invoice = await getInvoice(invoiceId);
-  if (!invoice) throw notFound('فاکتور یافت نشد.');
-  if (invoice.customerId !== customerId) throw forbidden();
-  if (invoice.status === 'draft' || invoice.status === 'void' || invoice.remaining <= 0) throw badRequest('این فاکتور قابل پرداخت نیست.');
-  let payment = await one<any>("SELECT * FROM payments WHERE invoice_id=? AND method='online' AND status='pending' AND gateway='zarinpal' ORDER BY created_at DESC LIMIT 1",[invoiceId]);
-  if (payment?.gateway_authority) return {paymentId:payment.id,paymentUrl:`${base(Boolean(payment.gateway_sandbox))}/pg/StartPay/${encodeURIComponent(payment.gateway_authority)}`};
-  if (!payment) {
-   const created = await createPayment({invoiceId,customerId,amount:invoice.remaining,method:'online',gateway:'zarinpal'},{id:customerId,name:'مشتری'});
-   payment = await one<any>('SELECT * FROM payments WHERE id=?',[created.id]);
-  }
-  const callback = new URL('/api/accounting/gateway/zarinpal',config.callbackBaseUrl);
-  callback.searchParams.set('paymentId',payment.id);
-  const data = await call(config.sandbox, 'request', {
-   merchant_id: config.merchant, amount: Number(payment.amount), currency: 'IRR',
-   callback_url: callback.toString(), description: `فاکتور ${invoice.number}`,
-  });
-  if (data.code !== 100 || !/^A[0-9a-z]{20,64}$/i.test(data.authority ?? '')) {
-   gatewayLog('request_declined', { code: Number(data.code), authorityValid: /^A[0-9a-z]{20,64}$/i.test(data.authority ?? '') });
-   throw badRequest('درخواست پرداخت توسط درگاه پذیرفته نشد.');
-  }
-  await run('UPDATE payments SET gateway_authority=?,gateway_sandbox=?,updated_at=? WHERE id=?',[data.authority,Number(config.sandbox),nowIso(),payment.id]);
-  return {paymentId:payment.id,paymentUrl:`${base(config.sandbox)}/pg/StartPay/${encodeURIComponent(data.authority)}`};
- });
+  if (!(await providerReadiness()).configured) throw badRequest('درگاه پرداخت پیکربندی نشده است.');
+  const provider = await selectedProvider();
+  if (!provider || provider.code !== 'zarinpal') throw forbidden('درگاه زرین‌پال فعال نیست.');
+  return startInvoicePayment(invoiceId, customerId, { id: customerId, name: 'مشتری' });
 }
+
 export async function verifyZarinpal(paymentId: string, authority: string, status: string) {
- const payment = await one<any>("SELECT * FROM payments WHERE id=? AND gateway='zarinpal'",[paymentId]);
- if (!payment || !authority || payment.gateway_authority !== authority) {
-  gatewayLog('callback_mismatch', { paymentFound: Boolean(payment), authorityProvided: Boolean(authority), authorityMatched: Boolean(payment && authority && payment.gateway_authority === authority) });
-  throw badRequest('شناسه پرداخت با درخواست تطابق ندارد.');
- }
- if (payment.status === 'confirmed') {
-  await notifyPaymentStatus(paymentId,'پرداخت تأیید شد').catch(()=>undefined);
-  return {confirmed:true,reference:payment.reference};
- }
- if (payment.status !== 'pending' || status !== 'OK') return {confirmed:false};
- const merchant = await getSecret('accounting.gateway_merchant_id');
- if (!merchant) throw badRequest('شناسه پذیرنده تنظیم نشده است.');
- const data = await call(Boolean(payment.gateway_sandbox), 'verify', {
-  merchant_id: merchant, amount: Number(payment.amount), authority,
- });
- if (![100, 101].includes(data.code) || !data.ref_id) {
-  gatewayLog('verify_declined', { code: Number(data.code), referencePresent: Boolean(data.ref_id) });
-  throw badRequest('تأیید سروری پرداخت موفق نبود.');
- }
- await confirmPayment(paymentId,{id:'gateway:zarinpal',name:'تأیید سروری زرین‌پال'},String(data.ref_id));
- await notifyPaymentStatus(paymentId,'پرداخت تأیید شد').catch(()=>undefined);
- return {confirmed:true,reference:String(data.ref_id)};
+  const payment = await one<any>("SELECT * FROM payments WHERE id=? AND gateway='zarinpal'", [paymentId]);
+  if (!payment || !authority || payment.gateway_authority !== authority) {
+    throw badRequest('شناسه پرداخت با درخواست تطابق ندارد.');
+  }
+  const result = await handleGatewayCallback({
+    provider: 'zarinpal',
+    paymentId,
+    params: { authority, status, sandbox: String(Number(payment.gateway_sandbox)) },
+  });
+  return result.confirmed
+    ? { confirmed: true, reference: result.reference }
+    : { confirmed: false };
+}
+
+export async function findPayment(paymentId: string) {
+  const payment = await one<any>('SELECT * FROM payments WHERE id=?', [paymentId]);
+  if (!payment) throw notFound('تراکنش یافت نشد.');
+  return payment;
 }

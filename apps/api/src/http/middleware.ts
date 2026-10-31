@@ -4,6 +4,7 @@ import { HttpError, forbidden, tooMany, unauthorized } from './errors.js';
 import type { AuthContext } from '../modules/auth/types.js';
 import { hasPermission } from '../lib/permissions.js';
 import { safeErrorText, sanitizeLogText } from '../lib/safe-log.js';
+import { logEvent } from '../modules/logging/service.js';
 
 declare global {
   // eslint-disable-next-line @typescript-eslint/no-namespace
@@ -42,6 +43,12 @@ export function requirePermission(...perms: string[]) {
     if (!req.auth) return next(unauthorized());
     const granted = req.auth.permissions;
     if (!perms.every((p) => hasPermission(granted, p))) {
+      void logEvent({
+        level: 'SECURITY', category: 'security', action: 'permission.denied', result: 'denied',
+        actorId: req.auth.user.id, actorName: req.auth.user.fullName, actorRole: req.auth.user.roleCode,
+        ip: req.ip, requestId: req.requestId, message: 'تلاش برای دسترسی بدون مجوز لازم.',
+        details: { required: perms, method: req.method, path: req.path },
+      });
       return next(forbidden(`دسترسی لازم وجود ندارد: ${perms.join(' , ')}`));
     }
     next();
@@ -152,6 +159,20 @@ export function errorHandler(err: any, req: Request, res: Response, _next: NextF
     // req.path excludes query parameters (payment authorities/tokens may be there).
     const routePath = sanitizeLogText(req.path || '/', 300);
     console.error(sanitizeLogText(`[error] ${req.method} ${routePath} status=${status} code=${code}: ${safeErrorText(err)}`, 3200));
+    void logEvent({
+      level: 'ERROR', category: 'server', action: 'api.error', result: 'failure',
+      actorId: req.auth?.user.id, actorName: req.auth?.user.fullName, actorRole: req.auth?.user.roleCode,
+      ip: req.ip, requestId: req.requestId, errorCode: code,
+      message: `خطای سرور در ${req.method} ${routePath}`,
+      details: { status, code, error: safeErrorText(err, 800) },
+    });
+  } else if (status === 403) {
+    void logEvent({
+      level: 'SECURITY', category: 'security', action: 'api.forbidden', result: 'denied',
+      actorId: req.auth?.user.id, actorName: req.auth?.user.fullName, actorRole: req.auth?.user.roleCode,
+      ip: req.ip, requestId: req.requestId, errorCode: code,
+      message: 'درخواست غیرمجاز رد شد.', details: { method: req.method, path: sanitizeLogText(req.path || '/', 200) },
+    });
   }
 
   res.status(status).json({

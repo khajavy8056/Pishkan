@@ -13,7 +13,7 @@ beforeAll(async()=>{
  admin=await adminSession();workerId=(await request(server).get('/api/auth/me').set('Cookie',operator.cookie)).body.data.id;
  await updateSettings({'services.auto_assign':false}, {id:'system',name:'automation test'});
  const service=await request(server).post('/api/catalog/services').set('Cookie',admin.cookie).send({title:'خدمت گردش اداری',baseFee:500000,form:[],documents:[],workflow:[]});expect(service.status).toBe(201);
- const r=await request(server).post('/api/requests').set('Cookie',customer.cookie).send({serviceId:service.body.data.id,formData:{},paymentMethod:'cash'});expect(r.status).toBe(201);requestId=r.body.data.id;
+ const r=await request(server).post('/api/requests').set('Cookie',customer.cookie).send({serviceId:service.body.data.id,formData:{},paymentMethod:'online'});expect(r.status).toBe(201);requestId=r.body.data.id;
  await run("UPDATE requests SET assigned_to=?,status='in_progress' WHERE id=?",[workerId,requestId]);
  const pdfFixture=Buffer.from('%PDF-1.4\n1 0 obj<</Type/Catalog/Pages 2 0 R>>endobj\n2 0 obj<</Type/Pages/Kids[3 0 R]/Count 1>>endobj\n3 0 obj<</Type/Page/Parent 2 0 R/MediaBox[0 0 200 200]>>endobj\ntrailer<</Root 1 0 R>>\nstartxref\n0\n%%EOF\n');
  const upload=await request(server).post('/api/files/upload?purpose=delivery').set('Cookie',operator.cookie).attach('file',pdfFixture,'result.pdf');expect(upload.status).toBe(201);fileId=upload.body.data.id;

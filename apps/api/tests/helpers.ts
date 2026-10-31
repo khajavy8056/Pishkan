@@ -83,6 +83,20 @@ export async function customerSession() {
   return session;
 }
 
+/** A brand-new verified customer, for isolation and wallet-scope tests. */
+export async function newCustomer(name = 'مشتری دوم') {
+  const server = await app();
+  const mobile = `0935${Math.floor(1000000 + Math.random() * 8999999)}`;
+  const password = 'Customer#12345';
+  await request(server).post('/api/auth/register').send({ mobile, password, fullName: name }).expect(201);
+  const session = await login(mobile, password);
+  await request(server).patch('/api/auth/profile').set('Cookie', session.cookie).send({
+    firstName: 'مشتری', lastName: 'دوم', nationalId: '0013546295', cityId: 'tehran',
+  }).expect(200);
+  const me = await request(server).get('/api/auth/me').set('Cookie', session.cookie).expect(200);
+  return { session, id: me.body.data.id as string, mobile };
+}
+
 export async function createStaff(roleCode: string, user: { username: string; password: string; fullName: string }) {
   const admin = await adminSession();
   const server = await app();

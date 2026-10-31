@@ -3,6 +3,7 @@ import request from 'supertest';
 import { ACCOUNTANT, adminSession, app, createStaff, customerSession } from './helpers.js';
 import { updateSettings } from '../src/modules/settings/service.js';
 import { q } from '../src/db/index.js';
+import { confirmPayment, createPayment } from '../src/modules/accounting/service.js';
 
 async function createInvoiceForCustomer(admin: any) {
   const server = await app();
@@ -29,17 +30,30 @@ describe('accounting', () => {
     expect(invoice.status).toBe('issued');
   });
 
-  it('registers an in-person payment and settles the invoice', async () => {
+  it('retires manual payment registration and only settles through verified flows', async () => {
     const admin = await adminSession();
     const { invoice, customerId } = await createInvoiceForCustomer(admin);
     const server = await app();
+    const actor = { id: 'system', name: 'test-accounting' };
 
-    const payment = await request(server)
+    // The retired endpoints must not create revenue from a staff-entered amount.
+    const cash = await request(server)
       .post('/api/accounting/payments')
       .set('Cookie', admin.cookie)
       .send({ customerId, invoiceId: invoice.id, amount: 500000, method: 'cash', reference: 'REC-1' });
-    expect(payment.status).toBe(201);
-    expect(payment.body.data.status).toBe('confirmed');
+    expect(cash.status).toBe(400);
+    expect(cash.body.error.message).toContain('حذف');
+
+    const policy = await request(server).get('/api/accounting/payment-policy').set('Cookie', admin.cookie).expect(200);
+    expect(policy.body.data.allowedMethods).toEqual(['online', 'wallet']);
+    expect(policy.body.data.retiredMethods).toContain('cash');
+
+    // A verified gateway payment (created by the provider flow in production)
+    // still settles the invoice and the ledger exactly once.
+    const payment = await createPayment({
+      customerId, invoiceId: invoice.id, amount: 500000, method: 'online', gateway: 'zarinpal', status: 'pending',
+    }, actor);
+    await confirmPayment(payment.id, actor, 'GW-REF-1');
 
     const refreshed = await request(server).get(`/api/accounting/invoices/${invoice.id}`).set('Cookie', admin.cookie);
     expect(refreshed.body.data.status).toBe('paid');
@@ -50,36 +64,33 @@ describe('accounting', () => {
   it('rejects overpayment of an invoice', async () => {
     const admin = await adminSession();
     const { invoice, customerId } = await createInvoiceForCustomer(admin);
-    const server = await app();
-    const res = await request(server)
-      .post('/api/accounting/payments')
-      .set('Cookie', admin.cookie)
-      .send({ customerId, invoiceId: invoice.id, amount: 900000, method: 'cash' });
-    expect(res.status).toBe(400);
+    const actor = { id: 'system', name: 'test-accounting' };
+    await expect(createPayment({
+      customerId, invoiceId: invoice.id, amount: 900000, method: 'online', status: 'pending',
+    }, actor)).rejects.toThrow();
   });
 
   it('keeps online revenue pending and rejects manual bypass of gateway verification', async () => {
     const admin = await adminSession();
     const { invoice, customerId } = await createInvoiceForCustomer(admin);
     const server = await app();
+    const actor = { id: 'system', name: 'test-accounting' };
 
     const before = await request(server).get('/api/accounting/reports/summary').set('Cookie', admin.cookie);
     const revenueBefore = before.body.data.summary.revenue;
 
-    const payment = await request(server)
-      .post('/api/accounting/payments')
-      .set('Cookie', admin.cookie)
-      .send({ customerId, invoiceId: invoice.id, amount: 500000, method: 'online', gateway: 'mock' });
-    expect(payment.body.data.status).toBe('pending');
-
+    const payment = await createPayment({
+      customerId, invoiceId: invoice.id, amount: 500000, method: 'online', gateway: 'zarinpal', status: 'pending',
+    }, actor);
     const mid = await request(server).get('/api/accounting/reports/summary').set('Cookie', admin.cookie);
     expect(mid.body.data.summary.revenue).toBe(revenueBefore);
 
+    // There is no endpoint that confirms a gateway payment by hand any more.
     const confirmed = await request(server)
-      .post(`/api/accounting/payments/${payment.body.data.id}/confirm`)
+      .post(`/api/accounting/payments/${payment.id}/confirm`)
       .set('Cookie', admin.cookie)
       .send({ reference: 'GW-123' });
-    expect(confirmed.status).toBe(403);
+    expect(confirmed.status).toBe(400);
 
     const after = await request(server).get('/api/accounting/reports/summary').set('Cookie', admin.cookie);
     expect(after.body.data.summary.revenue).toBe(revenueBefore);
@@ -106,13 +117,13 @@ describe('accounting', () => {
     const admin = await adminSession();
     const { invoice, customerId } = await createInvoiceForCustomer(admin);
     const server = await app();
-    const payment = await request(server)
-      .post('/api/accounting/payments')
-      .set('Cookie', admin.cookie)
-      .send({ customerId, invoiceId: invoice.id, amount: 500000, method: 'cash' });
+    const actor = { id: 'system', name: 'test-accounting' };
+    const payment = await createPayment({
+      customerId, invoiceId: invoice.id, amount: 500000, method: 'online', gateway: 'zarinpal', status: 'confirmed',
+    }, actor);
 
     const refund = await request(server)
-      .post(`/api/accounting/payments/${payment.body.data.id}/refund`)
+      .post(`/api/accounting/payments/${payment.id}/refund`)
       .set('Cookie', admin.cookie)
       .send({ reason: 'انصراف مشتری' });
     expect(refund.status).toBe(200);
@@ -125,20 +136,20 @@ describe('accounting', () => {
   it('requires pending or confirmed invoice payments to be resolved before voiding', async () => {
     const admin = await adminSession();
     const server = await app();
+    const actor = { id: 'system', name: 'test-accounting' };
     const { invoice, customerId } = await createInvoiceForCustomer(admin);
-    const pending = await request(server).post('/api/accounting/payments').set('Cookie', admin.cookie)
-      .send({ customerId, invoiceId: invoice.id, amount: 100000, method: 'online', gateway: 'mock' });
-    expect(pending.status).toBe(201);
+    await createPayment({ customerId, invoiceId: invoice.id, amount: 100000, method: 'online', gateway: 'zarinpal', status: 'pending' }, actor);
     await request(server).post(`/api/accounting/invoices/${invoice.id}/void`).set('Cookie', admin.cookie)
       .send({ reason: 'لغو درخواست' }).expect(409);
 
     const invoice2 = await createInvoiceForCustomer(admin);
-    const payment = await request(server).post('/api/accounting/payments').set('Cookie', admin.cookie)
-      .send({ customerId: invoice2.customerId, invoiceId: invoice2.invoice.id, amount: invoice2.invoice.total, method: 'cash' });
-    expect(payment.status).toBe(201);
+    const payment = await createPayment({
+      customerId: invoice2.customerId, invoiceId: invoice2.invoice.id, amount: invoice2.invoice.total,
+      method: 'online', gateway: 'zarinpal', status: 'confirmed',
+    }, actor);
     await request(server).post(`/api/accounting/invoices/${invoice2.invoice.id}/void`).set('Cookie', admin.cookie)
       .send({ reason: 'لغو درخواست' }).expect(409);
-    await request(server).post(`/api/accounting/payments/${payment.body.data.id}/refund`).set('Cookie', admin.cookie)
+    await request(server).post(`/api/accounting/payments/${payment.id}/refund`).set('Cookie', admin.cookie)
       .send({ reason: 'لغو درخواست مشتری' }).expect(200);
     await request(server).post(`/api/accounting/invoices/${invoice2.invoice.id}/void`).set('Cookie', admin.cookie)
       .send({ reason: 'پس از بازپرداخت' }).expect(200);

@@ -138,7 +138,7 @@ export function mapService(row: ServiceRow & { category_title?: string | null; c
     estimatedMinutes: Number((row as any).estimated_minutes ?? Number(row.estimated_days) * 1440),
     estimatedDays: durationDays(Number((row as any).estimated_minutes ?? Number(row.estimated_days) * 1440)),
 
-    paymentMethods: jsonParse<string[]>(row.payment_methods, ['online', 'cash']),
+    paymentMethods: normalizePaymentMethods(jsonParse<string[]>(row.payment_methods, [...ALLOWED_PAYMENT_METHODS])),
     tags: jsonParse<string[]>(row.tags, []),
     form: jsonParse<FormField[]>(row.form_schema, []),
     documents: normalizedDocuments(jsonParse(row.documents, [])),
@@ -320,6 +320,17 @@ export interface ServiceInput {
   sortOrder?: number;
 }
 
+/**
+ * Customer payment methods. The workflow only supports the online gateway and
+ * the wallet; legacy values are filtered out so the API can never offer them.
+ */
+export const ALLOWED_PAYMENT_METHODS = ['online', 'wallet'] as const;
+export function normalizePaymentMethods(value: unknown): string[] {
+  const list = Array.isArray(value) ? value.map(String) : [];
+  const filtered = list.filter((method) => (ALLOWED_PAYMENT_METHODS as readonly string[]).includes(method));
+  return filtered.length ? [...new Set(filtered)] : [...ALLOWED_PAYMENT_METHODS];
+}
+
 const ALLOWED_FIELD_TYPES = new Set([
   'text', 'tel', 'number', 'national_id', 'date', 'textarea', 'select', 'radio', 'checkbox', 'file', 'money', 'iban', 'postal_code',
 ]);
@@ -413,7 +424,7 @@ export async function createService(input: ServiceInput, actor: { id: string; na
       jsonStringify(validateDocuments(input.documents)), jsonStringify(validateWorkflow(input.workflow)),
       Math.max(0, Math.round(Number(input.baseFee ?? 0))), Math.min(100, Math.max(0, Number(input.discountPercent ?? 0))),
       durationDays(estimatedMinutes), estimatedMinutes,
-      jsonStringify(input.paymentMethods ?? ['online', 'cash', 'pos']), jsonStringify(tags), searchText,
+      jsonStringify(normalizePaymentMethods(input.paymentMethods)), jsonStringify(tags), searchText,
       input.contactNotice ?? null,
       input.isPublished === false ? 0 : 1, input.acceptingRequests === false ? 0 : 1,
       actor.id, Number(input.sortOrder ?? 1000), input.needsReview === false ? 0 : 1, ts, ts,
@@ -467,7 +478,7 @@ export async function updateService(serviceId: string, input: ServiceInput, acto
       input.baseFee !== undefined ? Math.max(0, Math.round(Number(input.baseFee))) : existing.baseFee,
       input.discountPercent !== undefined ? Math.min(100, Math.max(0, Number(input.discountPercent))) : existing.discountPercent,
       durationDays(estimatedMinutes), estimatedMinutes,
-      jsonStringify(input.paymentMethods ?? existing.paymentMethods),
+      jsonStringify(input.paymentMethods !== undefined ? normalizePaymentMethods(input.paymentMethods) : existing.paymentMethods),
       jsonStringify(tags), searchText,
       input.contactNotice !== undefined ? input.contactNotice : existing.contactNotice,
       input.isPublished !== undefined ? (input.isPublished ? 1 : 0) : (existing.isPublished ? 1 : 0),
@@ -596,7 +607,7 @@ export async function createCustomService(input: CustomServiceInput, actor: { id
       serviceId, slug, title, input.summary ?? title.slice(0, 120), input.description,
       jsonStringify(validateFormSchema(input.form)), jsonStringify(validateDocuments(input.documents)),
       jsonStringify(validateWorkflow(input.workflow)), fee, discount,
-      durationDays(estimatedMinutes), estimatedMinutes, jsonStringify(['online', 'cash', 'pos']),
+      durationDays(estimatedMinutes), estimatedMinutes, jsonStringify(normalizePaymentMethods(null)),
       normalizePersian([title, input.description].join(' ')),
       'این خدمت اختصاصی برای شما تعریف شده است.', input.customerId, actor.id, ts, ts,
     ],

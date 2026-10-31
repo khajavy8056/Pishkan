@@ -8,6 +8,7 @@ import { getBool, getNumber, getString, getJson } from '../settings/service.js';
 import { sendOtpSms, isValidMobile, maskMobile, normalizeMobile } from '../sms/provider.js';
 import { badRequest, conflict, forbidden, tooMany, unauthorized } from '../../http/errors.js';
 import { writeAudit } from '../audit/service.js';
+import { logEvent } from '../logging/service.js';
 import type { AuthContext, AuthUser } from './types.js';
 import { env } from '../../env.js';
 import { verifyTotp } from './totp.js';
@@ -201,6 +202,16 @@ export async function activeSessions(userId: string) {
 /* -------------------------------------------------------------------------- */
 
 async function logLogin(input: { userId?: string | null; identifier: string; method: string; success: boolean; reason?: string; client: ClientInfo }) {
+  await logEvent({
+    level: input.success ? 'INFO' : 'WARNING',
+    category: 'auth',
+    action: input.success ? 'auth.login.success' : 'auth.login.failure',
+    result: input.success ? 'success' : 'failure',
+    actorId: input.userId ?? null,
+    ip: input.client.ip ?? null,
+    message: input.success ? 'ورود موفق به سامانه.' : 'تلاش ناموفق برای ورود.',
+    details: { method: input.method, reason: input.reason ?? null },
+  });
   await run(
     `INSERT INTO login_events (id, user_id, identifier, method, success, reason, ip, user_agent, created_at)
      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,

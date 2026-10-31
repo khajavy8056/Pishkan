@@ -5,10 +5,15 @@ import { createApp } from './http/app.js';
 import { closeDb, getDb } from './db/index.js';
 import { migrate } from './db/migrate.js';
 import { ensureSettingDefaults } from './modules/settings/service.js';
-import { ensureAdmin, upsertRolesOnly, seedCatalog } from './modules/catalog/seed.js';
+import { ensureAdmin, upsertRolesOnly, seedCatalog, syncSystemRolePermissions } from './modules/catalog/seed.js';
 import { ensureMediaDirs, recoverStuckMedia } from './modules/media/service.js';
 import { isLanFirewallLeaseValid, resolveListenHost } from './lib/server-bind.js';
 import { safeErrorText } from './lib/safe-log.js';
+import { startMetricsCollector, stopMetricsCollector } from './modules/monitoring/metrics.js';
+import { evaluateAlerts } from './modules/monitoring/alerts.js';
+import { startAlertScheduler, stopAlertScheduler } from './modules/monitoring/scheduler.js';
+import { setMinimumLevel } from './modules/logging/service.js';
+import { getString } from './modules/settings/service.js';
 
 async function bootstrap() {
   const problems = assertProductionSafety();
@@ -32,7 +37,10 @@ async function bootstrap() {
 
   await ensureSettingDefaults();
   await upsertRolesOnly();
+  const upgradedRoles = await syncSystemRolePermissions();
+  if (upgradedRoles) console.log(`[boot] roles: ${upgradedRoles} system role(s) received the wallet/monitoring permission set`);
   await seedCatalog((m) => console.log(`[boot] ${m}`));
+  setMinimumLevel(await getString('monitoring.log_level').catch(() => 'INFO'));
 
   if (env.bootstrapAdmin.username && env.bootstrapAdmin.password) {
     await ensureAdmin(
@@ -63,6 +71,16 @@ async function bootstrap() {
   if (listenHost !== env.host) {
     console.warn('[boot] Windows safety: binding to loopback because LAN opt-in and verified firewall lease were not both present.');
   }
+  // Monitoring runs in-process: one metric sample per interval plus the alert
+  // evaluator. Both are unref'd so they never keep a test process alive.
+  await startMetricsCollector().catch((error) => {
+    console.error(`[boot] metrics collector failed: ${safeErrorText(error)}`);
+  });
+  startAlertScheduler();
+  await evaluateAlerts({ notify: true }).catch((error) => {
+    console.error(`[boot] alert evaluation failed: ${safeErrorText(error)}`);
+  });
+
   const server = app.listen(env.port, listenHost, () => {
     console.log(`[boot] Pishkan API ${env.version} listening on http://${listenHost}:${env.port} (${env.nodeEnv}, db=${env.dbDriver})`);
   });
@@ -73,6 +91,8 @@ async function bootstrap() {
     if (shuttingDown) return;
     shuttingDown = true;
     if (leaseTimer) clearInterval(leaseTimer);
+    stopMetricsCollector();
+    stopAlertScheduler();
     console.log(`[shutdown] received ${signal}`);
     server.close(() => {
       void closeDb().catch(() => undefined).finally(() => process.exit(exitCode));

@@ -104,7 +104,7 @@ const serviceSchema = z.object({
   discountPercent: z.number().min(0).max(100).optional(),
   estimatedMinutes: z.number().int().min(1).max(5_256_000).optional(),
   estimatedDays: z.number().int().min(1).max(3650).optional(),
-  paymentMethods: z.array(z.enum(['online', 'cash', 'pos', 'transfer'])).optional(),
+  paymentMethods: z.array(z.enum(['online', 'wallet'])).optional(),
   tags: z.array(z.string().max(40)).max(20).optional(),
   contactNotice: z.string().max(500).nullable().optional(),
   isPublished: z.boolean().optional(),

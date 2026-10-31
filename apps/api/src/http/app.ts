@@ -10,7 +10,7 @@ import { env } from '../env.js';
 import { resolveSession } from '../modules/auth/service.js';
 import { errorHandler, notFoundHandler, requestId, rateLimit } from './middleware.js';
 import { forbidden } from './errors.js';
-import { getBool } from '../modules/settings/service.js';
+import { getBool, getString } from '../modules/settings/service.js';
 import { healthRouter } from '../routes/health.js';
 import { publicRouter } from '../routes/public.js';
 import { authRouter } from '../routes/auth.js';
@@ -27,6 +27,11 @@ import { documentsRouter } from '../routes/documents.js';
 import { assistantRouter } from '../routes/assistant.js';
 import { dashboardRouter } from '../routes/dashboard.js';
 import { systemRouter } from '../routes/system.js';
+import { paymentsRouter } from '../routes/payments.js';
+import { walletRouter } from '../routes/wallet.js';
+import { monitoringRouter } from '../routes/monitoring.js';
+import { recordRequest } from '../modules/monitoring/metrics.js';
+import { logEvent, setMinimumLevel } from '../modules/logging/service.js';
 
 function rateLimitConfig() {
   const configured = Number(process.env.RATE_LIMIT_PER_MINUTE ?? 300);
@@ -118,6 +123,32 @@ export async function createApp(): Promise<Express> {
   const { windowMs, max } = rateLimitConfig();
   app.use('/api', rateLimit({ windowMs, max, includePath: false }));
 
+  // Real API telemetry: every call feeds the monitoring counters and the
+  // structured log. Query strings are never logged (they may contain tokens).
+  const logLevelMinimum = await getString('monitoring.log_level').catch(() => 'INFO');
+  setMinimumLevel(logLevelMinimum);
+  app.use('/api', (req, res, next) => {
+    const started = Date.now();
+    res.on('finish', () => {
+      const durationMs = Date.now() - started;
+      recordRequest({ durationMs, status: res.statusCode, path: req.path });
+      if (req.path.startsWith('/api/health')) return;
+      if (res.statusCode >= 500) return; // errorHandler records the details
+      const isDenied = res.statusCode === 401 || res.statusCode === 403;
+      void logEvent({
+        level: isDenied ? 'SECURITY' : res.statusCode >= 400 ? 'WARNING' : 'DEBUG',
+        category: isDenied ? 'security' : 'api',
+        action: isDenied ? 'api.unauthorized' : 'api.request',
+        result: isDenied ? 'denied' : res.statusCode >= 400 ? 'failure' : 'success',
+        actorId: req.auth?.user.id, actorName: req.auth?.user.fullName, actorRole: req.auth?.user.roleCode,
+        ip: req.ip, requestId: req.requestId, durationMs,
+        message: `${req.method} ${req.path} → ${res.statusCode}`,
+        details: { status: res.statusCode, method: req.method, path: req.path },
+      });
+    });
+    next();
+  });
+
   // attach session (cookie or bearer)
   app.use(async (req, _res, next) => {
     try {
@@ -153,6 +184,9 @@ export async function createApp(): Promise<Express> {
   app.use(['/api/assistant','/api/v1/assistant'],assistantRouter);
   app.use(['/api/dashboard','/api/v1/dashboard'],dashboardRouter);
   app.use(['/api/system','/api/v1/system'],systemRouter);
+  app.use(['/api/payments','/api/v1/payments'],paymentsRouter);
+  app.use(['/api/wallet','/api/v1/wallet'],walletRouter);
+  app.use(['/api/monitoring','/api/v1/monitoring'],monitoringRouter);
 
   /* -------------------------- static web application ----------------------- */
   // The SPA can be served from several layouts: a repo checkout started from the
