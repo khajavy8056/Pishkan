@@ -21,6 +21,7 @@ import {
   CustomerRequestDetail, CustomerRequests,
 } from './pages/customer/CustomerPages';
 import { CustomerServices } from './pages/customer/ServicesPane';
+import { CustomerWallet } from './pages/customer/Wallet';
 import { CustomerDocuments } from './pages/customer/Documents';
 import {
   RequestDetail, StaffCustomers, StaffCustomService, StaffDocuments, StaffFinance,
@@ -33,6 +34,8 @@ import { AdminCustomers, AdminStaff } from './pages/admin/PeopleAdmin';
 import { AdminFinance, AdminReports } from './pages/admin/FinanceAdmin';
 import { AdminAudit, AdminShifts, AdminSystem } from './pages/admin/Operations';
 import { SettingsCenter } from './pages/admin/SettingsCenter';
+import { AdminWallet } from './pages/admin/WalletAdmin';
+import { AdminMonitoring } from './pages/admin/Monitoring';
 
 import './styles.css';
 
@@ -82,6 +85,7 @@ function App() {
               <Route path="/app/requests" element={customer(<CustomerRequests />)} />
               <Route path="/app/requests/:id" element={customer(<CustomerRequestDetail />)} />
               <Route path="/app/invoices" element={customer(<CustomerInvoices />)} />
+              <Route path="/app/wallet" element={customer(<CustomerWallet />)} />
               <Route path="/app/offers" element={customer(<CustomerOffers />)} />
               <Route path="/app/documents" element={customer(<CustomerDocuments />)} />
               <Route path="/app/messages" element={customer(<CustomerMessages />)} />
@@ -118,6 +122,8 @@ function App() {
               <Route path="/admin/payroll" element={adminOnly(<CompensationPage admin />)} />
               <Route path="/admin/finance" element={adminOnly(<AdminFinance />,'invoices.view')} />
               <Route path="/admin/reports" element={adminOnly(<AdminReports />,'reports.view')} />
+              <Route path="/admin/wallet" element={adminOnly(<AdminWallet />,'wallet.view')} />
+              <Route path="/admin/monitoring" element={adminOnly(<AdminMonitoring />,'monitoring.view')} />
               <Route path="/admin/settings" element={adminOnly(<SettingsCenter />,'settings.view')} />
               <Route path="/admin/system" element={adminOnly(<AdminSystem />,'system.view')} />
               <Route path="/admin/audit" element={adminOnly(<AdminAudit />,'audit.view')} />

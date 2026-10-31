@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState, type ReactNode } from 'react';
 import { Link, NavLink, useLocation, useNavigate } from 'react-router-dom';
 import {
-  LayoutDashboard, ClipboardList, Wallet, MessageSquare, User, Bell, LogOut, Menu, X, Search,
+  LayoutDashboard, ClipboardList, Wallet, MessageSquare, User, Bell, LogOut, Menu, X, Search, Activity,
   Building2, Users, CalendarClock, FileText, Receipt, BarChart3, Settings, Database, ShieldCheck,
   LifeBuoy, Shapes, Sparkles, ChevronDown, Plus, BadgeCheck, ServerCog, ClipboardCheck, ArrowLeft,
   Moon, Sun, Monitor,
@@ -37,6 +37,7 @@ const customerNav: NavItem[] = [
   { to: '/app/requests', label: 'درخواست‌های من', icon: <ClipboardList className="size-5" />, section: SECTION_WORK },
   { to: '/app/documents', label: 'مدارک من', icon: <FileText className="size-5" />, section: SECTION_WORK },
   { to: '/app/invoices', label: 'فاکتورها و پرداخت', icon: <Wallet className="size-5" />, section: SECTION_ACCOUNT },
+  { to: '/app/wallet', label: 'کیف پول', icon: <Wallet className="size-5" />, section: SECTION_ACCOUNT },
   { to: '/app/offers', label: 'پیشنهادهای اختصاصی', icon: <Sparkles className="size-5" />, section: SECTION_ACCOUNT },
   { to: '/app/messages', label: 'پیام‌ها', icon: <MessageSquare className="size-5" />, section: SECTION_ACCOUNT },
   { to: '/app/profile', label: 'پروفایل', icon: <User className="size-5" />, section: SECTION_ACCOUNT },
@@ -72,6 +73,8 @@ const adminNav: NavItem[] = [
   { to: '/admin/shifts', label: 'شیفت و حضور', icon: <CalendarClock className="size-5" />, permission: 'shifts.view', section: SECTION_MANAGE },
   { to: '/admin/messages', label: 'گفت‌وگوها', icon: <MessageSquare className="size-5" />, permission: 'messages.view', section: SECTION_MANAGE },
   { to: '/admin/finance', label: 'حسابداری', icon: <Wallet className="size-5" />, permission: 'invoices.view', section: SECTION_SYSTEM },
+  { to: '/admin/wallet', label: 'کیف پول مشتریان', icon: <Wallet className="size-5" />, permission: 'wallet.view', section: SECTION_SYSTEM },
+  { to: '/admin/monitoring', label: 'مرکز پایش', icon: <Activity className="size-5" />, permission: 'monitoring.view', section: SECTION_SYSTEM },
   { to: '/admin/payroll', label: 'حقوق و سهم کارکنان', icon: <Users className="size-5" />, permission: 'invoices.view', section: SECTION_SYSTEM },
   { to: '/admin/reports', label: 'گزارش‌ها', icon: <BarChart3 className="size-5" />, permission: 'reports.view', section: SECTION_SYSTEM },
   { to: '/admin/settings', label: 'تنظیمات سامانه', icon: <Settings className="size-5" />, permission: 'settings.view', section: SECTION_SYSTEM },

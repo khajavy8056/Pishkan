@@ -338,6 +338,23 @@ export function CustomerRequestDetail() {
     }
   };
 
+  const payFromWallet = async (invoiceId: string) => {
+    setPaying(true);
+    try {
+      await api.post<{ data: any }>(`/api/wallet/my/invoices/${invoiceId}/pay`);
+      notify('هزینه این فاکتور از کیف پول پرداخت شد.', 'success');
+      load();
+    } catch (err) {
+      const details = err instanceof ApiFailure ? (err.details as any[] | undefined) : undefined;
+      const shortage = Array.isArray(details) ? details.find((item) => item?.available !== undefined) : null;
+      notify(shortage
+        ? `موجودی کیف پول کافی نیست (موجودی ${rial(shortage.available)}).`
+        : err instanceof ApiFailure ? err.message : 'پرداخت از کیف پول ناموفق بود', 'error');
+    } finally {
+      setPaying(false);
+    }
+  };
+
   const cancel = async () => {
     const reason = window.prompt('دلیل لغو درخواست را وارد کنید:');
     if (!reason) return;
@@ -512,9 +529,14 @@ export function CustomerRequestDetail() {
                   <p className="mt-1 text-sm font-semibold text-navy-900">{rial(invoice.total)}</p>
                   <p className="text-[11px] text-navy-500">پرداخت‌شده: {rial(invoice.paidAmount)}</p>
                   {invoice.status !== 'paid' && invoice.status !== 'void' && (
-                    <Button size="sm" className="mt-2 w-full" loading={paying} onClick={() => pay(invoice.id)}>
-                      <CreditCard className="size-4" /> پرداخت
-                    </Button>
+                    <div className="mt-2 space-y-1.5">
+                      <Button size="sm" className="w-full" loading={paying} onClick={() => pay(invoice.id)}>
+                        <CreditCard className="size-4" /> پرداخت آنلاین
+                      </Button>
+                      <Button size="sm" variant="ghost" className="w-full" loading={paying} onClick={() => payFromWallet(invoice.id)}>
+                        <Wallet className="size-4" /> پرداخت از کیف پول
+                      </Button>
+                    </div>
                   )}
                 </div>
               ))}
@@ -594,31 +616,63 @@ export function CustomerInvoices() {
   const { notify } = useToast();
   const [invoices, setInvoices] = useState<any[]>([]);
   const [payments, setPayments] = useState<any[]>([]);
+  const [wallet, setWallet] = useState<any>(null);
   const [loading, setLoading] = useState(true);
   const [selected, setSelected] = useState<any>(null);
+  const [busy, setBusy] = useState('');
 
   const load = () => {
     setLoading(true);
     Promise.all([
       api.list<any>('/api/accounting/my/invoices'),
       api.list<any>('/api/accounting/my/payments'),
-    ]).then(([inv, pay]) => { setInvoices(inv.data); setPayments(pay.data); }).finally(() => setLoading(false));
+      api.get<{ data: any }>('/api/wallet/my').catch(() => null),
+    ]).then(([inv, pay, walletRes]) => {
+      setInvoices(inv.data); setPayments(pay.data); setWallet(walletRes?.data ?? null);
+    }).finally(() => setLoading(false));
   };
   useEffect(load, []);
 
+  // Two customer payment paths only: the online gateway (redirect + server-side
+  // verification) and an immediate, ledgered wallet debit.
   const pay = async (invoice: any) => {
+    setBusy(invoice.id);
     try {
       const res = await api.post<{ data: any }>(`/api/accounting/my/invoices/${invoice.id}/pay`);
-      notify(res.data.message ?? 'درخواست پرداخت ثبت شد.', 'info');
+      notify(res.data.message ?? 'در حال انتقال به درگاه پرداخت…', 'info');
       if (res.data.paymentUrl) window.location.href = res.data.paymentUrl;
     } catch (err) {
       notify(err instanceof ApiFailure ? err.message : 'خطا', 'error');
+    } finally {
+      setBusy('');
+    }
+  };
+
+  const payWithWallet = async (invoice: any) => {
+    setBusy(invoice.id);
+    try {
+      const res = await api.post<{ data: any }>(`/api/wallet/my/invoices/${invoice.id}/pay`);
+      notify('هزینه این فاکتور از کیف پول پرداخت شد.', 'success');
+      setWallet(res.data.wallet ?? wallet);
+      load();
+    } catch (err) {
+      const details = err instanceof ApiFailure ? (err.details as any[] | undefined) : undefined;
+      const shortage = Array.isArray(details) ? details.find((item) => item?.available !== undefined) : null;
+      notify(shortage
+        ? `موجودی کیف پول کافی نیست. موجودی: ${rial(shortage.available)} — مبلغ لازم: ${rial(shortage.required)}`
+        : err instanceof ApiFailure ? err.message : 'پرداخت از کیف پول ناموفق بود', 'error');
+    } finally {
+      setBusy('');
     }
   };
 
   return (
     <AppShell variant="customer">
-      <PageHeader title="فاکتورها و پرداخت‌ها" description="سابقه مالی و وضعیت تسویه درخواست‌های شما." />
+      <PageHeader
+        title="فاکتورها و پرداخت‌ها"
+        description="پرداخت هزینه خدمات فقط از دو مسیر انجام می‌شود: درگاه پرداخت آنلاین یا کیف پول."
+        actions={<><Link to="/app/wallet"><Button size="sm" variant="ghost"><Wallet className="size-4" /> کیف پول: {rial(wallet?.balance ?? 0)}</Button></Link></>}
+      />
 
       {loading && <Loading />}
       {!loading && invoices.length === 0 && <EmptyState title="فاکتوری ندارید" description="پس از ثبت درخواست، فاکتور مربوطه در این بخش نمایش داده می‌شود." />}
@@ -650,7 +704,14 @@ export function CustomerInvoices() {
             <div className="mt-3 flex gap-2">
               <Button size="sm" variant="ghost" onClick={() => setSelected(invoice)}><ReceiptText className="size-4" /> جزئیات</Button>
               {invoice.remaining > 0 && invoice.status !== 'void' && (
-                <Button size="sm" onClick={() => pay(invoice)}><CreditCard className="size-4" /> پرداخت آنلاین</Button>
+                <>
+                  <Button size="sm" loading={busy === invoice.id} onClick={() => pay(invoice)}>
+                    <CreditCard className="size-4" /> پرداخت آنلاین
+                  </Button>
+                  <Button size="sm" variant="ghost" loading={busy === invoice.id} onClick={() => payWithWallet(invoice)}>
+                    <Wallet className="size-4" /> پرداخت از کیف پول
+                  </Button>
+                </>
               )}
             </div>
           </Card>

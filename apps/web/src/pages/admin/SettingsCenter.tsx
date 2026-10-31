@@ -21,7 +21,8 @@ interface SettingItem {
 
 const GROUP_ICONS: Record<string, string> = {
   general: '🏢', domain: '🌐', auth: '🔑', sms: '📩', email: '✉️', security: '🛡️', services: '🧾',
-  accounting: '💳', workforce: '🗓️', assistant: '🤖', files: '📁', backup: '💾', maintenance: '📊', multibranch: '🏬',
+  accounting: '💳', wallet: '👛', workforce: '🗓️', assistant: '🤖', files: '📁', backup: '💾',
+  maintenance: '📊', monitoring: '📈', multibranch: '🏬',
 };
 
 export function SettingsCenter() {

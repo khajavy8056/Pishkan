@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import {
   Plus, CalendarClock, RefreshCw, Database, ServerCog, ShieldCheck, Download, Trash2, Play,
-  AlertTriangle, CheckCircle2, XCircle, Clock, HardDrive, Users, KeyRound, Globe, Search,
+  AlertTriangle, CheckCircle2, XCircle, Clock, HardDrive, Users, KeyRound, Globe, Search, Wifi,
 } from 'lucide-react';
 import clsx from 'clsx';
 import { AppShell, PageHeader } from '../../components/shell';
@@ -259,6 +259,7 @@ export function AdminSystem() {
   const [domain, setDomain] = useState<any>(null);
   const [media, setMedia] = useState<any>(null);
   const [mediaDiagnostics, setMediaDiagnostics] = useState<any>(null);
+  const [lan, setLan] = useState<any>(null);
   const [pruneResult, setPruneResult] = useState<any>(null);
   const [mediaBusy, setMediaBusy] = useState(false);
   const [loading, setLoading] = useState(true);
@@ -279,11 +280,13 @@ export function AdminSystem() {
       api.get<{ data: any }>('/api/settings/domain-check').catch(() => null),
       api.get<{ data: any }>('/api/files/media/stats').catch(() => null),
       api.get<{ data: any }>('/api/files/media/diagnostics').catch(() => null),
-    ]).then(([st, hl, bk, ss, dm, md, mdg]) => {
+      api.get<{ data: any }>('/api/system/lan').catch(() => null),
+    ]).then(([st, hl, bk, ss, dm, md, mdg, lanInfo]) => {
       setStatus(st.data); setHealth(hl?.data ?? null);
       setBackups({ items: bk.data, status: (bk as any).meta ?? null });
       setSessions(ss.data); setDomain(dm?.data ?? null);
       setMedia(md?.data ?? null); setMediaDiagnostics(mdg?.data ?? null);
+      setLan(lanInfo?.data ?? null);
     }).catch((err) => setError(err instanceof ApiFailure ? err.message : 'خطا در دریافت وضعیت'))
       .finally(() => setLoading(false));
   };
@@ -361,6 +364,32 @@ export function AdminSystem() {
             <StatCard label="حافظه مصرفی" value={`${faNum(status.memoryMb)} MB`} icon={<HardDrive className="size-5" />} hint={status.disk ? `دیسک آزاد ${faNum(status.disk.freeGb)} GB` : undefined} />
             <StatCard label="مایگریشن‌ها" value={faNum(status.migrations.count)} tone="emerald" icon={<Database className="size-5" />} hint={status.migrations.last?.name} />
           </div>
+
+          <Card className="mt-6">
+            <h2 className="mb-2 flex items-center gap-2 font-bold text-navy-900"><Wifi className="size-4 text-accent" /> دسترسی شبکه محلی و موبایل</h2>
+            <p className="text-xs leading-6 text-navy-600">{lan?.note ?? 'اطلاعات شبکه محلی در دسترس نیست.'}</p>
+            {lan?.lanEnabled && lan.urls?.length > 0 ? (
+              <div className="mt-2 space-y-1.5">
+                {lan.urls.map((url: string) => (
+                  <div key={url} className="flex flex-wrap items-center justify-between gap-2 rounded-xl bg-surface-3 px-3 py-2">
+                    <code dir="ltr" className="text-xs text-navy-800">{url}</code>
+                    <Button size="sm" variant="ghost" onClick={() => { void navigator.clipboard?.writeText(url); notify('آدرس کپی شد.', 'success'); }}>
+                      کپی آدرس
+                    </Button>
+                  </div>
+                ))}
+                <p className="text-[11px] text-navy-500">
+                  QR این آدرس در «مدیریت Pishkan» (ویندوز) قابل نمایش و اسکن است. ورود با نام کاربری و گذرواژه روی همه دستگاه‌ها الزامی است؛
+                  هیچ گذرواژه یا توکنی در آدرس یا QR قرار نمی‌گیرد.
+                </p>
+              </div>
+            ) : (
+              <p className="mt-1 rounded-xl bg-amber-50 p-3 text-[11px] leading-6 text-amber-900">
+                سرویس روی آدرس محلی ({lan?.host ?? '127.0.0.1'}:{lan?.port ?? '—'}) گوش می‌دهد. برای دسترسی گوشی در Wi‑Fi همان مکان،
+                LAN را از نصب‌کننده/مدیر ویندوز فعال کنید (فایروال فقط برای شبکهٔ خصوصی).
+              </p>
+            )}
+          </Card>
 
           <div className="mt-6 grid gap-6 lg:grid-cols-2">
             <Card>

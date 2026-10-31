@@ -223,7 +223,7 @@ const FIELD_TYPES = [
 const emptyService = {
   title: '', slug: '', categoryId: '', summary: '', description: '', icon: '', image: null as string | null,
   coverage:'nationwide',cityIds:[] as string[],urgentEnabled:false,urgentPercent:25,urgentMinutes:1440,urgentUnit:'day',urgentDays:1,urgentCapacity:2,
-  baseFee: 0, discountPercent: 0, estimatedMinutes: 4320, estimatedUnit:'day', estimatedDays: 3, paymentMethods: ['online', 'cash'] as string[],
+  baseFee: 0, discountPercent: 0, estimatedMinutes: 4320, estimatedUnit:'day', estimatedDays: 3, paymentMethods: ['online', 'wallet'] as string[],
   tags: [] as string[], contactNotice: '', isPublished: true, acceptingRequests: true, needsReview: true, sortOrder: 100,
   form: [] as FormField[], documents: [] as DocItem[], workflow: [] as WorkflowStep[],
 };
@@ -529,7 +529,7 @@ export function AdminServiceEditor() {
                 <div>
                   <p className="label">روش‌های پرداخت مجاز</p>
                   <div className="flex flex-wrap gap-2">
-                    {[['online', 'پرداخت آنلاین'], ['cash', 'نقدی در دفتر'], ['pos', 'کارت‌خوان'], ['transfer', 'کارت به کارت']].map(([value, label]) => (
+                    {[['online', 'پرداخت آنلاین (درگاه)'], ['wallet', 'کیف پول مشتری']].map(([value, label]) => (
                       <button key={value} type="button" onClick={() => togglePayment(value)}
                         className={clsx('rounded-xl px-3 py-2 text-xs ring-1 transition',
                           service.paymentMethods.includes(value) ? 'bg-brand-700 text-white ring-brand-700' : 'bg-surface text-navy-700 ring-line hover:bg-surface-3')}>

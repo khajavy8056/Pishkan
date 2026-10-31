@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { Link } from 'react-router-dom';
 import {
   Plus, Search, Trash2, Download, Receipt, Wallet, TrendingUp, TrendingDown, CheckCircle2,
   RotateCcw, Ban, FileSpreadsheet, BarChart3,
@@ -32,8 +33,6 @@ export function AdminFinance() {
   const [customers, setCustomers] = useState<any[]>([]);
   const [invoiceForm, setInvoiceForm] = useState<any>({ customerId: '', title: '', items: [{ title: '', qty: 1, unitPrice: 0 }], discount: 0, taxPercent: 0, notes: '', issue: true });
   const [expenseForm, setExpenseForm] = useState<any>({ title: '', amount: 0, categoryId: '', spentOn: new Date().toISOString().slice(0, 10), method: 'cash', note: '' });
-  const [paymentModal, setPaymentModal] = useState<any>(null);
-  const [paymentForm, setPaymentForm] = useState({ amount: 0, method: 'cash', reference: '' });
 
   const load = () => {
     setLoading(true);
@@ -94,10 +93,15 @@ export function AdminFinance() {
     }
   };
 
-  const confirmPayment = async (payment: any) => {
+  // Payments are never confirmed by hand: the gateway callback proves the
+  // transaction server-side. Operators can only cancel a stuck pending payment
+  // (fully audited) or refund a verified one.
+  const cancelPayment = async (payment: any) => {
+    const reason = window.prompt('دلیل لغو تراکنش در انتظار:');
+    if (!reason) return;
     try {
-      await api.post(`/api/accounting/payments/${payment.id}/confirm`, {});
-      notify('پرداخت تأیید و به حساب درآمد منظور شد.', 'success');
+      await api.post(`/api/payments/admin/${payment.id}/cancel`, { reason });
+      notify('تراکنش لغو شد.', 'success');
       load();
     } catch (err) {
       notify(err instanceof ApiFailure ? err.message : 'خطا', 'error');
@@ -110,24 +114,6 @@ export function AdminFinance() {
     try {
       await api.post(`/api/accounting/payments/${payment.id}/refund`, { reason });
       notify('بازپرداخت ثبت شد.', 'success');
-      load();
-    } catch (err) {
-      notify(err instanceof ApiFailure ? err.message : 'خطا', 'error');
-    }
-  };
-
-  const registerPayment = async () => {
-    if (!paymentModal) return;
-    try {
-      await api.post('/api/accounting/payments', {
-        customerId: paymentModal.customerId,
-        invoiceId: paymentModal.id,
-        amount: Number(paymentForm.amount),
-        method: paymentForm.method,
-        reference: paymentForm.reference || undefined,
-      });
-      notify('پرداخت ثبت شد.', 'success');
-      setPaymentModal(null);
       load();
     } catch (err) {
       notify(err instanceof ApiFailure ? err.message : 'خطا', 'error');
@@ -213,10 +199,8 @@ export function AdminFinance() {
                       <td className="text-[11px] text-navy-500">{faDate(invoice.createdAt)}</td>
                       <td>
                         <div className="flex justify-end gap-1">
-                          {invoice.remaining > 0 && invoice.status !== 'void' && can('payments.create') && (
-                            <Button size="sm" variant="ghost" onClick={() => { setPaymentModal(invoice); setPaymentForm({ amount: invoice.remaining, method: 'cash', reference: '' }); }}>
-                              پرداخت
-                            </Button>
+                          {invoice.remaining > 0 && invoice.status !== 'void' && (
+                            <Link to="/admin/wallet" className="text-[11px] text-brand-700 hover:underline">کیف پول مشتری</Link>
                           )}
                           {invoice.status !== 'void' && invoice.status !== 'paid' && can('invoices.cancel') && (
                             <Button size="sm" variant="ghost" onClick={() => voidInvoice(invoice)} aria-label="لغو"><Ban className="size-3.5" /></Button>
@@ -235,6 +219,10 @@ export function AdminFinance() {
 
       {tab === 'payments' && (
         <>
+          <div className="my-4 rounded-xl bg-primary-soft/70 p-3 text-xs leading-6 text-navy-700">
+            پرداخت مشتری فقط از درگاه آنلاین یا کیف پول انجام می‌شود و تأیید آن با استعلام سمت سرور است؛
+            ثبت دستی پرداخت حذف شده است. ردیف‌های نقدی/کارت‌خوان قدیمی فقط برای سابقه نمایش داده می‌شوند.
+          </div>
           <div className="my-4 flex justify-end">
             <Button size="sm" variant="ghost" onClick={() => exportCsv('payments')}><Download className="size-4" /> خروجی CSV</Button>
           </div>
@@ -253,10 +241,10 @@ export function AdminFinance() {
                       <td dir="ltr" className="text-left text-[11px] text-navy-500">{payment.reference ?? '—'}</td>
                       <td>
                         <div className="flex justify-end gap-1">
-                          {payment.status === 'pending' && can('payments.approve') && (
-                            <Button size="sm" variant="ghost" onClick={() => confirmPayment(payment)}><CheckCircle2 className="size-3.5" /> تأیید</Button>
+                          {payment.status === 'pending' && can('payments.cancel') && (
+                            <Button size="sm" variant="ghost" onClick={() => cancelPayment(payment)}><Ban className="size-3.5" /> لغو</Button>
                           )}
-                          {['pending', 'confirmed'].includes(payment.status) && can('payments.cancel') && (
+                          {payment.status === 'confirmed' && payment.method === 'wallet' && can('payments.cancel') && (
                             <Button size="sm" variant="ghost" onClick={() => refundPayment(payment)}><RotateCcw className="size-3.5" /> بازپرداخت</Button>
                           )}
                         </div>
@@ -337,21 +325,6 @@ export function AdminFinance() {
           </div>
           <Field label="توضیحات"><Textarea value={invoiceForm.notes} onChange={(e) => setInvoiceForm({ ...invoiceForm, notes: e.target.value })} /></Field>
         </div>
-      </Modal>
-
-      <Modal open={Boolean(paymentModal)} onClose={() => setPaymentModal(null)} title="ثبت پرداخت"
-        footer={<><Button variant="ghost" onClick={() => setPaymentModal(null)}>انصراف</Button><Button onClick={registerPayment}>ثبت</Button></>}>
-        {paymentModal && (
-          <div className="space-y-3">
-            <p className="rounded-xl bg-surface-3 p-3 text-sm">فاکتور {paymentModal.number} — باقی‌مانده {rial(paymentModal.remaining)}</p>
-            <Field label="مبلغ (ریال)" required><Input type="number" value={paymentForm.amount} onChange={(e) => setPaymentForm({ ...paymentForm, amount: Number(e.target.value) })} /></Field>
-            <Field label="روش">
-              <Select value={paymentForm.method} onChange={(e) => setPaymentForm({ ...paymentForm, method: e.target.value })}
-                options={[{ value: 'cash', label: 'نقدی' }, { value: 'pos', label: 'کارت‌خوان' }, { value: 'transfer', label: 'کارت به کارت' }]} />
-            </Field>
-            <Field label="شماره پیگیری"><Input value={paymentForm.reference} onChange={(e) => setPaymentForm({ ...paymentForm, reference: e.target.value })} dir="ltr" className="text-left" /></Field>
-          </div>
-        )}
       </Modal>
 
       <Modal open={expenseModal} onClose={() => setExpenseModal(false)} title="ثبت هزینه"
