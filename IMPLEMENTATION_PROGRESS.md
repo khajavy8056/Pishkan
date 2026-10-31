@@ -1,6 +1,6 @@
 # وضعیت اجرای ممیزی و اصلاح گردش درخواست‌ها
 
-**وضعیت: commit کد `6a559fe33774e9a2e71cfc1d51530a4496d40782` بدون force به شاخهٔ فعلی push شد و PR #4 به‌روز است و باز مانده؛ GitHub برای این شاخه هیچ check گزارش نکرد.** verification آخر: API 135/135 (۲۰ فایل)، وب 27/27 (۴ فایل)، typecheck، build، contrast، Windows selftest 36/36، PowerShell static/parser 13/13 و `git diff --check` موفق. اجرای اول selftest یک مورد را به‌دلیل LF در چهار فایل `.cmd` رد کرد؛ line ending هر چهار فایل اصلاح و اجرای نهایی 36/36 شد. PowerShell/Windows Defender Firewall و Wi‑Fi واقعی روی Linux اجرا نشده‌اند؛ Zarinpal به HTTP mock محدود است. یک commit مستندسازی برای ثبت نتیجهٔ push در همین گزارش و تأیید نهایی وضعیت شاخه باقی است.
+**وضعیت: commit کد `6a559fe33774e9a2e71cfc1d51530a4496d40782` و گزارش‌های نهایی بدون force به شاخهٔ فعلی push شدند؛ آخرین بررسی پس از انتشار، working tree را clean و HEAD محلی/remote را یکسان نشان داد. PR #4 باز و به‌روز است؛ GitHub برای شاخه هیچ check گزارش نکرد.** verification آخر: API 135/135 (۲۰ فایل)، وب 27/27 (۴ فایل)، typecheck، build، contrast، Windows selftest 36/36، PowerShell static/parser 13/13 و `git diff --check` موفق. اجرای اول selftest یک مورد را به‌دلیل LF در چهار فایل `.cmd` رد کرد؛ line ending هر چهار فایل اصلاح و اجرای نهایی 36/36 شد. PowerShell/Windows Defender Firewall و Wi‑Fi واقعی روی Linux اجرا نشده‌اند؛ Zarinpal به HTTP mock محدود است.
 
 ## دامنه و معیارهای مأموریت
 
@@ -12,7 +12,7 @@
 
 - مخزن `khajavy8056/Pishkan`، شاخهٔ ثابت `arena/db057b54-pishkan`.
 - نقطهٔ شروع، commit `ff2825802c5c1cee49f2e940f62358440c3e2e7f` بود؛ local branch ابتدا روی آن عقب‌تر بود و پیش از انتشار به سر شاخهٔ remote fast-forward شد.
-- commit کد `6a559fe33774e9a2e71cfc1d51530a4496d40782` با `git push origin arena/db057b54-pishkan` (بدون force) منتشر شد. پس از این push، `git ls-remote` و PR #4 head `6a559fe` را نشان دادند؛ PR باز ماند. این گزارش با commit مستندسازی بعدی روی همان PR منتشر می‌شود.
+- commit کد `6a559fe33774e9a2e71cfc1d51530a4496d40782` با `git push origin arena/db057b54-pishkan` (بدون force) منتشر شد؛ remote و PR #4 پس از آن head این commit را نشان دادند. commit مستندسازی `246f790` و ثبت نهایی وضعیت نیز بدون force به همین شاخه push شدند.
 - شاخهٔ محلی upstream تنظیم‌شده ندارد، بنابراین مقصد push به‌صورت صریح تعیین شد. `gh pr checks 4` پاسخ داد: `no checks reported on the 'arena/db057b54-pishkan' branch`؛ این مورد به‌معنی check موفق نیست و CI نتیجه‌ای برای گزارش نداشته است.
 - PR #4 باز است؛ base شاخهٔ `arena/3ec9e234-pishkan`، عنوان «موتور تصویر و مدارک + بازطراحی رابط + نصب‌کننده و مدیر گرافیکی ویندوز (۱٫۲٫۰)»: <https://github.com/khajavy8056/Pishkan/pull/4>.
 - ممیزی فایل‌های staged نهایی شد: فایل DB، `.env` محرمانه یا دادهٔ آزمایشی وجود ندارد؛ تنها فایل شبیه env، `.env.example` بدون رمز است. build artifact و `node_modules` نیز ignored هستند.
@@ -28,7 +28,7 @@
 | 5. UI، catalog و مدت‌ها | test/typecheck/build پاس | `formatDuration` مشترک؛ دقیقه/ساعت/روز دقیق، فرم‌های مدرک، سابقه و جایگزینی در صفحات آزموده شدند. |
 | 6. Windows LAN امن | پیاده‌سازی و آزمون ایستای Linux پاس؛ Windows واقعی باز است | opt-in، loopback fail-closed، firewall محدود به Private/LocalSubnet، Public/Domain block، installer/Manager/uninstaller و مستندات. Firewall/Wi‑Fi فیزیکی اجرا نشده‌اند. |
 | 7. اعتبارسنجی نهایی | verification محلی و بازبینی staged/secrets پاس | API 135/135، web 27/27، typecheck، build، contrast، selftest 36/36، parser 13/13 و diff-check پاس؛ DB/secret/artifact ناخواسته stage نشده است. |
-| 8. انتشار | commit کد push شد؛ ثبت نهایی گزارش در حال انجام | `6a559fe` روی شاخهٔ جاری منتشر شد؛ PR #4 باز و head به‌روز است. GitHub check گزارش نکرد؛ بعد از commit گزارش، وضعیت clean/head نهایی دوباره بررسی می‌شود. |
+| 8. انتشار | انجام شد | commit کد و گزارش نهایی push شدند؛ آخرین بررسی local/remote یکسان و working tree clean بود. PR #4 باز است؛ GitHub check گزارش نکرد. |
 
 ## تغییرات مهم انجام‌شده
 
@@ -83,12 +83,11 @@
 - بازبینی diff و فهرست staged انجام شد؛ فایل DB، `.env` محرمانه، دادهٔ آزمایشی یا artifact تولیدی وارد commit نشد. تنها `.env.example` (نمونهٔ بدون رمز) در فهرست مشابه دیده می‌شود.
 - PR #4 پس از push باز است؛ `gh pr checks 4` اعلام کرد branch هیچ check گزارش‌شده‌ای ندارد. این را نتیجهٔ موفق CI محسوب نمی‌کنیم.
 
-## گام‌های بعدی
+## وضعیت انتشار نهایی
 
-1. این گزارش را با نتیجهٔ push/PR نهایی ثبت کن.
-2. commit مستندسازی و push بدون force به همان شاخهٔ `arena/db057b54-pishkan`.
-3. تأیید clean بودن working tree، یکسانی hash remote و local، و PR #4 باز.
-4. در گزارش نهایی محدودیت PostgreSQL، Gateway mock و Windows واقعی صریح بماند؛ Sandbox/Firewall/Wi‑Fi واقعی ادعا نشود.
+- commit کد و مستندسازی به `arena/db057b54-pishkan` push شدند و آخرین بررسی، working tree تمیز و hash local/remote برابر را تأیید کرد.
+- PR #4 همچنان باز است؛ GitHub هیچ check گزارش‌شده‌ای برای شاخه نشان نداد.
+- در گزارش نهایی محدودیت PostgreSQL، Gateway mock و Windows واقعی صریح است؛ Sandbox/Firewall/Wi‑Fi واقعی ادعا نمی‌شود.
 
 ## اصلاحات نهایی و verification (2026-10-31)
 
@@ -127,6 +126,6 @@
 - Zarinpal Sandbox واقعی: اجرا نشده؛ test transport HTTP mock است و secret/callback واقعی استفاده نشده.
 - Windows PowerShell/WinForms و Windows Defender Firewall واقعی، و اتصال موبایل روی Wi‑Fi: اجرا نشده؛ میزبان Linux است.
 
-### اقدام باقی‌مانده
+### تأیید نهایی انتشار
 
-نتیجهٔ push `6a559fe` و وضعیت PR #4 (باز، head به‌روز، بدون checks گزارش‌شده) در این فایل ثبت شده است. یک commit مستندسازی و push بدون force باقی است؛ پس از آن، clean بودن working tree و تطابق head remote/local بررسی می‌شود. تا تکمیل این بررسی نهایی، پایان کار اعلام نمی‌شود.
+commit کد `6a559fe` و commit مستندسازی `246f790` به شاخهٔ فعلی push شدند. آخرین بررسی پس از انتشار: شاخهٔ local برابر remote، working tree clean، PR #4 باز؛ برای branch هیچ GitHub check گزارش نشده است. در Linux آزمون واقعی PostgreSQL، Zarinpal Sandbox، Windows Firewall/WinForms و Wi‑Fi اجرا نشده‌اند.
