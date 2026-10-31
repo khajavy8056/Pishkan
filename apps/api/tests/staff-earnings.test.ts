@@ -539,6 +539,51 @@ describe('forced assignment', () => {
     }
   });
 
+  it('prefers a salaried employee who is actually on shift over a less busy colleague', async () => {
+    // A second fixed-salary employee, on shift right now but already busier.
+    const onShiftStaff = { username: 'earn_fixed_shift', password: 'Operator#12345', fullName: 'کارمند حقوق ثابت شیفت‌دار' };
+    await createStaff('operator', onShiftStaff);
+    const shiftStaffId = (await one<any>('SELECT id FROM users WHERE username=?', [onShiftStaff.username]))!.id;
+    await createContract({
+      userId: shiftStaffId, kind: 'monthly', monthlyAmount: 25000000, commissionPercent: 0,
+      startsOn: '2026-01-01', settlementPeriod: 'daily', note: 'حقوق ثابت آزمون شیفت',
+    }, 'test-payroll', 'آزمون');
+    await updateSettings({ 'workforce.force_assign_enabled': true }, { id: 'system', name: 'force-setup-3' }, { confirmCritical: true });
+
+    const tehranDate = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Tehran' }).format(new Date());
+    const tehranTime = new Intl.DateTimeFormat('en-GB', { timeZone: 'Asia/Tehran', hour: '2-digit', minute: '2-digit', hour12: false }).format(new Date());
+    const openShift = async (userId: string) => {
+      const shiftId = `shift_${userId}`;
+      await run(
+        'INSERT INTO shifts (id,user_id,shift_date,start_time,end_time,status,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?)',
+        [shiftId, userId, tehranDate, '00:00', '23:59', 'scheduled', new Date().toISOString(), new Date().toISOString()],
+      ).catch(() => undefined);
+      await run(
+        'INSERT INTO attendance (id,shift_id,user_id,check_in,created_at,updated_at) VALUES (?,?,?,?,?,?)',
+        [`att_${userId}`, shiftId, userId, new Date().toISOString(), new Date().toISOString(), new Date().toISOString()],
+      ).catch(() => undefined);
+    };
+
+    try {
+      await openShift(shiftStaffId);
+      // One open request already on their desk: they are on shift, but "busier".
+      const busy = await createRequestAs(customer, serviceId);
+      await assignDirectly(busy.id, shiftStaffId);
+
+      const created = await createRequestAs(customer, serviceId);
+      await forceAssignSweep({ now: new Date(Date.now() + 30 * 86_400_000) });
+      const row = await one<any>('SELECT assigned_to, force_assign_reason FROM requests WHERE id=?', [created.id]);
+      expect(row.assigned_to).toBe(shiftStaffId);
+      expect(row.force_assign_reason).toBe('forced:monthly');
+    } finally {
+      await run('UPDATE staff_profiles SET accepts_new_cases=0 WHERE user_id=?', [shiftStaffId]);
+      await updateSettings({ 'workforce.force_assign_enabled': false }, { id: 'system', name: 'force-cleanup-3' }, { confirmCritical: true });
+      // Creating a staff member logs the admin in again; the concurrent-session
+      // limit may revoke the older cookie, so refresh it for the next tests.
+      admin = await adminSession();
+    }
+  });
+
   it('never takes a request that an employee already accepted', async () => {
     const session = await sessionOf(commissionStaff.username, commissionStaff.password);
     const created = await createRequestAs(customer, serviceId);
@@ -549,7 +594,7 @@ describe('forced assignment', () => {
       const row = await one<any>('SELECT assigned_to FROM requests WHERE id=?', [created.id]);
       expect(row.assigned_to).toBe(commissionStaffId);
     } finally {
-      await updateSettings({ 'workforce.force_assign_enabled': false }, { id: 'system', name: 'force-cleanup-3' }, { confirmCritical: true });
+      await updateSettings({ 'workforce.force_assign_enabled': false }, { id: 'system', name: 'force-cleanup-4' }, { confirmCritical: true });
     }
   });
 });

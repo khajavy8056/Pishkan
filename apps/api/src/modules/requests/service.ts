@@ -1366,7 +1366,12 @@ export async function forceAssignSweep(options: { now?: Date; limit?: number } =
       ranked.push({ ...candidate, type: await cooperationType(candidate.id) });
     }
     const priority = (type: string) => (type === 'monthly' ? 0 : type === 'commission' ? 1 : 2);
-    ranked.sort((a, b) => priority(a.type) - priority(b.type) || a.load - b.load || Number(b.onShift) - Number(a.onShift) || a.id.localeCompare(b.id));
+    // Fixed-salary staff first, but only those actually on shift/online; the
+    // least loaded of them wins, then the same rule for percentage staff.
+    ranked.sort((a, b) => priority(a.type) - priority(b.type)
+      || Number(b.onShift) - Number(a.onShift)
+      || a.load - b.load
+      || a.id.localeCompare(b.id));
     const chosen = ranked[0];
     const assignedAt = nowIso();
     const nextStatus = request.status === 'under_review' ? 'under_review' : 'assigned';
