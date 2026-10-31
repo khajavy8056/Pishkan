@@ -34,6 +34,7 @@ import {
 } from './common.mjs';
 import { readEnvFile } from './envfile.mjs';
 import { isSafeWindowsBindConfig, privateLanUrls } from './lan-access.mjs';
+import { qrAscii, qrPngBase64 } from './qr.mjs';
 import { runLanFirewall } from './lan-firewall.mjs';
 import { formatManagerLogLine, sanitizeManagerLogMessage } from './manager-log.mjs';
 
@@ -525,6 +526,11 @@ async function status() {
       ready: LAN_ACCESS ? Boolean(lanService?.ok) : false,
       mobileUrls: LAN_ACCESS && firewall?.ok && (!probe.up || guardHealthy) ? candidateMobileUrls : [],
       candidateUrls: candidateMobileUrls,
+      // The QR only ever encodes the private LAN URL (no credentials/tokens), and
+      // only while the firewall lease and watchdog are healthy.
+      qr: LAN_ACCESS && firewall?.ok && (!probe.up || guardHealthy)
+        ? candidateMobileUrls.map((url) => ({ url, pngBase64: qrPngBase64(url) }))
+        : [],
       firewall: firewall ?? null,
       watchdog: { running: guardHealthy, pid: current?.lanGuardPid ?? null, leaseFresh: firewallLeaseFresh(current?.firewallLeaseToken) },
       message: LAN_ACCESS ? (configError || firewall?.message || 'فقط loopback فعال است.') : 'دسترسی LAN خاموش است؛ برنامه فقط روی همین رایانه در دسترس است.',
@@ -635,7 +641,24 @@ function removeLanFirewall() {
 
 /* ---------------------------------- main ---------------------------------- */
 
-const commands = { start, stop, restart, status, backup, restore, open: openApp, 'open-data': openData, 'firewall-remove': removeLanFirewall };
+function lanInfo() {
+  const urls = lanAddresses();
+  const enabled = LAN_ACCESS && urls.length > 0;
+  const qr = urls.map((url) => ({ url, pngBase64: qrPngBase64(url), ascii: qrAscii(url) }));
+  const message = enabled
+    ? `آدرس دسترسی موبایل (فقط Wi‑Fi خصوصی): ${urls.join('، ')}`
+    : LAN_ACCESS
+      ? 'LAN فعال است ولی آدرس IPv4 خصوصی پیدا نشد؛ به Wi‑Fi با نمایهٔ Private وصل شوید.'
+      : 'دسترسی LAN خاموش است؛ برنامه فقط روی همین رایانه در دسترس است.';
+  if (!JSON_MODE && enabled) {
+    for (const item of qr) {
+      process.stdout.write(`${item.url}\n${item.ascii.join('\n')}\n\n`);
+    }
+  }
+  return out({ ok: true, enabled, urls, qr, host: BIND_HOST, port: PORT, message });
+}
+
+const commands = { start, stop, restart, status, backup, restore, open: openApp, 'open-data': openData, 'firewall-remove': removeLanFirewall, lan: lanInfo };
 
 async function main() {
   if (command === 'logs') {

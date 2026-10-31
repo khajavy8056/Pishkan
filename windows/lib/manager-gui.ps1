@@ -69,6 +69,10 @@ $themeButton = New-PishkanButton 'تغییر تم' 'ghost' 100 30
 $themeButton.Location = New-Object System.Drawing.Point(24, 28)
 $brand.Controls.Add($themeButton)
 
+$lanButton = New-PishkanButton 'دسترسی موبایل / QR' 'ghost' 160 30
+$lanButton.Location = New-Object System.Drawing.Point(132, 28)
+$brand.Controls.Add($lanButton)
+
 # ------------------------------------------------------------- status card
 
 $statusPanel = New-PishkanPanel 620 250 'card'
@@ -308,6 +312,90 @@ function Update-Status {
   }
 }
 
+function Show-LanDialog {
+  # Copyable private LAN address + QR. The payload is only the http URL: never a
+  # password, session cookie or gateway key.
+  $info = Invoke-Manager @('lan')
+  $dialog = New-Object System.Windows.Forms.Form
+  $dialog.Text = 'دسترسی موبایل در شبکه محلی'
+  $dialog.Width = 460
+  $dialog.Height = 520
+  $dialog.StartPosition = 'CenterParent'
+  $dialog.RightToLeft = [System.Windows.Forms.RightToLeft]::Yes
+  $dialog.RightToLeftLayout = $true
+  $dialog.Tag = 'form'
+
+  $note = New-PishkanLabel '' 'muted' 9 $false
+  $note.Location = New-Object System.Drawing.Point(16, 12)
+  $note.Size = New-Object System.Drawing.Size(410, 58)
+  $note.TextAlign = 'TopRight'
+  $note.Text = if ($info.enabled) {
+    "این آدرس فقط در Wi‑Fi خصوصی (Private) همان شبکه کار می‌کند.`nگوشی و رایانه باید به یک مودم وصل باشند."
+  } else {
+    [string]$info.message
+  }
+  $dialog.Controls.Add($note)
+
+  $urlBox = New-Object System.Windows.Forms.TextBox
+  $urlBox.Multiline = $true
+  $urlBox.ReadOnly = $true
+  $urlBox.ScrollBars = 'Vertical'
+  $urlBox.Location = New-Object System.Drawing.Point(16, 74)
+  $urlBox.Size = New-Object System.Drawing.Size(410, 54)
+  $urlBox.Font = New-Object System.Drawing.Font('Consolas', 10)
+  $urlBox.Tag = 'log'
+  $urls = @($info.urls | Where-Object { $_ })
+  $urlBox.Text = ($urls -join "`r`n")
+  $dialog.Controls.Add($urlBox)
+
+  $picture = New-Object System.Windows.Forms.PictureBox
+  $picture.Location = New-Object System.Drawing.Point(98, 138)
+  $picture.Size = New-Object System.Drawing.Size(240, 240)
+  $picture.SizeMode = 'Zoom'
+  $picture.BackColor = [System.Drawing.Color]::White
+  $dialog.Controls.Add($picture)
+
+  if ($urls.Count -gt 0) {
+    $first = @($info.qr | Select-Object -First 1)
+    if ($first.Count -gt 0 -and $first[0].pngBase64) {
+      try {
+        $bytes = [System.Convert]::FromBase64String([string]$first[0].pngBase64)
+        $stream = New-Object System.IO.MemoryStream (, $bytes)
+        $picture.Image = [System.Drawing.Image]::FromStream($stream)
+      } catch {
+        Set-Footer 'نمایش QR ناموفق بود؛ آدرس متنی را استفاده کنید.' 'warn'
+      }
+    }
+  }
+
+  $copyButton = New-PishkanButton 'کپی آدرس' 'accent' 120 36
+  $copyButton.Location = New-Object System.Drawing.Point(16, 392)
+  $copyButton.Add_Click({
+    $text = [string]$urlBox.Text
+    if ($text -and $urls.Count -gt 0) {
+      [System.Windows.Forms.Clipboard]::SetText(($urls -join "`r`n"))
+      Set-Footer 'آدرس شبکه محلی در حافظه کپی شد.' 'ok'
+    }
+  })
+  $dialog.Controls.Add($copyButton)
+
+  $openButton = New-PishkanButton 'باز کردن در مرورگر' 'ghost' 170 36
+  $openButton.Location = New-Object System.Drawing.Point(146, 392)
+  $openButton.Enabled = ($urls.Count -gt 0)
+  $openButton.Add_Click({ if ($urls.Count -gt 0) { Start-Process ([string]$urls[0]) } })
+  $dialog.Controls.Add($openButton)
+
+  $hint = New-PishkanLabel '' 'muted' 8.5 $false
+  $hint.Location = New-Object System.Drawing.Point(16, 438)
+  $hint.Size = New-Object System.Drawing.Size(410, 34)
+  $hint.TextAlign = 'TopRight'
+  $hint.Text = 'ورود با نام کاربری و گذرواژه در همه دستگاه‌ها الزامی است. هیچ گذرواژه‌ای داخل QR نیست.'
+  $dialog.Controls.Add($hint)
+
+  Apply-PishkanTheme $dialog
+  [void]$dialog.ShowDialog($form)
+}
+
 function Invoke-Action([string]$Label, [string[]]$Arguments, [string]$SuccessText) {
   if ($script:Busy) { return }
   $script:Busy = $true
@@ -345,6 +433,7 @@ $stopButton.Add_Click({ Invoke-Action 'توقف سرویس' @('stop') 'سروی�
 $restartButton.Add_Click({ Invoke-Action 'راه‌اندازی دوباره' @('restart') 'سرویس دوباره راه‌اندازی شد.' })
 $refreshButton.Add_Click({ Update-Status })
 $openButton.Add_Click({ if ($script:AppUrl) { Start-Process $script:AppUrl } })
+$lanButton.Add_Click({ Show-LanDialog })
 $dataButton.Add_Click({ [void](Invoke-Manager @('open-data')) })
 
 $backupButton.Add_Click({

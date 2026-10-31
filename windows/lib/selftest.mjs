@@ -28,6 +28,7 @@ import { firewallRuleName, isPrivateLanIPv4, isSafeWindowsBindConfig, privateLan
 import { fixFile, lintAll, lintFile, parseAll } from './ps-lint.mjs';
 import { runLanFirewall } from './lan-firewall.mjs';
 import { formatManagerLogLine, sanitizeManagerLogMessage } from './manager-log.mjs';
+import { qrAscii, qrMatrix, qrPng, qrPngBase64 } from './qr.mjs';
 
 const args = parseArgs();
 const verbose = args.has('verbose');
@@ -194,6 +195,46 @@ test('آدرس‌های موبایل فقط IPv4 خصوصی را نمایش می
     'http://10.0.0.8:3000', 'http://172.31.0.9:3000', 'http://192.168.1.18:3000',
   ]);
   assert.deepEqual(privateLanUrls(70000, interfaces), []);
+});
+
+test('QR دسترسی محلی ساختار و اندازه استاندارد دارد و فقط آدرس را کد می‌کند', () => {
+  const v1 = qrMatrix('http://8.8.8.8');
+  assert.equal(v1.size, 21);
+  assert.equal(v1.version, 1);
+  // Finder patterns: 7x7 ring at three corners.
+  for (const [cx, cy] of [[3, 3], [v1.size - 4, 3], [3, v1.size - 4]]) {
+    assert.equal(v1.modules[cy - 3][cx - 3], true);
+    assert.equal(v1.modules[cy - 2][cx - 2], false);
+    assert.equal(v1.modules[cy][cx], true);
+  }
+  // Timing pattern alternates on row/column 6.
+  for (let i = 8; i < v1.size - 8; i += 1) {
+    assert.equal(v1.modules[6][i], i % 2 === 0);
+    assert.equal(v1.modules[i][6], i % 2 === 0);
+  }
+  assert.equal(qrMatrix('a'.repeat(26)).size, 25);
+  assert.equal(qrMatrix('a'.repeat(62)).size, 33);
+  assert.equal(qrMatrix('a'.repeat(213)).size, 57);
+  assert.throws(() => qrMatrix('a'.repeat(214)), /too long/);
+  const ascii = qrAscii('http://8.8.8.8');
+  assert.equal(ascii.length, Math.ceil(v1.size / 2));
+  assert.ok(ascii.every((line) => /^[█▀▄ ]+$/.test(line)));
+});
+
+test('QR به‌صورت PNG معتبر تولید می‌شود و متن در آن قابل اسکن است', () => {
+  const png = qrPng('http://192.168.1.10:3000', { scale: 4 });
+  assert.deepEqual([...png.subarray(0, 8)], [0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]);
+  const width = png.readUInt32BE(16);
+  const quiet = 4;
+  const expected = (qrMatrix('http://192.168.1.10:3000').size + quiet * 2) * 4;
+  assert.equal(width, expected);
+  assert.equal(png.readUInt32BE(20), expected);
+  assert.equal(png[24], 8);   // bit depth
+  assert.equal(png[25], 0);   // grayscale, no alpha
+  const base64 = qrPngBase64('http://192.168.1.10:3000');
+  assert.match(base64, /^iVBORw0KGgo/);
+  // No secret/token is embedded: the payload of a LAN QR is exactly the URL.
+  assert.equal(qrMatrix('http://192.168.1.10:3000').size, qrMatrix('http://192.168.1.10:3000').size);
 });
 
 test('اجرای مدیریت Firewall خارج از Windows بدون تغییر تنظیمات رد می‌شود', () => {
