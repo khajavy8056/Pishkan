@@ -183,6 +183,10 @@ submitted/reviewing/approved → rejected   (با علت اجباری ≥ ۳ ن�
 - نسخه: **۱٫۴٫۰** (در `package.json` سه فضا، `env.ts`, `windows/manifest/windows.manifest.json`, `windows/lib/ui.ps1`)
 - مهاجرت: `apps/api/migrations/019_staff_earnings_and_withdrawals.sql` (۱۹ مهاجرت، ۲۴ فایل آزمون API)
 - مجوزها: نسخهٔ ۳ (`payroll.view|approve|settle|contracts.edit|reports.view|accrue`)
-- کامیت این نسخه: `1618d43` روی شاخهٔ `arena/ae260b5c-pishkan` (پس از `6147162` نسخهٔ ۱٫۳٫۰).
+- **نسخهٔ منتشرشده:** تگ `v1.4.0` و Release همین نام در GitHub، روی شاخهٔ `arena/ae260b5c-pishkan`.
+  کامیت پایانی همان کامیتی است که تگ `v1.4.0` به آن اشاره می‌کند (در صفحهٔ Release و در
+  `git rev-list -n1 v1.4.0` قابل بررسی است). تاریخ انتشار: ۲۰۲۶-۱۱-۰۱.
+- کامیت‌های این نسخه روی شاخه، به ترتیب: پیاده‌سازی API و رابط کاربری → مستندات نسخه →
+  قاعدهٔ اولویت شیفت در واگذاری اجباری و آزمون آن → یادداشت ارتقا و شمار نهایی آزمون‌ها.
 - فایل‌های تغییر‌یافته: ۳۹ فایل (۸ فایل تازه، ۱ فایل حذف‌شده، ۳۰ فایل ویرایش‌شده).
 - جزئیات فنی تغییرات در [CHANGELOG](../CHANGELOG.md)، [مستند API](API.md)، [راهنمای کارمند](STAFF-GUIDE.md) و [راهنمای مدیر](ADMIN-GUIDE.md) آمده است.
