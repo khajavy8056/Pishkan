@@ -355,6 +355,18 @@ async function checkApi() {
     const response = await fetch(`${BASE}/api/requests`, { headers: { accept: 'application/json' } });
     return { ok: response.status === 401 || response.status === 403, detail: `کد پاسخ بدون نشست: ${response.status}` };
   });
+  // Counting admins in the database is not enough: the account may exist with
+  // a *different* password than the one typed in the installer (earlier
+  // half-finished install). Only a real login with the supplied credentials
+  // proves the operator can actually sign in after installation.
+  await check('admin-login', 'ورود مدیر کل با اطلاعات نصب', async () => {
+    if (ALLOW_MISSING_ADMIN) return { ok: true, detail: 'در این نصب حساب مدیر کل ساخته نشد؛ بررسی ورود رد شد' };
+    if (!ADMIN_PASS) return { ok: true, detail: 'رمز مدیر کل داده نشد؛ بررسی ورود رد شد' };
+    const user = await loginAs('admin', ADMIN_USER, ADMIN_PASS);
+    if (!user) throw new Error('ورود مدیر کل ناموفق بود؛ پاسخ سرور کاربر را برنگرداند');
+    if (user.kind !== 'admin') throw new Error(`حساب «${ADMIN_USER}» مدیر کل نیست (kind=${user.kind})`);
+    return { ok: true, detail: `ورود «${user.username ?? ADMIN_USER}» با رمز واردشده در نصب تأیید شد` };
+  });
 }
 
 async function checkFrontend() {

@@ -653,7 +653,7 @@ async function stepAdmin(config, job) {
   }
   const result = await runProcess(
     process.execPath,
-    ['--experimental-sqlite', 'dist/cli/create-admin.js', '--username', username, '--stdin',
+    ['--experimental-sqlite', 'dist/cli/create-admin.js', '--username', username, '--stdin', '--upsert',
       '--full-name', String(admin.fullName ?? 'مدیر سامانه'),
       ...(admin.mobile ? ['--mobile', String(admin.mobile)] : [])],
     {
@@ -665,17 +665,27 @@ async function stepAdmin(config, job) {
   );
   const output = `${result.stdout}\n${result.stderr}`.trim();
   if (result.code !== 0) {
-    const reason = /حداقل|ترکیبی/.test(output) ? 'رمز عبور با سیاست امنیتی سازگار نیست' : 'ایجاد حساب مدیر ناموفق بود';
+    const reason = /username-taken/.test(output)
+      ? 'این نام کاربری برای حساب دیگری (غیرمدیر) ثبت شده است؛ نام کاربری دیگری برای مدیر کل انتخاب کنید'
+      : /حداقل|ترکیبی/.test(output) ? 'رمز عبور با سیاست امنیتی سازگار نیست' : 'ایجاد حساب مدیر ناموفق بود';
     throw Object.assign(new Error(`${reason}: ${tail(output, 8)}`), {
       step: 'admin', command: 'node dist/cli/create-admin.js --username … --stdin', exitCode: result.code, output: tail(output, 40),
     });
   }
-  const created = /created/i.test(output) && !/already exists/i.test(output);
+  const updated = /account updated/i.test(output);
+  const verified = !updated && /account verified/i.test(output);
+  const created = !updated && !verified && /created/i.test(output) && !/already exists/i.test(output);
   stepEvent('admin', 'ایجاد حساب مدیر کل', 'ok', {
-    message: created ? `حساب «${username}» با نقش مدیر کل ساخته شد` : `حساب مدیر از قبل وجود داشت («${username}» تغییر نکرد)`,
+    message: updated
+      ? `حساب مدیر کل «${username}» از قبل وجود داشت؛ رمز عبور آن به رمز واردشده تغییر کرد تا ورود با همین اطلاعات ممکن باشد`
+      : verified
+        ? `حساب مدیر کل «${username}» از قبل با همین رمز عبور وجود داشت`
+        : created
+          ? `حساب «${username}» با نقش مدیر کل ساخته شد`
+          : `حساب مدیر کل «${username}» آمادهٔ ورود است`,
     stepProgress: 100,
   });
-  return { created, username };
+  return { created, updated, verified, username };
 }
 
 async function managerCommand(command, extra = []) {
@@ -728,10 +738,17 @@ async function stepVerify(config, job) {
   // The installer only warns in that case (a human can create the account
   // later); a *wrong* installation still fails on every other check.
   if (adminMissing) verifyArgs.push('--allow-missing-admin');
-  if (RUN_WORKFLOW) {
-    verifyArgs.push('--admin-user', String(job.admin?.username ?? 'admin'), '--admin-pass', String(job.admin?.password ?? ''));
-  }
+  // Always prove the installer-entered credentials can actually log in — not
+  // only in workflow mode. An install that «succeeds» while the typed admin
+  // password does not work is the exact failure this guards against. The
+  // password travels via the environment, never the process argv.
+  const adminUser = String(job.admin?.username ?? '').trim();
+  const adminPass = String(job.admin?.password ?? '');
+  const verifyEnv = !adminMissing && adminUser && adminPass
+    ? { PISHKAN_ADMIN_USER: adminUser, PISHKAN_ADMIN_PASS: adminPass }
+    : {};
   const result = await runProcess(process.execPath, verifyArgs, {
+    env: verifyEnv,
     timeoutMs: 10 * 60 * 1000,
     onLine: (line) => {
       if (line.startsWith('[PASS]') || line.startsWith('[FAIL]') || line.startsWith('[STEP]')) {

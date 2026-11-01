@@ -304,6 +304,28 @@ test('installer, manager و API فقط پس از opt-in و تأیید Firewall �
   assert.match(apiGate, /PISHKAN_LAN_FIREWALL_VERIFIED/);
 });
 
+test('حساب مدیر کل نصاب تضمینی است: ساخت/به‌روزرسانی با --upsert و ورود واقعی در آزمون نهایی', () => {
+  const installer = readFileSync(path.join(MODULE_DIR, 'installer.mjs'), 'utf8');
+  const verify = readFileSync(path.join(MODULE_DIR, 'verify.mjs'), 'utf8');
+  const createAdmin = readFileSync(path.join(MODULE_DIR, '..', '..', 'apps', 'api', 'src', 'cli', 'create-admin.ts'), 'utf8');
+  const seed = readFileSync(path.join(MODULE_DIR, '..', '..', 'apps', 'api', 'src', 'modules', 'catalog', 'seed.ts'), 'utf8');
+  // The installer must never again «succeed» while the typed admin credentials
+  // do not work (the old create-only-if-no-admin behaviour).
+  assert.match(installer, /create-admin\.js', '--username', username, '--stdin', '--upsert'/);
+  assert.match(installer, /account updated/);
+  assert.match(installer, /username-taken/);
+  assert.match(installer, /PISHKAN_ADMIN_PASS: adminPass/);
+  assert.match(createAdmin, /upsertInstallerAdmin/);
+  assert.match(createAdmin, /username-taken/);
+  // Password is used verbatim from stdin (no trim) so it hashes what was typed.
+  assert.doesNotMatch(createAdmin, /split\(\/\\r\?\\n\/\)\[0\]\.trim\(\)/);
+  assert.match(seed, /export async function upsertInstallerAdmin/);
+  assert.match(seed, /status: 'conflict'/);
+  // Core verification performs a real login with the supplied credentials.
+  assert.match(verify, /'admin-login'/);
+  assert.match(verify, /loginAs\('admin', ADMIN_USER, ADMIN_PASS\)/);
+});
+
 await testAsync('installer dry-run persists opt-in LAN exactly and never touches Windows Firewall', async () => {
   for (const enabled of [false, true]) {
     const root = path.join(tmp, enabled ? 'installer-lan-on' : 'installer-lan-off');

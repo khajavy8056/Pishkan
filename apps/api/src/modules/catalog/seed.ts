@@ -1,5 +1,5 @@
 import { one, q, run, nowIso, jsonStringify, jsonParse } from '../../db/index.js';
-import { id, hashPassword } from '../../lib/crypto.js';
+import { id, hashPassword, verifyPassword } from '../../lib/crypto.js';
 import { DEFAULT_ROLES, allPermissions } from '../../lib/permissions.js';
 import { ensureSettingDefaults } from '../settings/service.js';
 import { SEED_CATEGORIES, SEED_SERVICES, SEED_EXPENSE_CATEGORIES } from './seed-data.js';
@@ -133,6 +133,81 @@ export async function ensureAdmin(admin: SeedOptions['admin'] = undefined, log: 
   );
   log('admin: initial account created');
   return userId;
+}
+
+export type InstallerAdminStatus = 'created' | 'updated' | 'verified' | 'conflict';
+
+/**
+ * Installer-grade admin provisioning (used by `create-admin --upsert`).
+ *
+ * Unlike ensureAdmin — which only ever creates the very first admin — this
+ * guarantees that the exact account the installer operator typed can log in
+ * when the installation finishes:
+ *   - no account with that username → create it as super_admin (even when
+ *     another admin already exists);
+ *   - account exists and the supplied password already matches → 'verified'
+ *     (role/active state normalized, password untouched);
+ *   - account exists with a different password → reset the password to the
+ *     supplied one, reactivate, clear lockout, revoke sessions ('updated').
+ *     Safe because the only callers are installer CLIs run by the machine
+ *     owner, who already has full database access;
+ *   - username belongs to a non-admin account → 'conflict' (a staff/customer
+ *     account is never silently promoted to super admin).
+ */
+export async function upsertInstallerAdmin(
+  admin: { username: string; password: string; fullName?: string; mobile?: string },
+  log: (m: string) => void = () => undefined,
+): Promise<{ status: InstallerAdminStatus; userId: string | null }> {
+  const role = await one<{ id: string }>('SELECT id FROM roles WHERE code = ?', ['super_admin']);
+  if (!role) throw new Error('super_admin role is missing; run the role seed first');
+  const username = admin.username.toLowerCase();
+  const existing = await one<{
+    id: string; kind: string; status: string; role_id: string | null; password_hash: string | null;
+  }>(
+    'SELECT id, kind, status, role_id, password_hash FROM users WHERE LOWER(username) = ?',
+    [username],
+  );
+  const ts = nowIso();
+  if (existing) {
+    if (existing.kind !== 'admin') return { status: 'conflict', userId: existing.id };
+    if (await verifyPassword(admin.password, existing.password_hash)) {
+      if (existing.status !== 'active' || existing.role_id !== role.id) {
+        await run(
+          "UPDATE users SET status = 'active', role_id = ?, failed_attempts = 0, locked_until = NULL, updated_at = ? WHERE id = ?",
+          [role.id, ts, existing.id],
+        );
+      }
+      log('admin: existing account verified');
+      return { status: 'verified', userId: existing.id };
+    }
+    await run(
+      `UPDATE users SET password_hash = ?, role_id = ?, status = 'active', must_change_password = 0,
+       failed_attempts = 0, locked_until = NULL, updated_at = ? WHERE id = ?`,
+      [await hashPassword(admin.password), role.id, ts, existing.id],
+    );
+    await run('UPDATE sessions SET revoked_at = ? WHERE user_id = ? AND revoked_at IS NULL', [ts, existing.id]);
+    log('admin: existing account password reset by installer');
+    return { status: 'updated', userId: existing.id };
+  }
+
+  const userId = id('usr');
+  const passwordHash = await hashPassword(admin.password);
+  const insert = (mobile: string | null) => run(
+    `INSERT INTO users (id, kind, role_id, mobile, email, username, password_hash, full_name, status, must_change_password, created_at, updated_at)
+     VALUES (?, 'admin', ?, ?, ?, ?, ?, ?, 'active', 0, ?, ?)`,
+    [userId, role.id, mobile, null, username, passwordHash, admin.fullName ?? 'مدیر سامانه', ts, ts],
+  );
+  try {
+    await insert(admin.mobile ?? null);
+  } catch (error) {
+    const message = String((error as Error)?.message ?? error);
+    if (!admin.mobile || !/unique|duplicate/i.test(message)) throw error;
+    // (kind, mobile) is unique: another admin already owns this mobile.
+    log('admin: mobile already belongs to another admin; creating without mobile');
+    await insert(null);
+  }
+  log('admin: initial account created');
+  return { status: 'created', userId };
 }
 
 /** Demo data for local evaluation and screenshots. Never enabled in production by default. */
