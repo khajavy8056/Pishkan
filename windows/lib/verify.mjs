@@ -280,7 +280,7 @@ async function checkDatabase(config) {
         else {
           notes.push(
             'حساب مدیر کل ساخته نشده است؛ پیش از استفاده با دستور زیر بسازید: ' +
-            'node apps/api/dist/cli/create-admin.js --username admin --stdin',
+            'node apps/api/dist/cli/create-admin.js --username admin --stdin --upsert',
           );
         }
       } else {

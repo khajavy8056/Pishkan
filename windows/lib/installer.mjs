@@ -75,7 +75,7 @@ function log(message, level = 'info') {
 }
 
 /** Overall progress weights (sum = 100). */
-const WEIGHTS = { check: 3, env: 2, lan: 2, deps: 40, build: 18, database: 13, admin: 6, start: 6, verify: 10 };
+const WEIGHTS = { check: 3, clean: 1, env: 2, lan: 2, deps: 39, build: 18, database: 13, admin: 6, start: 6, verify: 10 };
 let completedWeight = 0;
 
 function stepEvent(id, title, status, options = {}) {
@@ -274,6 +274,111 @@ async function stepChecks(job = {}) {
     stepProgress: 100,
   });
   return payload;
+}
+
+/** Fail fast on a structurally invalid job — before anything destructive. */
+function validateJobShape(job) {
+  if (job.cleanInstall !== undefined && typeof job.cleanInstall !== 'boolean') {
+    throw Object.assign(new Error('گزینهٔ نصب تمیز باید روشن/خاموش باشد.'), { step: 'job' });
+  }
+  const admin = job.admin;
+  if (admin !== undefined && admin !== null) {
+    // A string/array here means the launcher serialized the admin block
+    // incorrectly (historically: a PowerShell scriptblock `{}` instead of a
+    // hashtable `@{}` in the GUI job). Surface that loudly instead of
+    // silently installing a system nobody can log into.
+    if (typeof admin !== 'object' || Array.isArray(admin)) {
+      throw Object.assign(new Error('اطلاعات مدیر کل در درخواست نصب به‌درستی نرسیده است؛ کد پروژه را به‌روز کنید و نصب را دوباره اجرا کنید.'), { step: 'job' });
+    }
+    for (const key of ['username', 'password', 'fullName', 'mobile']) {
+      if (admin[key] !== undefined && typeof admin[key] !== 'string') {
+        throw Object.assign(new Error(`اطلاعات مدیر کل معتبر نیست (${key}).`), { step: 'job' });
+      }
+    }
+  }
+}
+
+async function countExistingAdmins(databaseFile) {
+  try {
+    if (!databaseFile || !fs.existsSync(databaseFile)) return 0;
+    const { DatabaseSync } = await import('node:sqlite');
+    const db = new DatabaseSync(databaseFile, { readOnly: true });
+    try {
+      const row = db.prepare("SELECT COUNT(*) AS c FROM users WHERE kind = 'admin' AND status = 'active'").get();
+      return Number(row?.c ?? 0);
+    } finally {
+      db.close();
+    }
+  } catch {
+    return 0;
+  }
+}
+
+/**
+ * Clean install (explicit opt-in): before any configuration is read, move the
+ * previous installation's database + env aside and drop stale build output so
+ * this run starts from zero. Files are quarantined under
+ * .data/previous-install-<timestamp>/ instead of being hard-deleted — the new
+ * install never sees them, but a human can still recover them.
+ */
+async function stepClean(job) {
+  if (job.cleanInstall !== true) return;
+  stepEvent('clean', 'پاک‌سازی نصب قبلی', 'running', { stepProgress: 10 });
+  if (DRY_RUN) {
+    stepEvent('clean', 'پاک‌سازی نصب قبلی', 'skip', { message: 'حالت آزمایشی (dry-run)؛ هیچ داده‌ای جابه‌جا نمی‌شود', stepProgress: 100 });
+    return;
+  }
+  // The database file cannot be moved while our own server holds it open.
+  try { await managerCommand('stop', ['--json']); } catch { /* not running: fine */ }
+
+  const envFile = envFilePath(ROOT);
+  const existing = readEnvFile(envFile);
+  const stamp = new Date().toISOString().replaceAll(':', '-').replaceAll('.', '-');
+  const quarantine = path.join(dataDir(ROOT), `previous-install-${stamp}`);
+  const moved = [];
+  const moveAside = (from) => {
+    if (!from || !fs.existsSync(from)) return;
+    fs.mkdirSync(quarantine, { recursive: true });
+    const to = path.join(quarantine, path.basename(from));
+    try {
+      fs.renameSync(from, to);
+    } catch {
+      fs.copyFileSync(from, to);
+      fs.unlinkSync(from);
+    }
+    moved.push(path.basename(from));
+  };
+  try {
+    const dbCandidates = new Set(
+      [existing.SQLITE_FILE, dbFile(ROOT)]
+        .filter(Boolean)
+        .map((candidate) => (path.isAbsolute(candidate) ? candidate : path.join(ROOT, candidate))),
+    );
+    for (const db of dbCandidates) {
+      moveAside(db);
+      moveAside(`${db}-wal`);
+      moveAside(`${db}-shm`);
+    }
+    moveAside(envFile);
+    try {
+      for (const name of fs.readdirSync(ROOT)) {
+        if (name.startsWith('.env.windows.local.bak')) moveAside(path.join(ROOT, name));
+      }
+    } catch { /* env backups are optional */ }
+    moveAside(path.join(dataDir(ROOT), 'initial-admin-credentials.txt'));
+    moveAside(stateFile(ROOT));
+    for (const dist of ['apps/api/dist', 'apps/web/dist']) {
+      fs.rmSync(path.join(ROOT, dist), { recursive: true, force: true });
+    }
+  } catch (error) {
+    throw Object.assign(new Error(`پاک‌سازی نصب قبلی کامل نشد: ${error?.message ?? error} — اگر سرور Pishkan در حال اجراست ابتدا آن را متوقف کنید (Stop-Pishkan) و دوباره تلاش کنید.`), { step: 'clean' });
+  }
+  stepEvent('clean', 'پاک‌سازی نصب قبلی', moved.length ? 'ok' : 'skip', {
+    message: moved.length
+      ? `داده‌های نصب قبلی به «.data/previous-install-${stamp}» منتقل شد (${moved.length} فایل)؛ نصب از صفر آغاز می‌شود`
+      : 'داده‌ای از نصب قبلی پیدا نشد؛ نصب از صفر آغاز می‌شود',
+    stepProgress: 100,
+  });
 }
 
 async function stepEnv(job) {
@@ -640,16 +745,26 @@ async function stepAdmin(config, job) {
   const admin = job.admin ?? {};
   const username = String(admin.username ?? '').trim();
   const password = String(admin.password ?? '');
-  if (!username || !password) {
-    adminMissing = true;
-    stepEvent('admin', 'ایجاد حساب مدیر کل', 'skip', {
-      message: 'اطلاعات مدیر کل داده نشد؛ می‌توانید بعداً با create-admin بسازید',
-    });
-    return { created: false };
-  }
   if (DRY_RUN) {
     stepEvent('admin', 'ایجاد حساب مدیر کل', 'skip', { message: 'حالت آزمایشی (dry-run)' });
     return { created: false };
+  }
+  if (!username || !password) {
+    // Never finish a «successful» install that nobody can log into. Skipping
+    // is only legitimate when an active admin already exists (e.g. a repair
+    // run that intentionally left the account untouched).
+    const admins = await countExistingAdmins(config.database);
+    if (admins > 0) {
+      adminMissing = true;
+      stepEvent('admin', 'ایجاد حساب مدیر کل', 'skip', {
+        message: `اطلاعات مدیر کل داده نشد؛ ${admins} حساب مدیر فعال از قبل وجود دارد و همان معتبر می‌ماند`,
+      });
+      return { created: false };
+    }
+    stepEvent('admin', 'ایجاد حساب مدیر کل', 'fail', {
+      message: 'هیچ حساب مدیر کلی وجود ندارد و اطلاعات ساخت آن داده نشده است',
+    });
+    throw Object.assign(new Error('هیچ حساب مدیر کلی وجود ندارد و اطلاعات ساخت آن داده نشده است؛ در پنجرهٔ نصب بخش «حساب مدیر کل» (نام، نام کاربری و رمز عبور) را کامل کنید و نصب را دوباره اجرا کنید.'), { step: 'admin' });
   }
   const result = await runProcess(
     process.execPath,
@@ -805,7 +920,9 @@ async function main() {
   let config;
   let checks = null;
   try {
+    validateJobShape(job);
     checks = await stepChecks(job);
+    await stepClean(job);
     config = await stepEnv(job);
     await stepDependencies();
     await stepBuild();

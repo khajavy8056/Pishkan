@@ -132,7 +132,7 @@ async function main() {
     '--root', root, '--json-lines', '--job-stdin',
   ], { cwd: root, stdio: ['pipe', 'pipe', 'inherit'] });
 
-  child.stdin.end(`${JSON.stringify({ port, admin, lanAccess })}\n`);
+  child.stdin.end(`${JSON.stringify({ port, admin, lanAccess, cleanInstall })}\n`);
 
   let lastKey = '';
   let ok = false;

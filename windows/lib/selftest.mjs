@@ -326,6 +326,57 @@ test('حساب مدیر کل نصاب تضمینی است: ساخت/به‌رو�
   assert.match(verify, /loginAs\('admin', ADMIN_USER, ADMIN_PASS\)/);
 });
 
+test('پنجره نصب اطلاعات مدیر کل را واقعاً به موتور می‌رساند و نصب بدون مدیر موفق گزارش نمی‌شود', () => {
+  const gui = readFileSync(path.join(MODULE_DIR, 'installer-gui.ps1'), 'utf8').replace(/^\uFEFF/, '');
+  const installer = readFileSync(path.join(MODULE_DIR, 'installer.mjs'), 'utf8');
+  const consoleInstaller = readFileSync(path.join(MODULE_DIR, 'setup-console.mjs'), 'utf8');
+  // Root-cause regression lock: in PowerShell `admin = { ... }` is a
+  // scriptblock, not a hashtable — ConvertTo-Json then never delivered the
+  // typed username/password to the engine and every GUI install silently
+  // skipped creating the super admin. The job must use `@{ ... }`.
+  assert.ok(gui.includes('    admin = @{'), 'job.admin باید hashtable با @{} باشد');
+  assert.ok(!/^\s*admin = \{/m.test(gui), 'admin = {} (scriptblock) نباید برگردد');
+  // Clean install is wired end-to-end (GUI checkbox + console question + engine).
+  assert.match(gui, /cleanInstallCheckBox/);
+  assert.match(gui, /cleanInstall = \[bool\]\$cleanInstallCheckBox\.Checked/);
+  assert.match(consoleInstaller, /cleanInstall/);
+  assert.match(installer, /function validateJobShape/);
+  assert.match(installer, /countExistingAdmins/);
+  assert.match(installer, /هیچ حساب مدیر کلی وجود ندارد/);
+  assert.match(installer, /stepClean/);
+  assert.match(installer, /previous-install-/);
+  // Validation must run before the destructive clean step.
+  assert.ok(installer.indexOf('validateJobShape(job);') < installer.indexOf('await stepClean(job);'));
+});
+
+await testAsync('installer dry-run: admin بدشکل رد می‌شود و نصب تمیز در dry-run داده‌ای را جابه‌جا نمی‌کند', async () => {
+  const root = path.join(tmp, 'installer-clean-dry');
+  fs.mkdirSync(path.join(root, '.data'), { recursive: true });
+  fs.writeFileSync(envFilePath(root), 'PORT=45910\nDB_DRIVER=sqlite\n', 'utf8');
+  const fakeDb = path.join(root, '.data', 'pishkan-windows.sqlite');
+  fs.writeFileSync(fakeDb, 'previous-install-marker', 'utf8');
+  fs.writeFileSync(path.join(root, 'package.json'), '{"name":"dry-run-root"}\n', 'utf8');
+
+  const runDry = (job) => spawnSync(process.execPath, [
+    path.join(MODULE_DIR, 'installer.mjs'), '--root', root, '--dry-run', '--json-lines', '--job-stdin',
+  ], { input: JSON.stringify(job), encoding: 'utf8', timeout: 60_000 });
+
+  // A string admin is the exact scriptblock-bug signature: fail fast.
+  const malformed = runDry({ port: 45910, lanAccess: false, admin: 'fullName = x; username = admin' });
+  assert.notEqual(malformed.status, 0, malformed.stdout || malformed.stderr);
+  assert.match(`${malformed.stdout}\n${malformed.stderr}`, /به‌درستی نرسیده است/);
+
+  // Clean-install in dry-run must not move or delete anything.
+  const clean = runDry({
+    port: 45910, lanAccess: false, cleanInstall: true,
+    admin: { fullName: 'مدیر', username: 'admin', password: 'Whatever#12345' },
+  });
+  assert.equal(clean.status, 0, clean.stderr || clean.stdout);
+  assert.equal(fs.readFileSync(fakeDb, 'utf8'), 'previous-install-marker');
+  const quarantines = fs.readdirSync(path.join(root, '.data')).filter((name) => name.startsWith('previous-install-'));
+  assert.equal(quarantines.length, 0, 'dry-run نباید پوشه قرنطینه بسازد');
+});
+
 await testAsync('installer dry-run persists opt-in LAN exactly and never touches Windows Firewall', async () => {
   for (const enabled of [false, true]) {
     const root = path.join(tmp, enabled ? 'installer-lan-on' : 'installer-lan-off');
