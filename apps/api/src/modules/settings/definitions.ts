@@ -168,7 +168,7 @@ export const SETTINGS: SettingDef[] = [
 
   /* -------------------------------- services ------------------------------- */
   { key: 'services.accepting_requests', group: 'services', type: 'boolean', label: 'پذیرش درخواست به‌صورت سراسری', hint: 'خاموش کردن این گزینه فقط نمایش کاتالوگ را حفظ می‌کند.', default: bool(true), public: true },
-  { key: 'services.auto_assign', group: 'services', type: 'boolean', label: 'ارجاع خودکار به کارشناس', default: bool(true) },
+  { key: 'services.auto_assign', group: 'services', type: 'boolean', label: 'ارجاع خودکار فوری به کارشناس', hint: 'خاموش (پیش‌فرض): پرونده وارد «صف آزاد» می‌شود تا کارشناس واجد شرایط خودش آن را بپذیرد؛ اگر تا موعد واگذاری اجباری پذیرفته نشد سیستم آن را خودکار ارجاع می‌دهد. روشن: همان لحظهٔ ثبت به بهترین کارشناس ارجاع می‌شود.', default: bool(false) },
   { key: 'services.auto_assign_strategy', group: 'services', type: 'select', label: 'سازوکار ارجاع', options: [{ value: 'round_robin', label: 'نوبتی بین کارشناسان واجد شرایط' }, { value: 'least_loaded', label: 'کمترین بار کاری' }, { value: 'fixed', label: 'کارشناس ثابت هر خدمت' }, { value: 'queue', label: 'صف انتظار برای مدیر' }], default: 'least_loaded' },
   { key: 'services.max_active_cases_per_staff', group: 'services', type: 'number', label: 'حداکثر پرونده فعال هر کارشناس', default: 20, min: 1, max: 500 },
   { key: 'services.require_document_approval', group: 'services', type: 'boolean', label: 'الزام تأیید مدارک پیش از پیشروی پرونده', default: bool(true) },
@@ -211,6 +211,7 @@ export const SETTINGS: SettingDef[] = [
   { key: 'workforce.default_shift_capacity', group: 'workforce', type: 'number', label: 'ظرفیت پیش‌فرض هر شیفت', default: 10, min: 1, max: 200 },
   { key: 'workforce.force_assign_enabled', group: 'workforce', type: 'boolean', label: 'واگذاری اجباری پرونده‌های پذیرفته‌نشده', hint: 'اگر تا بخشی از زمان برآوردشده کسی پرونده را از صف برندارد، سیستم آن را خودکار به یک کارمند آزاد واگذار می‌کند.', default: bool(true) },
   { key: 'workforce.force_assign_ratio', group: 'workforce', type: 'number', label: 'نسبت زمان برای واگذاری اجباری (درصد)', hint: 'مثلاً ۶۶ یعنی وقتی دو سوم زمان برآوردی خدمت سپری شد. مقدار در لحظه ثبت درخواست قطعی می‌شود.', default: 66, min: 10, max: 100 },
+  { key: 'workforce.waiting_case_weight', group: 'workforce', type: 'number', label: 'وزن ظرفیت پروندهٔ منتظر مشتری/سازمان (درصد)', hint: 'در محاسبهٔ «بار کاری» کارشناس، پرونده‌ای که منتظر مشتری یا پاسخ سازمان است این درصد از یک پروندهٔ فعال حساب می‌شود؛ مسئولیت پیگیری‌اش باقی می‌ماند اما کل ظرفیت را نمی‌گیرد.', default: 25, min: 0, max: 100 },
   { key: 'workforce.auto_assign_on_shift', group: 'workforce', type: 'boolean', label: 'فقط کارشناسان حاضر در شیفت ارجاع بگیرند', hint: 'برای دفتر تازه‌راه‌اندازی‌شده خاموش است؛ پس از تعریف شیفت‌ها و حضور کارکنان می‌توانید آن را فعال کنید.', default: bool(false) },
 
   /* -------------------------------- assistant ------------------------------ */

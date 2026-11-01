@@ -16,11 +16,22 @@ export interface FormField {
   help?: string;
 }
 
+/**
+ * What a workflow step means for capacity and queue maths:
+ * - action: the assigned employee must actively work on the case
+ * - waiting_customer: progression is blocked on documents/info from the customer
+ * - waiting_organization: the case sits with an external organization
+ * - followup: the employee must chase the result again (still active work)
+ * - delivery: handing the result back to the customer
+ */
+export type WorkflowStepKind = 'action' | 'waiting_customer' | 'waiting_organization' | 'followup' | 'delivery';
+
 export interface WorkflowStep {
   title: string;
   description?: string;
   role?: string;
   requiresDocument?: boolean;
+  kind?: WorkflowStepKind;
 }
 
 export interface SeedService {
@@ -236,11 +247,13 @@ const docs = {
 };
 
 const steps = {
-  intake: { title: 'ثبت درخواست', description: 'درخواست مشتری و مدارک اولیه دریافت می‌شود.' },
-  review: { title: 'بررسی مدارک', description: 'کارشناس مدارک را بررسی و در صورت نقص اعلام می‌کند.', role: 'document_reviewer', requiresDocument: true },
-  submit: { title: 'ثبت در سامانه سازمان', description: 'درخواست در سامانه مربوطه ثبت و کد رهگیری دریافت می‌شود.', role: 'service_expert' },
-  followup: { title: 'پیگیری نتیجه', description: 'وضعیت درخواست نزد سازمان متولی پیگیری می‌شود.', role: 'service_expert' },
-  deliver: { title: 'تحویل نتیجه به مشتری', description: 'نتیجه نهایی اعلام و پرونده بسته می‌شود.' },
+  intake: { title: 'ثبت درخواست', description: 'درخواست مشتری و مدارک اولیه دریافت می‌شود.', kind: 'action' as const },
+  review: { title: 'بررسی مدارک', description: 'کارشناس مدارک را بررسی و در صورت نقص اعلام می‌کند.', role: 'document_reviewer', requiresDocument: true, kind: 'action' as const },
+  submit: { title: 'ثبت در سامانه سازمان', description: 'درخواست در سامانه مربوطه ثبت و کد رهگیری دریافت می‌شود.', role: 'service_expert', kind: 'action' as const },
+  waitCustomer: { title: 'انتظار برای اطلاعات مشتری', description: 'برای ادامهٔ کار منتظر مدرک یا اطلاعات تکمیلی مشتری هستیم.', kind: 'waiting_customer' as const },
+  waitOrg: { title: 'انتظار برای پاسخ سازمان', description: 'درخواست نزد سازمان متولی ثبت شده و منتظر پاسخ هستیم.', kind: 'waiting_organization' as const },
+  followup: { title: 'پیگیری نتیجه', description: 'وضعیت درخواست نزد سازمان متولی پیگیری می‌شود.', role: 'service_expert', kind: 'followup' as const },
+  deliver: { title: 'تحویل نتیجه به مشتری', description: 'نتیجه نهایی اعلام و پرونده بسته می‌شود.', kind: 'delivery' as const },
 };
 
 /* ------------------------------- services ---------------------------------- */

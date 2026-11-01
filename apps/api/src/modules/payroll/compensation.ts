@@ -5,8 +5,9 @@
  * Every number shown in a dashboard comes from one of these functions plus a
  * database row — there is no synthetic series anywhere in the payroll module.
  */
-import { one } from '../../db/index.js';
+import { one, q, run, tx, nowIso } from '../../db/index.js';
 import { getNumber, getString } from '../settings/service.js';
+import { badRequest, notFound } from '../../http/errors.js';
 
 export type CooperationType = 'commission' | 'monthly' | 'none';
 export type SettlementPeriod = 'daily' | 'weekly' | 'monthly' | 'custom';
@@ -62,6 +63,76 @@ export async function commissionPercent(userId: string, date = iso(new Date())):
   const contract = await activeContract(userId, date);
   if (!contract || contract.kind !== 'commission') return 0;
   return Math.max(0, Math.min(100, Number(contract.commission_percent)));
+}
+
+/** Per-service commission percent override for one employee, null when unset. */
+export async function serviceCommissionOverride(userId: string, serviceId: string): Promise<number | null> {
+  const row = await one<{ percent: number }>(
+    'SELECT percent FROM staff_service_commissions WHERE user_id = ? AND service_id = ?',
+    [userId, serviceId],
+  );
+  return row ? Math.max(0, Math.min(100, Number(row.percent))) : null;
+}
+
+/**
+ * Effective commission percent of an employee for a specific service:
+ * an explicit per-service override wins over the contract-wide percent.
+ * Returns 0 for salaried employees (an override never turns a fixed salary
+ * into a percentage contract on its own).
+ */
+export async function commissionPercentFor(userId: string, serviceId?: string | null, date = iso(new Date())): Promise<number> {
+  const contract = await activeContract(userId, date);
+  if (!contract || contract.kind !== 'commission') return 0;
+  if (serviceId) {
+    const override = await serviceCommissionOverride(userId, serviceId);
+    if (override !== null) return override;
+  }
+  return Math.max(0, Math.min(100, Number(contract.commission_percent)));
+}
+
+export async function listServicePercents(userId: string) {
+  const rows = await q<any>(
+    `SELECT sp.service_id, sp.percent, sp.note, sp.updated_at, s.title AS service_title
+     FROM staff_service_commissions sp JOIN services s ON s.id = sp.service_id
+     WHERE sp.user_id = ? ORDER BY s.title`,
+    [userId],
+  );
+  return rows.map((row) => ({
+    serviceId: row.service_id, serviceTitle: row.service_title,
+    percent: Number(row.percent), note: row.note ?? null, updatedAt: row.updated_at,
+  }));
+}
+
+/** Replace the whole override set of one employee (empty array clears it). */
+export async function setServicePercents(
+  userId: string,
+  items: { serviceId: string; percent: number; note?: string | null }[],
+  actor: { id: string; name: string },
+) {
+  return tx(async () => {
+    const user = await one<any>("SELECT id FROM users WHERE id = ? AND kind IN ('staff','admin')", [userId]);
+    if (!user) throw notFound('کارمند یافت نشد.');
+    const seen = new Set<string>();
+    for (const item of items) {
+      if (seen.has(item.serviceId)) throw badRequest('برای هر خدمت فقط یک درصد می‌توانید تعیین کنید.');
+      seen.add(item.serviceId);
+      if (!Number.isInteger(item.percent) || item.percent < 0 || item.percent > 100) {
+        throw badRequest('درصد خدمت باید عدد صحیح بین ۰ تا ۱۰۰ باشد.');
+      }
+      const service = await one<any>('SELECT id FROM services WHERE id = ?', [item.serviceId]);
+      if (!service) throw badRequest('خدمت انتخابی یافت نشد.');
+    }
+    const ts = nowIso();
+    await run('DELETE FROM staff_service_commissions WHERE user_id = ?', [userId]);
+    for (const item of items) {
+      await run(
+        `INSERT INTO staff_service_commissions (user_id, service_id, percent, note, created_by, created_at, updated_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?)`,
+        [userId, item.serviceId, item.percent, item.note ?? null, actor.id, ts, ts],
+      );
+    }
+    return listServicePercents(userId);
+  });
 }
 
 export interface SettlementPolicy {

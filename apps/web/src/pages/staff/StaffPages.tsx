@@ -11,12 +11,24 @@ import { AppShell, PageHeader } from '../../components/shell';
 import { DocumentViewer, FileSummary, FileThumbnail } from '../../components/documents';
 import {
   Badge, Button, Card, EmptyState, ErrorState, Field, Input, Loading, Modal, Select, StatCard,
-  StatusBadge, Textarea, useToast,
+  StatusBadge, Switch, Textarea, useToast,
 } from '../../components/ui';
 import { api, ApiFailure } from '../../lib/api';
 import { faDate, faDateTime, faNum, relative, rial, STATUS_LABELS } from '../../lib/format';
 import { useAuth } from '../../lib/auth';
-import { formatDuration, useSite } from '../../lib/site';
+import { formatDuration, STEP_KIND_LABELS, useSite } from '../../lib/site';
+
+const BUCKET_LABELS: Record<string, string> = {
+  action: 'نیازمند اقدام', in_progress: 'در حال انجام', waiting_customer: 'منتظر مشتری',
+  waiting_organization: 'منتظر سازمان', followup: 'نیازمند پیگیری', completed: 'تکمیل‌شده', cancelled: 'لغوشده',
+};
+const BUCKET_TONES: Record<string, 'info' | 'success' | 'warning' | 'danger' | 'default'> = {
+  action: 'danger', in_progress: 'info', waiting_customer: 'warning',
+  waiting_organization: 'warning', followup: 'warning', completed: 'success', cancelled: 'default',
+};
+const ASSIGNMENT_SOURCE_LABELS: Record<string, string> = {
+  claimed: 'پذیرش از صف آزاد', auto: 'ارجاع خودکار سیستم', forced: 'واگذاری اجباری (گذشتن از موعد)', manual: 'ارجاع مدیریتی',
+};
 
 const SERVICE_DURATION_UNITS = [
   { value: 'minute', label: 'دقیقه', factor: 1 },
@@ -92,6 +104,29 @@ export function StaffWorkbench() {
           </div>
         }
       />
+
+      <Card className="mb-4">
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <div>
+            <p className="font-bold text-navy-900">وضعیت پذیرش پروندهٔ جدید</p>
+            <p className="mt-1 text-xs leading-6 text-navy-500">
+              {workload?.acceptsNewCases === false
+                ? 'پذیرش شما بسته است؛ پروندهٔ تازه‌ای از صف آزاد یا واگذاری خودکار به شما نمی‌رسد.'
+                : 'پذیرش شما باز است؛ پرونده‌های متناسب با تخصص و ظرفیتتان در صف آزاد دیده می‌شوند.'}
+            </p>
+          </div>
+          <Switch checked={workload?.acceptsNewCases !== false} label={workload?.acceptsNewCases === false ? 'بسته' : 'باز'}
+            onChange={async () => {
+              try {
+                const res = await api.post<{ data: { acceptsNewCases: boolean } }>(`/api/staff/${user?.id}/toggle-availability`, {});
+                setWorkload((current: any) => ({ ...current, acceptsNewCases: res.data.acceptsNewCases }));
+                notify(res.data.acceptsNewCases ? 'پذیرش پروندهٔ جدید برای شما باز شد.' : 'پذیرش پروندهٔ جدید بسته شد.', 'success');
+              } catch (err) {
+                notify(err instanceof ApiFailure ? err.message : 'خطا', 'error');
+              }
+            }} />
+        </div>
+      </Card>
 
       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
         <StatCard label="پرونده‌های فعال من" value={faNum(workload?.activeCount ?? 0)} icon={<ClipboardList className="size-5" />} />
@@ -228,6 +263,7 @@ export function StaffRequests({ variant = 'staff' }: { variant?: 'staff' | 'admi
   const group = params.get('group') ?? 'open';
   const mine = params.get('mine') === 'true';
   const unassigned = params.get('unassigned') === 'true';
+  const bucket = params.get('bucket') ?? '';
 
   const setParam = (key: string, value: string) => {
     const next = new URLSearchParams(params);
@@ -242,6 +278,7 @@ export function StaffRequests({ variant = 'staff' }: { variant?: 'staff' | 'admi
       setError('');
       api.list<any>('/api/requests', {
         status: status || undefined,
+        bucket: bucket || undefined,
         group: status ? undefined : group,
         mine: mine ? 'true' : undefined,
         unassigned: unassigned ? 'true' : undefined,
@@ -254,7 +291,7 @@ export function StaffRequests({ variant = 'staff' }: { variant?: 'staff' | 'admi
         .finally(() => setLoading(false));
     }, 250);
     return () => clearTimeout(timer);
-  }, [status, group, mine, unassigned, search, page]);
+  }, [status, group, mine, unassigned, bucket, search, page]);
 
   return (
     <AppShell variant={variant}>
@@ -304,6 +341,29 @@ export function StaffRequests({ variant = 'staff' }: { variant?: 'staff' | 'admi
             بدون کارشناس
           </button>
         </div>
+        <div className="flex flex-wrap items-center gap-2 text-xs">
+          <span className="font-bold text-navy-500">دستهٔ کاری:</span>
+          {[
+            { value: '', label: 'همه دسته‌ها' },
+            { value: 'action', label: 'نیازمند اقدام' },
+            { value: 'in_progress', label: 'در حال انجام' },
+            { value: 'waiting_customer', label: 'منتظر مشتری' },
+            { value: 'waiting_organization', label: 'منتظر سازمان' },
+            { value: 'followup', label: 'نیازمند پیگیری' },
+            { value: 'completed', label: 'تکمیل‌شده' },
+            { value: 'cancelled', label: 'لغوشده' },
+          ].map((tab) => (
+            <button key={tab.value || 'all'} onClick={() => {
+              setParam('bucket', tab.value);
+              setParam('status', '');
+              setParam('group', ['completed', 'cancelled'].includes(tab.value) ? 'all' : 'open');
+            }}
+              className={clsx('rounded-full px-3 py-1.5 ring-1 transition',
+                bucket === tab.value ? 'bg-brand-700 text-white ring-brand-700' : 'bg-surface text-navy-600 ring-line hover:bg-surface-3')}>
+              {tab.label}
+            </button>
+          ))}
+        </div>
       </div>
 
       {error && <ErrorState message={error} />}
@@ -326,6 +386,7 @@ export function StaffRequests({ variant = 'staff' }: { variant?: 'staff' | 'admi
               </p>
             </div>
             <div className="flex items-center gap-2">
+              {item.workBucket && <Badge tone={BUCKET_TONES[item.workBucket] ?? 'default'}>{BUCKET_LABELS[item.workBucket] ?? item.workBucket}</Badge>}
               <StatusBadge status={item.paymentStatus} />
               <StatusBadge status={item.status} label={item.statusLabel} />
             </div>
@@ -345,6 +406,84 @@ export function StaffRequests({ variant = 'staff' }: { variant?: 'staff' | 'admi
 }
 
 /* ----------------------------- request detail ----------------------------- */
+
+/* --------------------- commission split (manager only) --------------------- */
+
+function CommissionSharesCard({ requestId }: { requestId: string }) {
+  const { notify } = useToast();
+  const [shares, setShares] = useState<{ userId: string; staffName?: string; sharePercent: number }[]>([]);
+  const [locked, setLocked] = useState(false);
+  const [loaded, setLoaded] = useState(false);
+  const [staffOptions, setStaffOptions] = useState<any[]>([]);
+  const [busy, setBusy] = useState(false);
+
+  const load = () => {
+    api.get<{ data: any }>(`/api/requests/${requestId}/shares`)
+      .then((res) => { setShares(res.data.shares ?? []); setLocked(Boolean(res.data.locked)); })
+      .catch(() => undefined)
+      .finally(() => setLoaded(true));
+    api.list<any>('/api/staff', { pageSize: 200 }).then((res) => setStaffOptions(res.data ?? [])).catch(() => undefined);
+  };
+  useEffect(load, [requestId]);
+
+  const total = shares.reduce((sum, row) => sum + (Number(row.sharePercent) || 0), 0);
+
+  const save = async () => {
+    setBusy(true);
+    try {
+      const res = await api.put<{ data: any }>(`/api/requests/${requestId}/shares`, {
+        shares: shares.map((row) => ({ userId: row.userId, sharePercent: Number(row.sharePercent) })),
+      });
+      setShares(res.data.shares ?? []);
+      setLocked(Boolean(res.data.locked));
+      notify(shares.length ? 'تقسیم سهم درآمد این پرونده ثبت شد.' : 'تقسیم سهم برداشته شد؛ کل سهم برای کارشناس مسئول است.', 'success');
+    } catch (err) {
+      notify(err instanceof ApiFailure ? err.message : 'خطا در ثبت تقسیم سهم', 'error');
+    } finally { setBusy(false); }
+  };
+
+  if (!loaded) return null;
+
+  return (
+    <Card>
+      <h2 className="mb-1 font-bold text-navy-900">تقسیم سهم درآمد این پرونده</h2>
+      <p className="mb-3 text-[11px] leading-6 text-navy-500">
+        اگر چند نفر در انجام این خدمت نقش دارند، سهم درصدیِ هرکدام از پورسانت این پرونده را مشخص کنید (جمع باید ۱۰۰٪ شود).
+        بدون تقسیم، کل سهم برای کارشناس مسئول پرونده است.
+        {locked && <span className="font-bold text-amber-700"> سهم این پرونده قبلاً در دفتر درآمد ثبت شده و دیگر قابل تغییر نیست؛ اصلاح فقط با «اصلاحیه» ممکن است.</span>}
+      </p>
+      <div className="space-y-2">
+        {shares.map((row, index) => (
+          <div key={index} className="flex flex-wrap items-center gap-2">
+            <Select className="min-w-44 flex-1" value={row.userId} disabled={locked}
+              onChange={(e) => setShares(shares.map((item, i) => (i === index ? { ...item, userId: e.target.value, staffName: staffOptions.find((st) => st.id === e.target.value)?.fullName } : item)))}
+              options={[{ value: '', label: 'انتخاب کارمند' }, ...staffOptions.map((st) => ({ value: st.id, label: st.fullName }))]} />
+            <Input type="number" min={1} max={100} className="w-24" dir="ltr" value={row.sharePercent} disabled={locked}
+              onChange={(e) => setShares(shares.map((item, i) => (i === index ? { ...item, sharePercent: Number(e.target.value) } : item)))} />
+            <span className="text-xs text-navy-500">٪</span>
+            {!locked && (
+              <Button size="sm" variant="ghost" aria-label="حذف" onClick={() => setShares(shares.filter((_, i) => i !== index))}>
+                <XCircle className="size-4 text-rose-600" />
+              </Button>
+            )}
+          </div>
+        ))}
+        {shares.length === 0 && <p className="text-xs text-navy-400">تقسیمی ثبت نشده است؛ ۱۰۰٪ سهم برای کارشناس مسئول محاسبه می‌شود.</p>}
+      </div>
+      {!locked && (
+        <div className="mt-3 flex flex-wrap items-center gap-2">
+          <Button size="sm" variant="ghost" onClick={() => setShares([...shares, { userId: '', sharePercent: shares.length === 0 ? 100 : 0 }])}>افزودن نفر</Button>
+          <span className={clsx('text-xs', shares.length === 0 || total === 100 ? 'text-emerald-700' : 'font-bold text-rose-700')}>
+            جمع سهم‌ها: {faNum(total)}٪{shares.length > 0 && total !== 100 ? ' (باید ۱۰۰ شود)' : ''}
+          </span>
+          <Button size="sm" className="ms-auto" loading={busy} disabled={shares.some((row) => !row.userId) || (shares.length > 0 && total !== 100)} onClick={() => void save()}>
+            ثبت تقسیم سهم
+          </Button>
+        </div>
+      )}
+    </Card>
+  );
+}
 
 export function RequestDetail({ variant = 'staff' }: { variant?: 'staff' | 'admin' }) {
   const { id } = useParams();
@@ -375,6 +514,17 @@ export function RequestDetail({ variant = 'staff' }: { variant?: 'staff' | 'admi
       .finally(() => setLoading(false));
   };
   useEffect(load, [id]);
+
+  const moveStep = async (direction: 1 | -1) => {
+    setBusy(true);
+    try {
+      const res = await api.post<{ data: any }>(`/api/requests/${id}/steps/${direction > 0 ? 'advance' : 'back'}`, {});
+      setRequest(res.data);
+      notify(direction > 0 ? 'مرحلهٔ پرونده جلو رفت.' : 'به مرحلهٔ قبل برگشتید.', 'success');
+    } catch (err) {
+      notify(err instanceof ApiFailure ? err.message : 'خطا در تغییر مرحله', 'error');
+    } finally { setBusy(false); }
+  };
 
   const changeStatus = async () => {
     setBusy(true);
@@ -513,19 +663,37 @@ export function RequestDetail({ variant = 'staff' }: { variant?: 'staff' | 'admi
               </div>
               <span className="text-sm font-bold text-navy-900">{rial(request.total)}</span>
             </div>
+            <div className="mt-2 flex flex-wrap items-center gap-2">
+              {request.workBucket && <Badge tone={BUCKET_TONES[request.workBucket] ?? 'default'}>{BUCKET_LABELS[request.workBucket] ?? request.workBucket}</Badge>}
+              {request.assigneeName && <span className="text-xs text-navy-500">مسئول: {request.assigneeName}</span>}
+              {request.assignmentSource && <span className="text-[11px] text-navy-400">({ASSIGNMENT_SOURCE_LABELS[request.assignmentSource] ?? request.assignmentSource})</span>}
+              {request.nextStepTitle && <span className="text-[11px] text-navy-400">· اقدام بعدی: {request.nextStepTitle}</span>}
+            </div>
             {request.workflow?.length > 0 && (
               <ol className="mt-4 flex gap-1">
                 {request.workflow.map((step: any, index: number) => (
-                  <li key={step.title} className="flex-1">
-                    <div className={clsx('h-1.5 rounded-full', index <= request.currentStep ? 'bg-brand-600' : 'bg-navy-100')} />
-                    <p className="mt-1 line-clamp-1 text-[10px] text-navy-500">{step.title}</p>
+                  <li key={`${step.title}-${index}`} className="flex-1">
+                    <div className={clsx('h-1.5 rounded-full', index < request.currentStep ? 'bg-emerald-600' : index === request.currentStep ? 'bg-brand-600' : 'bg-navy-100')} />
+                    <p className={clsx('mt-1 line-clamp-1 text-[10px]', index === request.currentStep ? 'font-bold text-navy-800' : 'text-navy-500')}>{step.title}</p>
+                    <p className="text-[9px] text-navy-400">{STEP_KIND_LABELS[(step.kind ?? 'action') as keyof typeof STEP_KIND_LABELS] ?? ''}</p>
                   </li>
                 ))}
               </ol>
             )}
+            {can('requests.edit') && request.workflow?.length > 1 && !['completed', 'cancelled', 'rejected'].includes(request.status) && (
+              <div className="mt-3 flex flex-wrap items-center gap-2">
+                <Button size="sm" variant="ghost" disabled={busy || request.currentStep <= 0} onClick={() => void moveStep(-1)}>مرحلهٔ قبل</Button>
+                <Button size="sm" loading={busy} disabled={request.currentStep >= request.workflow.length - 1} onClick={() => void moveStep(1)}>
+                  <CheckCircle2 className="size-4" />
+                  {request.currentStepTitle ? `«${request.currentStepTitle}» انجام شد؛ مرحلهٔ بعد` : 'مرحلهٔ بعد'}
+                </Button>
+                <span className="text-[11px] text-navy-400">جلو بردن مرحله، دستهٔ پرونده و ظرفیت کاری شما را خودکار به‌روز می‌کند.</span>
+              </div>
+            )}
           </Card>
 
           <CaseAutomation request={request} onChange={load} />
+          {can('payroll.contracts.edit') && <CommissionSharesCard requestId={request.id} />}
           <Card>
             <h2 className="mb-3 font-bold text-navy-900">مدارک پرونده</h2>
             {request.documents.length === 0 && <p className="text-sm text-navy-400">مدرکی پیوست نشده است.</p>}

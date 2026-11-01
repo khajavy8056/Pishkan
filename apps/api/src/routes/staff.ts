@@ -101,8 +101,10 @@ staffRouter.get('/me/workload', asyncRoute(async (req, res) => {
     `SELECT COUNT(*) AS c FROM requests WHERE assigned_to = ? AND status = 'completed' AND completed_at >= ?`,
     [userId, new Date(Date.now() - 30 * 86_400_000).toISOString()],
   );
+  const profile = await one<any>('SELECT accepts_new_cases FROM staff_profiles WHERE user_id = ?', [userId]);
 
   ok(res, {
+    acceptsNewCases: profile ? Boolean(profile.accepts_new_cases) : true,
     activeRequests: active.map((r) => ({
       id: r.id, trackingCode: r.tracking_code, status: r.status, priority: r.priority,
       dueAt: r.due_at, deadlineAt: r.due_at, estimatedCompletionAt: r.estimated_completion_at,

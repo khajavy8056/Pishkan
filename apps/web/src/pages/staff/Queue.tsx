@@ -1,6 +1,8 @@
 import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
-import { AlertTriangle, CheckCircle2, Coins, Clock, Inbox, RefreshCw, Timer } from 'lucide-react';
+import { AlertTriangle, CheckCircle2, Coins, Clock, Inbox, RefreshCw, Timer,
+  FileText,
+} from 'lucide-react';
 import clsx from 'clsx';
 import { AppShell, PageHeader } from '../../components/shell';
 import { Badge, Button, Card, EmptyState, ErrorState, Loading, StatCard, useToast } from '../../components/ui';
@@ -19,6 +21,10 @@ interface QueueItem {
   remainingMinutes: number | null;
   cooperationType: 'commission' | 'monthly' | 'none';
   earnings: { percent: number; officeRevenue: number; amount: number; estimate: boolean } | null;
+  serviceEstimatedMinutes?: number;
+  documentsRequired?: number;
+  documentsTotal?: number;
+  documentsAttached?: number;
 }
 
 /** Human readable remaining time from a minute count. */
@@ -159,6 +165,22 @@ export function EligibleQueue() {
                   {remaining(item.forceAssignAt, item.remainingMinutes)}
                 </dd>
               </div>
+              {typeof item.serviceEstimatedMinutes === 'number' && item.serviceEstimatedMinutes > 0 && (
+                <div className="flex items-center justify-between gap-2">
+                  <dt className="flex items-center gap-1"><Timer className="size-3.5" /> زمان تقریبی خدمت</dt>
+                  <dd>{item.serviceEstimatedMinutes >= 1440
+                    ? `${faNum(Math.round(item.serviceEstimatedMinutes / 144) / 10)} روز`
+                    : item.serviceEstimatedMinutes >= 60
+                      ? `${faNum(Math.round(item.serviceEstimatedMinutes / 6) / 10)} ساعت`
+                      : `${faNum(item.serviceEstimatedMinutes)} دقیقه`}</dd>
+                </div>
+              )}
+              {(item.documentsTotal ?? 0) > 0 && (
+                <div className="flex items-center justify-between gap-2">
+                  <dt className="flex items-center gap-1"><FileText className="size-3.5" /> مدارک خدمت</dt>
+                  <dd>{faNum(item.documentsRequired ?? 0)} الزامی از {faNum(item.documentsTotal ?? 0)} · بارگذاری‌شده: {faNum(item.documentsAttached ?? 0)}</dd>
+                </div>
+              )}
             </dl>
 
             <Button

@@ -371,11 +371,14 @@ function validateWorkflow(steps: unknown): WorkflowStep[] {
   return steps.map((raw, i) => {
     const step = raw as WorkflowStep;
     if (!step?.title || String(step.title).trim().length < 2) throw badRequest(`عنوان مرحله ${i + 1} الزامی است.`);
+    const kind = (step as any).kind;
     return {
       title: String(step.title).trim(),
       description: step.description ? String(step.description) : undefined,
       role: step.role ? String(step.role) : undefined,
       requiresDocument: Boolean(step.requiresDocument),
+      kind: ['action', 'waiting_customer', 'waiting_organization', 'followup', 'delivery'].includes(kind)
+        ? kind : 'action',
     };
   });
 }

@@ -67,11 +67,22 @@ export interface FormField {
   help?: string;
 }
 
+export type WorkflowStepKind = 'action' | 'waiting_customer' | 'waiting_organization' | 'followup' | 'delivery';
+
+export const STEP_KIND_LABELS: Record<WorkflowStepKind, string> = {
+  action: 'اقدام کارشناس',
+  waiting_customer: 'منتظر مشتری',
+  waiting_organization: 'منتظر سازمان',
+  followup: 'پیگیری کارشناس',
+  delivery: 'تحویل به مشتری',
+};
+
 export interface WorkflowStep {
   title: string;
   description?: string;
   role?: string;
   requiresDocument?: boolean;
+  kind?: WorkflowStepKind;
 }
 
 export interface SiteData {

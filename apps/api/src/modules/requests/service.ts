@@ -13,7 +13,7 @@ import { logEvent } from '../logging/service.js';
 import { toPersianDigits } from '../../lib/text.js';
 
 import { requireCompleteProfile, requireCoverage, validNationalId } from '../profiles/service.js';
-import { commissionAmount, commissionPercent, cooperationType } from '../payroll/compensation.js';
+import { commissionAmount, commissionPercentFor, cooperationType } from '../payroll/compensation.js';
 import { notifyUser, notifyRole } from '../notifications/service.js';
 import { normalizeCode, previewDiscount, redeemDiscount } from '../discounts/service.js';
 
@@ -35,6 +35,72 @@ export const STATUS_LABELS: Record<RequestStatus, string> = {
   cancelled: 'لغو‌شده',
   rejected: 'رد‌شده',
 };
+
+/** Kind of a workflow step: whose move it is while the case sits on that step. */
+export const STEP_KINDS = ['action', 'waiting_customer', 'waiting_organization', 'followup', 'delivery'] as const;
+export type StepKind = (typeof STEP_KINDS)[number];
+export const STEP_KIND_LABELS: Record<StepKind, string> = {
+  action: 'اقدام کارشناس',
+  waiting_customer: 'منتظر مشتری',
+  waiting_organization: 'منتظر سازمان',
+  followup: 'پیگیری کارشناس',
+  delivery: 'تحویل به مشتری',
+};
+
+/**
+ * Work bucket: the one field staff queues and capacity maths agree on. It is
+ * derived from the request status plus the kind of the current workflow step
+ * and denormalised into `requests.work_bucket` so lists can filter on it.
+ */
+export const WORK_BUCKETS = ['action', 'in_progress', 'waiting_customer', 'waiting_organization', 'followup', 'completed', 'cancelled'] as const;
+export type WorkBucket = (typeof WORK_BUCKETS)[number];
+export const WORK_BUCKET_LABELS: Record<WorkBucket, string> = {
+  action: 'نیازمند اقدام',
+  in_progress: 'در حال انجام',
+  waiting_customer: 'منتظر مشتری',
+  waiting_organization: 'منتظر سازمان',
+  followup: 'نیازمند پیگیری',
+  completed: 'تکمیل‌شده',
+  cancelled: 'لغوشده',
+};
+
+/** Workflow steps frozen into the request snapshot at creation time. */
+export function snapshotSteps(snapshot: unknown): { title: string; kind: StepKind }[] {
+  const parsed = jsonParse<any>(snapshot, null);
+  const steps = Array.isArray(parsed?.service?.workflow) ? parsed.service.workflow : [];
+  return steps.map((step: any) => ({
+    title: String(step?.title ?? ''),
+    kind: (STEP_KINDS as readonly string[]).includes(step?.kind) ? step.kind as StepKind : 'action',
+  }));
+}
+
+export function stepKindOf(snapshot: unknown, currentStep: number): StepKind {
+  const steps = snapshotSteps(snapshot);
+  if (!steps.length) return 'action';
+  const index = Math.max(0, Math.min(steps.length - 1, Number(currentStep) || 0));
+  return steps[index]?.kind ?? 'action';
+}
+
+export function deriveBucket(status: string, stepKind: StepKind): WorkBucket {
+  if (status === 'completed') return 'completed';
+  if (status === 'cancelled' || status === 'rejected') return 'cancelled';
+  if (status === 'waiting_documents' || status === 'waiting_customer' || stepKind === 'waiting_customer') return 'waiting_customer';
+  if (stepKind === 'waiting_organization' || status === 'under_review') return 'waiting_organization';
+  if (stepKind === 'followup') return 'followup';
+  if (status === 'in_progress') return 'in_progress';
+  return 'action';
+}
+
+/** Recompute and persist `work_bucket` after any status/step mutation. */
+export async function refreshWorkBucket(requestId: string): Promise<WorkBucket> {
+  const row = await one<any>('SELECT status, current_step, snapshot, work_bucket FROM requests WHERE id = ?', [requestId]);
+  if (!row) return 'action';
+  const bucket = deriveBucket(row.status, stepKindOf(row.snapshot, Number(row.current_step)));
+  if (row.work_bucket !== bucket) {
+    await run('UPDATE requests SET work_bucket = ? WHERE id = ?', [bucket, requestId]);
+  }
+  return bucket;
+}
 
 const ALLOWED_TRANSITIONS: Record<RequestStatus, RequestStatus[]> = {
   new: ['assigned', 'in_progress', 'under_review', 'cancelled', 'rejected'],
@@ -189,13 +255,24 @@ async function onShiftToday(userId: string): Promise<boolean> {
   return Boolean(row);
 }
 
+/**
+ * Weighted active load: a case waiting on the customer or an external
+ * organization still belongs to the employee (it must be chased later) but
+ * does not occupy a full work slot right now. `workforce.waiting_case_weight`
+ * is a percentage (default 25 = a quarter of an active case).
+ */
 async function activeLoad(userId: string): Promise<number> {
-  const row = await one<{ c: number }>(
-    `SELECT COUNT(*) AS c FROM requests WHERE assigned_to = ? AND status NOT IN ('completed','cancelled','rejected')`,
-    [userId],
+  const weightPercent = Math.max(0, Math.min(100, await getNumber('workforce.waiting_case_weight')));
+  const weight = weightPercent / 100;
+  const row = await one<{ w: number }>(
+    `SELECT COALESCE(SUM(CASE WHEN work_bucket IN ('waiting_customer','waiting_organization') THEN ? ELSE 1 END), 0) AS w
+     FROM requests WHERE assigned_to = ? AND work_bucket NOT IN ('completed','cancelled')`,
+    [weight, userId],
   );
-  return Number(row?.c ?? 0);
+  return Math.round(Number(row?.w ?? 0) * 100) / 100;
 }
+
+export { activeLoad as weightedActiveLoad };
 
 /** Candidate staff for a service, ordered by the configured strategy. */
 export async function candidatesForService(service: ServiceDTO): Promise<{ id: string; name: string; load: number; onShift: boolean }[]> {
@@ -297,6 +374,7 @@ export async function autoAssign(requestId: string): Promise<string | null> {
     kind: 'info', link: `/staff/requests/${requestId}`,
     idempotencyKey: `auto-assign:${requestId}:${chosen.id}`,
   }).catch(() => undefined);
+  await refreshWorkBucket(requestId);
   return chosen.id;
  });
 }
@@ -751,6 +829,20 @@ export async function getRequest(requestId: string, viewer?: { actorId: string; 
     formData,
     snapshot,
     workflow: jsonParse<any>(row.snapshot, {}).service?.workflow ?? jsonParse(row.workflow_steps, []),
+    workBucket: row.work_bucket ?? deriveBucket(row.status, stepKindOf(row.snapshot, Number(row.current_step))),
+    workBucketLabel: WORK_BUCKET_LABELS[(row.work_bucket as WorkBucket) ?? deriveBucket(row.status, stepKindOf(row.snapshot, Number(row.current_step)))] ?? null,
+    currentStepKind: stepKindOf(row.snapshot, Number(row.current_step)),
+    currentStepTitle: snapshotSteps(row.snapshot)[Math.max(0, Math.min(snapshotSteps(row.snapshot).length - 1, Number(row.current_step) || 0))]?.title ?? null,
+    nextStepTitle: snapshotSteps(row.snapshot)[(Number(row.current_step) || 0) + 1]?.title ?? null,
+    assignmentSource: !row.assigned_to ? null : (() => {
+      const last = [...events].reverse().find((e) => e.type === 'assigned');
+      if (!last) return 'manual';
+      const meta = jsonParse<any>(last.metadata, {});
+      if (meta?.forced) return 'forced';
+      if (last.actor_id === row.assigned_to) return 'claimed';
+      if (last.actor_id === 'system') return 'auto';
+      return 'manual';
+    })(),
     fee: Number(row.fee),
     discount: Number(row.discount),
     total: Number(row.total),
@@ -802,7 +894,7 @@ export async function getRequest(requestId: string, viewer?: { actorId: string; 
 export interface ListRequestsOptions {
   page?: number; pageSize?: number; customerId?: string; assignedTo?: string;
   status?: string; statusGroup?: 'open' | 'closed' | 'all'; search?: string; urgent?: boolean;
-  serviceId?: string; unassigned?: boolean; from?: string; to?: string;
+  serviceId?: string; unassigned?: boolean; from?: string; to?: string; bucket?: string;
 }
 
 export async function listRequests(opts: ListRequestsOptions = {}) {
@@ -816,6 +908,7 @@ export async function listRequests(opts: ListRequestsOptions = {}) {
   if (opts.unassigned) where.push('r.assigned_to IS NULL');
   if (opts.serviceId) { where.push('r.service_id = ?'); args.push(opts.serviceId); }
   if (opts.status) { where.push('r.status = ?'); args.push(opts.status); }
+  if (opts.bucket && (WORK_BUCKETS as readonly string[]).includes(opts.bucket)) { where.push('r.work_bucket = ?'); args.push(opts.bucket); }
   if (opts.statusGroup === 'open') where.push(`r.status NOT IN ('completed','cancelled','rejected')`);
   if (opts.statusGroup === 'closed') where.push(`r.status IN ('completed','cancelled','rejected')`);
   if (opts.urgent) where.push(`(r.priority = 'high' OR (r.due_at IS NOT NULL AND r.due_at < ?))`), args.push(nowIso());
@@ -844,6 +937,9 @@ export async function listRequests(opts: ListRequestsOptions = {}) {
       id: r.id,
       trackingCode: r.tracking_code,
       status: r.status,
+      workBucket: r.work_bucket ?? deriveBucket(r.status, stepKindOf(r.snapshot, Number(r.current_step))),
+      workBucketLabel: WORK_BUCKET_LABELS[((r.work_bucket ?? deriveBucket(r.status, stepKindOf(r.snapshot, Number(r.current_step)))) as WorkBucket)] ?? null,
+      currentStepKind: stepKindOf(r.snapshot, Number(r.current_step)),
       statusLabel: STATUS_LABELS[r.status as RequestStatus] ?? r.status,
       priority: r.priority,
       customerId: r.customer_id,
@@ -908,7 +1004,7 @@ export async function changeStatus(
   if (toStatus === 'completed') { sets.push('completed_at = ?'); args.push(ts); }
   if (toStatus === 'cancelled') { sets.push('cancelled_at = ?'); args.push(ts); }
   if (toStatus === 'rejected') { sets.push('rejected_reason = ?'); args.push(note ?? ''); }
-  if (toStatus === 'in_progress') { sets.push('current_step = ?'); args.push(Math.max(1, request.current_step + 1)); }
+  if (toStatus === 'in_progress' && Number(request.current_step) === 0) { sets.push('current_step = 1'); }
 
   await run(`UPDATE requests SET ${sets.join(', ')} WHERE id = ?`, [...args, requestId]);
   await addEvent({
@@ -920,7 +1016,75 @@ export async function changeStatus(
     actorId: actor.id, actorName: actor.name, action: 'request.status', entityType: 'request',
     entityId: requestId, before: { status: from }, after: { status: toStatus, note }, ip: actor.ip,
   });
+  await refreshWorkBucket(requestId);
   return getRequest(requestId);
+  });
+}
+
+/**
+ * Move a case one workflow step forward (+1) or back (-1).
+ *
+ * The step list comes from the immutable snapshot, so editing the service
+ * later never rewires live cases. Entering a "waiting on customer" step
+ * mirrors the request status to `waiting_customer` (and back to
+ * `in_progress` when leaving it) whenever the status machine allows it;
+ * the work bucket always follows the step kind either way.
+ */
+export async function moveStep(
+  requestId: string,
+  direction: 1 | -1,
+  actor: { id: string; name: string; ip?: string },
+  note?: string,
+) {
+  return tx(async () => {
+    await run('UPDATE requests SET updated_at=updated_at WHERE id=?', [requestId]);
+    const request = await one<RequestRow>('SELECT * FROM requests WHERE id = ?', [requestId]);
+    if (!request) throw notFound('درخواست یافت نشد.');
+    if (['completed', 'cancelled', 'rejected'].includes(request.status)) {
+      throw conflict('مراحل پروندهٔ بسته‌شده قابل تغییر نیست.');
+    }
+    const steps = snapshotSteps(request.snapshot);
+    if (steps.length < 2) throw badRequest('برای این خدمت گردش‌کار چندمرحله‌ای تعریف نشده است.');
+    const current = Math.max(0, Math.min(steps.length - 1, Number(request.current_step) || 0));
+    const next = Math.max(0, Math.min(steps.length - 1, current + direction));
+    if (next === current) {
+      throw badRequest(direction > 0
+        ? 'در آخرین مرحله هستید؛ برای پایان کار از تغییر وضعیت استفاده کنید.'
+        : 'در اولین مرحله هستید.');
+    }
+    const fromStatus = request.status as RequestStatus;
+    const nextKind = steps[next].kind;
+    let toStatus: RequestStatus = fromStatus;
+    const allowed = ALLOWED_TRANSITIONS[fromStatus] ?? [];
+    if (nextKind === 'waiting_customer' && allowed.includes('waiting_customer')) toStatus = 'waiting_customer';
+    else if ((fromStatus === 'waiting_customer' || fromStatus === 'waiting_documents') && allowed.includes('in_progress')) toStatus = 'in_progress';
+    else if ((fromStatus === 'new' || fromStatus === 'assigned') && allowed.includes('in_progress')) toStatus = 'in_progress';
+
+    const ts = nowIso();
+    await run('UPDATE requests SET current_step = ?, status = ?, updated_at = ? WHERE id = ?',
+      [next, toStatus, ts, requestId]);
+    await addEvent({
+      requestId, type: 'step', actorId: actor.id, actorName: actor.name,
+      message: direction > 0
+        ? `مرحلهٔ «${steps[current].title}» انجام شد؛ مرحلهٔ فعلی: «${steps[next].title}».`
+        : `برگشت به مرحلهٔ «${steps[next].title}».`,
+      fromStatus, toStatus, visibleToCustomer: true,
+      metadata: { stepIndex: next, stepTitle: steps[next].title, stepKind: nextKind, direction, note: note ?? null },
+    });
+    if (note?.trim()) {
+      await addEvent({
+        requestId, type: 'note', actorId: actor.id, actorName: actor.name,
+        message: note.trim(), visibleToCustomer: true,
+      });
+    }
+    await writeAudit({
+      actorId: actor.id, actorName: actor.name, action: 'request.step', entityType: 'request',
+      entityId: requestId,
+      before: { step: current, status: fromStatus }, after: { step: next, status: toStatus, kind: nextKind },
+      ip: actor.ip,
+    });
+    await refreshWorkBucket(requestId);
+    return getRequest(requestId);
   });
 }
 
@@ -969,6 +1133,7 @@ export async function assignRequest(requestId: string, staffId: string | null, a
     });
     await writeAudit({ actorId: actor.id, actorName: actor.name, action: 'request.assign', entityType: 'request', entityId: requestId,
       before: { staffId: request.assigned_to, status: request.status }, after: { staffId, status: newStatus }, ip: actor.ip });
+    await refreshWorkBucket(requestId);
     return getRequest(requestId);
   });
 }
@@ -1254,13 +1419,13 @@ export async function eligibleQueue(staffId: string) {
   const rows = await q<any>(
     `SELECT r.id, r.tracking_code, r.service_id, r.created_at, r.priority, r.status, r.total,
             r.estimated_completion_at, r.force_assign_at, s.title,
-            (SELECT COALESCE(SUM(i.total - i.tax), 0) FROM invoices i WHERE i.request_id = r.id AND i.status <> 'void') AS net_total
+            (SELECT COALESCE(SUM(i.total - i.tax), 0) FROM invoices i WHERE i.request_id = r.id AND i.status <> 'void') AS net_total,
+            (SELECT COUNT(*) FROM request_documents d WHERE d.request_id = r.id) AS docs_attached
      FROM requests r JOIN services s ON s.id = r.service_id
      WHERE r.assigned_to IS NULL AND r.status IN ('new','under_review')
      ORDER BY CASE r.priority WHEN 'high' THEN 0 ELSE 1 END, r.created_at ASC LIMIT 200`,
   );
   const type = await cooperationType(staffId);
-  const percent = type === 'commission' ? await commissionPercent(staffId) : 0;
   const result: any[] = [];
   for (const r of rows) {
     const service = await getServiceById(r.service_id);
@@ -1268,6 +1433,7 @@ export async function eligibleQueue(staffId: string) {
     const eligible = (await candidatesForService(service)).some((candidate) => candidate.id === staffId);
     if (!eligible) continue;
     const officeRevenue = Number(r.net_total ?? 0) > 0 ? Number(r.net_total) : Math.max(0, Number(r.total ?? 0));
+    const percent = type === 'commission' ? await commissionPercentFor(staffId, r.service_id) : 0;
     result.push({
       id: r.id,
       trackingCode: r.tracking_code,
@@ -1281,6 +1447,10 @@ export async function eligibleQueue(staffId: string) {
       remainingMinutes: r.estimated_completion_at
         ? Math.max(0, Math.round((Date.parse(r.estimated_completion_at) - Date.now()) / 60_000))
         : null,
+      serviceEstimatedMinutes: service.estimatedMinutes,
+      documentsRequired: (service.documents ?? []).filter((d: any) => d.required).length,
+      documentsTotal: (service.documents ?? []).length,
+      documentsAttached: Number(r.docs_attached ?? 0),
       cooperationType: type,
       // Only commission employees get an income preview; there is no number
       // to show for a fixed-salary employee (their pay is a monthly contract).
@@ -1358,6 +1528,7 @@ export async function claimRequest(requestId: string, staffId: string, name: str
         message: 'پرونده از صف پذیرش برداشته شد.', details: { trackingCode: r.tracking_code },
       });
       outcome = { result: 'won' };
+      await refreshWorkBucket(requestId);
       return { id: requestId, assignedAt, status: nextStatus };
     });
   } catch (error) {
@@ -1414,7 +1585,18 @@ export async function forceAssignSweep(options: { now?: Date; limit?: number } =
     const service = await getServiceById(request.service_id);
     if (!service) { skipped.push({ requestId: request.id, reason: 'service-missing' }); continue; }
     const candidates = await candidatesForService(service);
-    if (!candidates.length) { skipped.push({ requestId: request.id, reason: 'no-available-staff' }); continue; }
+    if (!candidates.length) {
+      skipped.push({ requestId: request.id, reason: 'no-available-staff' });
+      // The case must not silently rot in the pool: tell the managers (at most
+      // once per Tehran day per case) so a human can place it manually.
+      await notifyRole(['super_admin', 'manager'], {
+        title: 'پروندهٔ بدون کارشناس از موعد واگذاری گذشته است',
+        body: `درخواست «${service.title}» (کد پیگیری ${toPersianDigits(request.tracking_code)}) کارشناس واجد شرایط و آزاد ندارد و در صف مانده است.`,
+        kind: 'warning', link: '/admin/requests?unassigned=true',
+        idempotencyKey: `unassigned-overdue:${request.id}:${tehranNow().date}`,
+      }).catch(() => undefined);
+      continue;
+    }
     const ranked: { id: string; name: string; load: number; onShift: boolean; type: string }[] = [];
     for (const candidate of candidates) {
       ranked.push({ ...candidate, type: await cooperationType(candidate.id) });
@@ -1458,6 +1640,7 @@ export async function forceAssignSweep(options: { now?: Date; limit?: number } =
       entityType: 'request', entityId: request.id,
       details: { staffId: chosen.id, cooperationType: chosen.type, reason: 'deadline' },
     });
+    await refreshWorkBucket(request.id);
     assigned.push({ requestId: request.id, staffId: chosen.id, staffName: chosen.name, cooperationType: chosen.type });
   }
   return { enabled: true, checked: rows.length, assigned, skipped };

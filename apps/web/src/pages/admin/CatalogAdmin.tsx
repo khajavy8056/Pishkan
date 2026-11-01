@@ -13,7 +13,7 @@ import {
 import { api, ApiFailure } from '../../lib/api';
 import { faNum, rial } from '../../lib/format';
 import { useAuth } from '../../lib/auth';
-import { formatDuration, type FormField, type WorkflowStep } from '../../lib/site';
+import { formatDuration, STEP_KIND_LABELS, type FormField, type WorkflowStep, type WorkflowStepKind } from '../../lib/site';
 
 interface DocItem { key: string; title: string; required: boolean; note?: string }
 
@@ -317,7 +317,7 @@ export function AdminServiceEditor() {
   const updateDoc = (index: number, patch: Partial<DocItem>) =>
     set({ documents: service.documents.map((d: DocItem, i: number) => (i === index ? { ...d, ...patch } : d)) });
 
-  const addStep = () => set({ workflow: [...service.workflow, { title: '', description: '' } as WorkflowStep] });
+  const addStep = () => set({ workflow: [...service.workflow, { title: '', description: '', kind: 'action' } as WorkflowStep] });
   const updateStep = (index: number, patch: Partial<WorkflowStep>) =>
     set({ workflow: service.workflow.map((s: WorkflowStep, i: number) => (i === index ? { ...s, ...patch } : s)) });
 
@@ -466,7 +466,7 @@ export function AdminServiceEditor() {
               <div className="mb-3 flex items-center justify-between">
                 <div>
                   <h2 className="font-bold text-navy-900">مراحل رسیدگی</h2>
-                  <p className="text-[11px] text-navy-500">ترتیب مراحل برای مشتری نمایش داده می‌شود و مبنای پیشرفت پرونده است.</p>
+                  <p className="text-[11px] text-navy-500">ترتیب مراحل برای مشتری نمایش داده می‌شود و مبنای پیشرفت پرونده است. «نوع مرحله» مشخص می‌کند الان نوبت کیست؛ سیستم از روی آن ظرفیت واقعی هر کارشناس و دستهٔ پرونده در پنل کارکنان را حساب می‌کند.</p>
                 </div>
                 <Button size="sm" variant="ghost" onClick={addStep}><Plus className="size-4" /> افزودن مرحله</Button>
               </div>
@@ -481,7 +481,14 @@ export function AdminServiceEditor() {
                         <Trash2 className="size-3.5" />
                       </Button>
                     </div>
-                    <Input className="mt-2" value={step.description ?? ''} onChange={(e) => updateStep(index, { description: e.target.value })} placeholder="توضیح کوتاه مرحله" />
+                    <div className="mt-2 flex flex-wrap items-center gap-2">
+                      <Input className="min-w-48 flex-1" value={step.description ?? ''} onChange={(e) => updateStep(index, { description: e.target.value })} placeholder="توضیح کوتاه مرحله" />
+                      <label className="flex items-center gap-2 text-xs text-navy-600">
+                        نوع مرحله:
+                        <Select value={step.kind ?? 'action'} onChange={(e) => updateStep(index, { kind: e.target.value as WorkflowStepKind })}
+                          options={Object.entries(STEP_KIND_LABELS).map(([value, label]) => ({ value, label }))} className="w-40" />
+                      </label>
+                    </div>
                   </div>
                 ))}
               </div>

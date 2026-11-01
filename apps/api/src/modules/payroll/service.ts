@@ -5,7 +5,7 @@ import { getBool, getNumber, getString } from '../settings/service.js';
 import { writeAudit } from '../audit/service.js';
 import { logEvent } from '../logging/service.js';
 import {
-  activeContract, commissionAmount, officeRevenueOf, settlementPolicy, settlementWindow,
+  activeContract, commissionAmount, officeRevenueOf, serviceCommissionOverride, settlementPolicy, settlementWindow,
   type SettlementPeriod,
 } from './compensation.js';
 
@@ -84,7 +84,10 @@ export async function accrueCommission(paymentId: string, reverse = false) {
     const date = paidAt.slice(0, 10);
     const contract = await activeContract(request.assigned_to, date);
     if (!contract || contract.kind !== 'commission') return null;
-    const percent = Math.max(0, Math.min(100, Number(contract.commission_percent)));
+    // A per-service percent (set by the manager for this exact service) wins
+    // over the contract-wide percent.
+    const override = await serviceCommissionOverride(request.assigned_to, request.service_id);
+    const percent = override ?? Math.max(0, Math.min(100, Number(contract.commission_percent)));
     if (percent <= 0) return null;
 
     const invoice = payment.invoice_id
@@ -95,23 +98,130 @@ export async function accrueCommission(paymentId: string, reverse = false) {
     const amount = commissionAmount(officeRevenue, percent);
     if (amount <= 0) return null;
 
-    const policy = await settlementPolicy(request.assigned_to);
-    const window = settlementWindow(policy, paidAt, contract.starts_on);
-    await append({
-      id: id('comp'), operation_key: `commission:${paymentId}:${request.assigned_to}`,
-      user_id: request.assigned_to, contract_id: contract.id, kind: 'commission', amount,
-      basis_amount: officeRevenue, percent, withdrawable_at: window.withdrawableAt,
-      period_start: window.start, period_end: window.end,
-      payment_id: paymentId, request_id: request.id,
-      snapshot: JSON.stringify({
-        contract: { id: contract.id, percent, kind: contract.kind },
-        invoice: invoice ? { total: Number(invoice.total), tax: Number(invoice.tax) } : null,
-        paidAmount: Number(payment.amount), basis: basisSetting || 'net_of_tax',
-        officeRevenue, percent, period: window,
-      }),
-      created_by: 'system', created_at: nowIso(),
-    });
-    return { amount, basis: officeRevenue, percent };
+    // Manager-approved split of this request's commission pool between
+    // several employees. Without shares the whole pool belongs to the
+    // assignee, exactly as before.
+    const shares = await q<any>('SELECT user_id, share_percent FROM request_commission_shares WHERE request_id = ?', [request.id]);
+    const recipients = shares.length
+      ? allocatePool(amount, shares.map((row) => ({ userId: row.user_id, share: Number(row.share_percent) })))
+      : [{ userId: request.assigned_to as string, share: 100, amount }];
+
+    let written = 0;
+    for (const recipient of recipients) {
+      if (recipient.amount <= 0) continue;
+      const ownContract = recipient.userId === request.assigned_to
+        ? contract
+        : await activeContract(recipient.userId, date);
+      const effectiveContract = ownContract?.kind === 'commission' ? ownContract : contract;
+      const policy = await settlementPolicy(recipient.userId);
+      const window = settlementWindow(policy, paidAt, effectiveContract.starts_on);
+      await append({
+        id: id('comp'), operation_key: `commission:${paymentId}:${recipient.userId}`,
+        user_id: recipient.userId, contract_id: effectiveContract.id, kind: 'commission', amount: recipient.amount,
+        basis_amount: officeRevenue,
+        percent: Math.round(percent * recipient.share) / 100,
+        withdrawable_at: window.withdrawableAt,
+        period_start: window.start, period_end: window.end,
+        payment_id: paymentId, request_id: request.id,
+        snapshot: JSON.stringify({
+          contract: { id: contract.id, percent, kind: contract.kind },
+          servicePercentOverride: override,
+          split: shares.length ? { poolAmount: amount, sharePercent: recipient.share } : null,
+          invoice: invoice ? { total: Number(invoice.total), tax: Number(invoice.tax) } : null,
+          paidAmount: Number(payment.amount), basis: basisSetting || 'net_of_tax',
+          officeRevenue, percent, period: window,
+        }),
+        note: shares.length ? 'سهم تقسیم‌شده با تأیید مدیر' : null,
+        created_by: 'system', created_at: nowIso(),
+      });
+      written += 1;
+    }
+    return { amount, basis: officeRevenue, percent, recipients: written };
+  });
+}
+
+/**
+ * Split a commission pool by integer percents (summing to 100) without ever
+ * losing or inventing a rial: floor everyone, then give the remainder to the
+ * largest share.
+ */
+export function allocatePool(pool: number, shares: { userId: string; share: number }[]) {
+  const sorted = [...shares].sort((a, b) => b.share - a.share);
+  const result = sorted.map((row) => ({ ...row, amount: Math.floor((pool * row.share) / 100) }));
+  let remainder = pool - result.reduce((sum, row) => sum + row.amount, 0);
+  for (const row of result) {
+    if (remainder <= 0) break;
+    row.amount += remainder;
+    remainder = 0;
+  }
+  return result;
+}
+
+/** Current commission split of a request + whether it is frozen by accrual. */
+export async function requestShares(requestId: string) {
+  const rows = await q<any>(
+    `SELECT s.user_id, s.share_percent, s.note, u.full_name AS staff_name
+     FROM request_commission_shares s JOIN users u ON u.id = s.user_id
+     WHERE s.request_id = ? ORDER BY s.share_percent DESC`,
+    [requestId],
+  );
+  const accrued = await one<{ c: number }>(
+    "SELECT COUNT(*) AS c FROM compensation_entries WHERE request_id = ? AND kind = 'commission'",
+    [requestId],
+  );
+  return {
+    locked: Number(accrued?.c ?? 0) > 0,
+    shares: rows.map((row) => ({
+      userId: row.user_id, staffName: row.staff_name,
+      sharePercent: Number(row.share_percent), note: row.note ?? null,
+    })),
+  };
+}
+
+/**
+ * Replace a request's commission split. Money that is already recorded is
+ * never redistributed retroactively — once a commission entry exists for the
+ * request, corrections must go through explicit adjustment entries.
+ */
+export async function setRequestShares(
+  requestId: string,
+  items: { userId: string; sharePercent: number; note?: string | null }[],
+  actor: { id: string; name: string },
+) {
+  return tx(async () => {
+    const request = await one<any>('SELECT id FROM requests WHERE id = ?', [requestId]);
+    if (!request) throw notFound('درخواست یافت نشد.');
+    const accrued = await one<{ c: number }>(
+      "SELECT COUNT(*) AS c FROM compensation_entries WHERE request_id = ? AND kind = 'commission'",
+      [requestId],
+    );
+    if (Number(accrued?.c ?? 0) > 0) {
+      throw conflict('سهم این پرونده قبلاً در دفتر درآمد ثبت شده است؛ برای اصلاح از اصلاحیه استفاده کنید.');
+    }
+    if (items.length > 10) throw badRequest('حداکثر ۱۰ نفر می‌توانند در سهم یک پرونده شریک باشند.');
+    const seen = new Set<string>();
+    let total = 0;
+    for (const item of items) {
+      if (seen.has(item.userId)) throw badRequest('هر کارمند فقط یک سهم می‌تواند داشته باشد.');
+      seen.add(item.userId);
+      if (!Number.isInteger(item.sharePercent) || item.sharePercent < 1 || item.sharePercent > 100) {
+        throw badRequest('سهم هر نفر باید عدد صحیح بین ۱ تا ۱۰۰ باشد.');
+      }
+      total += item.sharePercent;
+      const user = await one<any>("SELECT id FROM users WHERE id = ? AND kind IN ('staff','admin') AND status = 'active'", [item.userId]);
+      if (!user) throw badRequest('یکی از افراد انتخاب‌شده کارمند فعال نیست.');
+    }
+    if (items.length && total !== 100) throw badRequest('مجموع سهم‌ها باید دقیقاً ۱۰۰ درصد شود.');
+    const ts = nowIso();
+    await run('DELETE FROM request_commission_shares WHERE request_id = ?', [requestId]);
+    for (const item of items) {
+      await run(
+        `INSERT INTO request_commission_shares (request_id, user_id, share_percent, note, created_by, created_at)
+         VALUES (?, ?, ?, ?, ?, ?)`,
+        [requestId, item.userId, item.sharePercent, item.note ?? null, actor.id, ts],
+      );
+    }
+    return requestShares(requestId);
   });
 }
 

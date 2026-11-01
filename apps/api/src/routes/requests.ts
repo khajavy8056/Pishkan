@@ -7,7 +7,7 @@ import { created, dateRange, ok, pagination } from '../http/respond.js';
 import { hasPermission } from '../lib/permissions.js';
 import { officeScope } from '../lib/scope.js';
 import {
-  nextStatuses,STATUSES, STATUS_LABELS, addNote, assignRequest, attachDocument, autoAssign, candidatesForService,
+  nextStatuses,STATUSES, STATUS_LABELS, addNote, assignRequest, attachDocument, autoAssign, candidatesForService, moveStep,
   eligibleQueue,claimRequest,claimAttempts,forceAssignSweep,quoteRequest, changeStatus, createRequest, customerCancel, getRequest, listRequests, requestStats, reviewDocument, setRequestDeadline,
 } from '../modules/requests/service.js';
 import { getServiceById } from '../modules/catalog/service.js';
@@ -15,6 +15,7 @@ import { one, q } from '../db/index.js';
 import { documentTypeLabel, reuseDocumentInRequest } from '../modules/documents/service.js';
 import { notifyUser } from '../modules/notifications/service.js';
 import { param } from '../http/params.js';
+import { writeAudit } from '../modules/audit/service.js';
 
 export const requestsRouter = Router();
 requestsRouter.use(requireAuth);
@@ -63,6 +64,7 @@ requestsRouter.get('/', asyncRoute(async (req, res) => {
       : (req.query.mine === 'true' ? auth.user.id : undefined),
     status: typeof req.query.status === 'string' ? req.query.status : undefined,
     statusGroup: (req.query.group as 'open' | 'closed' | 'all' | undefined) ?? undefined,
+    bucket: typeof req.query.bucket === 'string' ? req.query.bucket : undefined,
     search: typeof req.query.search === 'string' ? req.query.search : undefined,
     unassigned: req.query.unassigned === 'true',
     ...dateRange(req),
@@ -219,6 +221,47 @@ requestsRouter.patch('/:id/status', requirePermission('requests.edit'), asyncRou
     }).catch(() => undefined);
   }
   ok(res, await safeRequest(req, param(req, 'id')));
+}));
+
+// Workflow-step engine: the assignee moves the case one step at a time. The
+// step kind drives the work bucket (and therefore capacity) automatically.
+const stepBody = z.object({ note: z.string().max(2000).optional() });
+for (const [path, direction] of [['advance', 1], ['back', -1]] as const) {
+  requestsRouter.post(`/:id/steps/${path}`, requirePermission('requests.edit'), asyncRoute(async (req, res) => {
+    const body = stepBody.parse(req.body ?? {});
+    await loadAuthorized(param(req, 'id'), req);
+    const updated = await moveStep(param(req, 'id'), direction, { id: req.auth!.user.id, name: req.auth!.user.fullName, ip: req.ip }, body.note);
+    ok(res, updated);
+  }));
+}
+
+// Manager-approved split of this request's commission pool. Frozen once the
+// first commission entry exists, so recorded money is never redistributed.
+requestsRouter.get('/:id/shares', requirePermission('payroll.view'), asyncRoute(async (req, res) => {
+  await loadAuthorized(param(req, 'id'), req);
+  const { requestShares } = await import('../modules/payroll/service.js');
+  ok(res, await requestShares(param(req, 'id')));
+}));
+
+requestsRouter.put('/:id/shares', requirePermission('payroll.contracts.edit'), asyncRoute(async (req, res) => {
+  const body = z.object({
+    shares: z.array(z.object({
+      userId: z.string().min(3),
+      sharePercent: z.number().int().min(1).max(100),
+      note: z.string().max(300).nullish(),
+    })).max(10),
+  }).parse(req.body);
+  await loadAuthorized(param(req, 'id'), req);
+  const { setRequestShares } = await import('../modules/payroll/service.js');
+  const actor = { id: req.auth!.user.id, name: req.auth!.user.fullName };
+  const result = await setRequestShares(param(req, 'id'), body.shares.map((share) => ({
+    userId: share.userId, sharePercent: share.sharePercent, note: share.note ?? null,
+  })), actor);
+  await writeAudit({
+    actorId: actor.id, actorName: actor.name, action: 'payroll.request_shares',
+    entityType: 'request', entityId: param(req, 'id'), after: { shares: body.shares }, ip: req.ip,
+  });
+  ok(res, result);
 }));
 
 requestsRouter.patch('/:id/deadline', requirePermission('requests.edit'), asyncRoute(async (req, res) => {

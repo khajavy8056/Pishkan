@@ -9,6 +9,7 @@ import {
   Tabs, useToast,
 } from '../../components/ui';
 import { api, ApiFailure } from '../../lib/api';
+import { useAuth } from '../../lib/auth';
 import { faDate, faDateTime, faNum, rial } from '../../lib/format';
 
 interface Overview {
@@ -48,6 +49,80 @@ const ACTIONS: Record<string, { label: string; tone?: 'danger' | 'success' }> = 
   approve: { label: 'تأیید درخواست' },
   reject: { label: 'رد درخواست', tone: 'danger' },
 };
+
+/**
+ * Per-service commission override editor (spec: a manager may set a special
+ * percent for one person on one service). Loaded inside the staff file.
+ */
+function ServicePercentsEditor({ staffId }: { staffId: string }) {
+  const { can } = useAuth();
+  const { notify } = useToast();
+  const [items, setItems] = useState<{ serviceId: string; percent: number }[]>([]);
+  const [services, setServices] = useState<any[]>([]);
+  const [loaded, setLoaded] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const editable = can('payroll.contracts.edit');
+
+  useEffect(() => {
+    api.get<{ data: any }>(`/api/payroll/staff/${staffId}/service-percents`)
+      .then((res) => setItems(Array.isArray(res.data) ? res.data : []))
+      .catch(() => undefined)
+      .finally(() => setLoaded(true));
+    api.list<any>('/api/catalog/admin/services', { pageSize: 200 })
+      .then((res) => setServices(res.data ?? []))
+      .catch(() => undefined);
+  }, [staffId]);
+
+  const save = async () => {
+    setBusy(true);
+    try {
+      const res = await api.put<{ data: any }>(`/api/payroll/staff/${staffId}/service-percents`, {
+        items: items.filter((item) => item.serviceId).map((item) => ({ serviceId: item.serviceId, percent: Number(item.percent) })),
+      });
+      setItems(Array.isArray(res.data) ? res.data : []);
+      notify('درصدهای ویژهٔ خدمت ذخیره شد. روی درآمدهای قطعی گذشته اثری ندارد.', 'success');
+    } catch (err) {
+      notify(err instanceof ApiFailure ? err.message : 'خطا در ذخیره', 'error');
+    } finally { setBusy(false); }
+  };
+
+  if (!loaded) return <Loading rows={1} />;
+
+  return (
+    <div>
+      <h3 className="mb-1 font-semibold">درصد ویژه به‌ازای خدمت</h3>
+      <p className="mb-2 text-[11px] leading-6 text-navy-500">
+        برای خدمت‌های خاص، به‌جای درصد کلی قرارداد. هر خدمتی که اینجا نباشد با درصد کلی قرارداد محاسبه می‌شود.
+      </p>
+      <div className="space-y-2">
+        {items.map((item, index) => (
+          <div key={index} className="flex flex-wrap items-center gap-2">
+            <Select className="min-w-52 flex-1" value={item.serviceId} disabled={!editable}
+              onChange={(e) => setItems(items.map((row, i) => (i === index ? { ...row, serviceId: e.target.value } : row)))}
+              options={[{ value: '', label: 'انتخاب خدمت' }, ...services.map((svc) => ({ value: svc.id, label: svc.title }))]} />
+            <Input type="number" min={0} max={100} className="w-24" dir="ltr" value={item.percent} disabled={!editable}
+              onChange={(e) => setItems(items.map((row, i) => (i === index ? { ...row, percent: Number(e.target.value) } : row)))} />
+            <span className="text-xs text-navy-500">٪</span>
+            {editable && (
+              <Button size="sm" variant="ghost" aria-label="حذف" onClick={() => setItems(items.filter((_, i) => i !== index))}>
+                <XCircle className="size-4 text-rose-600" />
+              </Button>
+            )}
+          </div>
+        ))}
+        {items.length === 0 && <p className="text-xs text-navy-400">درصد ویژه‌ای تعریف نشده است.</p>}
+      </div>
+      {editable && (
+        <div className="mt-2 flex items-center gap-2">
+          <Button size="sm" variant="ghost" onClick={() => setItems([...items, { serviceId: '', percent: 0 }])}>افزودن خدمت</Button>
+          <Button size="sm" className="ms-auto" loading={busy} disabled={items.some((item) => !item.serviceId)} onClick={() => void save()}>
+            ذخیره درصدهای ویژه
+          </Button>
+        </div>
+      )}
+    </div>
+  );
+}
 
 export function AdminPayroll() {
   const { notify } = useToast();
@@ -366,7 +441,12 @@ export function AdminPayroll() {
 
       {tab === 'reports' && (
         <Card>
-          <h2 className="mb-4 font-bold text-navy-900">گزارش مالی کارکنان (۳۰ روز اخیر)</h2>
+          <div className="mb-4 flex flex-wrap items-center justify-between gap-2">
+            <h2 className="font-bold text-navy-900">گزارش مالی و عملکرد کارکنان (۳۰ روز اخیر)</h2>
+            <a className="btn-ghost btn-sm" href="/api/payroll/reports/export.csv">
+              خروجی اکسل (CSV)
+            </a>
+          </div>
           {!reports && <Loading rows={3} />}
           {reports && (
             <>
@@ -390,6 +470,27 @@ export function AdminPayroll() {
                     ))}
                   </tbody>
                 </table>
+              </div>
+              <div className="mt-6">
+                <h3 className="mb-2 font-semibold text-navy-900">عملکرد پرونده‌ای و مقایسهٔ کارکنان</h3>
+                <div className="table-wrap">
+                  <table className="table">
+                    <thead><tr><th>کارمند</th><th>پرونده‌های دریافتی</th><th>تکمیل‌شده در بازه</th><th>میانگین زمان انجام</th></tr></thead>
+                    <tbody>
+                      {(reports.performance ?? []).map((row: any) => (
+                        <tr key={row.userId}>
+                          <td className="font-medium">{row.fullName ?? row.userId}</td>
+                          <td>{faNum(row.received)}</td>
+                          <td>{faNum(row.completed)}</td>
+                          <td>{row.completed > 0 ? `${faNum(row.averageCompletionMinutes)} دقیقه` : '—'}</td>
+                        </tr>
+                      ))}
+                      {(reports.performance ?? []).length === 0 && (
+                        <tr><td colSpan={4} className="text-center text-xs text-navy-500">در این بازه پرونده‌ای ثبت نشده است.</td></tr>
+                      )}
+                    </tbody>
+                  </table>
+                </div>
               </div>
               <div className="mt-5">
                 <h3 className="mb-2 font-semibold text-navy-900">درخواست‌های برداشت</h3>
@@ -685,6 +786,10 @@ export function AdminPayroll() {
                 ))}
               </div>
             </div>
+
+            {file.cooperationType === 'commission' && file.staff?.id && (
+              <ServicePercentsEditor staffId={file.staff.id} />
+            )}
 
             <div>
               <h3 className="mb-2 font-semibold">آخرین پرونده‌ها</h3>

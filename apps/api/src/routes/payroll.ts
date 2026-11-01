@@ -14,7 +14,8 @@ import { created, ok } from '../http/respond.js';
 import { q } from '../db/index.js';
 import { param } from '../http/params.js';
 import { hasPermission } from '../lib/permissions.js';
-import { todayIso } from '../modules/payroll/compensation.js';
+import { listServicePercents, setServicePercents, todayIso } from '../modules/payroll/compensation.js';
+import { writeAudit } from '../modules/audit/service.js';
 
 export const payrollRouter = Router();
 payrollRouter.use(requireAuth, (req, _res, next) => {
@@ -109,6 +110,71 @@ payrollRouter.get('/reports', requirePermission('payroll.reports.view'), asyncRo
   const from = typeof req.query.from === 'string' ? req.query.from : undefined;
   const to = typeof req.query.to === 'string' ? req.query.to : undefined;
   ok(res, await payrollReports({ from, to }));
+}));
+
+/**
+ * Excel-friendly CSV of the payroll report (BOM + CRLF, same convention as
+ * the accounting export). One file with three labelled sections: staff
+ * income, request performance and withdrawal aggregates.
+ */
+payrollRouter.get('/reports/export.csv', requirePermission('payroll.reports.view'), asyncRoute(async (req, res) => {
+  const from = typeof req.query.from === 'string' ? req.query.from : undefined;
+  const to = typeof req.query.to === 'string' ? req.query.to : undefined;
+  const report = await payrollReports({ from, to });
+  const escape = (value: unknown) => {
+    const text = value === null || value === undefined ? '' : String(value);
+    return /[",\n\r]/.test(text) ? `"${text.replace(/"/g, '""')}"` : text;
+  };
+  const lines: string[] = [`گزارش حقوق و درآمد کارکنان — ${report.from} تا ${report.to}`];
+  lines.push('');
+  lines.push('درآمد کارکنان');
+  lines.push(['کارمند', 'نوع همکاری', 'تعداد خدمت دارای سهم', 'مبنای درآمد دفتر (ریال)', 'درآمد کارمند (ریال)'].map(escape).join(','));
+  for (const row of report.staff) {
+    lines.push([row.fullName, row.cooperationType === 'commission' ? 'درصدی' : row.cooperationType === 'monthly' ? 'حقوق ثابت' : '—', row.services, row.basis, row.income].map(escape).join(','));
+  }
+  lines.push('');
+  lines.push('عملکرد پرونده‌ای');
+  lines.push(['کارمند', 'پرونده‌های دریافتی (کل)', 'تکمیل‌شده در بازه', 'میانگین زمان انجام (دقیقه)'].map(escape).join(','));
+  for (const row of report.performance) {
+    lines.push([row.fullName ?? row.userId, row.received, row.completed, row.averageCompletionMinutes].map(escape).join(','));
+  }
+  lines.push('');
+  lines.push('درخواست‌های برداشت در بازه');
+  lines.push(['وضعیت', 'تعداد', 'مبلغ کل (ریال)'].map(escape).join(','));
+  for (const row of report.withdrawals) {
+    lines.push([row.statusLabel, row.count, row.total].map(escape).join(','));
+  }
+  lines.push('');
+  lines.push(['درآمد دفتر در بازه (بدون مالیات)', report.office.officeRevenue].map(escape).join(','));
+  lines.push(['جمع سهم کارکنان در بازه', report.office.staffShare].map(escape).join(','));
+  res.setHeader('content-type', 'text/csv; charset=utf-8');
+  res.setHeader('content-disposition', `attachment; filename="pishkan-payroll-report-${new Date().toISOString().slice(0, 10)}.csv"`);
+  res.send(`\uFEFF${lines.join('\r\n')}`);
+}));
+
+/* ---------------------- per-service commission percent --------------------- */
+
+payrollRouter.get('/staff/:id/service-percents', requirePermission('payroll.view'), asyncRoute(async (req, res) => {
+  ok(res, await listServicePercents(param(req, 'id')));
+}));
+
+payrollRouter.put('/staff/:id/service-percents', requirePermission('payroll.contracts.edit'), asyncRoute(async (req, res) => {
+  const body = z.object({
+    items: z.array(z.object({
+      serviceId: z.string().min(3),
+      percent: z.number().int().min(0).max(100),
+      note: z.string().max(300).nullish(),
+    })).max(300),
+  }).parse(req.body);
+  const actor = { id: req.auth!.user.id, name: req.auth!.user.fullName };
+  const result = await setServicePercents(param(req, 'id'), body.items.map((item) => ({
+    serviceId: item.serviceId, percent: item.percent, note: item.note ?? null,
+  })), actor);
+  await writeAudit({
+    actorId: actor.id, actorName: actor.name, action: 'payroll.service_percents',
+    entityType: 'user', entityId: param(req, 'id'), after: { items: body.items }, ip: req.ip,
+  });
+  ok(res, result);
 }));
 
 /* ------------------------------- withdrawals ------------------------------ */
