@@ -3,11 +3,11 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import {
   ClipboardList, Wallet, MessageSquare, User, Sparkles, UploadCloud, Download, CheckCircle2,
-  Clock, FileText, Send, Plus, CreditCard, ReceiptText, ShieldCheck, AlertTriangle, Trash2,
+  Clock, FileText, Send, Plus, CreditCard, ReceiptText, ShieldCheck, AlertTriangle, Trash2, Landmark,
 } from 'lucide-react';
 import clsx from 'clsx';
 import { AppShell, PageHeader } from '../../components/shell';
-import { Button, Card, EmptyState, ErrorState, Field, Input, Loading, Modal, Select, StatCard, StatusBadge, Textarea, WelcomePanel, useToast } from '../../components/ui';
+import { Badge, Button, Card, EmptyState, ErrorState, Field, Input, Loading, Modal, Select, StatCard, StatusBadge, Textarea, WelcomePanel, useToast } from '../../components/ui';
 import { DocumentViewer, FileSummary, FileThumbnail } from '../../components/documents';
 import { api, ApiFailure } from '../../lib/api';
 import { useAuth } from '../../lib/auth';
@@ -512,6 +512,16 @@ export function CustomerRequestDetail() {
             </p>
           </Card>
 
+          {request.invoices?.some((invoice: any) => invoice.purpose === 'external_cost' && invoice.status !== 'paid' && invoice.status !== 'void') && (
+            <Card className="border-sky-200 bg-sky-50/70">
+              <h2 className="flex items-center gap-2 font-bold text-sky-950"><Landmark className="size-4" /> هزینهٔ سازمانی در انتظار پرداخت</h2>
+              <p className="mt-2 text-xs leading-6 text-sky-950">
+                کارشناس مبلغ اعلامی سازمان مربوطه را برای پروندهٔ شما مشخص کرده است. این مبلغ هزینهٔ خودِ سازمان است و جزو حق‌الزحمهٔ دفتر نیست.
+                برای اینکه کارتان ادامه پیدا کند، فاکتور «هزینهٔ سازمانی» را در بخش فاکتورها پرداخت کنید.
+              </p>
+            </Card>
+          )}
+
           <Card>
             <h2 className="mb-3 flex items-center gap-2 font-bold text-navy-900"><Wallet className="size-4 text-accent" /> فاکتورها</h2>
             <div className="space-y-2">
@@ -519,8 +529,15 @@ export function CustomerRequestDetail() {
                 <div key={invoice.id} className="rounded-xl bg-surface-3 px-3 py-2.5">
                   <div className="flex items-center justify-between gap-2">
                     <span className="text-xs font-medium text-navy-900">{invoice.number}</span>
-                    <StatusBadge status={invoice.status} />
+                    <span className="flex items-center gap-1">
+                      {invoice.purpose === 'external_cost' && <Badge tone="info">هزینهٔ سازمانی</Badge>}
+                      <StatusBadge status={invoice.status} />
+                    </span>
                   </div>
+                  {invoice.title && <p className="mt-0.5 text-[11px] font-medium text-navy-700">{invoice.title}</p>}
+                  {invoice.purpose === 'external_cost' && (
+                    <p className="text-[10px] leading-5 text-navy-500">مبلغ سازمان مربوطه است و جزو حق‌الزحمهٔ دفتر نیست.</p>
+                  )}
                   <p className="mt-1 text-sm font-semibold text-navy-900">{rial(invoice.total)}</p>
                   <p className="text-[11px] text-navy-500">پرداخت‌شده: {rial(invoice.paidAmount)}</p>
                   {invoice.status !== 'paid' && invoice.status !== 'void' && (
@@ -767,6 +784,9 @@ export function CustomerInvoices() {
 export function CustomerOffers() {
   const { notify } = useToast();
   const [offers, setOffers] = useState<any[]>([]);
+  const [intakes, setIntakes] = useState<any[]>([]);
+  const [intakeForm, setIntakeForm] = useState({ title: '', description: '' });
+  const [intakeBusy, setIntakeBusy] = useState(false);
   const [loading, setLoading] = useState(true);
   const [accepting, setAccepting] = useState<any>(null);
   const [values, setValues] = useState<Record<string, any>>({});
@@ -774,9 +794,38 @@ export function CustomerOffers() {
 
   const load = () => {
     setLoading(true);
-    api.list<any>('/api/catalog/offers').then((res) => setOffers(res.data)).finally(() => setLoading(false));
+    Promise.all([
+      api.list<any>('/api/catalog/offers'),
+      api.list<any>('/api/catalog/custom-requests').catch(() => ({ data: [] as any[] })),
+    ]).then(([offerRes, intakeRes]) => { setOffers(offerRes.data); setIntakes(intakeRes.data); })
+      .finally(() => setLoading(false));
   };
   useEffect(load, []);
+
+  const submitIntake = async () => {
+    setIntakeBusy(true);
+    try {
+      await api.post('/api/catalog/custom-requests', {
+        title: intakeForm.title.trim(),
+        description: intakeForm.description.trim(),
+      });
+      setIntakeForm({ title: '', description: '' });
+      notify('درخواست شما ثبت شد؛ کارشناس دفتر آن را بررسی و قیمت‌گذاری می‌کند و نتیجه همین‌جا اعلام می‌شود.', 'success');
+      load();
+    } catch (err) {
+      notify(err instanceof ApiFailure ? err.message : 'ثبت درخواست ناموفق بود.', 'error');
+    } finally { setIntakeBusy(false); }
+  };
+
+  const cancelIntake = async (intake: any) => {
+    try {
+      await api.post(`/api/catalog/custom-requests/${intake.id}/cancel`, {});
+      notify('درخواست اختصاصی لغو شد.', 'info');
+      load();
+    } catch (err) {
+      notify(err instanceof ApiFailure ? err.message : 'خطا', 'error');
+    }
+  };
 
   const openAccept = async (offer: any) => {
     setAccepting(offer);
@@ -818,10 +867,63 @@ export function CustomerOffers() {
 
   return (
     <AppShell variant="customer">
-      <PageHeader title="پیشنهادهای خدمت اختصاصی" description="خدماتی که کارشناس دفتر مخصوص شما تعریف کرده است." />
+      <PageHeader title="پیشنهادهای خدمت اختصاصی" description="خدماتی که کارشناس دفتر مخصوص شما تعریف کرده است؛ و اگر خدمتتان در فهرست سایت نیست، همین‌جا درخواست بدهید." />
+
+      <Card className="mb-4">
+        <h2 className="flex items-center gap-2 font-bold text-navy-900"><Sparkles className="size-4 text-accent" /> خدمت موردنظرتان در فهرست نیست؟</h2>
+        <p className="mt-1 text-xs leading-6 text-navy-500">
+          شرح بدهید چه کاری لازم دارید؛ کارشناس دفتر آن را بررسی می‌کند، مخصوص شما تعریف و قیمت‌گذاری می‌کند و پیشنهادش همین‌جا برای تأیید و پرداخت نمایش داده می‌شود.
+        </p>
+        <div className="mt-3 space-y-3">
+          <Field label="عنوان خواسته" required>
+            <Input value={intakeForm.title} onChange={(e) => setIntakeForm({ ...intakeForm, title: e.target.value })}
+              placeholder="مثلاً: پیگیری وام ازدواج در بانک…" />
+          </Field>
+          <Field label="شرح کامل" required>
+            <Textarea value={intakeForm.description} onChange={(e) => setIntakeForm({ ...intakeForm, description: e.target.value })}
+              placeholder="هرچه دقیق‌تر بنویسید، قیمت‌گذاری سریع‌تر و دقیق‌تر انجام می‌شود…" />
+          </Field>
+          <Button loading={intakeBusy} disabled={intakeForm.title.trim().length < 3 || intakeForm.description.trim().length < 10}
+            onClick={() => void submitIntake()}>
+            <Send className="size-4" /> ثبت درخواست اختصاصی
+          </Button>
+        </div>
+      </Card>
+
+      {intakes.length > 0 && (
+        <div className="mb-4 space-y-2">
+          <h2 className="font-bold text-navy-900">درخواست‌های اختصاصی من</h2>
+          {intakes.map((intake) => (
+            <Card key={intake.id} className="p-4">
+              <div className="flex flex-wrap items-start justify-between gap-2">
+                <div className="min-w-0">
+                  <p className="font-semibold text-navy-900">{intake.title}</p>
+                  <p className="mt-1 line-clamp-2 text-xs leading-6 text-navy-500">{intake.description}</p>
+                  <p className="mt-1 text-[11px] text-navy-400">{faDate(intake.createdAt)}</p>
+                  {intake.status === 'priced' && (
+                    <p className="mt-1 text-[11px] font-medium text-emerald-700">پیشنهاد قیمت آماده است؛ در فهرست پایین همین صفحه آن را تأیید و پرداخت کنید.</p>
+                  )}
+                  {intake.status === 'rejected' && intake.staffNote && (
+                    <p className="mt-1 rounded-lg bg-rose-50 px-3 py-2 text-[11px] leading-6 text-rose-800">{intake.staffNote}</p>
+                  )}
+                </div>
+                <span className="flex items-center gap-2">
+                  <Badge tone={intake.status === 'priced' ? 'success' : intake.status === 'rejected' ? 'danger' : intake.status === 'pending' ? 'warning' : 'default'}>
+                    {intake.statusLabel}
+                  </Badge>
+                  {intake.status === 'pending' && (
+                    <Button size="sm" variant="ghost" onClick={() => void cancelIntake(intake)}>لغو</Button>
+                  )}
+                </span>
+              </div>
+            </Card>
+          ))}
+        </div>
+      )}
+
       {loading && <Loading />}
       {!loading && offers.length === 0 && (
-        <EmptyState title="پیشنهاد اختصاصی ندارید" description="اگر خدمت مورد نیاز شما در کاتالوگ نیست، با دفتر تماس بگیرید تا پیشنهاد اختصاصی برای شما ثبت شود." />
+        <EmptyState title="پیشنهاد اختصاصی فعالی ندارید" description="وقتی کارشناس برای خواسته‌تان قیمت بگذارد، پیشنهادش اینجا برای تأیید نمایش داده می‌شود." />
       )}
 
       <div className="space-y-3">

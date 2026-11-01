@@ -37,6 +37,7 @@ function mapStaff(row: any) {
     activeCases: Number(row.active_cases ?? 0),
     mfaEnabled: Boolean(row.mfa_enabled),
     lastLoginAt: row.last_login_at,
+    lastSeenAt: row.last_seen_at ?? null,
     hiredAt: row.hired_at,
     createdAt: row.created_at,
   };

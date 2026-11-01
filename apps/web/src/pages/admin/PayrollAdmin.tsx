@@ -137,7 +137,10 @@ export function AdminPayroll() {
   const [detail, setDetail] = useState<any>(null);
   const [file, setFile] = useState<StaffFile | null>(null);
   const [payModal, setPayModal] = useState<Withdrawal | null>(null);
-  const [payForm, setPayForm] = useState({ method: 'bank_transfer', trackingCode: '', note: '' });
+  const [payForm, setPayForm] = useState<{ method: string; trackingCode: string; note: string; receiptFileId: string | null; receiptName: string }>(
+    { method: 'bank_transfer', trackingCode: '', note: '', receiptFileId: null, receiptName: '' },
+  );
+  const [receiptBusy, setReceiptBusy] = useState(false);
   const [rejectModal, setRejectModal] = useState<Withdrawal | null>(null);
   const [rejectNote, setRejectNote] = useState('');
   const [salaryModal, setSalaryModal] = useState<StaffRow | null>(null);
@@ -192,10 +195,13 @@ export function AdminPayroll() {
     if (!payModal) return;
     setBusy(payModal.id);
     try {
-      await api.post(`/api/payroll/withdrawals/${payModal.id}/pay`, { ...payForm, note: payForm.note || undefined });
+      await api.post(`/api/payroll/withdrawals/${payModal.id}/pay`, {
+        method: payForm.method, trackingCode: payForm.trackingCode, note: payForm.note || undefined,
+        receiptFileId: payForm.receiptFileId ?? undefined,
+      });
       notify('پرداخت ثبت شد و در سوابق کارمند نمایش داده می‌شود.', 'success');
       setPayModal(null);
-      setPayForm({ method: 'bank_transfer', trackingCode: '', note: '' });
+      setPayForm({ method: 'bank_transfer', trackingCode: '', note: '', receiptFileId: null, receiptName: '' });
       loadWithdrawals();
       loadOverview();
     } catch (err) {
@@ -443,9 +449,14 @@ export function AdminPayroll() {
         <Card>
           <div className="mb-4 flex flex-wrap items-center justify-between gap-2">
             <h2 className="font-bold text-navy-900">گزارش مالی و عملکرد کارکنان (۳۰ روز اخیر)</h2>
-            <a className="btn-ghost btn-sm" href="/api/payroll/reports/export.csv">
-              خروجی اکسل (CSV)
-            </a>
+            <span className="flex gap-2">
+              <a className="btn-ghost btn-sm" href="/api/payroll/reports/export.csv">
+                خروجی اکسل (CSV)
+              </a>
+              <a className="btn-ghost btn-sm" href="/api/payroll/reports/print" target="_blank" rel="noreferrer">
+                چاپ گزارش (PDF)
+              </a>
+            </span>
           </div>
           {!reports && <Loading rows={3} />}
           {reports && (
@@ -519,6 +530,11 @@ export function AdminPayroll() {
               <p><span className="text-navy-500">ثبت: </span>{faDateTime(detail.requestedAt)}</p>
               {detail.periodStart && <p><span className="text-navy-500">دوره: </span>{faDate(detail.periodStart)} تا {detail.periodEnd ? faDate(detail.periodEnd) : '—'}</p>}
               {detail.trackingCode && <p><span className="text-navy-500">پیگیری: </span>{detail.trackingCode}</p>}
+              {detail.receiptUrl && (
+                <p><span className="text-navy-500">رسید پرداخت: </span>
+                  <a className="font-medium text-accent underline" href={detail.receiptUrl} target="_blank" rel="noreferrer">مشاهده سند واریز</a>
+                </p>
+              )}
             </div>
             {detail.note && <p className="rounded-xl bg-surface-3 px-3 py-2 text-xs">توضیح کارمند: {detail.note}</p>}
             {detail.decisionNote && <p className="rounded-xl bg-rose-50 px-3 py-2 text-xs text-rose-800">تصمیم: {detail.decisionNote}</p>}
@@ -599,6 +615,26 @@ export function AdminPayroll() {
           </Field>
           <Field label="توضیح حسابداری">
             <Input value={payForm.note} onChange={(e) => setPayForm({ ...payForm, note: e.target.value })} />
+          </Field>
+          <Field label="رسید پرداخت (تصویر یا PDF)" hint="سند واریز بانکی؛ در پروندهٔ برداشت و سوابق کارمند می‌ماند.">
+            <div className="flex items-center gap-2">
+              <label className="btn-ghost btn-sm cursor-pointer">
+                {receiptBusy ? 'در حال بارگذاری…' : payForm.receiptName ? 'تغییر رسید' : 'انتخاب رسید'}
+                <input type="file" accept="image/*,.pdf" className="hidden" onChange={async (e) => {
+                  const file = e.target.files?.[0];
+                  if (!file) return;
+                  setReceiptBusy(true);
+                  try {
+                    const uploaded = await api.upload<{ data: { id: string; name: string } }>('/api/files/upload', file, { purpose: 'receipt' });
+                    setPayForm((current) => ({ ...current, receiptFileId: uploaded.data.id, receiptName: uploaded.data.name || file.name }));
+                    notify('رسید پرداخت بارگذاری شد.', 'success');
+                  } catch (err) {
+                    notify(err instanceof ApiFailure ? err.message : 'بارگذاری رسید ناموفق بود.', 'error');
+                  } finally { setReceiptBusy(false); e.target.value = ''; }
+                }} />
+              </label>
+              {payForm.receiptName && <span className="truncate text-[11px] text-emerald-700">{payForm.receiptName}</span>}
+            </div>
           </Field>
         </div>
       </Modal>

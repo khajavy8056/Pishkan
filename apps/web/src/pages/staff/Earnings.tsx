@@ -49,6 +49,7 @@ interface EarningRow {
 interface Withdrawal {
   id: string; amount: number; status: string; statusLabel: string; requestedAt: string;
   paidAt: string | null; trackingCode: string | null; decisionNote: string | null; periodStart: string | null;
+  receiptUrl?: string | null;
 }
 
 const STATUS_LABEL: Record<string, string> = {
@@ -316,6 +317,9 @@ export function StaffEarnings() {
                     ثبت {faDateTime(row.requestedAt)}
                     {row.periodStart ? ` · دوره ${faDate(row.periodStart)}` : ''}
                     {row.trackingCode ? ` · پیگیری ${row.trackingCode}` : ''}
+                    {row.receiptUrl && (
+                      <> · <a className="font-medium text-accent underline" href={row.receiptUrl} target="_blank" rel="noreferrer">رسید پرداخت</a></>
+                    )}
                   </p>
                   {row.decisionNote && <p className="mt-1 text-[11px] text-rose-700">علت: {row.decisionNote}</p>}
                 </div>

@@ -4,7 +4,7 @@ import { Link, useParams, useSearchParams } from 'react-router-dom';
 import {
   ClipboardList, FileText, Clock, AlertTriangle, CheckCircle2, UserPlus, UploadCloud, Send,
   Users, CalendarClock, ArrowRight, Wallet, RefreshCw, LogIn, LogOut, Search, MessageSquare,
-  ShieldAlert, Download, BadgeCheck, FileCheck2, XCircle,
+  ShieldAlert, Download, BadgeCheck, FileCheck2, XCircle, Landmark,
 } from 'lucide-react';
 import clsx from 'clsx';
 import { AppShell, PageHeader } from '../../components/shell';
@@ -501,6 +501,8 @@ export function RequestDetail({ variant = 'staff' }: { variant?: 'staff' | 'admi
   const [error, setError] = useState('');
   const [note, setNote] = useState('');
   const [statusModal, setStatusModal] = useState(false);
+  const [externalModal, setExternalModal] = useState(false);
+  const [externalForm, setExternalForm] = useState({ title: '', amount: 0, note: '' });
   const [deadlineModal, setDeadlineModal] = useState(false);
   const [deadlineInput, setDeadlineInput] = useState('');
   const [assignModal, setAssignModal] = useState(false);
@@ -529,6 +531,23 @@ export function RequestDetail({ variant = 'staff' }: { variant?: 'staff' | 'admi
       notify(direction > 0 ? 'مرحلهٔ پرونده جلو رفت.' : 'به مرحلهٔ قبل برگشتید.', 'success');
     } catch (err) {
       notify(err instanceof ApiFailure ? err.message : 'خطا در تغییر مرحله', 'error');
+    } finally { setBusy(false); }
+  };
+
+  const createExternalInvoice = async () => {
+    setBusy(true);
+    try {
+      const res = await api.post<{ data: any }>(`/api/requests/${id}/external-invoices`, {
+        title: externalForm.title.trim(),
+        amount: Number(externalForm.amount),
+        note: externalForm.note.trim() || undefined,
+      });
+      setRequest(res.data);
+      setExternalModal(false);
+      setExternalForm({ title: '', amount: 0, note: '' });
+      notify('فاکتور هزینهٔ سازمانی صادر شد و پرونده در انتظار پرداخت مشتری قرار گرفت.', 'success');
+    } catch (err) {
+      notify(err instanceof ApiFailure ? err.message : 'صدور فاکتور ناموفق بود.', 'error');
     } finally { setBusy(false); }
   };
 
@@ -823,13 +842,26 @@ export function RequestDetail({ variant = 'staff' }: { variant?: 'staff' | 'admi
                 <div key={invoice.id} className="rounded-xl bg-surface-3 px-3 py-2">
                   <div className="flex items-center justify-between gap-2">
                     <span className="text-xs font-medium text-navy-900">{invoice.number}</span>
-                    <StatusBadge status={invoice.status} />
+                    <span className="flex items-center gap-1">
+                      {invoice.purpose === 'external_cost' && <Badge tone="info">هزینهٔ سازمانی</Badge>}
+                      <StatusBadge status={invoice.status} />
+                    </span>
                   </div>
+                  {invoice.title && <p className="mt-0.5 text-[11px] font-medium text-navy-700">{invoice.title}</p>}
                   <p className="mt-1 text-sm font-semibold text-navy-900">{rial(invoice.total)}</p>
                   <p className="text-[11px] text-navy-500">پرداخت‌شده: {rial(invoice.paidAmount)}</p>
+                  {invoice.purpose === 'external_cost' && (
+                    <p className="text-[10px] text-navy-400">مبلغ امانی سازمان است؛ جزو درآمد دفتر و پورسانت محاسبه نمی‌شود.</p>
+                  )}
                 </div>
               ))}
             </div>
+            {can('requests.edit') && (request.externalCosts?.enabled || office)
+              && !['completed', 'cancelled', 'rejected'].includes(request.status) && (
+              <Button size="sm" variant="ghost" className="mt-3 w-full" onClick={() => setExternalModal(true)}>
+                <Landmark className="size-4" /> صدور فاکتور هزینهٔ سازمانی برای مشتری
+              </Button>
+            )}
             {variant === 'admin' && can('invoices.create') && (
               <Link to="/admin/finance" className="btn-ghost btn-sm mt-3 w-full">مدیریت فاکتورها</Link>
             )}
@@ -849,6 +881,43 @@ export function RequestDetail({ variant = 'staff' }: { variant?: 'staff' | 'admi
           {['ready', 'completed'].includes(nextStatus) && !can('requests.approve') && (
             <p className="rounded-lg bg-amber-50 p-2 text-[11px] text-amber-900">برای این وضعیت دسترسی «تأیید درخواست» لازم است.</p>
           )}
+        </div>
+      </Modal>
+
+      <Modal open={externalModal} onClose={() => setExternalModal(false)} title="صدور فاکتور هزینهٔ سازمانی"
+        footer={<><Button variant="ghost" onClick={() => setExternalModal(false)}>انصراف</Button>
+          <Button loading={busy} disabled={externalForm.title.trim().length < 3 || Number(externalForm.amount) <= 0} onClick={() => void createExternalInvoice()}>
+            صدور و ارسال برای مشتری
+          </Button></>}>
+        <div className="space-y-3">
+          <p className="rounded-xl bg-sky-50 p-3 text-[11px] leading-6 text-sky-950 ring-1 ring-sky-200">
+            این مبلغ هزینهٔ سازمان مربوطه است (مثل حق بیمه یا عوارض) و جزو حق‌الزحمهٔ دفتر و پورسانت نیست.
+            پس از صدور، پرونده «منتظر مشتری» می‌شود، برای مشتری پیامک می‌رود و در صفحهٔ پرونده‌اش دکمهٔ پرداخت می‌بیند؛
+            به‌محض پرداخت، شما خبردار می‌شوید و پرونده به جریان برمی‌گردد.
+          </p>
+          {(request.externalCosts?.items?.length ?? 0) > 0 && (
+            <div className="flex flex-wrap gap-2">
+              {request.externalCosts.items.map((item: any) => (
+                <button key={item.title} type="button"
+                  className="rounded-full bg-surface-3 px-3 py-1.5 text-[11px] text-navy-700 ring-1 ring-line transition hover:bg-sky-50"
+                  onClick={() => setExternalForm({ ...externalForm, title: item.title, amount: item.amount })}>
+                  {item.title} — {rial(item.amount)}
+                </button>
+              ))}
+            </div>
+          )}
+          <Field label="عنوان هزینه" required>
+            <Input value={externalForm.title} onChange={(e) => setExternalForm({ ...externalForm, title: e.target.value })}
+              placeholder="مثلاً: حق بیمه تأمین اجتماعی — فروردین ۱۴۰۵" />
+          </Field>
+          <Field label="مبلغ (ریال)" required hint="دقیقاً همان مبلغی که سامانهٔ سازمان اعلام کرده است.">
+            <Input type="number" min={1} dir="ltr" value={externalForm.amount}
+              onChange={(e) => setExternalForm({ ...externalForm, amount: Number(e.target.value) })} />
+          </Field>
+          <Field label="توضیح برای مشتری (اختیاری)">
+            <Textarea value={externalForm.note} onChange={(e) => setExternalForm({ ...externalForm, note: e.target.value })}
+              placeholder="مثلاً: مبلغ اعلامی سامانهٔ تأمین اجتماعی برای کد ملی شما" />
+          </Field>
         </div>
       </Modal>
 
@@ -1166,10 +1235,13 @@ export function StaffCustomService() {
   const [customers, setCustomers] = useState<any[]>([]);
   const [services, setServices] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
-  const [form, setForm] = useState({
+  const emptyForm = {
     customerId: '', title: '', description: '', baseFee: 0, estimatedMinutes: 4320, durationUnit: 'day',
-    message: '', expiryHours: 72, documents: '', steps: '',
-  });
+    message: '', expiryHours: 72, documents: '', steps: '', assignment: 'pool', customRequestId: '',
+    hasExternalCosts: false,
+  };
+  const [form, setForm] = useState(emptyForm);
+  const [intakes, setIntakes] = useState<any[]>([]);
   const [creating, setCreating] = useState(false);
 
   const load = () => {
@@ -1177,10 +1249,35 @@ export function StaffCustomService() {
     Promise.all([
       api.list<any>('/api/customers', { pageSize: 200 }),
       api.list<any>('/api/catalog/custom-services'),
-    ]).then(([cust, svc]) => { setCustomers(cust.data); setServices(svc.data); })
+      api.list<any>('/api/catalog/custom-requests').catch(() => ({ data: [] as any[] })),
+    ]).then(([cust, svc, intakeRes]) => { setCustomers(cust.data); setServices(svc.data); setIntakes(intakeRes.data); })
       .finally(() => setLoading(false));
   };
   useEffect(load, []);
+
+  const priceIntake = (intake: any) => {
+    setForm({
+      ...emptyForm,
+      customerId: intake.customerId,
+      title: intake.title,
+      description: intake.description,
+      customRequestId: intake.id,
+    });
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+    notify('فرم با مشخصات درخواست مشتری پر شد؛ قیمت و جزئیات را کامل کنید.', 'info');
+  };
+
+  const rejectIntake = async (intake: any) => {
+    const note = window.prompt('دلیل رد برای مشتری نوشته می‌شود:');
+    if (!note || note.trim().length < 3) return;
+    try {
+      await api.post(`/api/catalog/custom-requests/${intake.id}/reject`, { note: note.trim() });
+      notify('درخواست رد و به مشتری اطلاع داده شد.', 'success');
+      load();
+    } catch (err) {
+      notify(err instanceof ApiFailure ? err.message : 'خطا', 'error');
+    }
+  };
 
   const submit = async () => {
     setCreating(true);
@@ -1195,9 +1292,12 @@ export function StaffCustomService() {
         expiryHours: Number(form.expiryHours),
         documents: form.documents.split('\n').map((t) => t.trim()).filter(Boolean).map((title) => ({ title, required: true })),
         workflow: form.steps.split('\n').map((t) => t.trim()).filter(Boolean).map((title) => ({ title })),
+        hasExternalCosts: form.hasExternalCosts,
+        assignToCreator: form.assignment === 'self',
+        customRequestId: form.customRequestId || undefined,
       });
       notify('خدمت اختصاصی ایجاد شد و پیشنهاد برای مشتری ارسال شد.', 'success');
-      setForm({ customerId: '', title: '', description: '', baseFee: 0, estimatedMinutes: 4320, durationUnit: 'day', message: '', expiryHours: 72, documents: '', steps: '' });
+      setForm(emptyForm);
       load();
     } catch (err) {
       notify(err instanceof ApiFailure ? err.message : 'خطا', 'error');
@@ -1207,6 +1307,30 @@ export function StaffCustomService() {
   return (
     <AppShell variant="staff">
       <PageHeader title="خدمت اختصاصی" description="خدمتی که فقط برای یک مشتری تعریف می‌شود: پیشنهاد، فاکتور و گردش کار مستقل، بدون نمایش در کاتالوگ عمومی." />
+
+      {intakes.some((intake) => intake.status === 'pending') && (
+        <Card className="mb-6">
+          <h2 className="mb-1 font-bold text-navy-900">درخواست‌های اختصاصی مشتریان (منتظر قیمت‌گذاری)</h2>
+          <p className="mb-3 text-[11px] text-navy-500">این‌ها خواسته‌هایی هستند که مشتری در فهرست خدمات پیدا نکرده و خودش شرح داده است. با «قیمت‌گذاری» فرم پایین با مشخصاتش پر می‌شود.</p>
+          <div className="space-y-2">
+            {intakes.filter((intake) => intake.status === 'pending').map((intake) => (
+              <div key={intake.id} className="rounded-xl bg-surface-3 p-3">
+                <div className="flex flex-wrap items-start justify-between gap-2">
+                  <div className="min-w-0">
+                    <p className="text-sm font-semibold text-navy-900">{intake.title}</p>
+                    <p className="mt-0.5 text-[11px] text-navy-500">{intake.customerName} • {intake.customerMobile} • {faDate(intake.createdAt)}</p>
+                    <p className="mt-1 text-xs leading-6 text-navy-700">{intake.description}</p>
+                  </div>
+                  <div className="flex gap-2">
+                    <Button size="sm" onClick={() => priceIntake(intake)}>قیمت‌گذاری</Button>
+                    <Button size="sm" variant="ghost" onClick={() => void rejectIntake(intake)}>رد</Button>
+                  </div>
+                </div>
+              </div>
+            ))}
+          </div>
+        </Card>
+      )}
 
       <div className="grid gap-6 lg:grid-cols-2">
         <Card>
@@ -1238,6 +1362,26 @@ export function StaffCustomService() {
             <Field label="پیام به مشتری"><Textarea value={form.message} onChange={(e) => setForm({ ...form, message: e.target.value })} placeholder="توضیح شرایط و مبلغ پیشنهادی…" /></Field>
             <Field label="مدارک مورد نیاز" hint="هر مورد در یک خط"><Textarea value={form.documents} onChange={(e) => setForm({ ...form, documents: e.target.value })} placeholder={'کارت ملی\nوکالت‌نامه'} /></Field>
             <Field label="مراحل انجام" hint="هر مرحله در یک خط"><Textarea value={form.steps} onChange={(e) => setForm({ ...form, steps: e.target.value })} placeholder={'دریافت مدارک\nبررسی کارشناس\nثبت نهایی'} /></Field>
+            <div className="flex items-center justify-between gap-3 rounded-xl bg-surface-3 px-3 py-2.5">
+              <div>
+                <p className="text-xs font-bold text-navy-800">هزینهٔ سازمانی حین انجام دارد</p>
+                <p className="text-[10px] leading-5 text-navy-500">مبلغی متعلق به سازمان مربوطه که حین کار با فاکتور جداگانه از مشتری گرفته می‌شود (مثل حق بیمه).</p>
+              </div>
+              <Switch checked={form.hasExternalCosts} label={form.hasExternalCosts ? 'دارد' : 'ندارد'}
+                onChange={(checked) => setForm({ ...form, hasExternalCosts: checked })} />
+            </div>
+            <Field label="پس از تأیید و پرداخت مشتری، انجام کار با کیست؟">
+              <Select value={form.assignment} onChange={(e) => setForm({ ...form, assignment: e.target.value })}
+                options={[
+                  { value: 'pool', label: 'ارسال به صف آزاد کارکنان (هر کس واجد شرایط بود برمی‌دارد)' },
+                  { value: 'self', label: 'خودم انجام می‌دهم (مستقیم به من واگذار می‌شود)' },
+                ]} />
+            </Field>
+            {form.customRequestId && (
+              <p className="rounded-lg bg-sky-50 px-3 py-2 text-[11px] leading-6 text-sky-950 ring-1 ring-sky-200">
+                این پیشنهاد در پاسخ به درخواست اختصاصی مشتری ثبت می‌شود و وضعیت آن درخواست به «قیمت‌گذاری شده» تغییر می‌کند.
+              </p>
+            )}
             <Button loading={creating} onClick={submit} disabled={!form.customerId || form.title.length < 3}>ایجاد و ارسال پیشنهاد</Button>
           </div>
         </Card>

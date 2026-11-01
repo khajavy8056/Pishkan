@@ -3,6 +3,7 @@ import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import {
   Search, ArrowLeft, Clock, FileText, CheckCircle2, AlertTriangle, UploadCloud, Wallet,
   ListOrdered, ChevronLeft, ShieldCheck, Info, TicketPercent, UserRoundCheck, X,
+  Landmark,
 } from 'lucide-react';
 import clsx from 'clsx';
 import { PublicLayout } from '../../components/public-layout';
@@ -486,6 +487,26 @@ export function ServiceDetailPage() {
                   <Info className="mt-0.5 size-4 shrink-0" /> {service.contactNotice}
                 </div>
               )}
+
+              {service.hasExternalCosts && (
+                <div className="mt-4 rounded-xl bg-sky-50 p-4 text-xs leading-6 text-sky-950 ring-1 ring-sky-200">
+                  <p className="flex items-center gap-2 font-bold">
+                    <Landmark className="size-4 shrink-0" />
+                    هزینهٔ سازمانی جداگانه از حق‌الزحمه
+                  </p>
+                  <p className="mt-1">{service.externalCostsNote}</p>
+                  {(service.externalCostItems?.length ?? 0) > 0 && (
+                    <ul className="mt-2 space-y-1 border-t border-sky-200/70 pt-2">
+                      {service.externalCostItems!.map((item) => (
+                        <li key={item.title} className="flex items-center justify-between gap-2">
+                          <span>{item.title}</span>
+                          <b>{rial(item.amount)}</b>
+                        </li>
+                      ))}
+                    </ul>
+                  )}
+                </div>
+              )}
             </div>
 
             {/* Workflow */}
@@ -636,6 +657,12 @@ export function ServiceDetailPage() {
                 <span className="text-xs text-navy-600">مبلغ قابل پرداخت</span>
                 <span className="font-bold text-navy-900">{rial(quote ? quote.total : service.finalFee)}</span>
               </div>
+              {service.hasExternalCosts && (
+                <p className="mt-2 flex items-start gap-1.5 text-[11px] leading-5 text-sky-900">
+                  <Landmark className="mt-0.5 size-3.5 shrink-0" />
+                  این مبلغ فقط حق‌الزحمهٔ انجام خدمت است؛ هزینهٔ سازمانی (اگر پیش بیاید) بعداً با فاکتور جداگانه در پرونده‌تان اعلام و همان‌جا قابل پرداخت می‌شود.
+                </p>
+              )}
 
               {!service.acceptingRequests ? (
                 <div className="mt-4 rounded-xl bg-amber-50 p-3 text-xs leading-6 text-amber-900 ring-1 ring-amber-200">

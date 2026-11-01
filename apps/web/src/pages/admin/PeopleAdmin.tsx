@@ -11,7 +11,7 @@ import {
 } from '../../components/ui';
 import { api, ApiFailure } from '../../lib/api';
 import { useAuth } from '../../lib/auth';
-import { faDateTime, faNum, rial } from '../../lib/format';
+import { faDateTime, faNum, relative, rial } from '../../lib/format';
 
 /* -------------------------------- customers ------------------------------- */
 
@@ -366,7 +366,12 @@ export function AdminStaff() {
               <Card key={member.id}>
                 <div className="flex items-start justify-between gap-2">
                   <div className="min-w-0">
-                    <p className="truncate font-medium text-navy-900">{member.fullName}</p>
+                    <p className="flex items-center gap-1.5 truncate font-medium text-navy-900">
+                      <span className={clsx('size-2 shrink-0 rounded-full',
+                        member.lastSeenAt && Date.now() - Date.parse(member.lastSeenAt) < 10 * 60_000 ? 'bg-emerald-500' : 'bg-navy-200')}
+                        title={member.lastSeenAt ? `آخرین فعالیت: ${relative(member.lastSeenAt)}` : 'هنوز فعالیتی ثبت نشده'} />
+                      {member.fullName}
+                    </p>
                     <p className="mt-0.5 text-[11px] text-navy-500">{member.roleName ?? member.roleCode} {member.employeeCode ? `• ${member.employeeCode}` : ''}</p>
                     <p dir="ltr" className="mt-0.5 text-left text-[11px] text-navy-400">{member.mobile}</p>
                   </div>

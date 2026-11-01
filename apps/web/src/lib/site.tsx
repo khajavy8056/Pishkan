@@ -48,6 +48,10 @@ export interface Service {
   documents: { key: string; title: string; required: boolean; note?: string }[];
   workflow: { title: string; description?: string; role?: string; requiresDocument?: boolean }[];
   contactNotice: string | null;
+  /** Organization fees may arise mid-process; never part of our fee. */
+  hasExternalCosts?: boolean;
+  externalCostsNote?: string | null;
+  externalCostItems?: { title: string; amount: number }[];
   isPublished: boolean;
   acceptingRequests: boolean;
   isCustom: boolean;

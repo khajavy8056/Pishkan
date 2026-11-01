@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
-import { AlertTriangle, CheckCircle2, Coins, Clock, Inbox, RefreshCw, Timer,
+import { AlertTriangle, BellRing, CheckCircle2, Coins, Clock, Inbox, RefreshCw, Timer,
   FileText,
 } from 'lucide-react';
 import clsx from 'clsx';
@@ -37,6 +37,99 @@ function remaining(forceAssignAt: string | null, remainingMinutes: number | null
   if (minutes < 60) return `${faNum(minutes)} دقیقه تا واگذاری خودکار`;
   const hours = Math.round(minutes / 60);
   return hours < 48 ? `${faNum(hours)} ساعت تا واگذاری خودکار` : `${faNum(Math.round(hours / 24))} روز تا واگذاری خودکار`;
+}
+
+/* ------------------------------ push opt-in ------------------------------ */
+
+function urlBase64ToUint8Array(base64String: string): Uint8Array {
+  const padding = '='.repeat((4 - (base64String.length % 4)) % 4);
+  const base64 = (base64String + padding).replace(/-/g, '+').replace(/_/g, '/');
+  const rawData = window.atob(base64);
+  const outputArray = new Uint8Array(rawData.length);
+  for (let i = 0; i < rawData.length; i += 1) outputArray[i] = rawData.charCodeAt(i);
+  return outputArray;
+}
+
+function PushToggle() {
+  const { notify } = useToast();
+  const [state, setState] = useState<'unsupported' | 'off' | 'on'>('off');
+  const [busy, setBusy] = useState(false);
+  const supported = typeof window !== 'undefined' && 'serviceWorker' in navigator && 'PushManager' in window && 'Notification' in window;
+
+  useEffect(() => {
+    if (!supported) { setState('unsupported'); return; }
+    navigator.serviceWorker.ready
+      .then((registration) => registration.pushManager.getSubscription())
+      .then((subscription) => setState(subscription ? 'on' : 'off'))
+      .catch(() => setState('off'));
+  }, [supported]);
+
+  const enable = async () => {
+    setBusy(true);
+    try {
+      const server = await api.get<{ data: { enabled: boolean; publicKey: string | null } }>('/api/push/public-key');
+      if (!server.data.enabled || !server.data.publicKey) {
+        notify('اعلان لحظه‌ای در تنظیمات سامانه خاموش است.', 'error');
+        setState('off');
+        return;
+      }
+      const permission = await Notification.requestPermission();
+      if (permission !== 'granted') {
+        notify('برای دریافت اعلان، اجازهٔ مرورگر لازم است.', 'error');
+        setState('off');
+        return;
+      }
+      const registration = await navigator.serviceWorker.ready;
+      const subscription = await registration.pushManager.subscribe({
+        userVisibleOnly: true,
+        applicationServerKey: urlBase64ToUint8Array(server.data.publicKey) as BufferSource,
+      });
+      await api.post('/api/push/subscribe', subscription.toJSON());
+      setState('on');
+      notify('اعلان این دستگاه فعال شد؛ پروندهٔ تازه که به صف بیاید خبرتان می‌کنیم.', 'success');
+    } catch (err) {
+      notify(err instanceof ApiFailure ? err.message : 'فعال‌سازی اعلان ناموفق بود.', 'error');
+      setState('off');
+    } finally { setBusy(false); }
+  };
+
+  const disable = async () => {
+    setBusy(true);
+    try {
+      const registration = await navigator.serviceWorker.ready;
+      const subscription = await registration.pushManager.getSubscription();
+      if (subscription) {
+        await api.post('/api/push/unsubscribe', { endpoint: subscription.endpoint }).catch(() => undefined);
+        await subscription.unsubscribe().catch(() => undefined);
+      }
+      setState('off');
+      notify('اعلان این دستگاه خاموش شد.', 'success');
+    } catch {
+      setState('on');
+    } finally { setBusy(false); }
+  };
+
+  if (state === 'unsupported') return null;
+  return (
+    <Card className="mb-4">
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <div className="flex items-start gap-2">
+          <BellRing className="mt-0.5 size-5 text-brand-700" />
+          <div>
+            <p className="font-bold text-navy-900">اعلان لحظه‌ای پروندهٔ تازه</p>
+            <p className="mt-0.5 text-xs leading-6 text-navy-500">
+              {state === 'on'
+                ? 'این دستگاه فعال است؛ به‌محض ورود پروندهٔ متناسب با شما به صف آزاد، اعلان می‌گیرید.'
+                : 'با فعال‌کردن، لازم نیست مدام این صفحه را تازه کنید؛ پروندهٔ تازه خودش خبرتان می‌کند.'}
+            </p>
+          </div>
+        </div>
+        {state === 'on'
+          ? <Button size="sm" variant="ghost" loading={busy} onClick={() => void disable()}>خاموش‌کردن روی این دستگاه</Button>
+          : <Button size="sm" loading={busy} onClick={() => void enable()}>فعال‌کردن اعلان این دستگاه</Button>}
+      </div>
+    </Card>
+  );
 }
 
 export function EligibleQueue() {
@@ -80,6 +173,8 @@ export function EligibleQueue() {
         description="هر درخواستی که هنوز کسی آن را برنداشته در این صف است. با «می‌پذیرم» پرونده به شما سپرده می‌شود و همان لحظه از فهرست همه کارکنان دیگر حذف می‌شود."
         actions={<Button variant="ghost" onClick={load}><RefreshCw className="size-4" /> تازه‌سازی صف</Button>}
       />
+
+      <PushToggle />
 
       <div className="mb-6 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
         <StatCard label="درخواست آزاد" value={faNum(rows?.length ?? 0)} icon={<Inbox className="size-5" />} />

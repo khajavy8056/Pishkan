@@ -68,6 +68,33 @@ export function AdminDashboard() {
         </div>
       </div>
 
+      {data.workforceAlerts && (
+        <Card className="mt-4">
+          <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+            <h2 className="flex items-center gap-2 font-bold text-navy-900"><Users className="size-4 text-accent" /> وضعیت زندهٔ نیروی کار</h2>
+            <span className="text-[11px] text-navy-400">برای اقدام، روی هر مورد بزنید.</span>
+          </div>
+          <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+            <Link to="/admin/requests?unassigned=true" className="rounded-xl bg-rose-50 px-4 py-3 ring-1 ring-rose-100 transition hover:shadow">
+              <p className="text-lg font-black text-rose-800">{faNum(data.workforceAlerts.overdueUnassigned)}</p>
+              <p className="text-[11px] leading-5 text-rose-700">پروندهٔ بدون کارشناس که از موعد واگذاری گذشته</p>
+            </Link>
+            <Link to="/admin/requests?unassigned=true" className="rounded-xl bg-amber-50 px-4 py-3 ring-1 ring-amber-100 transition hover:shadow">
+              <p className="text-lg font-black text-amber-800">{faNum(data.workforceAlerts.unassigned)}</p>
+              <p className="text-[11px] leading-5 text-amber-700">کل پرونده‌های هنوز بدون کارشناس</p>
+            </Link>
+            <Link to="/admin/requests?bucket=waiting_customer&group=open" className="rounded-xl bg-sky-50 px-4 py-3 ring-1 ring-sky-100 transition hover:shadow">
+              <p className="text-lg font-black text-sky-800">{faNum(data.workforceAlerts.waitingCases)}</p>
+              <p className="text-[11px] leading-5 text-sky-700">پروندهٔ منتظر مشتری/سازمان یا نیازمند پیگیری</p>
+            </Link>
+            <div className="rounded-xl bg-emerald-50 px-4 py-3 ring-1 ring-emerald-100">
+              <p className="text-lg font-black text-emerald-800">{faNum(data.workforceAlerts.onlineStaff)}</p>
+              <p className="text-[11px] leading-5 text-emerald-700">کارمند آنلاین در ۱۰ دقیقهٔ اخیر</p>
+            </div>
+          </div>
+        </Card>
+      )}
+
       <div className="mt-6 grid gap-6 lg:grid-cols-3">
         <Card className="lg:col-span-2">
           <div className="mb-4 flex items-center justify-between">

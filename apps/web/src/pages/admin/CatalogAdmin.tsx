@@ -514,6 +514,52 @@ export function AdminServiceEditor() {
                   </Field>
                 </div>
                 <div className="space-y-4 rounded-2xl border border-navy-100 p-4"><h3 className="text-sm font-bold">محدوده ارائه خدمت</h3><Select value={service.coverage} onChange={e=>set({coverage:e.target.value})} options={[{value:'nationwide',label:'سراسر کشور'},{value:'cities',label:'فقط شهرهای انتخابی'}]} />{service.coverage==='cities'&&<div className="max-h-48 space-y-2 overflow-auto">{cities.map(c=><label key={c.id} className="flex items-center gap-2 text-sm"><input type="checkbox" checked={service.cityIds.includes(c.id)} onChange={e=>set({cityIds:e.target.checked?[...service.cityIds,c.id]:service.cityIds.filter((v:string)=>v!==c.id)})} />{c.province} · {c.name}</label>)}</div>}<Button variant="ghost" size="sm" onClick={async()=>{const province=prompt('نام استان');if(!province)return;const name=prompt('نام شهر');if(!name)return;try{await api.post('/api/catalog/cities',{province,name});setCities((await api.get<{data:any[]}>('/api/public/cities')).data);notify('شهر ثبت شد','success')}catch(e){notify(e instanceof Error?e.message:'خطا','error')}}}>افزودن شهر به مرجع</Button></div>
+                <div className="space-y-4 rounded-2xl border border-navy-100 p-4">
+                  <div className="flex flex-wrap items-center justify-between gap-3">
+                    <div>
+                      <h3 className="text-sm font-bold">هزینه‌های سازمانی حین انجام</h3>
+                      <p className="mt-1 text-[11px] leading-6 text-navy-500">
+                        بعضی خدمت‌ها در حین انجام هزینه‌ای برای سازمان مربوطه دارند (مثل حق بیمهٔ تأمین اجتماعی یا عوارض) که جزو حق‌الزحمهٔ دفتر نیست
+                        و مبلغش برای هر شخص متفاوت است. با فعال‌کردن این گزینه، مشتری از قبل در جریان قرار می‌گیرد و کارشناس می‌تواند حین کار
+                        برای همان پرونده فاکتور جداگانه صادر کند تا مشتری همان‌جا پرداختش کند. این مبالغ هرگز جزو درآمد دفتر و مبنای پورسانت نیستند.
+                      </p>
+                    </div>
+                    <Switch checked={Boolean(service.hasExternalCosts)} label={service.hasExternalCosts ? 'فعال' : 'غیرفعال'}
+                      onChange={(checked) => set({ hasExternalCosts: checked })} />
+                  </div>
+                  {service.hasExternalCosts && (
+                    <>
+                      <Field label="متن اطلاع‌رسانی به مشتری" hint="خالی بماند، متن پیش‌فرض سامانه نمایش داده می‌شود.">
+                        <Textarea value={service.externalCostsNote ?? ''} onChange={(e) => set({ externalCostsNote: e.target.value })}
+                          placeholder="در حین انجام این خدمت ممکن است مبالغی بابت هزینهٔ سازمان مربوطه لازم باشد که جزو حق‌الزحمهٔ دفتر نیست…" />
+                      </Field>
+                      <div>
+                        <p className="mb-2 text-xs font-bold text-navy-700">اقلام مشخص از پیش معلوم (اختیاری)</p>
+                        <p className="mb-2 text-[11px] text-navy-500">اگر مبلغ بعضی هزینه‌ها از قبل معلوم است، اینجا بیاورید تا در صفحهٔ خدمت جدا از حق‌الزحمه به مشتری نشان داده شود و کارشناس موقع صدور فاکتور با یک کلیک انتخابشان کند.</p>
+                        <div className="space-y-2">
+                          {(service.externalCostItems ?? []).map((item: any, index: number) => (
+                            <div key={index} className="flex flex-wrap items-center gap-2">
+                              <Input className="min-w-48 flex-1" value={item.title}
+                                onChange={(e) => set({ externalCostItems: (service.externalCostItems ?? []).map((row: any, i: number) => (i === index ? { ...row, title: e.target.value } : row)) })}
+                                placeholder="مثلاً عوارض شهرداری" />
+                              <Input type="number" min={0} className="w-36" dir="ltr" value={item.amount}
+                                onChange={(e) => set({ externalCostItems: (service.externalCostItems ?? []).map((row: any, i: number) => (i === index ? { ...row, amount: Number(e.target.value) } : row)) })}
+                                placeholder="مبلغ (ریال)" />
+                              <Button size="sm" variant="ghost" aria-label="حذف"
+                                onClick={() => set({ externalCostItems: (service.externalCostItems ?? []).filter((_: any, i: number) => i !== index) })}>
+                                <Trash2 className="size-3.5 text-rose-600" />
+                              </Button>
+                            </div>
+                          ))}
+                        </div>
+                        <Button size="sm" variant="ghost" className="mt-2"
+                          onClick={() => set({ externalCostItems: [...(service.externalCostItems ?? []), { title: '', amount: 0 }] })}>
+                          <Plus className="size-4" /> افزودن قلم
+                        </Button>
+                      </div>
+                    </>
+                  )}
+                </div>
                 <div className="space-y-4 rounded-2xl border border-amber-200 bg-amber-50/50 p-4">
                   <label className="flex items-center gap-2 text-sm font-bold"><input type="checkbox" checked={service.urgentEnabled} onChange={(e) => set({ urgentEnabled: e.target.checked })} />پذیرش درخواست فوری</label>
                   {service.urgentEnabled && <div className="grid gap-3 sm:grid-cols-3">
