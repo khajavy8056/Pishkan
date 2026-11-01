@@ -1,0 +1,114 @@
+import {beforeAll,describe,it,expect} from 'vitest';
+import request from 'supertest';
+import {app,adminSession,customerSession,createStaff,ADMIN} from './helpers.js';
+import {one,run} from '../src/db/index.js';
+import {updateSettings} from '../src/modules/settings/service.js';
+let server:Awaited<ReturnType<typeof app>>,admin:any,operator:any,other:any,accountant:any,manager:any,customer:any,requestId:string,fileId:string,customerId:string,workerId:string,managementId:string,accountingId:string;
+beforeAll(async()=>{
+ server=await app();customer=await customerSession();customerId=(await request(server).get('/api/auth/me').set('Cookie',customer.cookie)).body.data.id;
+ operator=await createStaff('operator',{username:'auto_worker',password:'Worker#Pass123',fullName:'کارمند تحویل'});
+ other=await createStaff('operator',{username:'auto_other',password:'Worker#Pass123',fullName:'کارمند نامرتبط'});
+ accountant=await createStaff('accountant',{username:'auto_finance',password:'Finance#Pass123',fullName:'حسابدار دفتر'});
+ manager=await createStaff('manager',{username:'auto_manager',password:'Manager#Pass123',fullName:'سرپرست دفتر'});
+ admin=await adminSession();workerId=(await request(server).get('/api/auth/me').set('Cookie',operator.cookie)).body.data.id;
+ await updateSettings({'services.auto_assign':false}, {id:'system',name:'automation test'});
+ const service=await request(server).post('/api/catalog/services').set('Cookie',admin.cookie).send({title:'خدمت گردش اداری',baseFee:500000,form:[],documents:[],workflow:[]});expect(service.status).toBe(201);
+ const r=await request(server).post('/api/requests').set('Cookie',customer.cookie).send({serviceId:service.body.data.id,formData:{},paymentMethod:'online'});expect(r.status).toBe(201);requestId=r.body.data.id;
+ await run("UPDATE requests SET assigned_to=?,status='in_progress' WHERE id=?",[workerId,requestId]);
+ const pdfFixture=Buffer.from('%PDF-1.4\n1 0 obj<</Type/Catalog/Pages 2 0 R>>endobj\n2 0 obj<</Type/Pages/Kids[3 0 R]/Count 1>>endobj\n3 0 obj<</Type/Page/Parent 2 0 R/MediaBox[0 0 200 200]>>endobj\ntrailer<</Root 1 0 R>>\nstartxref\n0\n%%EOF\n');
+ const upload=await request(server).post('/api/files/upload?purpose=delivery').set('Cookie',operator.cookie).attach('file',pdfFixture,'result.pdf');expect(upload.status).toBe(201);fileId=upload.body.data.id;
+});
+describe('role-aware professional case automation',()=>{
+ it('uses the same password login endpoint for worker, accountant, supervisor and super admin',async()=>{
+  for(const [identifier,password,role,kind] of [['auto_worker','Worker#Pass123','operator','staff'],['auto_finance','Finance#Pass123','accountant','staff'],['auto_manager','Manager#Pass123','manager','admin'],[ADMIN.username,ADMIN.password,'super_admin','admin']]){
+   const r=await request(server).post('/api/auth/login').send({identifier,password});expect(r.status).toBe(200);expect(r.body.data.user.roleCode).toBe(role);expect(r.body.data.user.kind).toBe(kind);
+   // Keep the most recent sessions, avoiding the intentional session cap in subsequent assertions.
+   if(role==='super_admin')admin={cookie:r.headers['set-cookie']};
+  }
+ });
+ it('enforces settings, staff creation, service creation and accounting on the server',async()=>{
+  for(const session of [operator,accountant,manager])await request(server).get('/api/settings/admin').set('Cookie',session.cookie).expect(403);
+  await request(server).get('/api/settings/admin').set('Cookie',admin.cookie).expect(200);
+  await request(server).post('/api/staff').set('Cookie',operator.cookie).send({}).expect(403);
+  await request(server).post('/api/catalog/services').set('Cookie',operator.cookie).send({}).expect(403);
+  await request(server).post('/api/catalog/services').set('Cookie',manager.cookie).send({title:'خدمت مدیر',baseFee:250000,form:[]}).expect(201);
+  await request(server).post('/api/staff').set('Cookie',manager.cookie).send({fullName:'کارمند ساخته‌شده توسط سرپرست',mobile:'09128881122',username:'manager_created_worker',password:'Manager#Created123',roleCode:'operator'}).expect(201);
+  await request(server).get('/api/accounting/invoices').set('Cookie',operator.cookie).expect(403);
+  await request(server).get('/api/accounting/invoices').set('Cookie',accountant.cookie).expect(200);
+ });
+ it('limits customer records to assigned cases and excludes identity numbers from the staff directory',async()=>{
+  await request(server).get(`/api/customers/${customerId}`).set('Cookie',other.cookie).expect(403);
+  const response=await request(server).get('/api/customers').set('Cookie',other.cookie).expect(200);
+  expect(response.body.data.some((row:any)=>row.id===customerId)).toBe(false);
+  const own=await request(server).get(`/api/customers/${customerId}`).set('Cookie',operator.cookie).expect(200);
+  expect(own.body.data.invoices).toHaveLength(0);
+  const directory=await request(server).get('/api/customers').set('Cookie',operator.cookie).expect(200);
+  const listed=directory.body.data.find((row:any)=>row.id===customerId);expect(listed).toBeTruthy();expect(listed.nationalId).toBeNull();
+ });
+ it('rejects delivery by unrelated workers and rolls back foreign-file delivery',async()=>{
+  await request(server).post(`/api/requests/${requestId}/deliver`).set('Cookie',other.cookie).send({files:[{fileId,title:'نتیجه خدمت'}],summary:'گزارش انجام کار'}).expect(403);
+  const foreignPdf=Buffer.from('%PDF-1.4\n1 0 obj<</Type/Catalog/Pages 2 0 R>>endobj\n2 0 obj<</Type/Pages/Kids[3 0 R]/Count 1>>endobj\n3 0 obj<</Type/Page/Parent 2 0 R/MediaBox[0 0 100 100]>>endobj\ntrailer<</Root 1 0 R>>\nstartxref\n0\n%%EOF\n');
+  const foreign=await request(server).post('/api/files/upload').set('Cookie',other.cookie).attach('file',foreignPdf,'foreign.pdf');expect(foreign.status).toBe(201);
+  await request(server).post(`/api/requests/${requestId}/deliver`).set('Cookie',operator.cookie).send({files:[{fileId,title:'نتیجه خدمت'},{fileId:foreign.body.data.id,title:'فایل دیگری'}],summary:'گزارش انجام کار'}).expect(403);
+  expect((await one<any>('SELECT COUNT(*) AS c FROM request_documents WHERE request_id=?',[requestId])).c).toBe(0);
+  expect((await one<any>('SELECT status FROM requests WHERE id=?',[requestId])).status).toBe('in_progress');
+ });
+ it('submits private output for management review and prevents premature completion or publication',async()=>{
+  const sent=await request(server).post(`/api/requests/${requestId}/deliver`).set('Cookie',operator.cookie).send({files:[{fileId,title:'نتیجه خدمت'}],summary:'عملیات انجام شد؛ نتیجه برای تأیید نهایی'});expect(sent.status).toBe(200);expect(sent.body.data.status).toBe('under_review');managementId=sent.body.data.handoffId;
+  const accountantView=await request(server).get(`/api/requests/${requestId}`).set('Cookie',accountant.cookie).expect(200);expect(accountantView.body.data.documents).toEqual([]);expect(accountantView.body.data.events.some((e:any)=>e.type==='document')).toBe(false);
+  const resultDocument=await one<any>("SELECT id FROM request_documents WHERE request_id=? AND kind='staff' ORDER BY created_at DESC LIMIT 1",[requestId]);expect(resultDocument).toBeTruthy();
+  const roleId='role_docs_approve_without_view';const ts=new Date().toISOString();
+  await run('INSERT INTO roles (id,code,name,description,is_system,permissions,created_at,updated_at) VALUES (?,?,?,?,0,?,?,?)',[roleId,'docs_approve_without_view','آزمون تأیید بدون مشاهده','test role',JSON.stringify(['dashboard.view','requests.view','documents.approve']),ts,ts]);
+  const limited=await createStaff('docs_approve_without_view',{username:'auto_docs_limited',password:'Limited#Pass123',fullName:'کاربر بدون مجوز مشاهده'});
+  await request(server).post(`/api/requests/${requestId}/documents/${resultDocument.id}/review`).set('Cookie',limited.cookie).send({decision:'approved',note:'بدون مجوز مشاهده'}).expect(403);
+  expect((await one<any>('SELECT status FROM request_documents WHERE id=?',[resultDocument.id])).status).toBe('pending');
+  const customerView=await request(server).get(`/api/requests/${requestId}`).set('Cookie',customer.cookie);expect(customerView.body.data.documents).toHaveLength(0);expect(customerView.body.data.events.some((e:any)=>e.type==='delivery')).toBe(false);
+  await request(server).get(`/api/files/${fileId}`).set('Cookie',customer.cookie).expect(403);
+  await request(server).patch(`/api/requests/${requestId}/status`).set('Cookie',operator.cookie).send({status:'ready'}).expect(403);
+  await request(server).patch(`/api/requests/${requestId}/status`).set('Cookie',admin.cookie).send({status:'ready'}).expect(409);
+ });
+ it('returns rejected results to in-progress and links a re-delivery to the rejected version',async()=>{
+  const original=await one<any>("SELECT id FROM request_documents WHERE request_id=? AND kind='staff' ORDER BY created_at ASC LIMIT 1",[requestId]);
+  const note='گزارش ناقص است؛ نسخه اصلاح‌شده لازم است.';
+  await request(server).post(`/api/automation/${managementId}/decision`).set('Cookie',manager.cookie)
+   .send({decision:'returned',note}).expect(200);
+  const returned=await request(server).get(`/api/requests/${requestId}`).set('Cookie',operator.cookie).expect(200);
+  expect(returned.body.data.status).toBe('in_progress');
+  expect(returned.body.data.documents.find((document:any)=>document.id===original.id)).toMatchObject({status:'rejected',reviewNote:note});
+  expect(returned.body.data.documents.find((document:any)=>document.id===original.id).reviewHistory).toHaveLength(1);
+
+  const revisedPdf=Buffer.from('%PDF-1.4\n% revision two\n1 0 obj<</Type/Catalog/Pages 2 0 R>>endobj\n2 0 obj<</Type/Pages/Kids[3 0 R]/Count 1>>endobj\n3 0 obj<</Type/Page/Parent 2 0 R/MediaBox[0 0 200 200]>>endobj\ntrailer<</Root 1 0 R>>\nstartxref\n0\n%%EOF\n');
+  const revisedUpload=await request(server).post('/api/files/upload?purpose=delivery').set('Cookie',operator.cookie).attach('file',revisedPdf,'result-revised.pdf');
+  expect(revisedUpload.status).toBe(201);
+  const sent=await request(server).post(`/api/requests/${requestId}/deliver`).set('Cookie',operator.cookie)
+   .send({files:[{fileId:revisedUpload.body.data.id,title:'نتیجه اصلاح‌شده'}],summary:'نتیجه اصلاح و برای بازبینی ارسال شد.'}).expect(200);
+  managementId=sent.body.data.handoffId;
+  const linked=await request(server).get(`/api/requests/${requestId}`).set('Cookie',operator.cookie).expect(200);
+  expect(linked.body.data.documents.find((document:any)=>document.id===original.id).status).toBe('rejected');
+  expect(linked.body.data.documents.find((document:any)=>document.file.id===revisedUpload.body.data.id)).toMatchObject({status:'pending',replacesDocumentId:original.id});
+ });
+ it('separates accounting referral from managerial approval and prevents duplicate referral',async()=>{
+  const r=await request(server).post(`/api/requests/${requestId}/handoffs`).set('Cookie',operator.cookie).send({department:'accounting',reason:'لطفاً وضعیت فاکتور و دریافت وجه بررسی شود'});expect(r.status).toBe(201);accountingId=r.body.data.id;
+  await request(server).post(`/api/requests/${requestId}/handoffs`).set('Cookie',operator.cookie).send({department:'accounting',reason:'ارجاع دوباره به حسابداری'}).expect(409);
+  await request(server).post(`/api/automation/${managementId}/decision`).set('Cookie',accountant.cookie).send({decision:'approved',note:'تأیید غیرمجاز مدیریت'}).expect(403);
+  await request(server).post(`/api/automation/${accountingId}/decision`).set('Cookie',operator.cookie).send({decision:'approved',note:'تأیید خودمجاز نیست'}).expect(403);
+  const inbox=await request(server).get('/api/automation/inbox').set('Cookie',accountant.cookie);expect(inbox.status).toBe(200);expect(inbox.body.data.some((r:any)=>r.id===managementId)).toBe(false);expect(inbox.body.data.some((r:any)=>r.id===accountingId)).toBe(true);
+ });
+ it('keeps internal notes out of customer notifications',async()=>{
+  const before=await one<any>('SELECT COUNT(*) AS c FROM notifications WHERE user_id=?',[customerId]);
+  await request(server).post(`/api/requests/${requestId}/notes`).set('Cookie',operator.cookie).send({message:'شرح محرمانه داخلی',visibleToCustomer:false}).expect(200);
+  expect((await one<any>('SELECT COUNT(*) AS c FROM notifications WHERE user_id=?',[customerId])).c).toBe(before.c);
+ });
+ it('publishes approved output, deduplicates decisions and blocks close until all departments respond',async()=>{
+  const decisions=await Promise.all([1,2].map(()=>request(server).post(`/api/automation/${managementId}/decision`).set('Cookie',manager.cookie).send({decision:'approved',note:'نتیجه بررسی و تأیید شد'})));expect(decisions.map(r=>r.status).sort()).toEqual([200,409]);
+  await request(server).get(`/api/files/${fileId}`).set('Cookie',customer.cookie).expect(403);
+  const revisedDocument=await one<any>("SELECT file_id FROM request_documents WHERE request_id=? AND kind='staff' AND replaces_document_id IS NOT NULL ORDER BY created_at DESC LIMIT 1",[requestId]);
+  await request(server).get(`/api/files/${revisedDocument.file_id}`).set('Cookie',customer.cookie).expect(200);
+  const customerView=await request(server).get(`/api/requests/${requestId}`).set('Cookie',customer.cookie);expect(customerView.body.data.documents).toHaveLength(1);
+  await request(server).patch(`/api/requests/${requestId}/status`).set('Cookie',manager.cookie).send({status:'ready'}).expect(409);
+  await request(server).post(`/api/automation/${accountingId}/decision`).set('Cookie',accountant.cookie).send({decision:'approved',note:'فاکتور بررسی شد؛ ثبت پرداخت عملیاتی جداگانه است'}).expect(200);
+  expect((await one<any>('SELECT COUNT(*) AS c FROM payments WHERE request_id=?',[requestId])).c).toBe(0);
+  await request(server).patch(`/api/requests/${requestId}/status`).set('Cookie',manager.cookie).send({status:'ready'}).expect(200);
+  await request(server).patch(`/api/requests/${requestId}/status`).set('Cookie',manager.cookie).send({status:'completed'}).expect(200);
+ });
+});

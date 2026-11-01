@@ -1,0 +1,44 @@
+[Unit]
+Description=Pishkan API (دفتر پیشخوان دولت)
+Documentation=https://github.com/khajavy8056/Pishkan/blob/main/docs/INSTALL.md
+After=network-online.target postgresql.service
+Wants=network-online.target
+Requires=postgresql.service
+
+[Service]
+Type=simple
+User=pishkan
+Group=pishkan
+WorkingDirectory=/opt/pishkan/current/apps/api
+EnvironmentFile=/etc/pishkan/pishkan.env
+Environment=NODE_ENV=production
+ExecStart=/usr/bin/node dist/index.js
+Restart=always
+RestartSec=5
+TimeoutStopSec=30
+KillSignal=SIGTERM
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=pishkan-api
+UMask=0027
+
+# --- hardening -------------------------------------------------------------
+NoNewPrivileges=true
+PrivateTmp=true
+PrivateDevices=true
+ProtectSystem=strict
+ProtectHome=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
+RestrictNamespaces=true
+LockPersonality=true
+MemoryDenyWriteExecute=false
+ReadWritePaths=/var/lib/pishkan /var/log/pishkan /var/backups/pishkan
+# The application never needs a shell; keep the service user unprivileged.
+CapabilityBoundingSet=
+AmbientCapabilities=
+
+[Install]
+WantedBy=multi-user.target

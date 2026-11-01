@@ -1,0 +1,1414 @@
+import { tehranNow } from '../../lib/tehran-time.js';
+import { one, q, run, nowIso, addHours, jsonParse, jsonStringify, tx } from '../../db/index.js';
+import { id, hmac } from '../../lib/crypto.js';
+import { env } from '../../env.js';
+import { badRequest, conflict, forbidden, notFound } from '../../http/errors.js';
+import { getBool, getNumber, getString } from '../settings/service.js';
+import { getServiceById, finalFee, type ServiceDTO } from '../catalog/service.js';
+import { createInvoice } from '../accounting/service.js';
+import { writeAudit } from '../audit/service.js';
+import { assertWalletUsable } from '../wallet/service.js';
+import { settleInvoiceWithWallet } from '../payments/service.js';
+import { logEvent } from '../logging/service.js';
+import { toPersianDigits } from '../../lib/text.js';
+
+import { requireCompleteProfile, requireCoverage, validNationalId } from '../profiles/service.js';
+import { commissionAmount, commissionPercent, cooperationType } from '../payroll/compensation.js';
+import { notifyUser } from '../notifications/service.js';
+
+export const STATUSES = [
+  'new', 'assigned', 'in_progress', 'waiting_documents', 'waiting_customer',
+  'under_review', 'ready', 'completed', 'cancelled', 'rejected',
+] as const;
+export type RequestStatus = (typeof STATUSES)[number];
+
+export const STATUS_LABELS: Record<RequestStatus, string> = {
+  new: 'جدید',
+  assigned: 'ارجاع‌شده',
+  in_progress: 'در حال انجام',
+  waiting_documents: 'در انتظار مدارک',
+  waiting_customer: 'در انتظار پاسخ مشتری',
+  under_review: 'در حال بررسی',
+  ready: 'آماده تحویل',
+  completed: 'تکمیل‌شده',
+  cancelled: 'لغو‌شده',
+  rejected: 'رد‌شده',
+};
+
+const ALLOWED_TRANSITIONS: Record<RequestStatus, RequestStatus[]> = {
+  new: ['assigned', 'in_progress', 'under_review', 'cancelled', 'rejected'],
+  assigned: ['in_progress', 'waiting_documents', 'waiting_customer', 'under_review', 'cancelled', 'rejected'],
+  in_progress: ['waiting_documents', 'waiting_customer', 'under_review', 'ready', 'completed', 'cancelled', 'rejected'],
+  waiting_documents: ['in_progress', 'under_review', 'cancelled', 'rejected'],
+  waiting_customer: ['in_progress', 'under_review', 'cancelled', 'rejected'],
+  under_review: ['in_progress', 'ready', 'completed', 'cancelled', 'rejected'],
+  ready: ['completed', 'in_progress', 'under_review'],
+  completed: [],
+  cancelled: [],
+  rejected: [],
+};
+
+export interface RequestRow {
+  id: string;
+  tracking_code: string;
+  customer_id: string;
+  service_id: string;
+  assigned_to: string | null;
+  status: RequestStatus;
+  priority: string;
+  form_data: string;
+  snapshot: string;
+  fee: number;
+  discount: number;
+  total: number;
+  payment_method: string;
+  payment_status: string;
+  current_step: number;
+  due_at: string | null;
+  estimated_completion_at: string | null;
+  rejected_reason: string | null;
+  completed_at: string | null;
+  cancelled_at: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+/* -------------------------------- helpers --------------------------------- */
+
+async function generateTrackingCode(): Promise<string> {
+  const prefix = (await getString('services.request_number_prefix')) || 'PK';
+  for (let attempt = 0; attempt < 6; attempt += 1) {
+    const code = `${prefix}-${new Date().getFullYear()}${Math.floor(1000 + Math.random() * 9000)}`;
+    const exists = await one('SELECT id FROM requests WHERE tracking_code = ?', [code]);
+    if (!exists) return code;
+  }
+  return `${prefix}-${Date.now().toString(36).toUpperCase()}`;
+}
+
+function normalizeDigits(value: string): string {
+  return value.replace(/[۰-۹٠-٩]/g, (digit) => {
+    const index = '۰۱۲۳۴۵۶۷۸۹٠١٢٣٤٥٦٧٨٩'.indexOf(digit);
+    return String(index % 10);
+  });
+}
+
+/** Validate submitted form data against the service's dynamic schema. */
+export function validateFormData(service: ServiceDTO, raw: Record<string, unknown>) {
+  const errors: { field: string; message: string }[] = [];
+  const clean: Record<string, unknown> = {};
+  for (const field of service.form) {
+    const value = raw?.[field.key];
+    const isEmpty = value === undefined || value === null || String(value).trim() === '';
+    if ((field.required ?? false) && isEmpty) {
+      errors.push({ field: field.key, message: `«${field.label}» الزامی است.` });
+      continue;
+    }
+    if (isEmpty) continue;
+    if (field.type === 'checkbox' && (field.required ?? false) && !(value === true || value === 'true' || value === 'on' || value === 1)) {
+      errors.push({ field: field.key, message: `«${field.label}» باید تأیید شود.` });
+      continue;
+    }
+
+    switch (field.type) {
+      case 'national_id': {
+        const normalized = normalizeDigits(String(value));
+        const digits = normalized.replace(/\D/g, '');
+        if (!/^[0-9\s-]+$/.test(normalized) || !validNationalId(digits)) errors.push({ field: field.key, message: 'کد ملی معتبر نیست.' });
+        else clean[field.key] = digits;
+        break;
+      }
+      case 'tel': {
+        const normalized = normalizeDigits(String(value));
+        const digits = normalized.replace(/\D/g, '');
+        if (!/^[0-9+()\s-]+$/.test(normalized) || digits.length < 8 || digits.length > 15) errors.push({ field: field.key, message: 'شماره تماس معتبر نیست.' });
+        else clean[field.key] = digits;
+        break;
+      }
+      case 'number':
+      case 'money': {
+        const numeric = String(value)
+          .replace(/[۰-۹٠-٩]/g, (d) => String('۰۱۲۳۴۵۶۷۸۹٠١٢٣٤٥٦٧٨٩'.indexOf(d) % 10))
+          .replace(/[٬,،\s]/g, '')
+          .replace('٫', '.');
+        if (!/^-?(?:\d+(?:\.\d+)?|\.\d+)$/.test(numeric)) {
+          errors.push({ field: field.key, message: 'مقدار عددی معتبر نیست.' });
+        } else {
+          const n = Number(numeric);
+          if (!Number.isFinite(n)) errors.push({ field: field.key, message: 'مقدار عددی معتبر نیست.' });
+          else clean[field.key] = n;
+        }
+        break;
+      }
+      case 'iban': {
+        const iban = String(value).toUpperCase().replace(/\s/g, '');
+        const rearranged = `${iban.slice(4)}${iban.slice(0, 4)}`;
+        let remainder = 0;
+        for (const character of rearranged) {
+          const digits = /[A-Z]/.test(character) ? String(character.charCodeAt(0) - 55) : character;
+          for (const digit of digits) remainder = (remainder * 10 + Number(digit)) % 97;
+        }
+        if (!/^IR\d{24}$/.test(iban) || remainder !== 1) errors.push({ field: field.key, message: 'شماره شبای واردشده معتبر نیست.' });
+        else clean[field.key] = iban;
+        break;
+      }
+      case 'postal_code': {
+        const normalized = normalizeDigits(String(value));
+        const code = normalized.replace(/\D/g, '');
+        if (!/^[0-9\s-]+$/.test(normalized) || code.length !== 10) errors.push({ field: field.key, message: 'کد پستی باید ۱۰ رقم باشد.' });
+        else clean[field.key] = code;
+        break;
+      }
+      case 'checkbox':
+        clean[field.key] = value === true || value === 'true' || value === 'on' || value === 1;
+        break;
+      case 'file':
+        if (typeof value !== 'string' || value.trim().length < 3 || value.length > 120) {
+          errors.push({ field: field.key, message: `فایل «${field.label}» معتبر نیست.` });
+        } else clean[field.key] = value.trim();
+        break;
+      case 'select':
+      case 'radio':
+        if (field.options?.length && !field.options.includes(String(value))) {
+          errors.push({ field: field.key, message: 'گزینه انتخابی معتبر نیست.' });
+        } else clean[field.key] = String(value);
+        break;
+      default:
+        clean[field.key] = String(value).slice(0, 5000);
+    }
+  }
+  if (errors.length) throw badRequest('اطلاعات فرم کامل یا معتبر نیست.', errors);
+  return clean;
+}
+
+/* ------------------------------- assignment -------------------------------- */
+
+async function onShiftToday(userId: string): Promise<boolean> {
+  const clock=tehranNow();
+  const row=await one(`SELECT s.id FROM shifts s JOIN attendance a ON a.shift_id=s.id AND a.user_id=s.user_id WHERE s.user_id=? AND s.shift_date=? AND s.status='scheduled' AND s.start_time<=? AND s.end_time>? AND a.check_in IS NOT NULL AND a.check_out IS NULL LIMIT 1`,[userId,clock.date,clock.time,clock.time]);
+  return Boolean(row);
+}
+
+async function activeLoad(userId: string): Promise<number> {
+  const row = await one<{ c: number }>(
+    `SELECT COUNT(*) AS c FROM requests WHERE assigned_to = ? AND status NOT IN ('completed','cancelled','rejected')`,
+    [userId],
+  );
+  return Number(row?.c ?? 0);
+}
+
+/** Candidate staff for a service, ordered by the configured strategy. */
+export async function candidatesForService(service: ServiceDTO): Promise<{ id: string; name: string; load: number; onShift: boolean }[]> {
+  const rule = await one<any>('SELECT * FROM assignment_rules WHERE service_id = ? AND is_active = 1', [service.id]);
+  const explicitIds: string[] = jsonParse<string[]>(rule?.staff_ids, []);
+  const strategy: string = rule?.strategy ?? (await getString('services.auto_assign_strategy')) ?? 'least_loaded';
+  const maxLoad = Number(rule?.max_load) > 0 ? Number(rule.max_load) : await getNumber('services.max_active_cases_per_staff');
+
+  let staffRows: any[] = [];
+  if (strategy === 'fixed') {
+    if (!explicitIds.length) return [];
+    staffRows = await q<any>(
+      `SELECT u.id, u.full_name, sp.max_active_cases, sp.accepts_new_cases, sp.specialties
+       FROM users u
+       JOIN staff_profiles sp ON sp.user_id = u.id
+       JOIN roles r ON r.id = u.role_id
+       WHERE u.id IN (${explicitIds.map(() => '?').join(',')})
+         AND u.kind = 'staff' AND u.status = 'active' AND sp.accepts_new_cases = 1
+         AND r.code IN ('service_expert','operator','manager')`, explicitIds,
+    );
+  } else {
+    staffRows = await q<any>(
+      `SELECT u.id, u.full_name, sp.max_active_cases, sp.accepts_new_cases, sp.specialties
+       FROM users u
+       JOIN staff_profiles sp ON sp.user_id = u.id
+       JOIN roles r ON r.id = u.role_id
+       WHERE u.kind = 'staff' AND u.status = 'active' AND sp.accepts_new_cases = 1
+         AND r.code IN ('service_expert','operator','manager')`,
+    );
+    const linked = await q<{ user_id: string }>('SELECT user_id FROM service_staff WHERE service_id = ?', [service.id]);
+    if (linked.length) {
+      const linkedIds = new Set(linked.map((l) => l.user_id));
+      staffRows = staffRows.filter((s) => linkedIds.has(s.id));
+    } else if (service.categorySlug) {
+      const specialists = staffRows.filter((s) => {
+        const specialties = jsonParse<string[]>(s.specialties, []);
+        return specialties.length === 0 || specialties.includes(service.categorySlug!) || specialties.includes(service.categoryId ?? '');
+      });
+      if (specialists.length) staffRows = specialists;
+    }
+  }
+
+  const requireShift = await getBool('workforce.auto_assign_on_shift');
+  const candidates: { id: string; name: string; load: number; onShift: boolean }[] = [];
+  for (const row of staffRows) {
+    const load = await activeLoad(row.id);
+    const limit = Number(row.max_active_cases) > 0 ? Math.min(Number(row.max_active_cases), maxLoad) : maxLoad;
+    if (load >= limit) continue;
+    const onShift = await onShiftToday(row.id);
+    if (requireShift && !onShift) continue;
+    candidates.push({ id: row.id, name: row.full_name, load, onShift });
+  }
+
+  if (strategy === 'least_loaded') candidates.sort((a, b) => a.load - b.load || Number(b.onShift) - Number(a.onShift));
+  else if (strategy === 'round_robin' && candidates.length) {
+    const assigned = await q<any>(
+      `SELECT assigned_to, MAX(assigned_at) AS last_assigned_at FROM requests
+       WHERE service_id = ? AND assigned_to IN (${candidates.map(() => '?').join(',')})
+       GROUP BY assigned_to`, [service.id, ...candidates.map((candidate) => candidate.id)],
+    );
+    const lastAssigned = new Map(assigned.map((row) => [row.assigned_to, row.last_assigned_at ?? '']));
+    candidates.sort((a, b) => String(lastAssigned.get(a.id) ?? '').localeCompare(String(lastAssigned.get(b.id) ?? '')) || a.id.localeCompare(b.id));
+  } else if (strategy === 'fixed') candidates.sort((a, b) => explicitIds.indexOf(a.id) - explicitIds.indexOf(b.id));
+
+  return candidates;
+}
+
+export async function autoAssign(requestId: string): Promise<string | null> {
+ return tx(async () => {
+  if (!(await getBool('services.auto_assign'))) return null;
+  const request = await one<RequestRow>('SELECT * FROM requests WHERE id = ?', [requestId]);
+  if (!request || request.assigned_to) return null;
+  const service = await getServiceById(request.service_id);
+  if (!service) return null;
+  const rule = await one<any>('SELECT strategy FROM assignment_rules WHERE service_id = ? AND is_active = 1', [service.id]);
+  const strategy = rule?.strategy ?? (await getString('services.auto_assign_strategy')) ?? 'least_loaded';
+  if (strategy === 'queue') return null;
+
+  const candidates = await candidatesForService(service);
+  const chosen = candidates[0];
+  if (!chosen) return null;
+
+  const assignedAt = nowIso();
+  const nextStatus = request.status === 'under_review' ? 'under_review' : 'assigned';
+  const assignment = await run('UPDATE requests SET assigned_to = ?, assigned_at = ?, status = ?, updated_at = ? WHERE id = ? AND assigned_to IS NULL AND status = ?', [chosen.id, assignedAt, nextStatus, assignedAt, requestId, request.status]);
+  if (!assignment.changes) return null;
+  await addEvent({
+    requestId, type: 'assigned', actorId: 'system', actorName: 'Pishkan auto-assignment',
+    message: `پرونده به ${chosen.name} ارجاع شد.`, fromStatus: request.status, toStatus: nextStatus,
+  });
+  await writeAudit({ actorId: 'system', actorName: 'Pishkan auto-assignment', action: 'request.auto_assign', entityType: 'request', entityId: requestId,
+    before: { staffId: null, status: request.status }, after: { staffId: chosen.id, status: nextStatus } });
+  return chosen.id;
+ });
+}
+
+/* --------------------------------- events ---------------------------------- */
+
+export async function addEvent(input: {
+  requestId: string; type: string; message?: string; actorId?: string; actorName?: string;
+  fromStatus?: string; toStatus?: string; metadata?: unknown; visibleToCustomer?: boolean;
+}) {
+  const eventId = id('evt');
+  await run(
+    `INSERT INTO request_events (id, request_id, actor_id, actor_name, type, message, from_status, to_status, metadata, visible_to_customer, created_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    [
+      eventId, input.requestId, input.actorId ?? null, input.actorName ?? null, input.type,
+      input.message ?? null, input.fromStatus ?? null, input.toStatus ?? null,
+      jsonStringify(input.metadata ?? {}), input.visibleToCustomer === false ? 0 : 1, nowIso(),
+    ],
+  );
+  return eventId;
+}
+
+/** Customer payment methods. Everything else is retired from the workflow. */
+export const ALLOWED_PAYMENT_METHODS = ['online', 'wallet'] as const;
+
+/* --------------------------------- create ---------------------------------- */
+
+export interface CreateRequestInput {
+  serviceId: string;
+  customerId: string;
+  formData: Record<string, unknown>;
+  paymentMethod?: string;
+  priority?: string;
+  note?: string;
+  documentIds?: { fileId: string; title?: string; requirementKey?: string }[];
+  existingInvoiceId?: string;
+  idempotencyKey?: string;
+}
+
+function canonicalJson(value: unknown): string {
+  if (Array.isArray(value)) return `[${value.map(canonicalJson).join(',')}]`;
+  if (value && typeof value === 'object') {
+    const entries = Object.entries(value as Record<string, unknown>).sort(([a], [b]) => a.localeCompare(b));
+    return `{${entries.map(([key, item]) => `${JSON.stringify(key)}:${canonicalJson(item)}`).join(',')}}`;
+  }
+  return JSON.stringify(value) ?? 'null';
+}
+
+type RequestDocumentAttachment = { fileId: string; title: string; requirementKey: string | null };
+
+function documentAttachmentsForSubmission(
+  service: ServiceDTO,
+  formData: Record<string, unknown>,
+  submitted: CreateRequestInput['documentIds'],
+): RequestDocumentAttachment[] {
+  const attachments: RequestDocumentAttachment[] = [];
+  const errors: { field: string; message: string }[] = [];
+  const requirements = service.documents ?? [];
+  const byKey = new Map(requirements.map((document) => [document.key, document]));
+  const seenKeys = new Set<string>();
+  const seenFiles = new Set<string>();
+
+  for (const document of submitted ?? []) {
+    const key = document.requirementKey?.trim();
+    if (!key) {
+      if (requirements.length) errors.push({ field: 'documents', message: 'برای هر مدرک، شناسهٔ مدرک موردنیاز را انتخاب کنید.' });
+      else {
+        if (seenFiles.has(document.fileId)) errors.push({ field: 'documents', message: 'یک فایل را نمی‌توان بیش از یک‌بار پیوست کرد.' });
+        seenFiles.add(document.fileId);
+        attachments.push({ fileId: document.fileId, title: document.title?.trim() || 'مدرک تکمیلی', requirementKey: null });
+      }
+      continue;
+    }
+    const requirement = byKey.get(key);
+    if (!requirement) {
+      errors.push({ field: `documents.${key}`, message: 'این مدرک در فهرست مدارک خدمت وجود ندارد.' });
+      continue;
+    }
+    if (seenKeys.has(key)) errors.push({ field: `documents.${key}`, message: `مدرک «${requirement.title}» بیش از یک‌بار انتخاب شده است.` });
+    if (seenFiles.has(document.fileId)) errors.push({ field: `documents.${key}`, message: 'یک فایل را نمی‌توان برای چند مدرک استفاده کرد.' });
+    seenKeys.add(key);
+    seenFiles.add(document.fileId);
+    attachments.push({ fileId: document.fileId, title: requirement.title, requirementKey: key });
+  }
+
+  for (const requirement of requirements) {
+    if (requirement.required && !seenKeys.has(requirement.key)) {
+      errors.push({ field: `documents.${requirement.key}`, message: `بارگذاری مدرک «${requirement.title}» الزامی است.` });
+    }
+  }
+
+  for (const field of service.form.filter((item) => item.type === 'file')) {
+    const value = formData[field.key];
+    if (value === undefined || value === null || String(value).trim() === '') continue;
+    const fileId = String(value);
+    if (seenFiles.has(fileId)) errors.push({ field: field.key, message: 'یک فایل را نمی‌توان برای چند مدرک استفاده کرد.' });
+    seenFiles.add(fileId);
+    attachments.push({ fileId, title: field.label, requirementKey: `field:${field.key}` });
+  }
+
+  if (errors.length) throw badRequest('مدارک پیوست‌شده کامل یا معتبر نیستند.', errors);
+  return attachments;
+}
+
+async function assertCustomerDocumentFiles(attachments: RequestDocumentAttachment[], customerId: string) {
+  for (const [index, attachment] of attachments.entries()) {
+    const file = await one<any>('SELECT id, owner_id, mime, is_public FROM files WHERE id = ?', [attachment.fileId]);
+    const field = attachment.requirementKey?.startsWith('field:')
+      ? attachment.requirementKey.slice('field:'.length)
+      : attachment.requirementKey ? `documents.${attachment.requirementKey}` : `documents.${index}`;
+    if (!file) throw badRequest('یکی از فایل‌های مدرک یافت نشد.', [{ field, message: 'فایل دیگر در دسترس نیست؛ آن را دوباره بارگذاری کنید.' }]);
+    if (file.owner_id !== customerId) throw forbidden('فقط فایل بارگذاری‌شده توسط مشتریِ همین درخواست قابل استفاده است.');
+    if (Number(file.is_public)) throw badRequest('فایل عمومی نمی‌تواند به‌عنوان مدرک درخواست استفاده شود.');
+    if (!String(file.mime).startsWith('image/') && file.mime !== 'application/pdf') {
+      throw badRequest('مدارک درخواست باید تصویر یا PDF باشند.', [{ field, message: 'قالب فایل پشتیبانی نمی‌شود.' }]);
+    }
+  }
+}
+
+export async function createRequest(input: CreateRequestInput, actor?: { id: string; name: string; ip?: string }) {
+ return tx(async()=>{
+  const idempotencyKey = input.idempotencyKey?.trim();
+  let submissionHash: string | undefined;
+  if (idempotencyKey) {
+    if (idempotencyKey.length < 8 || idempotencyKey.length > 128 || !/^[A-Za-z0-9._:-]+$/.test(idempotencyKey)) {
+      throw badRequest('کلید جلوگیری از ثبت تکراری معتبر نیست.');
+    }
+    submissionHash = hmac(canonicalJson({
+      customerId: input.customerId,
+      serviceId: input.serviceId,
+      formData: input.formData ?? {},
+      paymentMethod: input.paymentMethod ?? null,
+      existingInvoiceId: input.existingInvoiceId ?? null,
+      priority: input.priority ?? 'normal',
+      documentIds: input.documentIds ?? [],
+    }), env.encryptionKey || 'pishkan-development-only-idempotency-secret');
+    let prior = await one<any>('SELECT payload_hash, request_id FROM request_submission_keys WHERE customer_id = ? AND idempotency_key = ?', [input.customerId, idempotencyKey]);
+    if (!prior) {
+      const reserved = await run(`INSERT INTO request_submission_keys (customer_id, idempotency_key, payload_hash, request_id, created_at)
+        VALUES (?, ?, ?, NULL, ?) ON CONFLICT (customer_id, idempotency_key) DO NOTHING`,
+      [input.customerId, idempotencyKey, submissionHash, nowIso()]);
+      if (!reserved.changes) {
+        prior = await one<any>('SELECT payload_hash, request_id FROM request_submission_keys WHERE customer_id = ? AND idempotency_key = ?', [input.customerId, idempotencyKey]);
+      }
+    }
+    if (prior) {
+      if (prior.payload_hash !== submissionHash) throw conflict('این کلید ثبت قبلاً با اطلاعات دیگری استفاده شده است. فرم را بازبینی و دوباره تلاش کنید.');
+      if (!prior.request_id) throw conflict('ثبت درخواست با این کلید هنوز نهایی نشده است؛ کمی بعد دوباره تلاش کنید.');
+      const replay = await getRequest(prior.request_id, { actorId: input.customerId, isCustomer: true });
+      if (replay) return replay;
+      throw conflict('درخواست قبلی این کلید دیگر در دسترس نیست. برای درخواست جدید، فرم را دوباره ارسال کنید.');
+    }
+  }
+
+  if (!(await getBool('services.accepting_requests'))) {
+    throw conflict('پذیرش درخواست جدید در حال حاضر غیرفعال است.');
+  }
+  const service = await getServiceById(input.serviceId);
+  if (!service) throw notFound('خدمت یافت نشد.');
+  if (!service.acceptingRequests) throw conflict('این خدمت در حال حاضر درخواست نمی‌پذیرد.');
+  if (service.archivedAt) throw conflict('این خدمت بایگانی شده است.');
+  if (service.isCustom && service.ownerCustomerId !== input.customerId) throw forbidden('این خدمت اختصاصی برای شما نیست.');
+
+  const customer = await one<any>('SELECT * FROM users WHERE id = ? AND kind = ?', [input.customerId, 'customer']);
+  if (!customer) throw notFound('مشتری یافت نشد.');
+
+  const profile = await requireCompleteProfile(input.customerId);
+  await requireCoverage(service.id, input.customerId);
+  if (input.priority === 'high' && !service.urgentEnabled) throw badRequest('انجام فوری برای این خدمت فعال نیست.');
+  const pricing = await quoteRequest(service.id,input.customerId,input.priority);
+  const urgentFee = pricing.urgentFee;
+  const formData = validateFormData(service, input.formData ?? {});
+  const documentAttachments = documentAttachmentsForSubmission(service, formData, input.documentIds);
+  await assertCustomerDocumentFiles(documentAttachments, input.customerId);
+  const fee = service.baseFee;
+  const discount = pricing.discount;
+  let total = pricing.total;
+  let existingInvoice: any = null;
+  if (input.existingInvoiceId) {
+    existingInvoice = await one<any>('SELECT * FROM invoices WHERE id = ?', [input.existingInvoiceId]);
+    if (!existingInvoice || existingInvoice.customer_id !== input.customerId || existingInvoice.service_id !== service.id) {
+      throw badRequest('فاکتور پیش‌صدور با این مشتری و خدمت سازگار نیست.');
+    }
+    if (existingInvoice.request_id || ['void', 'draft'].includes(existingInvoice.status)) {
+      throw conflict('فاکتور پیش‌صدور دیگر برای ایجاد درخواست قابل استفاده نیست.');
+    }
+    total = Number(existingInvoice.total);
+  }
+  // Only two customer payment paths exist: the online gateway and the wallet.
+  // Legacy values (cash/pos/transfer) are rejected explicitly instead of being
+  // silently mapped, so no hidden offline path survives in the API.
+  const methods = ALLOWED_PAYMENT_METHODS.filter((candidate) => service.paymentMethods.includes(candidate));
+  const offered: readonly string[] = methods.length ? methods : [...ALLOWED_PAYMENT_METHODS];
+  if (total > 0 && input.paymentMethod && !(ALLOWED_PAYMENT_METHODS as readonly string[]).includes(input.paymentMethod)) {
+    throw badRequest('این روش پرداخت حذف شده است؛ فقط پرداخت آنلاین یا کیف پول مجاز است.', [{
+      field: 'paymentMethod', message: 'روش مجاز: درگاه پرداخت آنلاین یا کیف پول.',
+    }]);
+  }
+  if (total > 0 && input.paymentMethod && !offered.includes(input.paymentMethod)) {
+    throw badRequest('روش پرداخت انتخاب‌شده برای این خدمت مجاز نیست.', [{ field: 'paymentMethod', message: 'روش دیگری از گزینه‌های مجاز انتخاب کنید.' }]);
+  }
+  const method = total <= 0 ? 'none' : input.paymentMethod ?? offered[0]!;
+  if (method === 'wallet') {
+    if (!(await getBool('wallet.enabled')) || !(await getBool('wallet.allow_wallet_payment'))) {
+      throw badRequest('پرداخت از کیف پول در حال حاضر غیرفعال است.');
+    }
+    const wallet = await assertWalletUsable(input.customerId);
+    if (Number(wallet.balance) < total) {
+      throw conflict('موجودی کیف پول برای این خدمت کافی نیست.', [{
+        field: 'wallet',
+        message: `موجودی: ${wallet.balance} ریال — مبلغ لازم: ${total} ریال`,
+        available: Number(wallet.balance),
+        required: total,
+        action: 'wallet_topup',
+      }]);
+    }
+  }
+  const existingPaid = Number(existingInvoice?.paid_amount ?? 0);
+  const paymentStatus = total <= 0 ? 'not_required'
+    : existingPaid >= total ? 'paid'
+      : existingPaid > 0 ? 'partial'
+        : method === 'wallet' ? 'paid' : 'unpaid';
+
+  const trackingCode = await generateTrackingCode();
+  const requestId = id('req');
+  const ts = nowIso();
+  const estimatedMinutes = input.priority === 'high' ? service.urgentMinutes : service.estimatedMinutes;
+  const createdAtMs = Date.now();
+  const estimatedCompletionAt = new Date(createdAtMs + estimatedMinutes * 60_000).toISOString();
+  // The request leaves the open pool when this moment passes. The ratio is
+  // frozen here so changing the setting later cannot move an existing request.
+  const forceRatio = Math.min(100, Math.max(1, await getNumber('workforce.force_assign_ratio')));
+  const forceAssignAt = (await getBool('workforce.force_assign_enabled'))
+    ? new Date(createdAtMs + estimatedMinutes * 60_000 * (forceRatio / 100)).toISOString()
+    : null;
+
+  // Immutable snapshot: later edits to the profile or service must not silently
+  // change what the customer submitted.
+  const snapshot = {
+    service: {
+      id: service.id, title: service.title, slug: service.slug, baseFee: service.baseFee,
+      discountPercent: service.discountPercent, estimatedMinutes: service.estimatedMinutes, estimatedDays: service.estimatedDays,
+      urgentFee, urgentPercent: service.urgentPercent, urgentMinutes: service.urgentMinutes, urgentDays: service.urgentDays, coverage: service.coverage,
+      form: service.form, documents: service.documents, workflow: service.workflow,
+      categoryTitle: service.categoryTitle, paymentMethods: methods,
+    },
+    customer: {
+      id: customer.id, fullName: customer.full_name, mobile: customer.mobile,
+      nationalId: customer.national_id, email: customer.email, cityId: profile.city_id, city: profile.city,
+    },
+    submittedAt: ts,
+  };
+
+  let createdInvoice: any = null;
+  await tx(async (db) => {
+    if (input.priority === 'high') {
+      const lock = await db.run('UPDATE services SET updated_at=updated_at WHERE id=?',[service.id]);
+      const active = await db.one<any>("SELECT COUNT(*) AS c FROM requests WHERE service_id=? AND priority='high' AND status NOT IN ('completed','cancelled','rejected')",[service.id]);
+      if (service.urgentCapacity <= Number(active?.c)) throw conflict('ظرفیت انجام فوری تکمیل است.');
+    }
+    await db.run(
+      `INSERT INTO requests (id, tracking_code, customer_id, service_id, assigned_to, status, priority, form_data, snapshot,
+        fee, discount, total, payment_method, payment_status, current_step, due_at, estimated_completion_at, force_assign_at, created_at, updated_at)
+       VALUES (?, ?, ?, ?, NULL, 'new', ?, ?, ?, ?, ?, ?, ?, ?, 0, NULL, ?, ?, ?, ?)`,
+      [requestId, trackingCode, input.customerId, service.id, input.priority === 'high' ? 'high' : 'normal',
+        jsonStringify(formData), jsonStringify(snapshot), fee, discount, total, method, paymentStatus,
+        estimatedCompletionAt, forceAssignAt, ts, ts],
+    );
+    await db.run(
+      `INSERT INTO request_events (id, request_id, actor_id, actor_name, type, message, to_status, metadata, visible_to_customer, created_at)
+       VALUES (?, ?, ?, ?, 'created', ?, 'new', ?, 1, ?)`,
+      [id('evt'), requestId, actor?.id ?? input.customerId, actor?.name ?? customer.full_name,
+        'درخواست شما ثبت شد و در صف بررسی قرار گرفت.', jsonStringify({ trackingCode }), ts],
+    );
+    if (input.existingInvoiceId) {
+      const linked = await db.run(
+        `UPDATE invoices SET request_id=?, updated_at=?
+         WHERE id=? AND customer_id=? AND service_id=? AND request_id IS NULL AND status NOT IN ('void','draft')`,
+        [requestId, ts, input.existingInvoiceId, input.customerId, service.id],
+      );
+      if (!linked.changes) throw conflict('فاکتور پیشنهاد هم‌زمان به پروندهٔ دیگری پیوند خورد؛ صفحه را تازه کنید و با پشتیبانی تماس بگیرید.');
+      await db.run(
+        `INSERT INTO request_events (id, request_id, actor_id, actor_name, type, message, metadata, visible_to_customer, created_at)
+         VALUES (?, ?, ?, ?, 'invoice', ?, ?, 1, ?)`,
+        [id('evt'), requestId, actor?.id ?? input.customerId, actor?.name ?? customer.full_name,
+          `فاکتور ${toPersianDigits(existingInvoice.number)} به درخواست پیوند خورد.`,
+          jsonStringify({ invoiceId: existingInvoice.id, total: Number(existingInvoice.total) }), ts],
+      );
+    }
+
+    if (total > 0 && !input.existingInvoiceId) {
+      createdInvoice = await createInvoice({
+        customerId: input.customerId,
+        requestId,
+        serviceId: service.id,
+        kind: service.isCustom ? 'custom' : 'public',
+        title: `هزینه خدمت ${service.title}`,
+        items: [{ title: service.title, qty: 1, unitPrice: fee, amount: fee }, ...(urgentFee ? [{title:'هزینه انجام فوری',qty:1,unitPrice:urgentFee,amount:urgentFee}] : [])],
+        discount,
+        notes: `شماره پیگیری ${trackingCode} — هزینه نمایشی است و پس از بررسی نهایی تأیید می‌شود.`,
+      }, actor);
+      await db.run(
+        `INSERT INTO request_events (id, request_id, actor_id, actor_name, type, message, metadata, visible_to_customer, created_at)
+         VALUES (?, ?, ?, ?, 'invoice', ?, ?, 1, ?)`,
+        [id('evt'), requestId, actor?.id ?? input.customerId, actor?.name ?? customer.full_name,
+          `پیش‌فاکتور ${toPersianDigits(createdInvoice.number)} صادر شد.`,
+          jsonStringify({ invoiceId: createdInvoice.id, total: Number(createdInvoice.total) }), ts],
+      );
+    }
+
+    // Wallet settlement happens in the same transaction as the request. If the
+    // balance moved or the invoice could not be paid, the whole request is
+    // rolled back: money is never taken without a case (and vice versa).
+    if (method === 'wallet' && total > 0) {
+      const targetInvoice = createdInvoice ?? existingInvoice;
+      if (!targetInvoice) throw conflict('فاکتور قابل پرداخت برای این درخواست یافت نشد.');
+      await settleInvoiceWithWallet(targetInvoice.id, input.customerId, {
+        id: actor?.id ?? input.customerId,
+        name: actor?.name ?? customer.full_name,
+        ip: actor?.ip,
+      });
+    }
+  });
+
+  await run('UPDATE requests SET urgent_fee=? WHERE id=?',[urgentFee,requestId]);
+  for (const document of documentAttachments) {
+    await attachDocument(requestId, document.fileId, document.title,
+      { id: actor?.id ?? input.customerId, name: actor?.name ?? customer.full_name }, 'customer',
+      { ownerId: input.customerId, requirementKey: document.requirementKey });
+  }
+
+  await autoAssign(requestId);
+
+  await writeAudit({
+    actorId: actor?.id ?? input.customerId, actorName: actor?.name ?? customer.full_name,
+    action: 'request.create', entityType: 'request', entityId: requestId,
+    after: { trackingCode, serviceId: service.id, total, paymentMethod: method, paymentStatus }, ip: actor?.ip,
+  });
+  await logEvent({
+    level: 'INFO', category: 'request', action: 'request.create', actorId: actor?.id ?? input.customerId,
+    actorName: actor?.name ?? customer.full_name, ip: actor?.ip,
+    entityType: 'request', entityId: requestId, transactionId: createdInvoice?.id ?? undefined,
+    message: 'درخواست خدمت ثبت شد.',
+    details: { trackingCode, serviceId: service.id, total, method, priority: input.priority ?? 'normal' },
+  });
+  if (idempotencyKey) {
+    await run('UPDATE request_submission_keys SET request_id = ? WHERE customer_id = ? AND idempotency_key = ?',
+      [requestId, input.customerId, idempotencyKey]);
+  }
+
+  return getRequest(requestId, { actorId: input.customerId, isCustomer: true });
+ });
+}
+
+/* ---------------------------------- read ----------------------------------- */
+
+export async function getRequest(requestId: string, viewer?: { actorId: string; isCustomer: boolean; canViewDocuments?: boolean }) {
+  const row = await one<any>(`
+    SELECT r.*, s.title AS service_title, s.slug AS service_slug, s.workflow_steps, s.is_custom,
+           c.full_name AS customer_name, c.mobile AS customer_mobile, c.national_id AS customer_national_id,
+           a.full_name AS assignee_name
+    FROM requests r
+    JOIN services s ON s.id = r.service_id
+    JOIN users c ON c.id = r.customer_id
+    LEFT JOIN users a ON a.id = r.assigned_to
+    WHERE r.id = ?`, [requestId]);
+  if (!row) return null;
+
+  if (viewer?.isCustomer && row.customer_id !== viewer.actorId) return null;
+
+  const canViewDocuments = !viewer || viewer.isCustomer || viewer.canViewDocuments !== false;
+  const snapshot = jsonParse<any>(row.snapshot, {});
+  const formData = jsonParse<Record<string, unknown>>(row.form_data, {});
+  if (!canViewDocuments) {
+    for (const field of Array.isArray(snapshot?.service?.form) ? snapshot.service.form : []) {
+      if (field?.type === 'file' && typeof field.key === 'string') delete formData[field.key];
+    }
+  }
+  const events = await q<any>(
+    `SELECT id, actor_id, actor_name, type, message, from_status, to_status, metadata, created_at
+     FROM request_events WHERE request_id = ? ${viewer?.isCustomer ? 'AND visible_to_customer = 1' : ''}
+     ${!canViewDocuments ? "AND type <> 'document'" : ''}
+     ORDER BY created_at ASC`,
+    [requestId],
+  );
+  const documents = canViewDocuments ? await q<any>(
+    `SELECT d.*, f.name AS file_name, f.mime AS mime, f.size AS size, f.storage_key,
+            f.processing_status, f.processing_mode, f.preview_storage_key, f.original_storage_key,
+            f.original_mime, f.original_size, f.savings_percent, f.width, f.height, f.processing_error
+     FROM request_documents d JOIN files f ON f.id = d.file_id WHERE d.request_id = ? ORDER BY d.created_at ASC`,
+    [requestId],
+  ) : [];
+  const documentReviews = documents.length
+    ? await q<any>(`SELECT * FROM document_reviews WHERE request_document_id IN (${documents.map(() => '?').join(',')}) ORDER BY created_at ASC`, documents.map((document) => document.id))
+    : [];
+  const invoices = await q<any>('SELECT * FROM invoices WHERE request_id = ? ORDER BY created_at ASC', [requestId]);
+
+  return {
+    id: row.id,
+    trackingCode: row.tracking_code,
+    status: row.status,
+    statusLabel: STATUS_LABELS[row.status as RequestStatus] ?? row.status,
+    priority: row.priority,
+    customerId: row.customer_id,
+    customerName: row.customer_name,
+    customerMobile: row.customer_mobile,
+    customerNationalId: row.customer_national_id,
+    serviceId: row.service_id,
+    serviceTitle: row.service_title,
+    serviceSlug: row.service_slug,
+    isCustom: Boolean(row.is_custom),
+    assignedTo: row.assigned_to,
+    assigneeName: row.assignee_name,
+    formData,
+    snapshot,
+    workflow: jsonParse<any>(row.snapshot, {}).service?.workflow ?? jsonParse(row.workflow_steps, []),
+    fee: Number(row.fee),
+    discount: Number(row.discount),
+    total: Number(row.total),
+    paymentMethod: row.payment_method,
+    paymentStatus: row.payment_status,
+    currentStep: Number(row.current_step),
+    dueAt: row.due_at,
+    deadlineAt: row.due_at,
+    estimatedCompletionAt: row.estimated_completion_at,
+    rejectedReason: row.rejected_reason,
+    completedAt: row.completed_at,
+    createdAt: row.created_at,
+    updatedAt: row.updated_at,
+    events: events.map((e) => ({
+      id: e.id, actorId: e.actor_id, actorName: e.actor_name, type: e.type, message: e.message,
+      fromStatus: e.from_status, toStatus: e.to_status, metadata: jsonParse(e.metadata, {}), createdAt: e.created_at,
+    })),
+    documents: documents.filter(d=>!viewer?.isCustomer || d.kind!=='staff' || d.status==='approved').map((d) => ({
+      id: d.id, title: d.title, kind: d.kind, status: d.status, reviewNote: d.review_note,
+      requirementKey: d.requirement_key ?? null,
+      replacesDocumentId: d.replaces_document_id ?? null,
+      reviewHistory: documentReviews.filter((review) => review.request_document_id === d.id).map((review) => ({
+        decision: review.decision, note: review.note, reviewerName: review.reviewer_name, createdAt: review.created_at,
+      })),
+      documentType: d.document_type ?? null,
+      customerDocumentId: d.customer_document_id ?? null,
+      expiresAt: d.expires_at ?? null,
+      file: {
+        id: d.file_id, name: d.file_name, mime: d.mime, size: Number(d.size),
+        originalSize: d.original_size === null || d.original_size === undefined ? Number(d.size) : Number(d.original_size),
+        savingsPercent: Number(d.savings_percent ?? 0),
+        width: d.width ?? null, height: d.height ?? null,
+        previewUrl: d.preview_storage_key ? `/api/files/${d.file_id}?variant=preview` : null,
+        originalUrl: `/api/files/${d.file_id}?variant=original`,
+        displayUrl: `/api/files/${d.file_id}`,
+        processing: {
+          status: d.processing_status ?? 'none', mode: d.processing_mode ?? null, error: d.processing_error ?? null,
+        },
+      },
+      createdAt: d.created_at,
+    })),
+    invoices: invoices.map((i) => ({
+      id: i.id, number: i.number, total: Number(i.total), paidAmount: Number(i.paid_amount),
+      status: i.status, issuedAt: i.issued_at,
+    })),
+  };
+}
+
+export interface ListRequestsOptions {
+  page?: number; pageSize?: number; customerId?: string; assignedTo?: string;
+  status?: string; statusGroup?: 'open' | 'closed' | 'all'; search?: string; urgent?: boolean;
+  serviceId?: string; unassigned?: boolean; from?: string; to?: string;
+}
+
+export async function listRequests(opts: ListRequestsOptions = {}) {
+  const page = Math.max(1, opts.page ?? 1);
+  const pageSize = Math.min(100, Math.max(1, opts.pageSize ?? 20));
+  const where: string[] = [];
+  const args: any[] = [];
+
+  if (opts.customerId) { where.push('r.customer_id = ?'); args.push(opts.customerId); }
+  if (opts.assignedTo) { where.push('r.assigned_to = ?'); args.push(opts.assignedTo); }
+  if (opts.unassigned) where.push('r.assigned_to IS NULL');
+  if (opts.serviceId) { where.push('r.service_id = ?'); args.push(opts.serviceId); }
+  if (opts.status) { where.push('r.status = ?'); args.push(opts.status); }
+  if (opts.statusGroup === 'open') where.push(`r.status NOT IN ('completed','cancelled','rejected')`);
+  if (opts.statusGroup === 'closed') where.push(`r.status IN ('completed','cancelled','rejected')`);
+  if (opts.urgent) where.push(`(r.priority = 'high' OR (r.due_at IS NOT NULL AND r.due_at < ?))`), args.push(nowIso());
+  if (opts.from) { where.push('r.created_at >= ?'); args.push(opts.from); }
+  if (opts.to) { where.push('r.created_at <= ?'); args.push(opts.to); }
+  if (opts.search) {
+    where.push('(r.tracking_code LIKE ? OR c.full_name LIKE ? OR s.title LIKE ? OR c.mobile LIKE ?)');
+    const s = `%${opts.search}%`;
+    args.push(s, s, s, s);
+  }
+
+  const clause = where.length ? `WHERE ${where.join(' AND ')}` : '';
+  const base = `FROM requests r JOIN services s ON s.id = r.service_id JOIN users c ON c.id = r.customer_id
+                LEFT JOIN users a ON a.id = r.assigned_to ${clause}`;
+
+  const total = await one<{ c: number }>(`SELECT COUNT(*) AS c ${base}`, args);
+  const rows = await q<any>(
+    `SELECT r.*, s.title AS service_title, c.full_name AS customer_name, c.mobile AS customer_mobile,
+            a.full_name AS assignee_name ${base}
+     ORDER BY CASE r.priority WHEN 'high' THEN 0 ELSE 1 END, r.created_at DESC LIMIT ? OFFSET ?`,
+    [...args, pageSize, (page - 1) * pageSize],
+  );
+
+  return {
+    items: rows.map((r) => ({
+      id: r.id,
+      trackingCode: r.tracking_code,
+      status: r.status,
+      statusLabel: STATUS_LABELS[r.status as RequestStatus] ?? r.status,
+      priority: r.priority,
+      customerId: r.customer_id,
+      customerName: r.customer_name,
+      customerMobile: r.customer_mobile,
+      serviceId: r.service_id,
+      serviceTitle: r.service_title,
+      assignedTo: r.assigned_to,
+      assigneeName: r.assignee_name,
+      total: Number(r.total),
+      paymentStatus: r.payment_status,
+      dueAt: r.due_at,
+      deadlineAt: r.due_at,
+      estimatedCompletionAt: r.estimated_completion_at,
+      createdAt: r.created_at,
+      updatedAt: r.updated_at,
+    })),
+    total: Number(total?.c ?? 0), page, pageSize,
+  };
+}
+
+/* --------------------------------- update ---------------------------------- */
+
+export async function changeStatus(
+  requestId: string,
+  toStatus: RequestStatus,
+  actor: { id: string; name: string; ip?: string },
+  note?: string,
+) {
+  return tx(async()=>{
+  await run('UPDATE requests SET updated_at=updated_at WHERE id=?',[requestId]);
+  const request = await one<RequestRow>('SELECT * FROM requests WHERE id = ?', [requestId]);
+  if (!request) throw notFound('درخواست یافت نشد.');
+  const from = request.status;
+  if (from === toStatus) return getRequest(requestId);
+
+  const allowed = ALLOWED_TRANSITIONS[from] ?? [];
+  if (!allowed.includes(toStatus)) {
+    throw conflict(`تغییر وضعیت از «${STATUS_LABELS[from]}» به «${STATUS_LABELS[toStatus]}» مجاز نیست.`);
+  }
+  if (toStatus === 'completed' && (await getBool('services.require_document_approval'))) {
+    const pending = await one<{ c: number }>(`SELECT COUNT(*) AS c FROM request_documents d
+      WHERE d.request_id=? AND d.status='pending'
+        AND NOT EXISTS (SELECT 1 FROM request_documents child WHERE child.replaces_document_id=d.id)`, [requestId]);
+    if (Number(pending?.c ?? 0) > 0) throw conflict('مدارک این پرونده هنوز بررسی نشده‌اند.');
+    if (!(await requiredDocumentsApproved(requestId, request.snapshot))) {
+      throw conflict('هر یک از مدارک الزامی باید جداگانه در آخرین نسخه تأیید شده باشد.');
+    }
+  }
+
+  if(['ready','completed'].includes(toStatus)){
+    if(await one("SELECT id FROM request_handoffs WHERE request_id=? AND status='pending'",[requestId]))throw conflict('ابتدا ارجاع‌های باز مدیریت و حسابداری را بررسی کنید.');
+    if(await one(`SELECT d.id FROM request_documents d WHERE d.request_id=? AND d.status='pending'
+      AND NOT EXISTS (SELECT 1 FROM request_documents child WHERE child.replaces_document_id=d.id) LIMIT 1`,[requestId]))throw conflict('مدارک این پرونده هنوز بررسی نشده‌اند.');
+    if(await one(`SELECT d.id FROM request_documents d WHERE d.request_id=? AND d.kind='staff' AND d.status<>'approved'
+      AND NOT EXISTS (SELECT 1 FROM request_documents child WHERE child.replaces_document_id=d.id) LIMIT 1`,[requestId]))throw conflict('نتیجه کارکنان هنوز تأیید نشده است.');
+    if(!(await requiredDocumentsApproved(requestId, request.snapshot)))throw conflict('هر یک از مدارک الزامی باید جداگانه در آخرین نسخه تأیید شده باشد.');
+  }
+  const ts = nowIso();
+  const sets = ['status = ?', 'updated_at = ?'];
+  const args: any[] = [toStatus, ts];
+  if (toStatus === 'completed') { sets.push('completed_at = ?'); args.push(ts); }
+  if (toStatus === 'cancelled') { sets.push('cancelled_at = ?'); args.push(ts); }
+  if (toStatus === 'rejected') { sets.push('rejected_reason = ?'); args.push(note ?? ''); }
+  if (toStatus === 'in_progress') { sets.push('current_step = ?'); args.push(Math.max(1, request.current_step + 1)); }
+
+  await run(`UPDATE requests SET ${sets.join(', ')} WHERE id = ?`, [...args, requestId]);
+  await addEvent({
+    requestId, type: 'status', actorId: actor.id, actorName: actor.name,
+    message: note ?? `وضعیت از «${STATUS_LABELS[from]}» به «${STATUS_LABELS[toStatus]}» تغییر کرد.`,
+    fromStatus: from, toStatus, visibleToCustomer: true,
+  });
+  await writeAudit({
+    actorId: actor.id, actorName: actor.name, action: 'request.status', entityType: 'request',
+    entityId: requestId, before: { status: from }, after: { status: toStatus, note }, ip: actor.ip,
+  });
+  return getRequest(requestId);
+  });
+}
+
+export async function setRequestDeadline(requestId: string, deadlineAt: string | null, actor: { id: string; name: string; ip?: string }) {
+  return tx(async () => {
+    await run('UPDATE requests SET updated_at=updated_at WHERE id=?', [requestId]);
+    const request = await one<RequestRow>('SELECT * FROM requests WHERE id=?', [requestId]);
+    if (!request) throw notFound('درخواست یافت نشد.');
+    if (['completed', 'cancelled', 'rejected'].includes(request.status)) throw conflict('برای پرونده بسته نمی‌توان مهلت تعیین کرد.');
+    const ts = nowIso();
+    await run('UPDATE requests SET due_at=?, updated_at=? WHERE id=?', [deadlineAt, ts, requestId]);
+    await addEvent({
+      requestId, type: 'deadline', actorId: actor.id, actorName: actor.name,
+      message: deadlineAt ? `مهلت قطعی پرونده تعیین شد: ${deadlineAt}` : 'مهلت قطعی پرونده برداشته شد.',
+      metadata: { previousDeadlineAt: request.due_at, deadlineAt }, visibleToCustomer: true,
+    });
+    await writeAudit({ actorId: actor.id, actorName: actor.name, action: 'request.deadline', entityType: 'request', entityId: requestId,
+      before: { deadlineAt: request.due_at }, after: { deadlineAt }, ip: actor.ip });
+    return getRequest(requestId);
+  });
+}
+
+export async function assignRequest(requestId: string, staffId: string | null, actor: { id: string; name: string; ip?: string }) {
+  return tx(async () => {
+    await run('UPDATE requests SET updated_at=updated_at WHERE id=?', [requestId]);
+    const request = await one<RequestRow>('SELECT * FROM requests WHERE id = ?', [requestId]);
+    if (!request) throw notFound('درخواست یافت نشد.');
+    if (request.assigned_to === staffId) return getRequest(requestId);
+    if (staffId) {
+      const staff = await one<any>(
+        `SELECT u.id FROM users u JOIN staff_profiles sp ON sp.user_id = u.id
+         WHERE u.id = ? AND u.kind = 'staff' AND u.status = 'active'`, [staffId],
+      );
+      if (!staff) throw badRequest('کارشناس انتخابی معتبر نیست.');
+    }
+    const newStatus = staffId
+      ? request.status === 'new' ? 'assigned' : request.status
+      : request.status === 'assigned' ? 'new' : request.status;
+    const ts = nowIso();
+    await run('UPDATE requests SET assigned_to = ?, assigned_at = ?, status = ?, updated_at = ? WHERE id = ?',
+      [staffId, staffId ? ts : null, newStatus, ts, requestId]);
+    await addEvent({
+      requestId, type: 'assigned', actorId: actor.id, actorName: actor.name,
+      message: staffId ? 'پرونده به کارشناس ارجاع شد.' : 'ارجاع پرونده برداشته شد.',
+      fromStatus: request.status, toStatus: newStatus,
+    });
+    await writeAudit({ actorId: actor.id, actorName: actor.name, action: 'request.assign', entityType: 'request', entityId: requestId,
+      before: { staffId: request.assigned_to, status: request.status }, after: { staffId, status: newStatus }, ip: actor.ip });
+    return getRequest(requestId);
+  });
+}
+
+export async function addNote(requestId: string, message: string, actor: { id: string; name: string }, visibleToCustomer = true) {
+  const request = await one('SELECT id FROM requests WHERE id = ?', [requestId]);
+  if (!request) throw notFound('درخواست یافت نشد.');
+  await addEvent({ requestId, type: 'note', message, actorId: actor.id, actorName: actor.name, visibleToCustomer });
+  await run('UPDATE requests SET updated_at = ? WHERE id = ?', [nowIso(), requestId]);
+}
+
+export async function attachDocument(
+  requestId: string,
+  fileId: string,
+  title: string,
+  actor: { id: string; name: string },
+  kind: 'customer' | 'staff' = 'staff',
+  meta: { customerDocumentId?: string | null; documentType?: string | null; expiresAt?: string | null; requirementKey?: string | null; replacesDocumentId?: string | null; ownerId?: string } = {},
+) {
+  return tx(async () => {
+    await run('UPDATE requests SET updated_at=updated_at WHERE id=?', [requestId]);
+    const file = await one<any>('SELECT * FROM files WHERE id = ?', [fileId]);
+    if (!file) throw badRequest('فایل ارسالی یافت نشد.');
+    const expectedOwner = kind === 'customer' ? meta.ownerId ?? actor.id : actor.id;
+    if (file.owner_id !== expectedOwner) throw forbidden('فقط فایل بارگذاری‌شده توسط مالک پرونده قابل پیوست است.');
+    if (Number(file.is_public)) throw badRequest('فایل عمومی نمی‌تواند به‌عنوان مدرک پرونده پیوست شود.');
+    if (!String(file.mime).startsWith('image/') && file.mime !== 'application/pdf') throw badRequest('مدارک پرونده باید تصویر یا PDF باشند.');
+
+    const request = await one<any>('SELECT status,snapshot FROM requests WHERE id = ?', [requestId]);
+    if (!request) throw notFound('درخواست یافت نشد.');
+    if (['completed', 'cancelled', 'rejected'].includes(request.status)) throw conflict('به این پرونده بسته‌شده نمی‌توان مدرک جدید افزود.');
+    const existing = await one<any>('SELECT id FROM request_documents WHERE request_id = ? AND file_id = ?', [requestId, fileId]);
+    if (existing) throw conflict('این فایل قبلاً به همین پرونده پیوست شده است.');
+
+    if (kind === 'customer') {
+      const service = jsonParse<any>(request.snapshot, {})?.service ?? {};
+      const serviceDocuments = Array.isArray(service.documents) ? service.documents : [];
+      const fileFields = Array.isArray(service.form) ? service.form.filter((field: any) => field?.type === 'file') : [];
+      const validKeys = new Set<string>([
+        ...serviceDocuments.map((document: any, index: number) => String(document?.key || `document_${index + 1}`)),
+        ...fileFields.map((field: any) => `field:${String(field.key)}`),
+      ]);
+      if (validKeys.size && !meta.requirementKey) throw badRequest('برای پیوست‌کردن مدرک، نیازمندی مرتبط را انتخاب کنید.');
+      if (meta.requirementKey && !validKeys.has(meta.requirementKey)) throw badRequest('شناسه مدرک با فرم زمان ثبت درخواست سازگار نیست.');
+    }
+
+    let replacesDocumentId: string | null = null;
+    if (kind === 'customer' && meta.requirementKey) {
+      const previous = await one<any>(`SELECT d.id,d.status FROM request_documents d
+        WHERE d.request_id=? AND d.kind='customer' AND (d.requirement_key=? OR (d.requirement_key IS NULL AND d.title=?))
+          AND NOT EXISTS (SELECT 1 FROM request_documents child WHERE child.replaces_document_id=d.id)
+        ORDER BY d.created_at DESC LIMIT 1`, [requestId, meta.requirementKey, title]);
+      if (previous && previous.status !== 'rejected') throw conflict('برای این نیازمندی مدرک فعال وجود دارد؛ فقط پس از رد آن می‌توان نسخه جایگزین فرستاد.');
+      replacesDocumentId = previous?.id ?? null;
+    } else if (kind === 'staff') {
+      let previous: any = null;
+      if (meta.replacesDocumentId) {
+        previous = await one<any>(`SELECT d.id,d.status,d.kind FROM request_documents d
+          WHERE d.id=? AND d.request_id=? AND NOT EXISTS (SELECT 1 FROM request_documents child WHERE child.replaces_document_id=d.id)`,
+        [meta.replacesDocumentId, requestId]);
+        if (!previous) throw notFound('نتیجهٔ ردشده برای جایگزینی در این پرونده پیدا نشد.');
+      } else {
+        const rejected = await q<any>(`SELECT d.id,d.title,d.status,d.kind FROM request_documents d
+          WHERE d.request_id=? AND d.kind='staff' AND d.status='rejected'
+            AND NOT EXISTS (SELECT 1 FROM request_documents child WHERE child.replaces_document_id=d.id)
+          ORDER BY d.created_at DESC`, [requestId]);
+        const exact = rejected.filter((document) => document.title === title);
+        if (exact.length === 1) previous = exact[0];
+        else if (rejected.length === 1) previous = rejected[0];
+        else if (rejected.length > 1) throw conflict('برای جایگزینی نتیجهٔ ردشده، شناسهٔ مدرک قبلی را مشخص کنید.');
+      }
+      if (previous && (previous.kind !== 'staff' || previous.status !== 'rejected')) {
+        throw conflict('فقط نتیجهٔ ردشدهٔ همین پرونده را می‌توان جایگزین کرد.');
+      }
+      if (previous) replacesDocumentId = previous.id;
+    }
+
+    const ts = nowIso();
+    const nextStatus = 'under_review';
+    await run(
+      `INSERT INTO request_documents (id, request_id, file_id, title, kind, status, created_at, customer_document_id, document_type, expires_at, requirement_key, replaces_document_id)
+       VALUES (?, ?, ?, ?, ?, 'pending', ?, ?, ?, ?, ?, ?)`,
+      [id('doc'), requestId, fileId, title, kind, ts, meta.customerDocumentId ?? null, meta.documentType ?? null,
+        meta.expiresAt ?? null, meta.requirementKey ?? null, replacesDocumentId],
+    );
+    await run('UPDATE requests SET status = ?, updated_at = ? WHERE id = ?', [nextStatus, ts, requestId]);
+    await addEvent({
+      requestId, type: 'document', actorId: actor.id, actorName: actor.name,
+      message: `مدرک «${title}» بارگذاری شد.`, metadata: { fileId, requirementKey: meta.requirementKey ?? null, replacesDocumentId },
+      visibleToCustomer: kind === 'customer',
+    });
+    if (nextStatus !== request.status) {
+      await addEvent({ requestId, type: 'status', actorId: actor.id, actorName: actor.name,
+        fromStatus: request.status, toStatus: nextStatus,
+        message: 'مدارک جدید برای بررسی ارسال شد؛ پرونده دوباره در صف بازبینی قرار گرفت.' });
+    }
+  });
+}
+
+async function requiredDocumentsApproved(requestId: string, snapshot: unknown) {
+  const serviceSnapshot = jsonParse<any>(snapshot, {})?.service ?? {};
+  const documents = Array.isArray(serviceSnapshot.documents) ? serviceSnapshot.documents : [];
+  const formFields = Array.isArray(serviceSnapshot.form) ? serviceSnapshot.form : [];
+  const requirements = [
+    ...documents.flatMap((raw: any, index: number) => raw?.required ? [{
+      key: typeof raw.key === 'string' && raw.key ? raw.key : `document_${index + 1}`,
+      title: String(raw.title ?? ''),
+    }] : []),
+    ...formFields.filter((field: any) => field?.type === 'file' && field?.required).map((field: any) => ({
+      key: `field:${String(field.key)}`, title: String(field.label ?? ''),
+    })),
+  ];
+  for (const requirement of requirements) {
+    const latest = await one<any>(`SELECT d.status FROM request_documents d
+      WHERE d.request_id=? AND d.kind='customer' AND (d.requirement_key=? OR (d.requirement_key IS NULL AND d.title=?))
+        AND NOT EXISTS (SELECT 1 FROM request_documents child WHERE child.replaces_document_id=d.id)
+      ORDER BY d.created_at DESC LIMIT 1`, [requestId, requirement.key, requirement.title]);
+    if (!latest || latest.status !== 'approved') return false;
+  }
+  return true;
+}
+
+export async function reconcileAfterDocumentReview(requestId: string, actor: { id: string; name: string; ip?: string }) {
+  const request = await one<RequestRow>('SELECT * FROM requests WHERE id=?', [requestId]);
+  if (!request || !['waiting_documents', 'under_review'].includes(request.status)) return;
+  const [pendingCustomer, pendingStaff, openHandoff, staffDocuments] = await Promise.all([
+    one<any>(`SELECT COUNT(*) AS c FROM request_documents d WHERE d.request_id=? AND d.kind='customer' AND d.status='pending'
+      AND NOT EXISTS (SELECT 1 FROM request_documents child WHERE child.replaces_document_id=d.id)`, [requestId]),
+    one<any>(`SELECT COUNT(*) AS c FROM request_documents d WHERE d.request_id=? AND d.kind='staff' AND d.status<>'approved'
+      AND NOT EXISTS (SELECT 1 FROM request_documents child WHERE child.replaces_document_id=d.id)`, [requestId]),
+    one<any>("SELECT id FROM request_handoffs WHERE request_id=? AND status='pending' LIMIT 1", [requestId]),
+    one<any>(`SELECT COUNT(*) AS c FROM request_documents d WHERE d.request_id=? AND d.kind='staff'
+      AND NOT EXISTS (SELECT 1 FROM request_documents child WHERE child.replaces_document_id=d.id)`, [requestId]),
+  ]);
+  if (Number(pendingCustomer?.c ?? 0) > 0 || Number(pendingStaff?.c ?? 0) > 0 || openHandoff) return;
+  if (!(await requiredDocumentsApproved(requestId, request.snapshot))) return;
+  const nextStatus = Number(staffDocuments?.c ?? 0) > 0 ? 'ready' : 'in_progress';
+  if (request.status === nextStatus) return;
+  const ts = nowIso();
+  await run('UPDATE requests SET status=?, updated_at=? WHERE id=?', [nextStatus, ts, requestId]);
+  await addEvent({ requestId, type: 'status', actorId: actor.id, actorName: actor.name,
+    fromStatus: request.status, toStatus: nextStatus,
+    message: nextStatus === 'ready' ? 'مدارک و نتیجهٔ کار تأیید شد؛ پرونده آماده تحویل است.' : 'مدارک تأیید شد؛ رسیدگی پرونده ادامه می‌یابد.' });
+  await writeAudit({ actorId: actor.id, actorName: actor.name, action: 'request.document_review_reconciled', entityType: 'request', entityId: requestId,
+    before: { status: request.status }, after: { status: nextStatus }, ip: actor.ip });
+}
+
+export async function reviewDocument(
+  documentId: string,
+  decision: 'approved' | 'rejected',
+  note: string | undefined,
+  actor: { id: string; name: string; ip?: string },
+) {
+  return tx(async () => {
+    const initialDoc = await one<any>('SELECT * FROM request_documents WHERE id = ?', [documentId]);
+    if (!initialDoc) throw notFound('مدرک یافت نشد.');
+    await run('UPDATE requests SET updated_at=updated_at WHERE id=?', [initialDoc.request_id]);
+    const doc = await one<any>('SELECT * FROM request_documents WHERE id = ?', [documentId]);
+    if (!doc) throw notFound('مدرک یافت نشد.');
+    if (doc.status !== 'pending') throw conflict('فقط مدرکِ در انتظار بررسی قابل تصمیم‌گیری است.');
+    if (decision === 'rejected' && (note ?? '').trim().length < 3) throw badRequest('برای رد مدرک، دلیل حداقل سه‌حرفی لازم است.');
+    const request = await one<RequestRow>('SELECT * FROM requests WHERE id=?', [doc.request_id]);
+    if (!request) throw notFound('درخواست یافت نشد.');
+    const ts = nowIso();
+    const cleanNote = note?.trim().slice(0, 1000) || null;
+    const changed = await run("UPDATE request_documents SET status=?, reviewed_by=?, review_note=? WHERE id=? AND status='pending'",
+      [decision, actor.id, cleanNote, documentId]);
+    if (!changed.changes) throw conflict('این مدرک هم‌زمان توسط کاربر دیگری بررسی شد.');
+    await run(`INSERT INTO document_reviews (id, request_document_id, customer_document_id, decision, note, reviewer_id, reviewer_name, created_at)
+      VALUES (?, ?, NULL, ?, ?, ?, ?, ?)`, [id('drev'), documentId, decision, cleanNote, actor.id, actor.name, ts]);
+    const eventId = await addEvent({
+      requestId: doc.request_id, type: 'document', actorId: actor.id, actorName: actor.name,
+      message: decision === 'approved' ? 'مدرک تأیید شد.' : `مدرک رد شد: ${cleanNote}`,
+      metadata: { documentId, decision, note: cleanNote }, visibleToCustomer: doc.kind === 'customer',
+    });
+
+    if (decision === 'rejected' && doc.kind === 'customer') {
+      const nextStatus = 'waiting_documents';
+      if (!['completed', 'cancelled', 'rejected'].includes(request.status) && request.status !== nextStatus) {
+        await run('UPDATE requests SET status=?, updated_at=? WHERE id=?', [nextStatus, ts, request.id]);
+        await addEvent({ requestId: request.id, type: 'status', actorId: actor.id, actorName: actor.name,
+          fromStatus: request.status, toStatus: nextStatus, message: 'مدرک نیازمند اصلاح است؛ پرونده تا بارگذاری مدرک جایگزین متوقف شد.' });
+      }
+    } else if (decision === 'rejected' && doc.kind === 'staff') {
+      if (!['completed', 'cancelled', 'rejected'].includes(request.status) && request.status !== 'in_progress') {
+        await run('UPDATE requests SET status=?, updated_at=? WHERE id=?', ['in_progress', ts, request.id]);
+        await addEvent({ requestId: request.id, type: 'status', actorId: actor.id, actorName: actor.name,
+          fromStatus: request.status, toStatus: 'in_progress', message: 'نتیجهٔ کار برای اصلاح برگشت داده شد.' });
+      }
+    } else {
+      await reconcileAfterDocumentReview(request.id, actor);
+    }
+    await writeAudit({ actorId: actor.id, actorName: actor.name, action: `document.${decision}`, entityType: 'document', entityId: documentId,
+      before: { status: doc.status }, after: { status: decision, note: cleanNote }, ip: actor.ip });
+    return { eventId, requestId: doc.request_id, previousStatus: doc.status, kind: doc.kind };
+  });
+}
+
+export async function customerCancel(requestId: string, customerId: string, reason: string, actor: { id: string; name: string }) {
+  const request = await one<RequestRow>('SELECT * FROM requests WHERE id = ? AND customer_id = ?', [requestId, customerId]);
+  if (!request) throw notFound('درخواست یافت نشد.');
+  if (!['new', 'assigned', 'waiting_documents', 'waiting_customer'].includes(request.status)) {
+    throw conflict('در این مرحله امکان لغو درخواست وجود ندارد. با دفتر تماس بگیرید.');
+  }
+  return changeStatus(requestId, 'cancelled', { ...actor, ip: undefined }, reason || 'لغو توسط مشتری');
+}
+
+/* ------------------------------- statistics -------------------------------- */
+
+export async function requestStats(scope: { customerId?: string; assignedTo?: string } = {}) {
+  const where: string[] = [];
+  const args: any[] = [];
+  if (scope.customerId) { where.push('customer_id = ?'); args.push(scope.customerId); }
+  if (scope.assignedTo) { where.push('assigned_to = ?'); args.push(scope.assignedTo); }
+  const clause = where.length ? `WHERE ${where.join(' AND ')}` : '';
+
+  const rows = await q<{ status: string; c: number }>(`SELECT status, COUNT(*) AS c FROM requests ${clause} GROUP BY status`, args);
+  const counts: Record<string, number> = {};
+  for (const r of rows) counts[r.status] = Number(r.c);
+  const open = Object.entries(counts).filter(([k]) => !['completed', 'cancelled', 'rejected'].includes(k)).reduce((s, [, v]) => s + v, 0);
+  const total = Object.values(counts).reduce((s, v) => s + v, 0);
+
+  const invoiceWhere = ["i.status IN ('issued','partially_paid')"];
+  const invoiceArgs: string[] = [];
+  if (scope.customerId) { invoiceWhere.push('r.customer_id = ?'); invoiceArgs.push(scope.customerId); }
+  if (scope.assignedTo) { invoiceWhere.push('r.assigned_to = ?'); invoiceArgs.push(scope.assignedTo); }
+  const unpaid = await one<{ total: number }>(
+    `SELECT COALESCE(SUM(i.total - i.paid_amount),0) AS total FROM invoices i
+     JOIN requests r ON r.id = i.request_id
+     WHERE ${invoiceWhere.join(' AND ')}`,
+    invoiceArgs,
+  );
+
+  return {
+    counts,
+    open,
+    total,
+    completed: counts.completed ?? 0,
+    overdue: Number((await one<{ c: number }>(
+      `SELECT COUNT(*) AS c FROM requests ${clause ? `${clause} AND` : 'WHERE'} due_at IS NOT NULL AND due_at < ? AND status NOT IN ('completed','cancelled','rejected')`,
+      [...args, nowIso()],
+    ))?.c ?? 0),
+    outstandingAmount: Number(unpaid?.total ?? 0),
+  };
+}
+
+export { addHours };
+
+/** One server pricing path for quote, request snapshot and invoice. All amounts are integer IRR. */
+export async function quoteRequest(serviceId: string, customerId: string, priority = 'normal') {
+ const service = await getServiceById(serviceId);
+ if (!service || (!service.isPublished && !service.isCustom) || !service.acceptingRequests || (service.isCustom && service.ownerCustomerId !== customerId)) throw notFound('این خدمت قابل درخواست نیست.');
+ await requireCompleteProfile(customerId);
+ await requireCoverage(serviceId,customerId);
+ if (priority === 'high' && !service.urgentEnabled) throw badRequest('انجام فوری برای این خدمت فعال نیست.');
+ const urgentFee = priority === 'high' ? Math.round(service.baseFee * service.urgentPercent / 100) : 0;
+ const discount = Math.round(service.baseFee * service.discountPercent / 100);
+ const subtotal = service.baseFee + urgentFee;
+ const tax = Math.round((subtotal-discount)*await getNumber('accounting.tax_percent')/100);
+ const active = await one<any>("SELECT COUNT(*) AS c FROM requests WHERE service_id=? AND priority='high' AND status NOT IN ('completed','cancelled','rejected')",[serviceId]);
+ const estimatedMinutes=priority==='high'?service.urgentMinutes:service.estimatedMinutes;
+ return {baseFee:service.baseFee,discount,urgentFee,tax,total:subtotal-discount+tax,currency:'IRR',estimatedMinutes,estimatedDays:Math.ceil(estimatedMinutes/1440),urgentAvailable:service.urgentEnabled && service.urgentCapacity>Number(active?.c),quotedAt:nowIso()};
+}
+
+/**
+ * Queue for the open request pool.
+ *
+ * Privacy contract kept from before: customer identity, documents and phone
+ * numbers never appear. Added in 1.4.0:
+ *  - the remaining time until the request is forcibly assigned
+ *  - the employee's own share, only for commission employees (a salaried
+ *    employee must never see a percentage they do not earn)
+ *  - the claim that somebody else already accepted it (server-side truth)
+ */
+export async function eligibleQueue(staffId: string) {
+  const rows = await q<any>(
+    `SELECT r.id, r.tracking_code, r.service_id, r.created_at, r.priority, r.status, r.total,
+            r.estimated_completion_at, r.force_assign_at, s.title,
+            (SELECT COALESCE(SUM(i.total - i.tax), 0) FROM invoices i WHERE i.request_id = r.id AND i.status <> 'void') AS net_total
+     FROM requests r JOIN services s ON s.id = r.service_id
+     WHERE r.assigned_to IS NULL AND r.status IN ('new','under_review')
+     ORDER BY CASE r.priority WHEN 'high' THEN 0 ELSE 1 END, r.created_at ASC LIMIT 200`,
+  );
+  const type = await cooperationType(staffId);
+  const percent = type === 'commission' ? await commissionPercent(staffId) : 0;
+  const result: any[] = [];
+  for (const r of rows) {
+    const service = await getServiceById(r.service_id);
+    if (!service) continue;
+    const eligible = (await candidatesForService(service)).some((candidate) => candidate.id === staffId);
+    if (!eligible) continue;
+    const officeRevenue = Number(r.net_total ?? 0) > 0 ? Number(r.net_total) : Math.max(0, Number(r.total ?? 0));
+    result.push({
+      id: r.id,
+      trackingCode: r.tracking_code,
+      serviceTitle: r.title,
+      priority: r.priority,
+      status: r.status,
+      createdAt: r.created_at,
+      estimatedCompletionAt: r.estimated_completion_at,
+      // The moment this request leaves the open pool and is assigned by force.
+      forceAssignAt: r.force_assign_at,
+      remainingMinutes: r.estimated_completion_at
+        ? Math.max(0, Math.round((Date.parse(r.estimated_completion_at) - Date.now()) / 60_000))
+        : null,
+      cooperationType: type,
+      // Only commission employees get an income preview; there is no number
+      // to show for a fixed-salary employee (their pay is a monthly contract).
+      earnings: type === 'commission'
+        ? { percent, officeRevenue, amount: commissionAmount(officeRevenue, percent), estimate: true }
+        : null,
+    });
+  }
+  return result;
+}
+
+/**
+ * Accept a request from the open pool.
+ *
+ * Concurrency safety is the conditional UPDATE at the end: two employees who
+ * press the button at the same moment both run the check, but only one row
+ * update can match `assigned_to IS NULL`. The loser gets a precise 409 message
+ * naming who took it, and the attempt is recorded in `request_claim_attempts`.
+ */
+export async function claimRequest(requestId: string, staffId: string, name: string) {
+  // The attempt log lives outside the transaction on purpose: a losing claim
+  // is rolled back, but the evidence of "somebody else took it" must survive.
+  let outcome: { result: string; reason?: string } = { result: 'invalid', reason: 'unexpected failure' };
+  try {
+    return await tx(async () => {
+      await run('UPDATE users SET updated_at=updated_at WHERE id=?', [staffId]);
+      const r = await one<any>('SELECT * FROM requests WHERE id=?', [requestId]);
+      if (!r) {
+        outcome = { result: 'invalid', reason: 'request not found' };
+        throw notFound('پرونده یافت نشد.');
+      }
+      if (r.assigned_to) {
+        const other = await one<any>('SELECT full_name FROM users WHERE id=?', [r.assigned_to]);
+        outcome = { result: 'conflict', reason: `already assigned to ${other?.full_name ?? r.assigned_to}` };
+        throw conflict(
+          `این پرونده پیش‌تر${other?.full_name ? ` توسط ${other.full_name}` : ' توسط کارمند دیگری'} پذیرفته شده است.`,
+          { assignedTo: r.assigned_to, assignedToName: other?.full_name ?? null, assignedAt: r.assigned_at ?? null },
+        );
+      }
+      if (!['new', 'under_review'].includes(r.status)) {
+        outcome = { result: 'invalid', reason: `status ${r.status}` };
+        throw conflict('این پرونده در وضعیت قابل پذیرش نیست.');
+      }
+      const service = await getServiceById(r.service_id);
+      const eligible = service ? (await candidatesForService(service)).some((candidate) => candidate.id === staffId) : false;
+      if (!eligible) {
+        outcome = { result: 'ineligible', reason: 'skill, shift or capacity' };
+        throw forbidden('مهارت، شیفت یا ظرفیت لازم برای این خدمت را ندارید.');
+      }
+      const assignedAt = nowIso();
+      const nextStatus = r.status === 'under_review' ? 'under_review' : 'assigned';
+      const changed = await run(
+        'UPDATE requests SET assigned_to=?,assigned_at=?,status=?,updated_at=?,force_assign_at=NULL WHERE id=? AND assigned_to IS NULL AND status=?',
+        [staffId, assignedAt, nextStatus, assignedAt, requestId, r.status],
+      );
+      if (!changed.changes) {
+        const winner = await one<any>('SELECT u.full_name FROM requests r JOIN users u ON u.id=r.assigned_to WHERE r.id=?', [requestId]);
+        outcome = { result: 'conflict', reason: 'lost the race' };
+        throw conflict(
+          `این پرونده همین لحظه${winner?.full_name ? ` توسط ${winner.full_name}` : ' توسط کارمند دیگری'} پذیرفته شد و از صف شما حذف می‌شود.`,
+          { assignedToName: winner?.full_name ?? null },
+        );
+      }
+      await addEvent({
+        requestId, type: 'assigned', actorId: staffId, actorName: name,
+        message: `پرونده توسط ${name} پذیرفته شد.`, fromStatus: r.status, toStatus: nextStatus,
+      });
+      await writeAudit({
+        actorId: staffId, actorName: name, action: 'request.claim', entityType: 'request', entityId: requestId,
+        before: { staffId: null, status: r.status }, after: { staffId, status: nextStatus },
+      });
+      await logEvent({
+        level: 'INFO', category: 'request', action: 'request.claim', result: 'success',
+        actorId: staffId, actorName: name, entityType: 'request', entityId: requestId,
+        message: 'پرونده از صف پذیرش برداشته شد.', details: { trackingCode: r.tracking_code },
+      });
+      outcome = { result: 'won' };
+      return { id: requestId, assignedAt, status: nextStatus };
+    });
+  } catch (error) {
+    await run(
+      `INSERT INTO request_claim_attempts (id,request_id,staff_id,staff_name,result,reason,created_at)
+       VALUES (?,?,?,?,?,?,?)`,
+      [id('clm'), requestId, staffId, name, outcome.result, outcome.reason ?? null, nowIso()],
+    ).catch(() => undefined);
+    throw error;
+  } finally {
+    if (outcome.result === 'won') {
+      await run(
+        `INSERT INTO request_claim_attempts (id,request_id,staff_id,staff_name,result,reason,created_at)
+         VALUES (?,?,?,?,?,?,?)`,
+        [id('clm'), requestId, staffId, name, 'won', null, nowIso()],
+      ).catch(() => undefined);
+    }
+  }
+}
+
+/** Failed claim attempts for a request — evidence for "who took it first". */
+export async function claimAttempts(requestId: string) {
+  return q<any>(
+    'SELECT * FROM request_claim_attempts WHERE request_id=? ORDER BY created_at DESC LIMIT 50', [requestId],
+  );
+}
+
+/**
+ * Forced assignment of requests nobody accepted.
+ *
+ * Trigger: `force_assign_at` (2/3 of the service estimate by default, frozen on
+ * the request when it was created). Prefers employees on a fixed salary, then
+ * employees earning a percentage, then anyone eligible. Only employees who are
+ * available are considered: acceptable capacity (`accepts_new_cases`), below
+ * their active-case limit and — when `workforce.auto_assign_on_shift` is on —
+ * checked in on today's shift.
+ */
+export async function forceAssignSweep(options: { now?: Date; limit?: number } = {}) {
+  const enabled = await getBool('workforce.force_assign_enabled');
+  if (!enabled) return { enabled: false, checked: 0, assigned: [], skipped: [] };
+  const now = options.now ?? new Date();
+  const at = now.toISOString();
+  const rows = await q<any>(
+    `SELECT * FROM requests
+     WHERE assigned_to IS NULL AND status IN ('new','under_review')
+       AND COALESCE(force_assign_at, estimated_completion_at) IS NOT NULL
+       AND COALESCE(force_assign_at, estimated_completion_at) <= ?
+     ORDER BY COALESCE(force_assign_at, estimated_completion_at) ASC LIMIT ?`,
+    [at, options.limit ?? 25],
+  );
+  const assigned: any[] = [];
+  const skipped: any[] = [];
+  for (const request of rows) {
+    const service = await getServiceById(request.service_id);
+    if (!service) { skipped.push({ requestId: request.id, reason: 'service-missing' }); continue; }
+    const candidates = await candidatesForService(service);
+    if (!candidates.length) { skipped.push({ requestId: request.id, reason: 'no-available-staff' }); continue; }
+    const ranked: { id: string; name: string; load: number; onShift: boolean; type: string }[] = [];
+    for (const candidate of candidates) {
+      ranked.push({ ...candidate, type: await cooperationType(candidate.id) });
+    }
+    const priority = (type: string) => (type === 'monthly' ? 0 : type === 'commission' ? 1 : 2);
+    // Fixed-salary staff first, but only those actually on shift/online; the
+    // least loaded of them wins, then the same rule for percentage staff.
+    ranked.sort((a, b) => priority(a.type) - priority(b.type)
+      || Number(b.onShift) - Number(a.onShift)
+      || a.load - b.load
+      || a.id.localeCompare(b.id));
+    const chosen = ranked[0];
+    const assignedAt = nowIso();
+    const nextStatus = request.status === 'under_review' ? 'under_review' : 'assigned';
+    const changed = await run(
+      `UPDATE requests SET assigned_to=?, assigned_at=?, status=?, updated_at=?,
+              force_assigned_at=?, force_assign_reason=?, force_assign_at=NULL
+       WHERE id=? AND assigned_to IS NULL AND status=?`,
+      [chosen.id, assignedAt, nextStatus, assignedAt, assignedAt,
+        `forced:${chosen.type}`, request.id, request.status],
+    );
+    if (!changed.changes) { skipped.push({ requestId: request.id, reason: 'claimed-concurrently' }); continue; }
+    await addEvent({
+      requestId: request.id, type: 'assigned', actorId: 'system', actorName: getSystemName(),
+      message: `زمان پذیرش آزاد تمام شد؛ پرونده به‌صورت خودکار به ${chosen.name} واگذار شد.`,
+      fromStatus: request.status, toStatus: nextStatus,
+      metadata: { forced: true, cooperationType: chosen.type, load: chosen.load },
+    });
+    await writeAudit({
+      actorId: 'system', actorName: getSystemName(), action: 'request.force_assign', entityType: 'request',
+      entityId: request.id, before: { staffId: null }, after: { staffId: chosen.id, cooperationType: chosen.type },
+    });
+    await notifyUser(chosen.id, {
+      title: 'پروندهٔ واگذارشدهٔ خودکار',
+      body: `پروندهٔ «${service.title}» چون در زمان مقرر پذیرفته نشد به شما واگذار شد.`,
+      kind: 'warning', link: '/staff/requests', idempotencyKey: `force-assign:${request.id}`,
+    });
+    await logEvent({
+      level: 'INFO', category: 'staff', action: 'request.force_assign', result: 'success',
+      message: 'واگذاری اجباری پرونده انجام شد.',
+      entityType: 'request', entityId: request.id,
+      details: { staffId: chosen.id, cooperationType: chosen.type, reason: 'deadline' },
+    });
+    assigned.push({ requestId: request.id, staffId: chosen.id, staffName: chosen.name, cooperationType: chosen.type });
+  }
+  return { enabled: true, checked: rows.length, assigned, skipped };
+}
+
+function getSystemName() { return 'واگذاری خودکار پشکان'; }
+
+export function nextStatuses(status:RequestStatus){return ALLOWED_TRANSITIONS[status]??[];}
