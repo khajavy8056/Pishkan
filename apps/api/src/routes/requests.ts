@@ -58,6 +58,9 @@ requestsRouter.get('/', asyncRoute(async (req, res) => {
 
   const result = await listRequests({
     page, pageSize,
+    // Staff cards carry the viewer's own share (percentage staff only —
+    // the helper returns nothing for fixed-salary contracts).
+    viewerId: isCustomer ? undefined : auth.user.id,
     customerId: isCustomer ? auth.user.id : (typeof req.query.customerId === 'string' ? req.query.customerId : undefined),
     assignedTo: !isCustomer && !officeScope(auth) ? auth.user.id : typeof req.query.assignedTo === 'string'
       ? req.query.assignedTo

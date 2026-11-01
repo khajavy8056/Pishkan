@@ -135,6 +135,139 @@ export async function setServicePercents(
   });
 }
 
+export interface RequestEarningPreview {
+  /** برآوردی = before any confirmed payment; قطعی = recorded in the ledger. */
+  state: 'estimated' | 'finalized';
+  /** The viewer's own money in rials — never anybody else's. */
+  amount: number;
+  /** Effective percent of the office revenue (pool percent when split). */
+  percent: number;
+  /** Viewer's slice of the pool when a manager-approved split exists. */
+  splitSharePercent: number | null;
+  officeRevenue: number;
+}
+
+/** Floor every slice; the rounding remainder goes to the largest share. */
+function allocatePreview(pool: number, shares: { userId: string; sharePercent: number }[]): Map<string, number> {
+  const result = new Map<string, number>();
+  let allocated = 0;
+  let largest: { userId: string; sharePercent: number } | null = null;
+  for (const share of shares) {
+    const part = Math.floor((pool * share.sharePercent) / 100);
+    result.set(share.userId, part);
+    allocated += part;
+    if (!largest || share.sharePercent > largest.sharePercent) largest = share;
+  }
+  if (largest && pool - allocated !== 0) {
+    result.set(largest.userId, (result.get(largest.userId) ?? 0) + (pool - allocated));
+  }
+  return result;
+}
+
+/**
+ * Per-request earnings for ONE viewer, used to print "your share" on staff
+ * request cards and the case page. Privacy rules are absolute: fixed-salary
+ * staff get an empty map (no money figures anywhere), and a viewer only ever
+ * sees their own slice — as assignee, or as a member of an approved split.
+ * Recorded ledger rows (finalized) always win over estimates; estimated and
+ * finalized are never blended into one number.
+ */
+export async function earningsByRequest(
+  userId: string,
+  rows: { id: string; service_id: string; assigned_to: string | null; status: string }[],
+): Promise<Map<string, RequestEarningPreview>> {
+  const result = new Map<string, RequestEarningPreview>();
+  if (!rows.length) return result;
+  const contract: any = await activeContract(userId);
+  if (!contract || contract.kind !== 'commission') return result;
+
+  const ids = rows.map((row) => row.id);
+  const placeholders = ids.map(() => '?').join(',');
+  const [finalizedRows, shareRows, basisRows] = await Promise.all([
+    q<any>(
+      `SELECT request_id, COALESCE(SUM(amount),0) AS net, COUNT(*) AS c,
+              MAX(CASE WHEN kind='commission' THEN percent END) AS pct,
+              MAX(CASE WHEN kind='commission' THEN basis_amount END) AS basis
+       FROM compensation_entries
+       WHERE user_id = ? AND request_id IN (${placeholders}) AND kind IN ('commission','reversal','adjustment')
+       GROUP BY request_id`,
+      [userId, ...ids],
+    ),
+    q<any>(
+      `SELECT request_id, user_id, share_percent FROM request_commission_shares WHERE request_id IN (${placeholders})`,
+      ids,
+    ),
+    q<any>(
+      `SELECT r.id, r.total, (SELECT COALESCE(SUM(i.total - i.tax),0) FROM invoices i WHERE i.request_id = r.id) AS net_total
+       FROM requests r WHERE r.id IN (${placeholders})`,
+      ids,
+    ),
+  ]);
+  const finalizedBy = new Map(finalizedRows.map((row) => [row.request_id as string, row]));
+  const basisBy = new Map(basisRows.map((row) => [row.id as string, Math.round(Number(row.net_total ?? 0) || Number(row.total ?? 0))]));
+  const sharesBy = new Map<string, { userId: string; sharePercent: number }[]>();
+  for (const row of shareRows) {
+    const list = sharesBy.get(row.request_id) ?? [];
+    list.push({ userId: row.user_id, sharePercent: Number(row.share_percent) });
+    sharesBy.set(row.request_id, list);
+  }
+
+  const percentCache = new Map<string, Promise<number>>();
+  const percentFor = (uid: string, serviceId: string) => {
+    const key = `${uid}:${serviceId}`;
+    if (!percentCache.has(key)) percentCache.set(key, commissionPercentFor(uid, serviceId));
+    return percentCache.get(key)!;
+  };
+
+  for (const row of rows) {
+    const shares = sharesBy.get(row.id) ?? [];
+    const ownShare = shares.find((share) => share.userId === userId) ?? null;
+    const recorded = finalizedBy.get(row.id);
+    if (recorded && Number(recorded.c) > 0) {
+      result.set(row.id, {
+        state: 'finalized',
+        amount: Number(recorded.net),
+        percent: Number(recorded.pct ?? 0),
+        splitSharePercent: ownShare ? ownShare.sharePercent : null,
+        officeRevenue: Number(recorded.basis ?? basisBy.get(row.id) ?? 0),
+      });
+      continue;
+    }
+    if (row.status === 'cancelled' || row.status === 'rejected') continue;
+    const officeRevenue = basisBy.get(row.id) ?? 0;
+    if (officeRevenue <= 0) continue;
+
+    if (shares.length) {
+      // Split pool: only members see a figure, sized by the same allocation
+      // rule the ledger will use when the payment lands.
+      if (!ownShare || !row.assigned_to) continue;
+      const poolPercent = await percentFor(row.assigned_to, row.service_id);
+      const pool = commissionAmount(officeRevenue, poolPercent);
+      if (pool <= 0) continue;
+      result.set(row.id, {
+        state: 'estimated',
+        amount: allocatePreview(pool, shares).get(userId) ?? 0,
+        percent: poolPercent,
+        splitSharePercent: ownShare.sharePercent,
+        officeRevenue,
+      });
+      continue;
+    }
+
+    if (row.assigned_to !== userId) continue;
+    const percent = await percentFor(userId, row.service_id);
+    if (percent <= 0) continue;
+    result.set(row.id, {
+      state: 'estimated',
+      amount: commissionAmount(officeRevenue, percent),
+      percent,
+      splitSharePercent: null,
+      officeRevenue,
+    });
+  }
+  return result;
+}
+
 export interface SettlementPolicy {
   period: SettlementPeriod;
   days: number;

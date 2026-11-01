@@ -13,7 +13,7 @@ import { logEvent } from '../logging/service.js';
 import { toPersianDigits } from '../../lib/text.js';
 
 import { requireCompleteProfile, requireCoverage, validNationalId } from '../profiles/service.js';
-import { commissionAmount, commissionPercentFor, cooperationType } from '../payroll/compensation.js';
+import { commissionAmount, commissionPercentFor, cooperationType, earningsByRequest } from '../payroll/compensation.js';
 import { notifyUser, notifyRole } from '../notifications/service.js';
 import { normalizeCode, previewDiscount, redeemDiscount } from '../discounts/service.js';
 
@@ -809,6 +809,11 @@ export async function getRequest(requestId: string, viewer?: { actorId: string; 
     ? await q<any>(`SELECT * FROM document_reviews WHERE request_document_id IN (${documents.map(() => '?').join(',')}) ORDER BY created_at ASC`, documents.map((document) => document.id))
     : [];
   const invoices = await q<any>('SELECT * FROM invoices WHERE request_id = ? ORDER BY created_at ASC', [requestId]);
+  // "Your share from this case" for percentage staff; null for customers,
+  // fixed-salary staff and anyone without a stake in this request.
+  const earningPreview = viewer && !viewer.isCustomer
+    ? (await earningsByRequest(viewer.actorId, [row]).catch(() => new Map())).get(row.id) ?? null
+    : null;
 
   return {
     id: row.id,
@@ -826,6 +831,7 @@ export async function getRequest(requestId: string, viewer?: { actorId: string; 
     isCustom: Boolean(row.is_custom),
     assignedTo: row.assigned_to,
     assigneeName: row.assignee_name,
+    earnings: earningPreview,
     formData,
     snapshot,
     workflow: jsonParse<any>(row.snapshot, {}).service?.workflow ?? jsonParse(row.workflow_steps, []),
@@ -895,6 +901,8 @@ export interface ListRequestsOptions {
   page?: number; pageSize?: number; customerId?: string; assignedTo?: string;
   status?: string; statusGroup?: 'open' | 'closed' | 'all'; search?: string; urgent?: boolean;
   serviceId?: string; unassigned?: boolean; from?: string; to?: string; bucket?: string;
+  /** Staff viewer whose own per-request earnings are attached to each card. */
+  viewerId?: string;
 }
 
 export async function listRequests(opts: ListRequestsOptions = {}) {
@@ -932,6 +940,10 @@ export async function listRequests(opts: ListRequestsOptions = {}) {
     [...args, pageSize, (page - 1) * pageSize],
   );
 
+  const earningsMap = opts.viewerId
+    ? await earningsByRequest(opts.viewerId, rows).catch(() => new Map())
+    : new Map();
+
   return {
     items: rows.map((r) => ({
       id: r.id,
@@ -949,6 +961,7 @@ export async function listRequests(opts: ListRequestsOptions = {}) {
       serviceTitle: r.service_title,
       assignedTo: r.assigned_to,
       assigneeName: r.assignee_name,
+      earnings: earningsMap.get(r.id) ?? null,
       total: Number(r.total),
       paymentStatus: r.payment_status,
       dueAt: r.due_at,

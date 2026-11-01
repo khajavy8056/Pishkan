@@ -347,3 +347,86 @@ describe('payroll performance report', () => {
     expect(csv.text).toContain('عملکرد پرونده‌ای');
   });
 });
+
+describe('per-request earnings on staff cards', () => {
+  it('shows the assignee an estimate before payment and the exact ledger amount after', async () => {
+    const created = await createRequest(serviceId);
+    await assign(created.id, expertId);
+
+    const net = await one<any>(
+      'SELECT COALESCE(SUM(total - tax),0) AS net FROM invoices WHERE request_id = ?', [created.id],
+    );
+    const expectedEstimate = Math.round((Math.round(Number(net!.net)) * 10) / 100);
+
+    const listBefore = await request(server).get('/api/requests?mine=true&group=open&pageSize=50')
+      .set('Cookie', expert.cookie);
+    const itemBefore = (listBefore.body.data as any[]).find((item) => item.id === created.id);
+    expect(itemBefore?.earnings?.state).toBe('estimated');
+    expect(itemBefore?.earnings?.amount).toBe(expectedEstimate);
+    expect(itemBefore?.earnings?.percent).toBe(10);
+
+    const detailBefore = await detail(created.id, expert);
+    expect(detailBefore.earnings?.state).toBe('estimated');
+    expect(detailBefore.earnings?.amount).toBe(expectedEstimate);
+
+    // Customers never see staff money on the same case.
+    const customerView = await request(server).get(`/api/requests/${created.id}`).set('Cookie', customer.cookie);
+    expect(customerView.body.data.earnings).toBeNull();
+
+    await pay(created);
+    const entry = await one<any>(
+      `SELECT amount FROM compensation_entries WHERE request_id = ? AND kind = 'commission'`, [created.id],
+    );
+    expect(entry).toBeTruthy();
+
+    const detailAfter = await detail(created.id, expert);
+    expect(detailAfter.earnings?.state).toBe('finalized');
+    expect(detailAfter.earnings?.amount).toBe(Number(entry!.amount));
+
+    const listAfter = await request(server).get('/api/requests?mine=true&group=all&pageSize=50')
+      .set('Cookie', expert.cookie);
+    const itemAfter = (listAfter.body.data as any[]).find((item) => item.id === created.id);
+    expect(itemAfter?.earnings?.state).toBe('finalized');
+    expect(itemAfter?.earnings?.amount).toBe(Number(entry!.amount));
+  });
+
+  it('never shows any amount to fixed-salary staff', async () => {
+    const fixed = await createStaff('operator', { username: 'wf_fixed', password: 'Operator#12345', fullName: 'کارمند ثابت آزمون کارت' });
+    const fixedId = await staffId('wf_fixed');
+    await createContract({
+      userId: fixedId, kind: 'monthly', monthlyAmount: 25000000, commissionPercent: 0,
+      startsOn: '2026-01-01', settlementPeriod: 'monthly', note: 'حقوق ثابت آزمون کارت درآمد',
+    }, 'test-payroll', 'آزمون');
+
+    const created = await createRequest(serviceId);
+    await assign(created.id, fixedId);
+
+    const list = await request(server).get('/api/requests?mine=true&group=open&pageSize=50')
+      .set('Cookie', fixed.cookie);
+    const item = (list.body.data as any[]).find((row) => row.id === created.id);
+    expect(item).toBeTruthy();
+    expect(item.earnings).toBeNull();
+
+    const detailView = await detail(created.id, fixed);
+    expect(detailView.earnings).toBeNull();
+  });
+
+  it('reduces the card estimate to the assignee slice when a split exists', async () => {
+    const created = await createRequest(oddServiceId);
+    await assign(created.id, expertId);
+    await request(server).put(`/api/requests/${created.id}/shares`).set('Cookie', admin.cookie)
+      .send({ shares: [{ userId: expertId, sharePercent: 60 }, { userId: expert2Id, sharePercent: 40 }] })
+      .expect(200);
+
+    const net = await one<any>(
+      'SELECT COALESCE(SUM(total - tax),0) AS net FROM invoices WHERE request_id = ?', [created.id],
+    );
+    const pool = Math.round((Math.round(Number(net!.net)) * 10) / 100);
+    const expectedMine = pool - Math.floor((pool * 40) / 100);
+
+    const view = await detail(created.id, expert);
+    expect(view.earnings?.state).toBe('estimated');
+    expect(view.earnings?.splitSharePercent).toBe(60);
+    expect(view.earnings?.amount).toBe(expectedMine);
+  });
+});

@@ -385,7 +385,13 @@ export function StaffRequests({ variant = 'staff' }: { variant?: 'staff' | 'admi
                 {item.assigneeName ? ` • کارشناس: ${item.assigneeName}` : ' • بدون کارشناس'}
               </p>
             </div>
-            <div className="flex items-center gap-2">
+            <div className="flex flex-wrap items-center gap-2">
+              {item.earnings && (
+                <span className="rounded-full bg-emerald-50 px-2.5 py-1 text-[11px] font-semibold text-emerald-900 ring-1 ring-emerald-200">
+                  سهم شما: {rial(item.earnings.amount)}
+                  <span className="font-normal text-emerald-700"> ({item.earnings.state === 'finalized' ? 'قطعی' : 'برآوردی'})</span>
+                </span>
+              )}
               {item.workBucket && <Badge tone={BUCKET_TONES[item.workBucket] ?? 'default'}>{BUCKET_LABELS[item.workBucket] ?? item.workBucket}</Badge>}
               <StatusBadge status={item.paymentStatus} />
               <StatusBadge status={item.status} label={item.statusLabel} />
@@ -669,6 +675,26 @@ export function RequestDetail({ variant = 'staff' }: { variant?: 'staff' | 'admi
               {request.assignmentSource && <span className="text-[11px] text-navy-400">({ASSIGNMENT_SOURCE_LABELS[request.assignmentSource] ?? request.assignmentSource})</span>}
               {request.nextStepTitle && <span className="text-[11px] text-navy-400">· اقدام بعدی: {request.nextStepTitle}</span>}
             </div>
+            {request.earnings && (
+              <div className={clsx('mt-3 flex flex-wrap items-center gap-x-4 gap-y-1 rounded-2xl px-4 py-3 ring-1',
+                request.earnings.state === 'finalized' ? 'bg-emerald-50 ring-emerald-200' : 'bg-surface-3 ring-line')}>
+                <span className="text-xs font-bold text-navy-800">
+                  سهم شما از این پرونده
+                  {request.earnings.splitSharePercent
+                    ? ` (${faNum(request.earnings.splitSharePercent)}٪ از پورسانت پرونده)`
+                    : ` (${faNum(request.earnings.percent)}٪ از درآمد دفتر)`}
+                </span>
+                <span className="text-base font-black text-emerald-900">{rial(request.earnings.amount)}</span>
+                <Badge tone={request.earnings.state === 'finalized' ? 'success' : 'warning'}>
+                  {request.earnings.state === 'finalized' ? 'قطعی' : 'برآوردی'}
+                </Badge>
+                <span className="text-[11px] text-navy-500">
+                  {request.earnings.state === 'finalized'
+                    ? 'در دفتر درآمد شما ثبت شده است.'
+                    : 'پس از پرداخت تأییدشدهٔ مشتری قطعی می‌شود؛ هنوز جزو درآمد قطعی شما نیست.'}
+                </span>
+              </div>
+            )}
             {request.workflow?.length > 0 && (
               <ol className="mt-4 flex gap-1">
                 {request.workflow.map((step: any, index: number) => (

@@ -19,7 +19,7 @@ import { notifyUser } from '../notifications/service.js';
 import { getBool, getNumber } from '../settings/service.js';
 import {
   activeContract, commissionAmount, commissionPercentFor, cooperationType, officeRevenueOf, settlementPolicy,
-  settlementWindow, startOfMonthIso, startOfWeekIso, todayIso,
+  settlementWindow, startOfMonthIso, startOfWeekIso, todayIso, earningsByRequest,
 } from './compensation.js';
 import { contractHistory } from './service.js';
 
@@ -227,20 +227,25 @@ export async function pendingEstimate(userId: string) {
   const contract = await activeContract(userId);
   if (!contract || contract.kind !== 'commission') return { percent: 0, items: [], total: 0 };
   const rows = await q<any>(
-    `SELECT r.id, r.tracking_code, r.total, r.status, r.service_id, s.title AS service_title,
+    `SELECT r.id, r.tracking_code, r.total, r.status, r.service_id, r.assigned_to, s.title AS service_title,
             (SELECT COALESCE(SUM(i.total - i.tax),0) FROM invoices i WHERE i.request_id=r.id) AS net_total
      FROM requests r JOIN services s ON s.id=r.service_id
      WHERE r.assigned_to=? AND r.status IN (${OPEN.map(() => '?').join(',')})`,
     [userId, ...OPEN],
   );
+  // Split-aware: when a manager divided this case's pool, the dashboard
+  // estimate must show only this person's slice — same rule as the cards.
+  const previews = await earningsByRequest(userId, rows).catch(() => new Map());
   const items = [];
   for (const row of rows) {
     const officeRevenue = Math.round(Number(row.net_total ?? 0) || Number(row.total ?? 0));
-    const rowPercent = await commissionPercentFor(userId, row.service_id);
+    const preview = previews.get(row.id);
+    const rowPercent = preview?.percent ?? await commissionPercentFor(userId, row.service_id);
     items.push({
       requestId: row.id, trackingCode: row.tracking_code, serviceTitle: row.service_title,
       status: row.status, officeRevenue, percent: rowPercent,
-      estimate: commissionAmount(officeRevenue, rowPercent),
+      splitSharePercent: preview?.splitSharePercent ?? null,
+      estimate: preview && preview.state === 'estimated' ? preview.amount : commissionAmount(officeRevenue, rowPercent),
     });
   }
   return { percent: Number(contract.commission_percent), items, total: items.reduce((sum, item) => sum + item.estimate, 0) };
