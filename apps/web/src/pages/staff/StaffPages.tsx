@@ -545,7 +545,7 @@ export function RequestDetail({ variant = 'staff' }: { variant?: 'staff' | 'admi
                     <StatusBadge status={doc.status} />
                   </div>
                   {doc.reviewNote && <p className="mt-1 text-[11px] text-rose-700">{doc.reviewNote}</p>}
-                  <FileSummary file={doc.file} />
+                  <FileSummary file={doc.file} technical />
                   <div className="mt-2 flex flex-wrap gap-2">
                     <Button size="sm" variant="ghost" onClick={() => setViewer(doc)}>
                       <Download className="size-3.5" /> مشاهده
@@ -703,7 +703,7 @@ export function RequestDetail({ variant = 'staff' }: { variant?: 'staff' | 'admi
         </div>
       </Modal>
 
-      <DocumentViewer file={viewer?.file ?? null} title={viewer?.title ?? 'مدرک'} open={Boolean(viewer)} onClose={() => setViewer(null)} />
+      <DocumentViewer file={viewer?.file ?? null} title={viewer?.title ?? 'مدرک'} open={Boolean(viewer)} onClose={() => setViewer(null)} technical />
     </AppShell>
   );
 }
@@ -763,7 +763,7 @@ export function StaffDocuments() {
                     {doc.customerName} • {doc.recordType === 'profile' ? `مدرک پروفایل${doc.docTypeLabel ? ` (${doc.docTypeLabel})` : ''}` : `${doc.serviceTitle} • ${doc.trackingCode}`} • {relative(doc.createdAt)}
                   </p>
                   <p className="mt-1 truncate text-[11px] text-navy-400" dir="ltr">{doc.file.name}</p>
-                  <FileSummary file={doc.file} />
+                  <FileSummary file={doc.file} technical />
                   {doc.file.processing?.status === 'failed' && (
                     <p className="mt-1 text-[11px] text-amber-700">پردازش تصویر انجام نشد؛ نسخه اصلی حفظ شده است.</p>
                   )}
@@ -781,7 +781,7 @@ export function StaffDocuments() {
           </Card>
         ))}
       </div>
-      <DocumentViewer file={viewer?.file ?? null} title={viewer?.title ?? 'مدرک'} open={Boolean(viewer)} onClose={() => setViewer(null)} />
+      <DocumentViewer file={viewer?.file ?? null} title={viewer?.title ?? 'مدرک'} open={Boolean(viewer)} onClose={() => setViewer(null)} technical />
     </AppShell>
   );
 }
@@ -908,7 +908,6 @@ export function StaffCustomers() {
                         <span className="block truncate">{document.docTypeLabel}</span>
                         <span className="block text-[10px] text-navy-500">
                           {document.expiresAt ? `اعتبار تا ${faDate(document.expiresAt)}` : 'بدون تاریخ انقضا'}
-                          {document.file.processing?.status === 'ready' ? ` • ${faNum(document.file.savingsPercent ?? 0)}٪ کم‌حجم‌تر` : ''}
                         </span>
                       </span>
                     </button>
@@ -947,6 +946,7 @@ export function StaffCustomers() {
         title={profileViewer?.docTypeLabel ?? 'مدرک پروفایل'}
         open={Boolean(profileViewer)}
         onClose={() => setProfileViewer(null)}
+        technical
       />
 
       <Modal open={creating} onClose={() => setCreating(false)} title="ایجاد حساب مشتری"

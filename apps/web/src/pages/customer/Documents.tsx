@@ -1,12 +1,12 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import {
-  AlertTriangle, CheckCircle2, FileText, Plus, RefreshCw, ShieldCheck, Trash2, UploadCloud, Wand2, XCircle,
+  AlertTriangle, CheckCircle2, FileText, Plus, RefreshCw, ShieldCheck, Trash2, UploadCloud, XCircle,
 } from 'lucide-react';
 import { AppShell, PageHeader } from '../../components/shell';
 import {
   Button, Card, EmptyState, Field, Input, Loading, Modal, Select, StatusBadge, useToast,
 } from '../../components/ui';
-import { DocumentViewer, FileSummary, FileThumbnail, ProcessingBadge, bytes, type MediaFile } from '../../components/documents';
+import { DocumentViewer, FileSummary, FileThumbnail, bytes, type MediaFile } from '../../components/documents';
 import { api, ApiFailure } from '../../lib/api';
 import { faDate, faNum } from '../../lib/format';
 import { availableRequestDocumentRequirements, defaultRequestDocumentRequirementKey, requestDocumentRequirements } from '../../lib/request-documents';
@@ -92,13 +92,7 @@ export function CustomerDocuments() {
         expiresAt: form.expiresAt || undefined,
         replacesDocumentId: replacing?.id,
       });
-      notify(
-        uploaded.data.processing.status === 'ready'
-          ? `مدرک ثبت شد و تصویر بدون افت خوانایی بهینه شد (${faNum(uploaded.data.savingsPercent)}٪ کاهش حجم).`
-          : 'مدرک ثبت شد. پردازش تصویر انجام نشد و نسخه اصلی حفظ شد.',
-        'success',
-      );
-      if (uploaded.data.notes?.length) notify(uploaded.data.notes.join(' '), 'info');
+      notify('مدرک با موفقیت ثبت شد.', 'success');
       setUploadOpen(false);
       setReplacing(null);
       setSelectedFile(null);
@@ -184,11 +178,8 @@ export function CustomerDocuments() {
 
   const totals = useMemo(() => ({
     count: documents.length,
-    ready: documents.filter((document) => document.file.processing?.status === 'ready').length,
-    saved: documents.reduce((sum, document) => {
-      const original = document.file.originalSize ?? document.file.size;
-      return sum + Math.max(0, original - document.file.size);
-    }, 0),
+    approved: documents.filter((document) => document.status === 'approved').length,
+    pending: documents.filter((document) => document.status === 'pending').length,
   }), [documents]);
   const reuseRequirements = requestDocumentRequirements(reuseRequest);
   const availableReuseRequirements = availableRequestDocumentRequirements(reuseRequest);
@@ -197,7 +188,7 @@ export function CustomerDocuments() {
     <AppShell variant="customer">
       <PageHeader
         title="مدارک من"
-        description="کارت ملی، شناسنامه و سایر مدارک را یک‌بار بارگذاری کنید؛ تصویر به‌طور خودکار اصلاح جهت، بهینه و به WebP تبدیل می‌شود و نسخه اصلی سالم نگه داشته می‌شود."
+        description="کارت ملی، شناسنامه و سایر مدارک را یک‌بار خوانا و بدون برش بارگذاری کنید تا در پرونده‌ها قابل استفاده باشند."
         actions={(
           <div className="flex gap-2">
             <Button size="sm" variant="ghost" onClick={() => load()}><RefreshCw className="size-4" /> بازبینی</Button>
@@ -212,22 +203,22 @@ export function CustomerDocuments() {
           <div><p className="text-xs text-navy-500">مدارک ثبت‌شده</p><p className="text-lg font-bold text-navy-900">{faNum(totals.count)}</p></div>
         </Card>
         <Card className="flex items-center gap-3">
-          <Wand2 className="size-8 text-accent" />
-          <div><p className="text-xs text-navy-500">بهینه‌سازی خودکار</p><p className="text-lg font-bold text-navy-900">{faNum(totals.ready)} مدرک</p></div>
+          <CheckCircle2 className="size-8 text-accent" />
+          <div><p className="text-xs text-navy-500">مدارک تأییدشده</p><p className="text-lg font-bold text-navy-900">{faNum(totals.approved)} مدرک</p></div>
         </Card>
         <Card className="flex items-center gap-3">
           <FileText className="size-8 text-sky-700" />
-          <div><p className="text-xs text-navy-500">حجم صرفه‌جویی‌شده</p><p className="text-lg font-bold text-navy-900">{bytes(totals.saved)}</p></div>
+          <div><p className="text-xs text-navy-500">در انتظار بررسی</p><p className="text-lg font-bold text-navy-900">{faNum(totals.pending)} مدرک</p></div>
         </Card>
       </div>
 
       <Card className="mb-6">
-        <h2 className="mb-2 flex items-center gap-2 font-bold text-navy-900"><Wand2 className="size-4 text-accent" /> پردازش خودکار تصاویر</h2>
+        <h2 className="mb-2 flex items-center gap-2 font-bold text-navy-900"><ShieldCheck className="size-4 text-accent" /> نکته‌های بارگذاری مدرک</h2>
         <ul className="grid gap-2 text-[11px] leading-6 text-navy-600 sm:grid-cols-2">
-          <li className="flex items-start gap-1.5"><CheckCircle2 className="mt-1 size-3.5 shrink-0 text-emerald-700" /> اصلاح خودکار جهت تصویر بر اساس EXIF</li>
-          <li className="flex items-start gap-1.5"><CheckCircle2 className="mt-1 size-3.5 shrink-0 text-emerald-700" /> تبدیل به WebP بدون کاهش رزولوشن</li>
-          <li className="flex items-start gap-1.5"><CheckCircle2 className="mt-1 size-3.5 shrink-0 text-emerald-700" /> نگهداری نسخه اصلی برای بازیابی و بازبینی</li>
-          <li className="flex items-start gap-1.5"><CheckCircle2 className="mt-1 size-3.5 shrink-0 text-emerald-700" /> حذف متادیتای غیرضروری از نسخه نمایشی</li>
+          <li className="flex items-start gap-1.5"><CheckCircle2 className="mt-1 size-3.5 shrink-0 text-emerald-700" /> عکس را با نور کافی و بدون بازتاب بگیرید تا همهٔ متن خوانا باشد.</li>
+          <li className="flex items-start gap-1.5"><CheckCircle2 className="mt-1 size-3.5 shrink-0 text-emerald-700" /> هر چهار گوشهٔ مدرک باید داخل کادر دیده شود.</li>
+          <li className="flex items-start gap-1.5"><CheckCircle2 className="mt-1 size-3.5 shrink-0 text-emerald-700" /> مدارک تأییدشده در درخواست‌های بعدی بدون بارگذاری دوباره قابل استفاده‌اند.</li>
+          <li className="flex items-start gap-1.5"><CheckCircle2 className="mt-1 size-3.5 shrink-0 text-emerald-700" /> فایل‌ها فقط برای کارشناس پروندهٔ شما قابل مشاهده‌اند.</li>
         </ul>
       </Card>
 
@@ -235,7 +226,7 @@ export function CustomerDocuments() {
       {!loading && documents.length === 0 && (
         <EmptyState
           title="هنوز مدرکی ثبت نشده است"
-          description="یک تصویر کارت ملی یا شناسنامه بارگذاری کنید؛ نیازی به فشرده‌سازی یا ویرایش قبلی نیست."
+          description="یک تصویر خوانا از کارت ملی یا شناسنامه بارگذاری کنید."
           action={<Button onClick={() => openUpload()}><UploadCloud className="size-4" /> بارگذاری مدرک</Button>}
         />
       )}
@@ -252,7 +243,6 @@ export function CustomerDocuments() {
                 </div>
                 <div className="flex flex-wrap gap-1">
                   <StatusBadge status={document.status} label={STATUS_TEXT[document.status]} />
-                  <ProcessingBadge processing={document.file.processing} />
                 </div>
               </div>
               <FileSummary file={document.file} />
@@ -338,7 +328,7 @@ export function CustomerDocuments() {
               options={types.map((type) => ({ value: type.code, label: type.label }))}
             />
           </Field>
-          <Field label="فایل تصویر یا PDF" required hint="حجم و کیفیت را خودتان کاهش ندهید؛ سامانه به‌طور خودکار نسخه بهینه می‌سازد.">
+          <Field label="فایل تصویر یا PDF" required hint="تصویر را همان‌طور که گرفته‌اید بارگذاری کنید؛ نیازی به ویرایش یا کم‌کردن کیفیت آن نیست.">
             <Input
               type="file"
               accept=".jpg,.jpeg,.png,.webp,.pdf"

@@ -251,6 +251,7 @@ export function AdminShifts() {
 /* --------------------------------- system --------------------------------- */
 
 export function AdminSystem() {
+  const { can } = useAuth();
   const { notify } = useToast();
   const [status, setStatus] = useState<any>(null);
   const [health, setHealth] = useState<any>(null);
@@ -306,10 +307,22 @@ export function AdminSystem() {
   const verifyBackup = async (backup: any) => {
     try {
       const res = await api.post<{ data: any }>(`/api/system/backups/${backup.id}/verify`);
-      notify(res.data.valid ? 'صحت نسخه پشتیبان تأیید شد.' : 'نسخه پشتیبان معتبر نیست.', res.data.valid ? 'success' : 'error');
+      notify(res.data.message ?? (res.data.ok ? 'صحت نسخه پشتیبان تأیید شد.' : 'نسخه پشتیبان معتبر نیست.'), res.data.ok ? 'success' : 'error');
     } catch (err) {
       notify(err instanceof ApiFailure ? err.message : 'خطا', 'error');
     }
+  };
+
+  const deleteBackup = async (backup: any) => {
+    if (!window.confirm(`نسخه پشتیبان «${backup.filename}» و آرشیو مدارک آن برای همیشه حذف شود؟`)) return;
+    setBusy(true);
+    try {
+      await api.delete(`/api/system/backups/${backup.id}`, { confirmation: 'DELETE' });
+      notify('نسخه پشتیبان حذف شد.', 'success');
+      load();
+    } catch (err) {
+      notify(err instanceof ApiFailure ? err.message : 'خطا در حذف', 'error');
+    } finally { setBusy(false); }
   };
 
   const restore = async () => {
@@ -394,8 +407,32 @@ export function AdminSystem() {
           <div className="mt-6 grid gap-6 lg:grid-cols-2">
             <Card>
               <h2 className="mb-3 flex items-center gap-2 font-bold text-navy-900"><Database className="size-4 text-accent" /> پشتیبان‌گیری</h2>
+
+              {backups.status?.overdue && (
+                <p role="alert" className="mb-3 flex items-start gap-1.5 rounded-lg bg-rose-50 p-2 text-[11px] leading-5 text-rose-800 ring-1 ring-rose-200">
+                  <AlertTriangle className="mt-0.5 size-3.5 shrink-0" />
+                  {backups.status.lastOkAt
+                    ? `بیش از ${faNum(backups.status.lastOkAgeHours)} ساعت از آخرین نسخهٔ سالم می‌گذرد؛ همین حالا یک نسخهٔ دستی بسازید و زمان‌بندی خودکار را بررسی کنید.`
+                    : 'هنوز هیچ نسخهٔ پشتیبان سالمی ساخته نشده است؛ داده‌های دفتر در برابر خرابی بدون محافظ‌اند.'}
+                </p>
+              )}
+
+              <div className="mb-3 grid gap-2 rounded-xl bg-surface-3 p-3 text-[11px] leading-6 text-navy-600 sm:grid-cols-2">
+                <span>آخرین نسخهٔ سالم: <b className="text-navy-900">{backups.status?.lastOkAt ? relative(backups.status.lastOkAt) : '—'}</b></span>
+                <span>نسخه‌های سالم: <b className="text-navy-900">{faNum(backups.status?.healthyCount ?? 0)} از {faNum(backups.status?.total ?? 0)}</b></span>
+                <span>پشتیبان‌گیری خودکار: <b className={backups.status?.scheduler?.enabled ? 'text-emerald-700' : 'text-rose-700'}>{backups.status?.scheduler?.enabled ? 'فعال' : 'غیرفعال'}</b>
+                  {backups.status?.scheduler?.schedule && <span dir="ltr" className="mr-1 text-navy-400">({backups.status.scheduler.schedule})</span>}
+                </span>
+                <span>اجرای خودکار بعدی: <b className="text-navy-900">{backups.status?.scheduler?.nextRunAt ? faDateTime(backups.status.scheduler.nextRunAt) : '—'}</b></span>
+                {backups.status?.scheduler?.lastError && (
+                  <span className="text-rose-700 sm:col-span-2">آخرین خطای خودکار: {backups.status.scheduler.lastError}</span>
+                )}
+                <span>نگهداری: <b className="text-navy-900">{faNum(backups.status?.retentionDays ?? 0)} روز</b> (دست‌کم {faNum(backups.status?.retentionMinCount ?? 3)} نسخهٔ سالم همیشه می‌ماند)</span>
+                <span>حجم کل نسخه‌ها: <b className="text-navy-900">{faNum(Math.round((backups.status?.totalSize ?? 0) / 1048576))} MB</b></span>
+              </div>
+
               <div className="mb-3 flex flex-wrap gap-2">
-                <Button size="sm" loading={busy} onClick={createBackup}>ایجاد نسخه پشتیبان</Button>
+                <Button size="sm" loading={busy} onClick={createBackup} disabled={!can('backup.create')}>ایجاد نسخه پشتیبان</Button>
                 <span className="self-center text-[11px] text-navy-500">
                   {backups.status?.lastBackupAt ? `آخرین نسخه: ${relative(backups.status.lastBackupAt)}` : 'هنوز نسخه‌ای ایجاد نشده است.'}
                 </span>
@@ -407,12 +444,26 @@ export function AdminSystem() {
                     <div className="flex flex-wrap items-center justify-between gap-2">
                       <div className="min-w-0">
                         <p dir="ltr" className="truncate text-right text-xs font-medium text-navy-900">{backup.filename}</p>
-                        <p className="text-[10px] text-navy-500">{faDateTime(backup.createdAt)} • {faNum(Math.round((backup.size ?? 0) / 1024))} KB</p>
+                        <p className="text-[10px] text-navy-500">
+                          {faDateTime(backup.createdAt)} • پایگاه داده {faNum(Math.round((backup.size ?? 0) / 1024))} KB
+                          {backup.uploadsFilename ? ` • مدارک ${faNum(Math.round((backup.uploadsSize ?? 0) / 1024))} KB` : ' • بدون آرشیو مدارک'}
+                          {backup.note ? ` • ${backup.note}` : ''}
+                        </p>
                       </div>
-                      <div className="flex gap-1">
-                        <Button size="sm" variant="ghost" onClick={() => verifyBackup(backup)}>بررسی</Button>
-                        <Button size="sm" variant="ghost" onClick={() => { setRestoreModal(backup); setRestoreConfirm(''); setRestorePassword(''); }}>بازیابی</Button>
-                      </div>
+                      <Badge tone={backup.status === 'ok' ? 'success' : backup.status === 'invalid' || backup.status === 'failed' ? 'danger' : 'warning'}>
+                        {backup.status === 'ok' ? 'سالم' : backup.status === 'invalid' ? 'نامعتبر' : backup.status === 'failed' ? 'ناموفق' : backup.status}
+                      </Badge>
+                    </div>
+                    <div className="mt-1.5 flex flex-wrap gap-1">
+                      <Button size="sm" variant="ghost" onClick={() => verifyBackup(backup)}>بررسی صحت</Button>
+                      {can('backup.export') && (
+                        <>
+                          <a className="btn-ghost btn-sm" href={`/api/system/backups/${backup.id}/download?part=db`}><Download className="size-3.5" /> پایگاه داده</a>
+                          {backup.uploadsFilename && <a className="btn-ghost btn-sm" href={`/api/system/backups/${backup.id}/download?part=uploads`}><Download className="size-3.5" /> آرشیو مدارک</a>}
+                        </>
+                      )}
+                      <Button size="sm" variant="ghost" onClick={() => { setRestoreModal(backup); setRestoreConfirm(''); setRestorePassword(''); }}>بازیابی</Button>
+                      {can('backup.delete') && <Button size="sm" variant="ghost" onClick={() => deleteBackup(backup)}><Trash2 className="size-3.5" /> حذف</Button>}
                     </div>
                   </div>
                 ))}

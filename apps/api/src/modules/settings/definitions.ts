@@ -32,7 +32,7 @@ export interface SettingDef {
 export type SettingGroupCode =
   | 'general' | 'domain' | 'auth' | 'sms' | 'email' | 'security' | 'services'
   | 'accounting' | 'wallet' | 'workforce' | 'payroll' | 'assistant' | 'files' | 'backup'
-  | 'maintenance' | 'monitoring' | 'multibranch';
+  | 'maintenance' | 'monitoring' | 'multibranch' | 'support';
 
 export const SETTING_GROUPS: {
   code: SettingGroupCode;
@@ -58,6 +58,7 @@ export const SETTING_GROUPS: {
   { code: 'monitoring', title: 'مانیتورینگ و لاگ', description: 'نمونه‌برداری شاخص‌ها، آستانه هشدارها و نگهداری لاگ فنی', icon: 'activity', order: 15 },
   { code: 'payroll', title: 'درآمد و تسویه کارکنان', description: 'مبنای محاسبه سهم درصدی، دوره تسویه، حداقل برداشت و اجازه ثبت درخواست برداشت', icon: 'wallet', order: 17 },
   { code: 'multibranch', title: 'چنددفتره', description: 'آماده‌سازی برای مدیریت چند دفتر مستقل (آزمایشی)', icon: 'building', order: 16 },
+  { code: 'support', title: 'پشتیبانی و تیکت‌ها', description: 'فعال‌سازی میز پشتیبانی مشتریان و متن راهنمای آن', icon: 'life-buoy', order: 18 },
 ];
 
 const bool = (v: boolean) => v;
@@ -279,11 +280,14 @@ export const SETTINGS: SettingDef[] = [
   { key: 'backup.enabled', group: 'backup', type: 'boolean', label: 'پشتیبان‌گیری خودکار فعال', default: bool(true) },
   { key: 'backup.schedule_cron', group: 'backup', type: 'cron', label: 'زمان‌بندی پشتیبان‌گیری', hint: 'قالب cron؛ مثال: 0 2 * * * برای هر روز ساعت ۲ بامداد.', default: '0 2 * * *' },
   { key: 'backup.retention_days', group: 'backup', type: 'number', label: 'نگهداری نسخه‌های پشتیبان (روز)', default: 30, min: 1, max: 365 },
+  { key: 'backup.retention_min_count', group: 'backup', type: 'number', label: 'حداقل تعداد نسخهٔ سالم نگه‌داشته‌شده', hint: 'حتی اگر از مهلت نگهداری گذشته باشند، این تعداد از تازه‌ترین نسخه‌های سالم هرگز خودکار حذف نمی‌شوند.', default: 3, min: 1, max: 50 },
   { key: 'backup.destination', group: 'backup', type: 'select', label: 'مقصد ذخیره', options: [{ value: 'local', label: 'پوشه محلی سرور' }, { value: 'remote', label: 'مقصد خارجی (rclone/S3)' }], default: 'local' },
   { key: 'backup.remote_config', group: 'backup', type: 'password', secret: true, label: 'تنظیمات مقصد خارجی', hint: 'JSON ابزار rclone یا اعتبارنامه S3؛ رمزنگاری‌شده ذخیره می‌شود.', default: '' },
   { key: 'backup.include_uploads', group: 'backup', type: 'boolean', label: 'شامل فایل‌های مدارک', default: bool(true) },
   { key: 'backup.verify_after_backup', group: 'backup', type: 'boolean', label: 'بررسی صحت نسخه پشتیبان پس از ایجاد', default: bool(true) },
   { key: 'backup.require_restore_confirmation', group: 'backup', type: 'boolean', label: 'الزام تأیید متنی برای بازیابی', default: bool(true) },
+  { key: 'support.enabled', group: 'support', type: 'boolean', label: 'میز پشتیبانی (تیکت) فعال', hint: 'با خاموش‌کردن، مشتری نمی‌تواند تیکت جدید باز کند؛ تیکت‌های قبلی همچنان دیده می‌شوند.', default: bool(true) },
+  { key: 'support.intro', group: 'support', type: 'textarea', label: 'متن راهنمای بالای صفحهٔ پشتیبانی مشتری', hint: 'مثلاً ساعات پاسخ‌گویی و زمان تقریبی پاسخ.', default: 'معمولاً در ساعات کاری حداکثر تا چند ساعت پاسخ می‌دهیم. برای پیگیری یک پروندهٔ مشخص، شماره پیگیری آن را در متن پیام بنویسید یا از فهرست انتخاب کنید.', public: true },
 
   /* ------------------------------ maintenance ------------------------------ */
   { key: 'maintenance.mode', group: 'maintenance', type: 'boolean', label: 'حالت تعمیرات', hint: 'پنل مشتری غیرفعال و پیام نگهداری نمایش داده می‌شود؛ ورود مدیر باز می‌ماند.', default: bool(false), public: true },

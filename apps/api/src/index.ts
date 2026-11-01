@@ -13,6 +13,7 @@ import { startMetricsCollector, stopMetricsCollector } from './modules/monitorin
 import { evaluateAlerts } from './modules/monitoring/alerts.js';
 import { startAlertScheduler, stopAlertScheduler } from './modules/monitoring/scheduler.js';
 import { startAssignmentScheduler, stopAssignmentScheduler } from './modules/requests/scheduler.js';
+import { startBackupScheduler, stopBackupScheduler } from './modules/system/scheduler.js';
 import { setMinimumLevel } from './modules/logging/service.js';
 import { getString } from './modules/settings/service.js';
 
@@ -79,6 +80,7 @@ async function bootstrap() {
   });
   startAlertScheduler();
   startAssignmentScheduler();
+  startBackupScheduler();
   await evaluateAlerts({ notify: true }).catch((error) => {
     console.error(`[boot] alert evaluation failed: ${safeErrorText(error)}`);
   });
@@ -96,6 +98,7 @@ async function bootstrap() {
     stopMetricsCollector();
     stopAlertScheduler();
     stopAssignmentScheduler();
+    stopBackupScheduler();
     console.log(`[shutdown] received ${signal}`);
     server.close(() => {
       void closeDb().catch(() => undefined).finally(() => process.exit(exitCode));

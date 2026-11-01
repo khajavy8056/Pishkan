@@ -103,7 +103,6 @@ export function CaseAutomation({ request, onChange }: { request: any; onChange: 
                   if (files.length + selected.length > 10) { notify('حداکثر ۱۰ فایل مجاز است.', 'error'); return; }
                   setBusy(true);
                   const uploaded: { fileId: string; title: string; file?: any; replacesDocumentId?: string }[] = [];
-                  let savedTotal = 0;
                   try {
                     for (const file of selected) {
                       const response = await api.upload<{ data: any }>('/api/files/upload', file, { purpose: 'delivery' });
@@ -114,14 +113,10 @@ export function CaseAutomation({ request, onChange }: { request: any; onChange: 
                       const remaining = replacementCandidates.filter((document: any) => !reservedIds.has(document.id));
                       if (!replacesDocumentId && remaining.length === 1 && selected.length === 1) replacesDocumentId = remaining[0].id;
                       uploaded.push({ fileId: response.data.id, title: response.data.name, file: response.data, replacesDocumentId });
-                      savedTotal += response.data.savingsPercent ?? 0;
                     }
                     setFiles((old) => [...old, ...uploaded]);
                     if (uploaded.length) {
-                      const failed = uploaded.some((file) => file.file?.processing?.status === 'failed');
-                      notify(failed
-                        ? 'فایل‌ها خصوصی ذخیره شدند؛ بهینه‌سازی برخی فایل‌ها انجام نشد ولی نسخه اصلی سالم است.'
-                        : `${faNum(uploaded.length)} فایل خصوصی ذخیره شد؛ میانگین کاهش حجم ${faNum(Math.round(savedTotal / uploaded.length))}٪.`, 'success');
+                      notify(`${faNum(uploaded.length)} فایل ذخیره شد.`, 'success');
                     }
                   } catch (cause) {
                     setFiles((old) => [...old, ...uploaded]);
@@ -141,7 +136,7 @@ export function CaseAutomation({ request, onChange }: { request: any; onChange: 
                   <div key={file.fileId} className="rounded-lg border border-navy-100 bg-surface p-2">
                     <div className="flex items-start gap-3">
                       <FileThumbnail file={file.file} onOpen={() => file.file && setPreview(file.file)} />
-                      <div className="min-w-0 flex-1">{file.file ? <FileSummary file={file.file} /> : <p className="truncate text-xs">{file.title}</p>}</div>
+                      <div className="min-w-0 flex-1">{file.file ? <FileSummary file={file.file} technical /> : <p className="truncate text-xs">{file.title}</p>}</div>
                       <button type="button" onClick={() => setFiles((current) => current.filter((item) => item.fileId !== file.fileId))}
                         className="shrink-0 text-xs text-rose-700">حذف</button>
                     </div>

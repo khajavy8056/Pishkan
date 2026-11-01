@@ -9,6 +9,7 @@ import { one, q, run, nowIso } from '../db/index.js';
 import { listAudit, pruneAudit } from '../modules/audit/service.js';
 import {
   backupStatus, createBackup, deleteBackup, listBackups, restoreBackup, verifyBackup,
+  backupDto, backupFilePath,
 } from '../modules/system/backup.js';
 import { invalidateSettingsCache } from '../modules/settings/service.js';
 import { writeAudit } from '../modules/audit/service.js';
@@ -95,7 +96,7 @@ systemRouter.delete('/sessions/:id', requirePermission('security.edit'), asyncRo
 
 systemRouter.get('/backups', requirePermission('backup.view'), asyncRoute(async (_req, res) => {
   const [items, status] = await Promise.all([listBackups(), backupStatus()]);
-  ok(res, items, status);
+  ok(res, items.map(backupDto), status);
 }));
 
 systemRouter.post('/backups', requirePermission('backup.create'), asyncRoute(async (req, res) => {
@@ -105,7 +106,31 @@ systemRouter.post('/backups', requirePermission('backup.create'), asyncRoute(asy
     actorId: req.auth!.user.id, actorName: req.auth!.user.fullName, action: 'backup.create',
     entityType: 'backup', entityId: backup.id, after: { filename: backup.filename, size: backup.size }, ip: req.ip,
   });
-  ok(res, { ...backup, message: 'نسخه پشتیبان با موفقیت ایجاد شد.' });
+  ok(res, { ...backupDto(backup), message: 'نسخه پشتیبان با موفقیت ایجاد شد.' });
+}));
+
+/**
+ * Download one part of a backup so it can be stored off-server. Exporting the
+ * whole database is sensitive, hence the dedicated `backup.export` grant and a
+ * mandatory audit row per download.
+ */
+systemRouter.get('/backups/:id/download', requirePermission('backup.export'), asyncRoute(async (req, res) => {
+  const rawPart = typeof req.query.part === 'string' ? req.query.part : 'db';
+  if (rawPart !== 'db' && rawPart !== 'uploads') throw badRequest('پارامتر part باید db یا uploads باشد.');
+  const part = rawPart;
+  const file = await backupFilePath(param(req, 'id'), part);
+  await writeAudit({
+    actorId: req.auth!.user.id, actorName: req.auth!.user.fullName, action: 'backup.download',
+    entityType: 'backup', entityId: param(req, 'id'), after: { part, filename: file.filename }, ip: req.ip,
+  });
+  res.setHeader('Content-Disposition', `attachment; filename="${encodeURIComponent(file.filename)}"`);
+  res.setHeader('Content-Type', 'application/octet-stream');
+  await new Promise<void>((resolve, reject) => {
+    const stream = fs.createReadStream(file.path);
+    stream.on('error', reject);
+    stream.on('end', resolve);
+    stream.pipe(res);
+  });
 }));
 
 systemRouter.post('/backups/:id/verify', requirePermission('backup.view'), asyncRoute(async (req, res) => {
@@ -191,10 +216,17 @@ systemRouter.get('/version', asyncRoute(async (_req, res) => {
 }));
 
 systemRouter.get('/maintenance', requirePermission('system.view'), asyncRoute(async (_req, res) => {
+  const { backupSchedulerState } = await import('../modules/system/scheduler.js');
+  const scheduler = await backupSchedulerState().catch(() => null);
   ok(res, {
     mode: await getBool('maintenance.mode'),
     scheduledTasks: [
-      { name: 'پشتیبان‌گیری خودکار', schedule: await getString('backup.schedule_cron') },
+      {
+        name: 'پشتیبان‌گیری خودکار', schedule: await getString('backup.schedule_cron'),
+        enabled: scheduler?.enabled ?? false, running: scheduler?.running ?? false,
+        nextRunAt: scheduler?.nextRunAt ?? null, lastSuccessAt: scheduler?.lastSuccessAt ?? null,
+        lastError: scheduler?.lastError ?? null,
+      },
     ],
   });
 }));

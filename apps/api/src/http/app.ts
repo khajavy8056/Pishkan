@@ -30,6 +30,8 @@ import { systemRouter } from '../routes/system.js';
 import { paymentsRouter } from '../routes/payments.js';
 import { walletRouter } from '../routes/wallet.js';
 import { monitoringRouter } from '../routes/monitoring.js';
+import { discountsRouter } from '../routes/discounts.js';
+import { supportRouter } from '../routes/support.js';
 import { recordRequest } from '../modules/monitoring/metrics.js';
 import { logEvent, setMinimumLevel } from '../modules/logging/service.js';
 
@@ -187,6 +189,8 @@ export async function createApp(): Promise<Express> {
   app.use(['/api/payments','/api/v1/payments'],paymentsRouter);
   app.use(['/api/wallet','/api/v1/wallet'],walletRouter);
   app.use(['/api/monitoring','/api/v1/monitoring'],monitoringRouter);
+  app.use(['/api/discount-codes','/api/v1/discount-codes'],discountsRouter);
+  app.use(['/api/support','/api/v1/support'],supportRouter);
 
   /* -------------------------- static web application ----------------------- */
   // The SPA can be served from several layouts: a repo checkout started from the

@@ -20,8 +20,8 @@ export const requestsRouter = Router();
 requestsRouter.use(requireAuth);
 requestsRouter.post('/quote',asyncRoute(async(req,res)=>{
  if(req.auth!.user.kind!=='customer') throw forbidden();
- const body=z.object({serviceId:z.string(),priority:z.enum(['normal','high']).default('normal')}).parse(req.body);
- ok(res,await quoteRequest(body.serviceId,req.auth!.user.id,body.priority));
+ const body=z.object({serviceId:z.string(),priority:z.enum(['normal','high']).default('normal'),discountCode:z.string().max(40).optional()}).parse(req.body);
+ ok(res,await quoteRequest(body.serviceId,req.auth!.user.id,body.priority,body.discountCode));
 }));
 const requestViewer = (req: any) => ({
   actorId: req.auth.user.id,
@@ -154,6 +154,7 @@ requestsRouter.post('/',
       formData: z.record(z.string(), z.any()).default({}),
       paymentMethod: z.string().optional(),
       priority: z.enum(['normal', 'high']).optional(),
+      discountCode: z.string().max(40).optional(),
       documentIds: z.array(z.object({ fileId: z.string(), title: z.string().optional(), requirementKey: z.string().min(2).max(80).optional() })).optional(),
     }).parse(req.body);
 
@@ -175,6 +176,7 @@ requestsRouter.post('/',
       formData: body.formData,
       paymentMethod: body.paymentMethod,
       priority: body.priority,
+      discountCode: body.discountCode,
       documentIds: body.documentIds,
       idempotencyKey,
     }, { id: auth.user.id, name: auth.user.fullName, ip: req.ip });

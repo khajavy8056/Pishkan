@@ -14,7 +14,8 @@ import { toPersianDigits } from '../../lib/text.js';
 
 import { requireCompleteProfile, requireCoverage, validNationalId } from '../profiles/service.js';
 import { commissionAmount, commissionPercent, cooperationType } from '../payroll/compensation.js';
-import { notifyUser } from '../notifications/service.js';
+import { notifyUser, notifyRole } from '../notifications/service.js';
+import { normalizeCode, previewDiscount, redeemDiscount } from '../discounts/service.js';
 
 export const STATUSES = [
   'new', 'assigned', 'in_progress', 'waiting_documents', 'waiting_customer',
@@ -287,6 +288,15 @@ export async function autoAssign(requestId: string): Promise<string | null> {
   });
   await writeAudit({ actorId: 'system', actorName: 'Pishkan auto-assignment', action: 'request.auto_assign', entityType: 'request', entityId: requestId,
     before: { staffId: null, status: request.status }, after: { staffId: chosen.id, status: nextStatus } });
+  // The assignee must learn about the new case immediately; until now only
+  // forced assignments produced a notification, so ordinary auto-assigned
+  // cases could sit unseen in the workbench.
+  await notifyUser(chosen.id, {
+    title: 'پروندهٔ جدید برای شما ثبت شد',
+    body: `درخواست «${service.title}» (کد پیگیری ${toPersianDigits(request.tracking_code)}) به شما ارجاع شد.`,
+    kind: 'info', link: `/staff/requests/${requestId}`,
+    idempotencyKey: `auto-assign:${requestId}:${chosen.id}`,
+  }).catch(() => undefined);
   return chosen.id;
  });
 }
@@ -325,6 +335,7 @@ export interface CreateRequestInput {
   documentIds?: { fileId: string; title?: string; requirementKey?: string }[];
   existingInvoiceId?: string;
   idempotencyKey?: string;
+  discountCode?: string;
 }
 
 function canonicalJson(value: unknown): string {
@@ -421,6 +432,7 @@ export async function createRequest(input: CreateRequestInput, actor?: { id: str
       formData: input.formData ?? {},
       paymentMethod: input.paymentMethod ?? null,
       existingInvoiceId: input.existingInvoiceId ?? null,
+      discountCode: input.discountCode ? normalizeCode(input.discountCode) : null,
       priority: input.priority ?? 'normal',
       documentIds: input.documentIds ?? [],
     }), env.encryptionKey || 'pishkan-development-only-idempotency-secret');
@@ -457,13 +469,16 @@ export async function createRequest(input: CreateRequestInput, actor?: { id: str
   const profile = await requireCompleteProfile(input.customerId);
   await requireCoverage(service.id, input.customerId);
   if (input.priority === 'high' && !service.urgentEnabled) throw badRequest('انجام فوری برای این خدمت فعال نیست.');
-  const pricing = await quoteRequest(service.id,input.customerId,input.priority);
+  if (input.discountCode?.trim() && input.existingInvoiceId) {
+    throw badRequest('کد تخفیف روی فاکتورِ از پیش صادرشده قابل اعمال نیست.', [{ field: 'discountCode', message: 'کد تخفیف را بردارید یا فاکتور جدید بگیرید.' }]);
+  }
+  const pricing = await quoteRequest(service.id,input.customerId,input.priority,input.discountCode);
   const urgentFee = pricing.urgentFee;
   const formData = validateFormData(service, input.formData ?? {});
   const documentAttachments = documentAttachmentsForSubmission(service, formData, input.documentIds);
   await assertCustomerDocumentFiles(documentAttachments, input.customerId);
   const fee = service.baseFee;
-  const discount = pricing.discount;
+  const discount = pricing.discount + (pricing.codeDiscount ?? 0);
   let total = pricing.total;
   let existingInvoice: any = null;
   if (input.existingInvoiceId) {
@@ -529,7 +544,7 @@ export async function createRequest(input: CreateRequestInput, actor?: { id: str
   const snapshot = {
     service: {
       id: service.id, title: service.title, slug: service.slug, baseFee: service.baseFee,
-      discountPercent: service.discountPercent, estimatedMinutes: service.estimatedMinutes, estimatedDays: service.estimatedDays,
+      discountPercent: service.discountPercent, discountCode: pricing.discountCode ?? null, estimatedMinutes: service.estimatedMinutes, estimatedDays: service.estimatedDays,
       urgentFee, urgentPercent: service.urgentPercent, urgentMinutes: service.urgentMinutes, urgentDays: service.urgentDays, coverage: service.coverage,
       form: service.form, documents: service.documents, workflow: service.workflow,
       categoryTitle: service.categoryTitle, paymentMethods: methods,
@@ -598,6 +613,27 @@ export async function createRequest(input: CreateRequestInput, actor?: { id: str
       );
     }
 
+    // Redeem the discount code in the same transaction: if anything below
+    // fails, the use is rolled back with the request itself.
+    if (pricing.discountCode) {
+      const preview = await previewDiscount({
+        code: pricing.discountCode.code, customerId: input.customerId,
+        serviceId: service.id, categoryId: service.categoryId,
+        subtotal: Math.max(0, fee + urgentFee - pricing.discount),
+      });
+      await redeemDiscount({
+        codeId: preview.codeId, customerId: input.customerId,
+        requestId, invoiceId: createdInvoice?.id ?? null, amount: preview.amount,
+      });
+      await db.run(
+        `INSERT INTO request_events (id, request_id, actor_id, actor_name, type, message, metadata, visible_to_customer, created_at)
+         VALUES (?, ?, ?, ?, 'discount', ?, ?, 1, ?)`,
+        [id('evt'), requestId, actor?.id ?? input.customerId, actor?.name ?? customer.full_name,
+          `کد تخفیف «${preview.code}» اعمال شد.`,
+          jsonStringify({ codeId: preview.codeId, code: preview.code, amount: preview.amount }), ts],
+      );
+    }
+
     // Wallet settlement happens in the same transaction as the request. If the
     // balance moved or the invoice could not be paid, the whole request is
     // rolled back: money is never taken without a case (and vice versa).
@@ -619,7 +655,18 @@ export async function createRequest(input: CreateRequestInput, actor?: { id: str
       { ownerId: input.customerId, requirementKey: document.requirementKey });
   }
 
-  await autoAssign(requestId);
+  const assignedTo = await autoAssign(requestId);
+  // The customer is notified by the HTTP layer (with SMS). When nobody was
+  // auto-assigned, the office roles must hear about the case so it cannot be
+  // silently lost in the open pool.
+  if (!assignedTo) {
+    await notifyRole(['super_admin', 'manager'], {
+      title: 'درخواست جدید در صف بررسی',
+      body: `درخواست «${service.title}» (کد پیگیری ${toPersianDigits(trackingCode)}) ثبت شده و هنوز مسئولی ندارد.`,
+      kind: 'info', link: '/admin/requests',
+      idempotencyKey: `request-unassigned:${requestId}`,
+    }).catch(() => undefined);
+  }
 
   await writeAudit({
     actorId: actor?.id ?? input.customerId, actorName: actor?.name ?? customer.full_name,
@@ -1171,7 +1218,7 @@ export async function requestStats(scope: { customerId?: string; assignedTo?: st
 export { addHours };
 
 /** One server pricing path for quote, request snapshot and invoice. All amounts are integer IRR. */
-export async function quoteRequest(serviceId: string, customerId: string, priority = 'normal') {
+export async function quoteRequest(serviceId: string, customerId: string, priority = 'normal', discountCode?: string) {
  const service = await getServiceById(serviceId);
  if (!service || (!service.isPublished && !service.isCustom) || !service.acceptingRequests || (service.isCustom && service.ownerCustomerId !== customerId)) throw notFound('این خدمت قابل درخواست نیست.');
  await requireCompleteProfile(customerId);
@@ -1180,10 +1227,17 @@ export async function quoteRequest(serviceId: string, customerId: string, priori
  const urgentFee = priority === 'high' ? Math.round(service.baseFee * service.urgentPercent / 100) : 0;
  const discount = Math.round(service.baseFee * service.discountPercent / 100);
  const subtotal = service.baseFee + urgentFee;
- const tax = Math.round((subtotal-discount)*await getNumber('accounting.tax_percent')/100);
+ // A discount code applies to what remains after the service's own discount;
+ // previewing throws a customer-readable reason when the code cannot be used.
+ const afterServiceDiscount = Math.max(0, subtotal - discount);
+ const codePreview = discountCode?.trim()
+   ? await previewDiscount({ code: discountCode, customerId, serviceId: service.id, categoryId: service.categoryId, subtotal: afterServiceDiscount })
+   : null;
+ const codeDiscount = codePreview?.amount ?? 0;
+ const tax = Math.round((afterServiceDiscount - codeDiscount) * await getNumber('accounting.tax_percent') / 100);
  const active = await one<any>("SELECT COUNT(*) AS c FROM requests WHERE service_id=? AND priority='high' AND status NOT IN ('completed','cancelled','rejected')",[serviceId]);
  const estimatedMinutes=priority==='high'?service.urgentMinutes:service.estimatedMinutes;
- return {baseFee:service.baseFee,discount,urgentFee,tax,total:subtotal-discount+tax,currency:'IRR',estimatedMinutes,estimatedDays:Math.ceil(estimatedMinutes/1440),urgentAvailable:service.urgentEnabled && service.urgentCapacity>Number(active?.c),quotedAt:nowIso()};
+ return {baseFee:service.baseFee,discount,codeDiscount,discountCode:codePreview ? {code:codePreview.code,title:codePreview.title,amount:codePreview.amount} : null,urgentFee,tax,total:afterServiceDiscount-codeDiscount+tax,currency:'IRR',estimatedMinutes,estimatedDays:Math.ceil(estimatedMinutes/1440),urgentAvailable:service.urgentEnabled && service.urgentCapacity>Number(active?.c),quotedAt:nowIso()};
 }
 
 /**

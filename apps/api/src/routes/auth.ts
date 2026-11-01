@@ -14,8 +14,10 @@ import { run, nowIso, one } from '../db/index.js';
 import { getBool, getString } from '../modules/settings/service.js';
 import { writeAudit } from '../modules/audit/service.js';
 import { param } from '../http/params.js';
+import { ok } from '../http/respond.js';
 
 import { profileState, validNationalId } from '../modules/profiles/service.js';
+import { profileAutofill, validIban } from '../modules/profiles/autofill.js';
 
 export const authRouter = Router();
 
@@ -238,11 +240,19 @@ authRouter.patch('/profile', requireAuth, asyncRoute(async (req, res) => {
     jobTitle: z.string().max(120).optional(),
     province: z.string().max(60).optional(),
     city: z.string().max(60).optional(),
+    fatherName: z.string().max(80).optional(),
+    birthCertificateNo: z.string().max(20).optional(),
+    birthPlace: z.string().max(60).optional(),
+    landline: z.string().max(20).optional(),
+    iban: z.string().max(34).optional(),
+    bankName: z.string().max(80).optional(),
+    cardNumber: z.string().max(24).optional(),
   }).parse(req.body);
 
   const user = await findUserById(req.auth!.user.id);
   if (!user) throw unauthorized();
   if (body.nationalId && !validNationalId(body.nationalId)) throw badRequest('کد ملی معتبر نیست. اعتبار قالب اثبات هویت نیست.');
+  if (body.iban && !validIban(body.iban)) throw badRequest('شماره شبا معتبر نیست.');
   const city = body.cityId ? await one<any>('SELECT * FROM cities WHERE id=? AND is_active=1', [body.cityId]) : null;
   if (body.cityId && !city) throw badRequest('شهر را از فهرست انتخاب کنید.');
   if (body.firstName && body.lastName) body.fullName = `${body.firstName} ${body.lastName}`;
@@ -262,19 +272,30 @@ authRouter.patch('/profile', requireAuth, asyncRoute(async (req, res) => {
     if (profile) {
       const current = await one<any>('SELECT * FROM customer_profiles WHERE user_id = ?', [user.id]);
       await run(
-        `UPDATE customer_profiles SET address = ?, postal_code = ?, birth_date = ?, job_title = ?, province = ?, city = ?, updated_at = ?
+        `UPDATE customer_profiles SET address = ?, postal_code = ?, birth_date = ?, job_title = ?, province = ?, city = ?,
+           father_name = ?, birth_certificate_no = ?, birth_place = ?, landline = ?, iban = ?, bank_name = ?, card_number = ?, updated_at = ?
          WHERE user_id = ?`,
         [
           body.address ?? current.address, body.postalCode ?? current.postal_code,
           body.birthDate ?? current.birth_date, body.jobTitle ?? current.job_title,
-          body.province ?? current.province, body.city ?? current.city, nowIso(), user.id,
+          body.province ?? current.province, body.city ?? current.city,
+          body.fatherName ?? current.father_name, body.birthCertificateNo ?? current.birth_certificate_no,
+          body.birthPlace ?? current.birth_place, body.landline ?? current.landline,
+          body.iban ? body.iban.toUpperCase().replace(/[\s-]/g, '') : current.iban,
+          body.bankName ?? current.bank_name,
+          body.cardNumber ? body.cardNumber.replace(/[\s-]/g, '') : current.card_number,
+          nowIso(), user.id,
         ],
       );
     } else {
       await run(
-        `INSERT INTO customer_profiles (user_id, address, postal_code, birth_date, job_title, province, city, extra, created_at, updated_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, '{}', ?, ?)`,
-        [user.id, body.address ?? null, body.postalCode ?? null, body.birthDate ?? null, body.jobTitle ?? null, body.province ?? null, body.city ?? null, nowIso(), nowIso()],
+        `INSERT INTO customer_profiles (user_id, address, postal_code, birth_date, job_title, province, city, extra,
+           father_name, birth_certificate_no, birth_place, landline, iban, bank_name, card_number, created_at, updated_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, '{}', ?, ?, ?, ?, ?, ?, ?, ?)`,
+        [user.id, body.address ?? null, body.postalCode ?? null, body.birthDate ?? null, body.jobTitle ?? null, body.province ?? null, body.city ?? null,
+          body.fatherName ?? null, body.birthCertificateNo ?? null, body.birthPlace ?? null, body.landline ?? null,
+          body.iban ? body.iban.toUpperCase().replace(/[\s-]/g, '') : null, body.bankName ?? null,
+          body.cardNumber ? body.cardNumber.replace(/[\s-]/g, '') : null, nowIso(), nowIso()],
       );
     }
   }
@@ -285,6 +306,12 @@ authRouter.patch('/profile', requireAuth, asyncRoute(async (req, res) => {
   await writeAudit({ actorId: user.id, actorName: user.full_name, action: 'profile.update', entityType: 'user', entityId: user.id, ip: req.ip });
   const fresh = await findUserById(user.id);
   res.json({ ok: true, data: publicUser(fresh!) });
+}));
+
+/** Profile values the service checkout can offer as one-click autofill. */
+authRouter.get('/profile/autofill', requireAuth, asyncRoute(async (req, res) => {
+  if (req.auth!.user.kind !== 'customer') throw forbidden('این بخش برای مشتریان است.');
+  ok(res, await profileAutofill(req.auth!.user.id));
 }));
 
 authRouter.post('/password/change', requireAuth, asyncRoute(async (req, res) => {

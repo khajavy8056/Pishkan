@@ -254,9 +254,10 @@ export { upsertRolesOnly, adminRoleId, syncSystemRolePermissions };
  * version marker, so existing installs keep their edited roles:
  *   v2 → wallet / monitoring / logs / alerts  (1.3.0)
  *   v3 → payroll.withdraw / payroll.approve   (1.4.0)
+ *   v4 → support / discounts / backup.restore (1.5.0)
  * Permissions an administrator removed earlier are not re-created.
  */
-const PERMISSIONS_VERSION = 3;
+const PERMISSIONS_VERSION = 4;
 async function syncSystemRolePermissions() {
   const marker = await one<{ value: string }>('SELECT value FROM settings WHERE key = ?', ['system.permissions_version']);
   const current = Number(marker?.value ?? 1);

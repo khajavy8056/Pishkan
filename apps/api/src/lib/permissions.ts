@@ -31,6 +31,8 @@ export const RESOURCES = [
   'monitoring',
   'logs',
   'alerts',
+  'support',
+  'discounts',
 ] as const;
 
 export const ACTIONS = ['view', 'create', 'edit', 'approve', 'cancel', 'delete', 'export'] as const;
@@ -52,16 +54,21 @@ export const PAYROLL_PERMISSIONS = [
   'payroll.approve',
 ] as const;
 
+/** Restoring a backup is destructive, so it is its own grantable permission. */
+export const BACKUP_PERMISSIONS = ['backup.restore'] as const;
+
 export type Permission =
   | `${Resource}.${Action}`
   | (typeof PAYROLL_PERMISSIONS)[number]
-  | (typeof WALLET_PERMISSIONS)[number];
+  | (typeof WALLET_PERMISSIONS)[number]
+  | (typeof BACKUP_PERMISSIONS)[number];
 
 export function allPermissions(): Permission[] {
   return [
     ...RESOURCES.flatMap((r) => ACTIONS.map((a) => `${r}.${a}` as Permission)),
     ...PAYROLL_PERMISSIONS,
     ...WALLET_PERMISSIONS,
+    ...BACKUP_PERMISSIONS,
   ];
 }
 
@@ -100,6 +107,8 @@ export const RESOURCE_LABELS: Record<Resource, string> = {
   monitoring: 'مرکز مانیتورینگ',
   logs: 'لاگ‌های سامانه',
   alerts: 'هشدارهای عملیاتی',
+  support: 'پشتیبانی و تیکت‌ها',
+  discounts: 'کدهای تخفیف',
 };
 
 /** Default roles shipped with the system. Admins can edit them afterwards. */
@@ -137,6 +146,8 @@ export const DEFAULT_ROLES: {
       'reports.view', 'reports.export',
       'messages.view', 'messages.create',
       'documents.view', 'documents.approve',
+      'support.view', 'support.create', 'support.edit', 'support.cancel',
+      'discounts.view',
       'audit.view',
       'wallet.view',
       'monitoring.view',
@@ -159,6 +170,7 @@ export const DEFAULT_ROLES: {
       'payments.view',
       'messages.view', 'messages.create',
       'documents.view', 'documents.approve',
+      'support.view', 'support.create', 'support.edit',
       'payroll.withdraw',
     ],
   },
@@ -174,6 +186,7 @@ export const DEFAULT_ROLES: {
       'services.view',
       'messages.view', 'messages.create',
       'documents.view',
+      'support.view', 'support.create', 'support.edit',
       'shifts.view',
       'payroll.withdraw',
     ],
@@ -188,6 +201,7 @@ export const DEFAULT_ROLES: {
       'requests.view',
       'documents.view', 'documents.approve',
       'messages.view', 'messages.create',
+      'support.view', 'support.create',
       'payroll.withdraw',
     ],
   },
@@ -206,6 +220,8 @@ export const DEFAULT_ROLES: {
       'reports.view', 'reports.export',
       'payroll.view', 'payroll.contracts.edit', 'payroll.accrue', 'payroll.settle', 'payroll.reports.view',
       'payroll.approve',
+      'discounts.view', 'discounts.create', 'discounts.edit', 'discounts.delete',
+      'support.view',
       'wallet.view', 'wallet.credit', 'wallet.adjust',
       'logs.view',
     ],

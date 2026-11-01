@@ -76,12 +76,7 @@ export function MessageCenter({ variant }: { variant: 'staff' | 'admin' }) {
 
   const attach = async (file: File) => {
     try {
-      const uploaded = await api.upload<{ data: { id: string; savingsPercent?: number; processing?: { status?: string } } }>('/api/files/upload', file, { purpose: 'chat' });
-      if (uploaded.data.processing?.status === 'failed') {
-        notify('پیوست ارسال شد اما بهینه‌سازی تصویر انجام نشد؛ نسخه اصلی سالم ذخیره شده است.', 'info');
-      } else if ((uploaded.data.savingsPercent ?? 0) >= 5) {
-        notify(`پیوست بهینه شد؛ ${faNum(Math.round(uploaded.data.savingsPercent ?? 0))}٪ کاهش حجم.`, 'success');
-      }
+      const uploaded = await api.upload<{ data: { id: string } }>('/api/files/upload', file, { purpose: 'chat' });
       await send(uploaded.data.id);
     } catch (err) {
       notify(err instanceof ApiFailure ? err.message : 'خطا در بارگذاری فایل', 'error');

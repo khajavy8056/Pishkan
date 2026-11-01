@@ -4,7 +4,7 @@ import {
   LayoutDashboard, ClipboardList, Wallet, MessageSquare, User, Bell, LogOut, Menu, X, Search, Activity,
   Building2, Users, CalendarClock, FileText, Receipt, BarChart3, Settings, Database, ShieldCheck,
   LifeBuoy, Shapes, Sparkles, ChevronDown, Plus, BadgeCheck, ServerCog, ClipboardCheck, ArrowLeft,
-  Moon, Sun, Monitor,
+  Moon, Sun, Monitor, Headset, TicketPercent,
 } from 'lucide-react';
 import clsx from 'clsx';
 import { useAuth, homeFor } from '../lib/auth';
@@ -41,6 +41,7 @@ const customerNav: NavItem[] = [
   { to: '/app/offers', label: 'پیشنهادهای اختصاصی', icon: <Sparkles className="size-5" />, section: SECTION_ACCOUNT },
   { to: '/app/messages', label: 'پیام‌ها', icon: <MessageSquare className="size-5" />, section: SECTION_ACCOUNT },
   { to: '/app/profile', label: 'پروفایل', icon: <User className="size-5" />, section: SECTION_ACCOUNT },
+  { to: '/app/support', label: 'پشتیبانی و تیکت', icon: <Headset className="size-5" />, section: SECTION_SUPPORT },
   { to: '/assistant', label: 'دستیار هوشمند', icon: <LifeBuoy className="size-5" />, section: SECTION_SUPPORT },
 ];
 
@@ -53,6 +54,7 @@ const staffNav: NavItem[] = [
   { to: '/staff/queue', label: 'صف درخواست‌های آزاد', icon: <ClipboardList className="size-5" />, permission: 'requests.view', section: SECTION_OPS },
   { to: '/staff/custom-services', label: 'خدمت اختصاصی', icon: <Sparkles className="size-5" />, permission: 'services.create', section: SECTION_MORE },
   { to: '/staff/messages', label: 'پیام‌ها', icon: <MessageSquare className="size-5" />, permission: 'messages.view', section: SECTION_MORE },
+  { to: '/staff/support', label: 'تیکت‌های پشتیبانی', icon: <Headset className="size-5" />, permission: 'support.view', section: SECTION_MORE },
   { to: '/staff/shifts', label: 'شیفت و حضور', icon: <CalendarClock className="size-5" />, section: SECTION_MORE },
   { to: '/staff/finance', label: 'درآمد، عملکرد و تسویه', icon: <Receipt className="size-5" />, section: SECTION_MORE },
 ];
@@ -61,6 +63,7 @@ const accountantNav: NavItem[] = [
   { to: '/staff/accounting', label: 'حسابداری دفتر', icon: <Wallet className="size-5" />, permission: 'invoices.view', section: SECTION_SYSTEM },
   { to: '/staff/reports', label: 'گزارش‌های مالی', icon: <BarChart3 className="size-5" />, permission: 'reports.view', section: SECTION_SYSTEM },
   { to: '/staff/payroll', label: 'حقوق و تسویه کارکنان', icon: <Receipt className="size-5" />, permission: 'payroll.view', section: SECTION_SYSTEM },
+  { to: '/staff/discounts', label: 'کدهای تخفیف', icon: <TicketPercent className="size-5" />, permission: 'discounts.view', section: SECTION_SYSTEM },
 ];
 
 const adminNav: NavItem[] = [
@@ -72,8 +75,10 @@ const adminNav: NavItem[] = [
   { to: '/admin/staff', label: 'کارکنان و نقش‌ها', icon: <BadgeCheck className="size-5" />, permission: 'staff.view', section: SECTION_MANAGE },
   { to: '/admin/shifts', label: 'شیفت و حضور', icon: <CalendarClock className="size-5" />, permission: 'shifts.view', section: SECTION_MANAGE },
   { to: '/admin/messages', label: 'گفت‌وگوها', icon: <MessageSquare className="size-5" />, permission: 'messages.view', section: SECTION_MANAGE },
+  { to: '/admin/support', label: 'پشتیبانی و تیکت‌ها', icon: <Headset className="size-5" />, permission: 'support.view', section: SECTION_MANAGE },
   { to: '/admin/finance', label: 'حسابداری', icon: <Wallet className="size-5" />, permission: 'invoices.view', section: SECTION_SYSTEM },
   { to: '/admin/wallet', label: 'کیف پول مشتریان', icon: <Wallet className="size-5" />, permission: 'wallet.view', section: SECTION_SYSTEM },
+  { to: '/admin/discounts', label: 'کدهای تخفیف', icon: <TicketPercent className="size-5" />, permission: 'discounts.view', section: SECTION_SYSTEM },
   { to: '/admin/monitoring', label: 'مرکز پایش', icon: <Activity className="size-5" />, permission: 'monitoring.view', section: SECTION_SYSTEM },
   { to: '/admin/payroll', label: 'حقوق و تسویه کارکنان', icon: <Users className="size-5" />, permission: 'payroll.view', section: SECTION_SYSTEM },
   { to: '/admin/reports', label: 'گزارش‌ها', icon: <BarChart3 className="size-5" />, permission: 'reports.view', section: SECTION_SYSTEM },

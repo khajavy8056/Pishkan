@@ -23,11 +23,11 @@ describe('backup, audit and system status', () => {
     expect(created.status).toBe(200);
     expect(created.body.data.size).toBeGreaterThan(0);
     expect(fs.existsSync(`${env.backupDir}/${created.body.data.filename}`)).toBe(true);
-    expect(created.body.data.uploads_filename).toBeTruthy();
-    expect(created.body.data.uploads_checksum).toMatch(/^[a-f0-9]{64}$/);
-    expect(fs.existsSync(`${env.backupDir}/${created.body.data.uploads_filename}`)).toBe(true);
+    expect(created.body.data.uploadsFilename).toBeTruthy();
+    expect(created.body.data.uploadsChecksum).toMatch(/^[a-f0-9]{64}$/);
+    expect(fs.existsSync(`${env.backupDir}/${created.body.data.uploadsFilename}`)).toBe(true);
 
-    const archive = `${env.backupDir}/${created.body.data.uploads_filename}`;
+    const archive = `${env.backupDir}/${created.body.data.uploadsFilename}`;
     const original = fs.readFileSync(archive);
     fs.writeFileSync(archive, Buffer.from('corrupted archive'));
     const corrupted = await request(server).post(`/api/system/backups/${created.body.data.id}/verify`).set('Cookie', admin.cookie);

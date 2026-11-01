@@ -273,12 +273,7 @@ export function CustomerRequestDetail() {
         title: uploaded.data.name,
         requirementKey: requirementKey || undefined,
       });
-      notify(
-        uploaded.data.processing.status === 'ready'
-          ? `مدرک بارگذاری شد و تصویر بدون افت خوانایی بهینه شد (${faNum(uploaded.data.savingsPercent)}٪ کاهش حجم).`
-          : 'مدرک بارگذاری شد؛ نسخه اصلی حفظ شد و در انتظار بررسی است.',
-        'success',
-      );
+      notify('مدرک بارگذاری شد.', 'success');
       load();
     } catch (err) {
       notify(err instanceof ApiFailure ? err.message : 'خطا در بارگذاری', 'error');
@@ -513,7 +508,7 @@ export function CustomerRequestDetail() {
               <FileText className="size-4" /> افزودن از مدارک من
             </Button>
             <p className="mt-2 text-[10px] leading-5 text-navy-500">
-              تصویر پس از بارگذاری به‌طور خودکار اصلاح جهت و به WebP بهینه می‌شود؛ نیازی به فشرده‌سازی قبلی نیست.
+              تصویر مدرک را خوانا و بدون برش بارگذاری کنید.
             </p>
           </Card>
 
@@ -1006,7 +1001,7 @@ export function CustomerProfile() {
   const { notify } = useToast();
   const navigate = useNavigate();
   const [cities, setCities] = useState<any[]>([]);
-  const [form, setForm] = useState<any>({ firstName:'',lastName:'',cityId:'', fullName: '', email: '', nationalId: '', address: '', postalCode: '', city: '', province: '', jobTitle: '' });
+  const [form, setForm] = useState<any>({ firstName:'',lastName:'',cityId:'', fullName: '', email: '', nationalId: '', address: '', postalCode: '', city: '', province: '', jobTitle: '', birthDate: '', fatherName: '', birthCertificateNo: '', birthPlace: '', landline: '', iban: '', bankName: '', cardNumber: '' });
   const [records, setRecords] = useState<{ key: string; label: string; value: string }[]>([]);
   const [passwords, setPasswords] = useState({ currentPassword: '', newPassword: '' });
   const [saving, setSaving] = useState(false);
@@ -1018,6 +1013,8 @@ export function CustomerProfile() {
         firstName:profile.first_name ?? '',lastName:profile.last_name ?? '',cityId:profile.city_id ?? '',
         fullName: res.data.fullName ?? '', email: res.data.email ?? '', nationalId: res.data.nationalId ?? '',
         address:profile.address ?? '',postalCode:profile.postal_code ?? '',city:profile.city ?? '',province:profile.province ?? '',jobTitle:profile.job_title ?? '',
+        birthDate:profile.birth_date ?? '',fatherName:profile.father_name ?? '',birthCertificateNo:profile.birth_certificate_no ?? '',birthPlace:profile.birth_place ?? '',
+        landline:profile.landline ?? '',iban:profile.iban ?? '',bankName:profile.bank_name ?? '',cardNumber:profile.card_number ?? '',
       });
     });
     api.get<{data:any[]}>('/api/public/cities').then(r=>setCities(r.data)).catch(()=>notify('دریافت فهرست شهرها ناموفق بود.','error'));
@@ -1139,6 +1136,25 @@ export function CustomerProfile() {
             </dl>
           </Card>
         </div>
+
+        <Card className="lg:col-span-2">
+          <h2 className="mb-1 font-bold text-navy-900">اطلاعات تکمیلی (تکمیل خودکار فرم خدمات)</h2>
+          <p className="mb-4 text-xs leading-6 text-navy-500">
+            این موارد یک بار ذخیره می‌شوند تا هنگام ثبت درخواست هر خدمت، با دکمهٔ «استفاده از اطلاعات پروفایل من» فرم‌ها به‌صورت خودکار پر شوند و نیازی به نوشتن دوباره نباشد.
+          </p>
+          <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+            <Field label="نام پدر"><Input value={form.fatherName} onChange={(e) => setForm({ ...form, fatherName: e.target.value })} /></Field>
+            <Field label="شماره شناسنامه"><Input value={form.birthCertificateNo} onChange={(e) => setForm({ ...form, birthCertificateNo: e.target.value })} dir="ltr" className="text-left" /></Field>
+            <Field label="محل تولد"><Input value={form.birthPlace} onChange={(e) => setForm({ ...form, birthPlace: e.target.value })} /></Field>
+            <Field label="تاریخ تولد"><Input type="date" value={form.birthDate} onChange={(e) => setForm({ ...form, birthDate: e.target.value })} dir="ltr" className="text-left" /></Field>
+            <Field label="تلفن ثابت"><Input value={form.landline} onChange={(e) => setForm({ ...form, landline: e.target.value })} dir="ltr" className="text-left" placeholder="۰۲۱…" /></Field>
+            <Field label="شغل"><Input value={form.jobTitle} onChange={(e) => setForm({ ...form, jobTitle: e.target.value })} /></Field>
+            <Field label="شماره شبا" hint="برای وام و یارانه استفاده می‌شود."><Input value={form.iban} onChange={(e) => setForm({ ...form, iban: e.target.value })} dir="ltr" className="text-left" placeholder="IR…" maxLength={26} /></Field>
+            <Field label="نام بانک"><Input value={form.bankName} onChange={(e) => setForm({ ...form, bankName: e.target.value })} /></Field>
+            <Field label="شماره کارت بانکی"><Input value={form.cardNumber} onChange={(e) => setForm({ ...form, cardNumber: e.target.value })} dir="ltr" className="text-left" maxLength={19} /></Field>
+          </div>
+          <Button className="mt-4" loading={saving} onClick={save}>ذخیره اطلاعات تکمیلی</Button>
+        </Card>
       </div>
     </AppShell>
   );

@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import {
   Search, ArrowLeft, Clock, FileText, CheckCircle2, AlertTriangle, UploadCloud, Wallet,
-  ListOrdered, ChevronLeft, ShieldCheck, Info,
+  ListOrdered, ChevronLeft, ShieldCheck, Info, TicketPercent, UserRoundCheck, X,
 } from 'lucide-react';
 import clsx from 'clsx';
 import { PublicLayout } from '../../components/public-layout';
@@ -10,7 +10,7 @@ import { formatDuration, useSite, type FormField, type Service } from '../../lib
 import { useAuth } from '../../lib/auth';
 import { api, ApiFailure } from '../../lib/api';
 import { faNum, rial, STATUS_LABELS } from '../../lib/format';
-import { Button, EmptyState, ErrorState, Field, Input, Loading, Select, Textarea, useToast } from '../../components/ui';
+import { Button, EmptyState, ErrorState, Field, Input, Loading, Modal, Select, Textarea, useToast } from '../../components/ui';
 
 /* ------------------------------- service list ----------------------------- */
 
@@ -174,6 +174,13 @@ export function ServiceDetailPage() {
   const [quote,setQuote]=useState<any>(null);
   const [quoteError,setQuoteError]=useState('');
   const [paymentMethod, setPaymentMethod] = useState('online');
+  const [discountInput, setDiscountInput] = useState('');
+  const [appliedCode, setAppliedCode] = useState('');
+  const [codeMessage, setCodeMessage] = useState('');
+  const [codeBusy, setCodeBusy] = useState(false);
+  const [autofillOpen, setAutofillOpen] = useState(false);
+  const [autofill, setAutofill] = useState<{ values: Record<string, string>; entries: { key: string; label: string; value: string }[]; missing: { key: string; label: string }[] } | null>(null);
+  const [autofillPicked, setAutofillPicked] = useState<Record<string, boolean>>({});
   const [submitting, setSubmitting] = useState(false);
   const [fieldErrors, setFieldErrors] = useState<{ path: string; message: string }[]>([]);
   const [formError, setFormError] = useState('');
@@ -202,9 +209,86 @@ export function ServiceDetailPage() {
   useEffect(()=>{
     if(!service || user?.kind!=='customer') return;
     let active=true;setQuote(null);setQuoteError('');
-    api.post<{data:any}>('/api/requests/quote',{serviceId:service.id,priority}).then(r=>{if(active)setQuote(r.data)}).catch(e=>{if(active)setQuoteError(e.message)});
+    api.post<{data:any}>('/api/requests/quote',{serviceId:service.id,priority,discountCode:appliedCode||undefined})
+      .then(r=>{if(active)setQuote(r.data)})
+      .catch(e=>{ if(!active) return;
+        // A code that stopped being valid un-applies itself loudly instead of
+        // silently blocking checkout.
+        if (appliedCode) { setAppliedCode(''); setCodeMessage(e.message); }
+        else setQuoteError(e.message);
+      });
     return ()=>{active=false};
-  },[service?.id,priority,user?.id]);
+  },[service?.id,priority,user?.id,appliedCode]);
+
+  useEffect(() => {
+    if (user?.kind !== 'customer') return;
+    let active = true;
+    api.get<{ data: any }>('/api/auth/profile/autofill')
+      .then((res) => { if (active) setAutofill(res.data); })
+      .catch(() => undefined);
+    return () => { active = false; };
+  }, [user?.id]);
+
+  // Map service form fields to profile values: exact key first, then a small
+  // set of safe type heuristics (never other people's ids like spouse/child).
+  const autofillMatches = useMemo(() => {
+    if (!service || !autofill) return [] as { field: FormField; value: string; sourceLabel: string }[];
+    const byKey = autofill.values;
+    const entryLabel = new Map(autofill.entries.map((e) => [e.key, e.label]));
+    const matches: { field: FormField; value: string; sourceLabel: string }[] = [];
+    for (const field of service.form) {
+      if (field.type === 'file' || field.type === 'checkbox') continue;
+      let sourceKey: string | undefined;
+      if (byKey[field.key]) sourceKey = field.key;
+      else if (field.type === 'national_id' && field.key === 'national_id' && byKey.national_id) sourceKey = 'national_id';
+      else if (field.type === 'iban' && byKey.iban) sourceKey = 'iban';
+      else if (field.type === 'postal_code' && byKey.postal_code) sourceKey = 'postal_code';
+      else if (field.type === 'tel' && (field.key === 'mobile' || field.key === 'phone') && (byKey[field.key] || byKey.mobile)) sourceKey = byKey[field.key] ? field.key : 'mobile';
+      if (sourceKey) matches.push({ field, value: byKey[sourceKey], sourceLabel: entryLabel.get(sourceKey) ?? sourceKey });
+    }
+    return matches;
+  }, [service, autofill]);
+
+  const openAutofill = () => {
+    const picked: Record<string, boolean> = {};
+    for (const match of autofillMatches) picked[match.field.key] = true;
+    setAutofillPicked(picked);
+    setAutofillOpen(true);
+  };
+
+  const applyAutofill = () => {
+    setValues((current) => {
+      const next = { ...current };
+      for (const match of autofillMatches) {
+        if (autofillPicked[match.field.key]) next[match.field.key] = match.value;
+      }
+      return next;
+    });
+    setFieldErrors((current) => current.filter((e) => !autofillPicked[e.path]));
+    setAutofillOpen(false);
+    notify('اطلاعات پروفایل در فرم قرار گرفت؛ می‌توانید هر مورد را ویرایش کنید.', 'success');
+  };
+
+  const applyDiscountCode = async () => {
+    if (!service) return;
+    const code = discountInput.trim();
+    if (!code) { setCodeMessage('کد تخفیف را وارد کنید.'); return; }
+    setCodeBusy(true); setCodeMessage('');
+    try {
+      const res = await api.post<{ data: any }>('/api/discount-codes/preview', { code, serviceId: service.id, priority });
+      setAppliedCode(res.data.code);
+      setCodeMessage('');
+      notify(`کد تخفیف «${res.data.title}» اعمال شد.`, 'success');
+    } catch (err) {
+      setCodeMessage(err instanceof ApiFailure ? err.message : 'کد تخفیف معتبر نیست.');
+    } finally { setCodeBusy(false); }
+  };
+
+  const removeDiscountCode = () => {
+    setAppliedCode('');
+    setDiscountInput('');
+    setCodeMessage('');
+  };
 
   const documentRequirements = useMemo(() => (service?.documents ?? []).map((document, index) => ({
     ...document,
@@ -243,8 +327,7 @@ export function ServiceDetailPage() {
       );
       setDocumentUploads((current) => ({ ...current, [requirement.key]: { fileId: uploaded.data.id, name: uploaded.data.name } }));
       setFieldErrors((current) => current.filter((error) => error.path !== `documents.${requirement.key}`));
-      notify(uploaded.data.processing.status === 'ready'
-        ? `مدرک «${requirement.title}» بارگذاری و بهینه شد.` : `مدرک «${requirement.title}» بارگذاری شد؛ نسخه اصلی حفظ شده است.`, 'success');
+      notify(`مدرک «${requirement.title}» بارگذاری شد.`, 'success');
     } catch (err) {
       notify(err instanceof ApiFailure ? err.message : 'بارگذاری مدرک ناموفق بود.', 'error');
     } finally {
@@ -293,6 +376,7 @@ export function ServiceDetailPage() {
         formData: values,
         paymentMethod,
         priority,
+        discountCode: appliedCode || undefined,
         documentIds: documentRequirements.flatMap((document) => {
           const uploaded = documentUploads[document.key];
           return uploaded ? [{ fileId: uploaded.fileId, title: document.title, requirementKey: document.key }] : [];
@@ -446,6 +530,24 @@ export function ServiceDetailPage() {
               <h2 className="font-bold text-navy-900">ثبت درخواست</h2>
               <p className="mt-1 text-xs leading-6 text-navy-500">فیلدها و مدارک ستاره‌دار الزامی هستند.</p>
 
+              {user?.kind === 'customer' && autofill && (
+                <div className="mt-3 rounded-xl border border-brand-200 bg-brand-50 p-3">
+                  <p className="flex items-start gap-2 text-xs leading-6 text-brand-900">
+                    <UserRoundCheck className="mt-1 size-4 shrink-0 text-brand-700" />
+                    {autofillMatches.length > 0
+                      ? 'بخشی از اطلاعات این فرم در پروفایل شما موجود است و لازم نیست دوباره بنویسید.'
+                      : 'اطلاعات پروفایل شما برای تکمیل خودکار فرم‌ها استفاده می‌شود.'}
+                  </p>
+                  <div className="mt-2 flex flex-wrap gap-2">
+                    <Button type="button" size="sm" onClick={openAutofill} disabled={autofillMatches.length === 0}>
+                      <UserRoundCheck className="size-4" /> استفاده از اطلاعات پروفایل من
+                      {autofillMatches.length > 0 && ` (${faNum(autofillMatches.length)} مورد)`}
+                    </Button>
+                    {autofillMatches.length === 0 && <Link className="btn btn-ghost btn-sm" to="/app/profile">تکمیل پروفایل</Link>}
+                  </div>
+                </div>
+              )}
+
               <div className="mt-4 space-y-4">
                 {service.form.map((field) => (
                   <Field key={field.key} label={field.label} hint={field.help} required={field.required} error={errorFor(field.key)}>
@@ -481,8 +583,25 @@ export function ServiceDetailPage() {
               )}
 
               {service.urgentEnabled && <label className="mt-5 flex cursor-pointer items-start gap-3 rounded-xl border border-amber-200 bg-amber-50 p-4 text-sm"><input type="checkbox" checked={priority==='high'} onChange={e=>setPriority(e.target.checked?'high':'normal')} className="mt-1 size-4 accent-amber-600" /><span><b>انجام فوری</b><small className="mt-1 block leading-6">افزایش {faNum(service.urgentPercent ?? 0)}٪ مبلغ پایه · زمان {formatDuration(service.urgentMinutes, service.urgentDays)} · ظرفیت محدود</small></span></label>}
-              {quote && <div aria-live="polite" className="mt-4 space-y-2 rounded-xl bg-surface-3 p-4 text-xs text-navy-600"><div className="flex justify-between"><span>زمان تخمینی خدمت</span><span>{formatDuration(quote.estimatedMinutes, quote.estimatedDays)}</span></div><div className="flex justify-between"><span>هزینه پایه</span><span>{rial(quote.baseFee)}</span></div><div className="flex justify-between"><span>هزینه فوری</span><span>{rial(quote.urgentFee)}</span></div><div className="flex justify-between"><span>تخفیف / مالیات</span><span>{rial(quote.discount)} / {rial(quote.tax)}</span></div><div className="flex justify-between border-t border-navy-200 pt-3 text-sm font-bold text-navy-900"><span>جمع قابل پرداخت</span><span>{rial(quote.total)}</span></div>{priority==='high'&&!quote.urgentAvailable&&<p className="text-rose-700">ظرفیت فوری تکمیل است؛ حالت عادی را انتخاب کنید.</p>}</div>}
+              {quote && <div aria-live="polite" className="mt-4 space-y-2 rounded-xl bg-surface-3 p-4 text-xs text-navy-600"><div className="flex justify-between"><span>زمان تخمینی خدمت</span><span>{formatDuration(quote.estimatedMinutes, quote.estimatedDays)}</span></div><div className="flex justify-between"><span>هزینه پایه</span><span>{rial(quote.baseFee)}</span></div><div className="flex justify-between"><span>هزینه فوری</span><span>{rial(quote.urgentFee)}</span></div><div className="flex justify-between"><span>تخفیف خدمت</span><span>{rial(quote.discount ?? 0)}</span></div>{(quote.codeDiscount ?? 0) > 0 && <div className="flex justify-between font-bold text-emerald-700"><span>تخفیف کد {appliedCode}</span><span>{rial(quote.codeDiscount)}-</span></div>}<div className="flex justify-between"><span>مالیات بر ارزش افزوده</span><span>{rial(quote.tax)}</span></div><div className="flex justify-between border-t border-navy-200 pt-3 text-sm font-bold text-navy-900"><span>جمع قابل پرداخت</span><span>{rial(quote.total)}</span></div>{priority==='high'&&!quote.urgentAvailable&&<p className="text-rose-700">ظرفیت فوری تکمیل است؛ حالت عادی را انتخاب کنید.</p>}</div>}
               {quoteError && <p role="alert" className="mt-4 text-sm text-rose-700">{quoteError} <Link className="underline" to="/app/profile">تکمیل پروفایل</Link></p>}
+              {user?.kind === 'customer' && (
+                <div className="mt-4 rounded-xl border border-dashed border-navy-200 p-3">
+                  <p className="flex items-center gap-1.5 text-xs font-bold text-navy-800"><TicketPercent className="size-4 text-emerald-700" /> کد تخفیف دارید؟</p>
+                  {appliedCode ? (
+                    <div className="mt-2 flex items-center justify-between rounded-lg bg-emerald-50 px-3 py-2 text-xs text-emerald-800">
+                      <span>کد <b dir="ltr">{appliedCode}</b> اعمال شده است{(quote?.codeDiscount ?? 0) > 0 ? ` · ${rial(quote.codeDiscount)} تخفیف` : ''}</span>
+                      <button type="button" onClick={removeDiscountCode} className="flex items-center gap-1 font-bold text-rose-600 hover:text-rose-700"><X className="size-3.5" /> حذف</button>
+                    </div>
+                  ) : (
+                    <div className="mt-2 flex gap-2">
+                      <Input value={discountInput} onChange={(e) => { setDiscountInput(e.target.value); setCodeMessage(''); }} placeholder="کد تخفیف" dir="ltr" className="text-left uppercase" maxLength={32} />
+                      <Button type="button" variant="ghost" loading={codeBusy} onClick={() => void applyDiscountCode()} disabled={!discountInput.trim()}>اعمال</Button>
+                    </div>
+                  )}
+                  {codeMessage && <p role="alert" className="mt-2 text-[11px] leading-5 text-rose-700">{codeMessage}</p>}
+                </div>
+              )}
               {service.paymentMethods.length > 1 && (
                 <div className="mt-4">
                   <p className="label">روش پرداخت</p>
@@ -515,7 +634,7 @@ export function ServiceDetailPage() {
 
               <div className="mt-5 flex items-center justify-between rounded-xl bg-surface-3 px-4 py-3">
                 <span className="text-xs text-navy-600">مبلغ قابل پرداخت</span>
-                <span className="font-bold text-navy-900">{rial(service.finalFee)}</span>
+                <span className="font-bold text-navy-900">{rial(quote ? quote.total : service.finalFee)}</span>
               </div>
 
               {!service.acceptingRequests ? (
@@ -544,6 +663,37 @@ export function ServiceDetailPage() {
           </div>
         </div>
       </div>
+      <Modal open={autofillOpen} onClose={() => setAutofillOpen(false)} title="استفاده از اطلاعات پروفایل من"
+        footer={(
+          <>
+            <Button variant="ghost" onClick={() => setAutofillOpen(false)}>انصراف</Button>
+            <Button onClick={applyAutofill} disabled={!Object.values(autofillPicked).some(Boolean)}>درج در فرم</Button>
+          </>
+        )}>
+        <p className="text-sm leading-7 text-navy-600">
+          موارد زیر از پروفایل شما خوانده می‌شوند. هر موردی را که نمی‌خواهید استفاده شود از حالت انتخاب خارج کنید؛ پس از درج هم می‌توانید مقادیر را ویرایش کنید.
+        </p>
+        <div className="mt-3 space-y-2">
+          {autofillMatches.map((match) => (
+            <label key={match.field.key} className="flex cursor-pointer items-start gap-3 rounded-xl bg-surface-3 px-3 py-2.5">
+              <input type="checkbox" className="mt-1 size-4 accent-brand-700" checked={Boolean(autofillPicked[match.field.key])}
+                onChange={(e) => setAutofillPicked((current) => ({ ...current, [match.field.key]: e.target.checked }))} />
+              <span className="flex-1 text-sm">
+                <span className="block font-bold text-navy-900">{match.field.label}</span>
+                <span className="mt-0.5 block text-navy-600">{match.value}</span>
+                <span className="block text-[11px] text-navy-400">از «{match.sourceLabel}» پروفایل</span>
+              </span>
+            </label>
+          ))}
+          {autofillMatches.length === 0 && <p className="text-sm text-navy-500">برای این فرم، داده‌ای در پروفایل شما پیدا نشد.</p>}
+        </div>
+        {autofill && autofill.missing.length > 0 && (
+          <div className="mt-4 rounded-xl bg-amber-50 p-3 text-xs leading-6 text-amber-900 ring-1 ring-amber-200">
+            برای سریع‌تر شدن فرم‌های بعدی، این موارد را در پروفایل تکمیل کنید: {autofill.missing.map((m) => m.label).join('، ')}.{' '}
+            <Link className="font-bold underline" to="/app/profile">تکمیل پروفایل</Link>
+          </div>
+        )}
+      </Modal>
     </PublicLayout>
   );
 }
