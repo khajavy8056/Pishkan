@@ -306,7 +306,7 @@ async function stepEnv(job) {
   if (job.lanAccess !== undefined && typeof job.lanAccess !== 'boolean') {
     throw Object.assign(new Error('گزینهٔ دسترسی LAN باید روشن/خاموش باشد.'), { step: 'lan' });
   }
-  const lan = resolveLanAccess(job.lanAccess, existing);
+  let lan = resolveLanAccess(job.lanAccess, existing);
   const wasLanEnabled = String(existing.LAN_ACCESS ?? '').toLowerCase() === 'true';
   let firewallWarning = '';
   if (lan.enabled) {
@@ -316,12 +316,24 @@ async function stepEnv(job) {
     } else {
       const firewall = runLanFirewall('ensure', { root: ROOT, port, program: process.execPath });
       if (!firewall.ok) {
-        stepEvent('lan', 'دسترسی شبکه محلی', 'fail', { message: firewall.message });
-        throw Object.assign(new Error(firewall.message), { step: 'lan', command: 'PowerShell lan-firewall.ps1' });
+        // LAN is optional, so a firewall precondition (profiles off, default
+        // inbound not Block, or the installer not elevated) must never abort
+        // the whole installation. Fall back to the safe loopback default,
+        // keep the exact reason visible in the step log and the final report,
+        // and let the user re-run the installer with LAN ticked after fixing
+        // the firewall — their data and settings are preserved on re-run.
+        firewallWarning = firewall.message;
+        lan = resolveLanAccess(false, existing);
+        log(`دسترسی LAN فعال نشد؛ نصب فقط روی همین رایانه (loopback) ادامه می‌یابد. دلیل: ${firewall.message}`, 'warn');
+        stepEvent('lan', 'دسترسی شبکه محلی', 'warn', {
+          message: `LAN فعال نشد و برنامه فقط روی همین رایانه در دسترس خواهد بود. دلیل: ${firewall.message} برای فعال‌کردن آن: فایروال Windows را در هر سه پروفایل (Domain/Private/Public) روشن و «ورودی پیش‌فرض» را روی مسدود (Block) بگذارید، سپس نصب‌کننده را با «Run as administrator» و گزینهٔ LAN دوباره اجرا کنید.`,
+          stepProgress: 100,
+        });
+      } else {
+        stepEvent('lan', 'دسترسی شبکه محلی', 'ok', {
+          message: 'فایروال فقط Private/LocalSubnet را مجاز و Public/Domain را مسدود می‌کند.', stepProgress: 100,
+        });
       }
-      stepEvent('lan', 'دسترسی شبکه محلی', 'ok', {
-        message: 'فایروال فقط Private/LocalSubnet را مجاز و Public/Domain را مسدود می‌کند.', stepProgress: 100,
-      });
     }
   } else if (wasLanEnabled) {
     stepEvent('lan', 'دسترسی شبکه محلی', 'running', { stepProgress: 10 });
