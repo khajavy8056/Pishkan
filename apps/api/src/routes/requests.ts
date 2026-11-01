@@ -7,7 +7,7 @@ import { created, dateRange, ok, pagination } from '../http/respond.js';
 import { hasPermission } from '../lib/permissions.js';
 import { officeScope } from '../lib/scope.js';
 import {
-  nextStatuses,STATUSES, STATUS_LABELS, addNote, assignRequest, attachDocument, autoAssign, candidatesForService, moveStep,
+  nextStatuses,STATUSES, STATUS_LABELS, addNote, assignRequest, attachDocument, autoAssign, candidatesForService, createExternalCostInvoice, moveStep,
   eligibleQueue,claimRequest,claimAttempts,forceAssignSweep,quoteRequest, changeStatus, createRequest, customerCancel, getRequest, listRequests, requestStats, reviewDocument, setRequestDeadline,
 } from '../modules/requests/service.js';
 import { getServiceById } from '../modules/catalog/service.js';
@@ -237,6 +237,28 @@ for (const [path, direction] of [['advance', 1], ['back', -1]] as const) {
     ok(res, updated);
   }));
 }
+
+// Mid-process organization-fee invoice (e.g. an insurance premium the expert
+// just looked up). Only for services flagged as carrying such fees — the
+// customer was warned up front — unless an office manager issues it.
+requestsRouter.post('/:id/external-invoices', requirePermission('requests.edit'), asyncRoute(async (req, res) => {
+  const body = z.object({
+    title: z.string().trim().min(3).max(200),
+    amount: z.number().int().positive().max(10_000_000_000),
+    note: z.string().max(500).nullish(),
+  }).parse(req.body);
+  const current = await loadAuthorized(param(req, 'id'), req);
+  const service = await getServiceById(current.serviceId);
+  if (!service?.hasExternalCosts && !officeScope(req.auth!)) {
+    throw forbidden('برای این خدمت «هزینهٔ سازمانی حین انجام» فعال نیست؛ ابتدا مدیر باید آن را در تعریف خدمت فعال کند تا مشتری از قبل در جریان باشد.');
+  }
+  const updated = await createExternalCostInvoice(
+    param(req, 'id'),
+    { title: body.title, amount: body.amount, note: body.note ?? null },
+    { id: req.auth!.user.id, name: req.auth!.user.fullName, ip: req.ip },
+  );
+  created(res, updated);
+}));
 
 // Manager-approved split of this request's commission pool. Frozen once the
 // first commission entry exists, so recorded money is never redistributed.

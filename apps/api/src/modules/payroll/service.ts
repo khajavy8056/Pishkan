@@ -91,8 +91,11 @@ export async function accrueCommission(paymentId: string, reverse = false) {
     if (percent <= 0) return null;
 
     const invoice = payment.invoice_id
-      ? await one<any>('SELECT total,tax FROM invoices WHERE id=?', [payment.invoice_id])
+      ? await one<any>('SELECT total,tax,purpose FROM invoices WHERE id=?', [payment.invoice_id])
       : null;
+    // Organization fees are pass-through money (insurance premium, duties…),
+    // never office revenue — they must not feed any commission basis.
+    if (invoice?.purpose === 'external_cost') return null;
     const basisSetting = await getString('payroll.commission_basis');
     const officeRevenue = officeRevenueOf(invoice, Number(payment.amount), basisSetting || 'net_of_tax');
     const amount = commissionAmount(officeRevenue, percent);

@@ -66,18 +66,23 @@ export async function seedCatalog(log: (m: string) => void = () => undefined) {
       await run('UPDATE services SET search_text = ? WHERE id = ?', [searchText, existing.id]);
       continue;
     }
+    // Services whose real-world flow typically includes a per-person
+    // organization fee (insurance premium, tax, duties, fines…) start with
+    // the external-costs warning on; managers can toggle it per service.
+    const externalCostKeywords = ['بیمه', 'مالیات', 'عوارض', 'خلافی', 'پلاک', 'گذرنامه', 'ویزا'];
+    const hasExternalCosts = externalCostKeywords.some((word) => svc.title.includes(word)) ? 1 : 0;
     await run(
       `INSERT INTO services (id, category_id, slug, title, summary, description, icon, form_schema, documents,
         workflow_steps, base_fee, discount_percent, estimated_days, estimated_minutes, payment_methods, tags, search_text,
-        contact_notice, is_published, accepting_requests, is_custom, sort_order, needs_review, created_at, updated_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?, ?, ?, ?, ?, 1, 1, 0, ?, 1, ?, ?)`,
+        contact_notice, is_published, accepting_requests, is_custom, sort_order, needs_review, created_at, updated_at, has_external_costs)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?, ?, ?, ?, ?, 1, 1, 0, ?, 1, ?, ?, ?)`,
       [
         id('svc'), categoryId, svc.slug, svc.title, svc.summary, svc.description, svc.icon,
         jsonStringify(svc.form), jsonStringify(svc.documents), jsonStringify(svc.workflow),
         svc.baseFee, svc.estimatedDays, svc.estimatedDays * 1440, jsonStringify(svc.paymentMethods ?? ['online', 'wallet']),
         jsonStringify(svc.tags), searchText,
         svc.contactNotice ?? 'هزینه و زمان نمایش‌داده‌شده نمونه است و پس از بررسی مدارک تأیید می‌شود.',
-        index, ts, ts,
+        index, ts, ts, hasExternalCosts,
       ],
     );
     services += 1;

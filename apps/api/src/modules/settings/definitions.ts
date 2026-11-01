@@ -125,6 +125,7 @@ export const SETTINGS: SettingDef[] = [
 
   /* ---------------------------------- sms --------------------------------- */
   { key: 'sms.enabled', group: 'sms', type: 'boolean', label: 'ارسال پیامک فعال باشد', default: bool(false) },
+  { key: 'sms.push_enabled', group: 'sms', type: 'boolean', label: 'اعلان لحظه‌ای (Push) روی گوشی/مرورگر کارکنان', hint: 'وقتی پروندهٔ تازه وارد صف آزاد می‌شود، کارشناسان واجد شرایط روی دستگاهشان اعلان می‌گیرند؛ هر کارمند از صفحهٔ صف آزاد آن را برای دستگاه خودش فعال می‌کند.', default: bool(true) },
   { key: 'sms.provider', group: 'sms', type: 'select', label: 'ارائه‌دهنده پیامک', options: [{ value: 'melipayamak', label: 'ملی پیامک (Melipayamak)' }, { value: 'console', label: 'شبیه‌ساز محیط توسعه' }], default: 'melipayamak' },
   { key: 'sms.auth_mode', group: 'sms', type: 'select', label: 'روش احراز هویت', hint: 'مطابق مستندات رسمی ملی پیامک انتخاب کنید.', options: [{ value: 'credentials', label: 'نام کاربری و رمز عبور' }, { value: 'apikey', label: 'کلید API' }], default: 'credentials' },
   { key: 'sms.username', group: 'sms', type: 'password', secret:true, label: 'نام کاربری ملی پیامک', default: '' },
@@ -212,6 +213,9 @@ export const SETTINGS: SettingDef[] = [
   { key: 'workforce.force_assign_enabled', group: 'workforce', type: 'boolean', label: 'واگذاری اجباری پرونده‌های پذیرفته‌نشده', hint: 'اگر تا بخشی از زمان برآوردشده کسی پرونده را از صف برندارد، سیستم آن را خودکار به یک کارمند آزاد واگذار می‌کند.', default: bool(true) },
   { key: 'workforce.force_assign_ratio', group: 'workforce', type: 'number', label: 'نسبت زمان برای واگذاری اجباری (درصد)', hint: 'مثلاً ۶۶ یعنی وقتی دو سوم زمان برآوردی خدمت سپری شد. مقدار در لحظه ثبت درخواست قطعی می‌شود.', default: 66, min: 10, max: 100 },
   { key: 'workforce.waiting_case_weight', group: 'workforce', type: 'number', label: 'وزن ظرفیت پروندهٔ منتظر مشتری/سازمان (درصد)', hint: 'در محاسبهٔ «بار کاری» کارشناس، پرونده‌ای که منتظر مشتری یا پاسخ سازمان است این درصد از یک پروندهٔ فعال حساب می‌شود؛ مسئولیت پیگیری‌اش باقی می‌ماند اما کل ظرفیت را نمی‌گیرد.', default: 25, min: 0, max: 100 },
+  { key: 'workforce.online_window_minutes', group: 'workforce', type: 'number', label: 'پنجرهٔ «آنلاین بودن» برای واگذاری خودکار (دقیقه)', hint: 'در واگذاری اجباری/خودکار، کارمندی که بیش از این مدت در سامانه فعالیت نداشته کنار گذاشته می‌شود تا پرونده به فرد غایب نرسد. صفر یعنی غیرفعال. پذیرش دستی از صف آزاد همیشه ممکن است.', default: 120, min: 0, max: 1440 },
+  { key: 'workforce.followup_reminder_enabled', group: 'workforce', type: 'boolean', label: 'یادآوری خودکار پیگیری پرونده‌های منتظر', hint: 'وقتی پرونده‌ای مدت زیادی منتظر مشتری یا سازمان می‌ماند، سیستم روزانه به کارشناس مسئول (و در صورت انتظار از مشتری، به خود مشتری) یادآوری می‌کند.', default: bool(true) },
+  { key: 'workforce.followup_after_hours', group: 'workforce', type: 'number', label: 'آستانهٔ یادآوری پیگیری (ساعت بدون تغییر)', default: 24, min: 1, max: 720 },
   { key: 'workforce.auto_assign_on_shift', group: 'workforce', type: 'boolean', label: 'فقط کارشناسان حاضر در شیفت ارجاع بگیرند', hint: 'برای دفتر تازه‌راه‌اندازی‌شده خاموش است؛ پس از تعریف شیفت‌ها و حضور کارکنان می‌توانید آن را فعال کنید.', default: bool(false) },
 
   /* -------------------------------- assistant ------------------------------ */

@@ -112,6 +112,29 @@ dashboardRouter.get('/summary', asyncRoute(async (req, res) => {
     `SELECT COUNT(*) AS c FROM attendance WHERE check_in >= ?`, [`${new Date().toISOString().slice(0, 10)}T00:00:00.000Z`],
   );
 
+  // Live workforce alerts for the manager widget: cases nobody owns yet,
+  // cases whose automatic-assignment moment has already passed, cases stuck
+  // waiting on customer/organization, and staff seen in the last 10 minutes.
+  const workforceAlerts = kind === 'admin' ? {
+    unassigned: Number(unassigned?.c ?? 0),
+    overdueUnassigned: Number((await one<{ c: number }>(
+      `SELECT COUNT(*) AS c FROM requests
+       WHERE assigned_to IS NULL AND status IN ('new','under_review')
+         AND COALESCE(force_assign_at, estimated_completion_at) IS NOT NULL
+         AND COALESCE(force_assign_at, estimated_completion_at) <= ?`,
+      [nowIso()],
+    ))?.c ?? 0),
+    waitingCases: Number((await one<{ c: number }>(
+      `SELECT COUNT(*) AS c FROM requests
+       WHERE status NOT IN ('completed','cancelled','rejected')
+         AND work_bucket IN ('waiting_customer','waiting_organization','followup')`,
+    ))?.c ?? 0),
+    onlineStaff: Number((await one<{ c: number }>(
+      'SELECT COUNT(*) AS c FROM users WHERE kind <> ? AND status = ? AND last_seen_at >= ?',
+      ['customer', 'active', new Date(Date.now() - 10 * 60_000).toISOString()],
+    ))?.c ?? 0),
+  } : null;
+
   ok(res, {
     kind,
     stats,
@@ -122,6 +145,7 @@ dashboardRouter.get('/summary', asyncRoute(async (req, res) => {
       unreadMessages: Number(unreadThreads?.c ?? 0),
       checkedInToday: Number(attendanceToday?.c ?? 0),
     },
+    workforceAlerts,
     charts: {
       daily: daily.map((d) => ({ day: d.day, count: Number(d.c) })),
       byStatus: byStatus.map((s) => ({ status: s.status, label: STATUS_LABELS[s.status as keyof typeof STATUS_LABELS] ?? s.status, count: Number(s.c) })),

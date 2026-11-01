@@ -32,6 +32,7 @@ import { walletRouter } from '../routes/wallet.js';
 import { monitoringRouter } from '../routes/monitoring.js';
 import { discountsRouter } from '../routes/discounts.js';
 import { supportRouter } from '../routes/support.js';
+import { pushRouter } from '../routes/push.js';
 import { recordRequest } from '../modules/monitoring/metrics.js';
 import { logEvent, setMinimumLevel } from '../modules/logging/service.js';
 
@@ -158,7 +159,22 @@ export async function createApp(): Promise<Express> {
       const token = bearer || (req.cookies?.[env.sessionCookie] as string | undefined) || '';
       if (token) {
         const ctx = await resolveSession(token, { ip: req.ip, userAgent: req.header('user-agent') });
-        if (ctx) req.auth = ctx;
+        if (ctx) {
+          req.auth = ctx;
+          // Presence heartbeat for fair automatic assignment: at most one
+          // write per user per minute, never allowed to fail the request.
+          if (ctx.user.kind !== 'customer') {
+            const userId = ctx.user.id;
+            const now = new Date();
+            const staleBefore = new Date(now.getTime() - 60_000).toISOString();
+            void import('../db/index.js')
+              .then(({ run }) => run(
+                'UPDATE users SET last_seen_at = ? WHERE id = ? AND (last_seen_at IS NULL OR last_seen_at < ?)',
+                [now.toISOString(), userId, staleBefore],
+              ))
+              .catch(() => undefined);
+          }
+        }
       }
       next();
     } catch (err) {
@@ -191,6 +207,7 @@ export async function createApp(): Promise<Express> {
   app.use(['/api/monitoring','/api/v1/monitoring'],monitoringRouter);
   app.use(['/api/discount-codes','/api/v1/discount-codes'],discountsRouter);
   app.use(['/api/support','/api/v1/support'],supportRouter);
+  app.use(['/api/push','/api/v1/push'],pushRouter);
 
   /* -------------------------- static web application ----------------------- */
   // The SPA can be served from several layouts: a repo checkout started from the

@@ -198,7 +198,7 @@ export async function earningsByRequest(
       ids,
     ),
     q<any>(
-      `SELECT r.id, r.total, (SELECT COALESCE(SUM(i.total - i.tax),0) FROM invoices i WHERE i.request_id = r.id) AS net_total
+      `SELECT r.id, r.total, (SELECT COALESCE(SUM(i.total - i.tax),0) FROM invoices i WHERE i.request_id = r.id AND i.purpose = 'service') AS net_total
        FROM requests r WHERE r.id IN (${placeholders})`,
       ids,
     ),

@@ -275,7 +275,10 @@ async function activeLoad(userId: string): Promise<number> {
 export { activeLoad as weightedActiveLoad };
 
 /** Candidate staff for a service, ordered by the configured strategy. */
-export async function candidatesForService(service: ServiceDTO): Promise<{ id: string; name: string; load: number; onShift: boolean }[]> {
+export async function candidatesForService(
+  service: ServiceDTO,
+  opts: { requireOnline?: boolean } = {},
+): Promise<{ id: string; name: string; load: number; onShift: boolean }[]> {
   const rule = await one<any>('SELECT * FROM assignment_rules WHERE service_id = ? AND is_active = 1', [service.id]);
   const explicitIds: string[] = jsonParse<string[]>(rule?.staff_ids, []);
   const strategy: string = rule?.strategy ?? (await getString('services.auto_assign_strategy')) ?? 'least_loaded';
@@ -285,7 +288,7 @@ export async function candidatesForService(service: ServiceDTO): Promise<{ id: s
   if (strategy === 'fixed') {
     if (!explicitIds.length) return [];
     staffRows = await q<any>(
-      `SELECT u.id, u.full_name, sp.max_active_cases, sp.accepts_new_cases, sp.specialties
+      `SELECT u.id, u.full_name, u.last_seen_at, sp.max_active_cases, sp.accepts_new_cases, sp.specialties
        FROM users u
        JOIN staff_profiles sp ON sp.user_id = u.id
        JOIN roles r ON r.id = u.role_id
@@ -295,7 +298,7 @@ export async function candidatesForService(service: ServiceDTO): Promise<{ id: s
     );
   } else {
     staffRows = await q<any>(
-      `SELECT u.id, u.full_name, sp.max_active_cases, sp.accepts_new_cases, sp.specialties
+      `SELECT u.id, u.full_name, u.last_seen_at, sp.max_active_cases, sp.accepts_new_cases, sp.specialties
        FROM users u
        JOIN staff_profiles sp ON sp.user_id = u.id
        JOIN roles r ON r.id = u.role_id
@@ -316,8 +319,14 @@ export async function candidatesForService(service: ServiceDTO): Promise<{ id: s
   }
 
   const requireShift = await getBool('workforce.auto_assign_on_shift');
+  // Automatic placement must not hand a case to someone who has not been
+  // around for hours. Manual claiming is never gated by presence, and an
+  // account that has never been seen (fresh/seed) is not excluded.
+  const onlineWindowMinutes = opts.requireOnline ? await getNumber('workforce.online_window_minutes') : 0;
+  const onlineCutoff = onlineWindowMinutes > 0 ? Date.now() - onlineWindowMinutes * 60_000 : null;
   const candidates: { id: string; name: string; load: number; onShift: boolean }[] = [];
   for (const row of staffRows) {
+    if (onlineCutoff && row.last_seen_at && Date.parse(row.last_seen_at) < onlineCutoff) continue;
     const load = await activeLoad(row.id);
     const limit = Number(row.max_active_cases) > 0 ? Math.min(Number(row.max_active_cases), maxLoad) : maxLoad;
     if (load >= limit) continue;
@@ -351,7 +360,7 @@ export async function autoAssign(requestId: string): Promise<string | null> {
   const strategy = rule?.strategy ?? (await getString('services.auto_assign_strategy')) ?? 'least_loaded';
   if (strategy === 'queue') return null;
 
-  const candidates = await candidatesForService(service);
+  const candidates = await candidatesForService(service, { requireOnline: true });
   const chosen = candidates[0];
   if (!chosen) return null;
 
@@ -744,6 +753,19 @@ export async function createRequest(input: CreateRequestInput, actor?: { id: str
       kind: 'info', link: '/admin/requests',
       idempotencyKey: `request-unassigned:${requestId}`,
     }).catch(() => undefined);
+    // Ring the devices of everyone who could pick this case from the free
+    // pool right now (Snapp-style): eligible + has free capacity. Best-effort.
+    void (async () => {
+      const candidates = await candidatesForService(service);
+      if (!candidates.length) return;
+      const { sendPushToUsers } = await import('../notifications/push.js');
+      await sendPushToUsers(candidates.map((candidate) => candidate.id), {
+        title: 'پروندهٔ تازه در صف آزاد',
+        body: `«${service.title}» — کد پیگیری ${toPersianDigits(trackingCode)}`,
+        url: '/staff/queue',
+        tag: `queue:${requestId}`,
+      });
+    })().catch(() => undefined);
   }
 
   await writeAudit({
@@ -772,6 +794,7 @@ export async function createRequest(input: CreateRequestInput, actor?: { id: str
 export async function getRequest(requestId: string, viewer?: { actorId: string; isCustomer: boolean; canViewDocuments?: boolean }) {
   const row = await one<any>(`
     SELECT r.*, s.title AS service_title, s.slug AS service_slug, s.workflow_steps, s.is_custom,
+           s.has_external_costs, s.external_costs_note, s.external_cost_items,
            c.full_name AS customer_name, c.mobile AS customer_mobile, c.national_id AS customer_national_id,
            a.full_name AS assignee_name
     FROM requests r
@@ -891,9 +914,17 @@ export async function getRequest(requestId: string, viewer?: { actorId: string; 
       createdAt: d.created_at,
     })),
     invoices: invoices.map((i) => ({
-      id: i.id, number: i.number, total: Number(i.total), paidAmount: Number(i.paid_amount),
+      id: i.id, number: i.number, title: i.title, purpose: i.purpose ?? 'service',
+      total: Number(i.total), paidAmount: Number(i.paid_amount),
       status: i.status, issuedAt: i.issued_at,
     })),
+    externalCosts: {
+      enabled: Boolean(row.has_external_costs),
+      note: row.has_external_costs
+        ? (row.external_costs_note || 'در حین انجام این خدمت ممکن است مبالغی بابت هزینهٔ سازمان مربوطه لازم باشد که جزو حق‌الزحمهٔ دفتر نیست؛ مبلغ دقیق با فاکتور جداگانه در همین پرونده اعلام می‌شود.')
+        : null,
+      items: jsonParse<any[]>(row.external_cost_items, []),
+    },
   };
 }
 
@@ -1432,7 +1463,7 @@ export async function eligibleQueue(staffId: string) {
   const rows = await q<any>(
     `SELECT r.id, r.tracking_code, r.service_id, r.created_at, r.priority, r.status, r.total,
             r.estimated_completion_at, r.force_assign_at, s.title,
-            (SELECT COALESCE(SUM(i.total - i.tax), 0) FROM invoices i WHERE i.request_id = r.id AND i.status <> 'void') AS net_total,
+            (SELECT COALESCE(SUM(i.total - i.tax), 0) FROM invoices i WHERE i.request_id = r.id AND i.status <> 'void' AND i.purpose = 'service') AS net_total,
             (SELECT COUNT(*) FROM request_documents d WHERE d.request_id = r.id) AS docs_attached
      FROM requests r JOIN services s ON s.id = r.service_id
      WHERE r.assigned_to IS NULL AND r.status IN ('new','under_review')
@@ -1483,6 +1514,124 @@ export async function eligibleQueue(staffId: string) {
  * update can match `assigned_to IS NULL`. The loser gets a precise 409 message
  * naming who took it, and the attempt is recorded in `request_claim_attempts`.
  */
+/**
+ * Issue a mid-process organization-fee invoice on a case (e.g. the social
+ * security premium the expert just looked up). The money is pass-through: it
+ * never becomes office revenue and never feeds commissions. The case moves
+ * to "waiting for customer" (when the state machine allows) and the customer
+ * is told in-app + by SMS that a payable invoice is waiting on the case.
+ */
+/**
+ * Daily nudge for cases parked in others' courts: when a case has been
+ * waiting on the customer / an organization (or flagged follow-up) without
+ * any change for longer than the configured threshold, remind the owner —
+ * and, for customer-waiting cases, gently remind the customer too. One
+ * reminder per case per Tehran day via notification idempotency keys.
+ */
+export async function followUpReminderSweep() {
+  if (!(await getBool('workforce.followup_reminder_enabled'))) return { reminded: 0, checked: 0 };
+  const hours = Math.max(1, await getNumber('workforce.followup_after_hours'));
+  const cutoff = new Date(Date.now() - hours * 3_600_000).toISOString();
+  const rows = await q<any>(
+    `SELECT r.id, r.tracking_code, r.assigned_to, r.customer_id, r.work_bucket, s.title AS service_title
+     FROM requests r JOIN services s ON s.id = r.service_id
+     WHERE r.assigned_to IS NOT NULL
+       AND r.status NOT IN ('completed','cancelled','rejected')
+       AND r.work_bucket IN ('waiting_customer','waiting_organization','followup')
+       AND r.updated_at <= ?
+     ORDER BY r.updated_at ASC LIMIT 100`,
+    [cutoff],
+  );
+  let reminded = 0;
+  for (const row of rows) {
+    const day = tehranNow().date;
+    const waitingLabel = row.work_bucket === 'waiting_customer' ? 'منتظر اقدام مشتری'
+      : row.work_bucket === 'waiting_organization' ? 'منتظر پاسخ سازمان' : 'نیازمند پیگیری';
+    await notifyUser(row.assigned_to, {
+      title: 'یادآوری پیگیری پرونده',
+      body: `پروندهٔ «${row.service_title}» (${toPersianDigits(row.tracking_code)}) بیش از ${toPersianDigits(String(hours))} ساعت است که ${waitingLabel} مانده و تغییری نکرده است.`,
+      kind: 'warning',
+      link: `/staff/requests/${row.id}`,
+      idempotencyKey: `followup:${row.id}:${day}`,
+    }).catch(() => undefined);
+    if (row.work_bucket === 'waiting_customer') {
+      await notifyUser(row.customer_id, {
+        title: 'پروندهٔ شما منتظر اقدام شماست',
+        body: `برای ادامهٔ «${row.service_title}» (کد پیگیری ${toPersianDigits(row.tracking_code)}) اقدامی از طرف شما لازم است؛ جزئیات در صفحهٔ پرونده آمده است.`,
+        kind: 'info',
+        link: `/app/requests/${row.id}`,
+        idempotencyKey: `followup-customer:${row.id}:${day}`,
+      }).catch(() => undefined);
+    }
+    reminded += 1;
+  }
+  return { reminded, checked: rows.length };
+}
+
+export async function createExternalCostInvoice(
+  requestId: string,
+  input: { title: string; amount: number; note?: string | null },
+  actor: { id: string; name: string; ip?: string },
+) {
+  const request = await one<any>(
+    `SELECT r.*, s.title AS service_title, s.is_custom FROM requests r
+     JOIN services s ON s.id = r.service_id WHERE r.id = ?`,
+    [requestId],
+  );
+  if (!request) throw notFound('درخواست یافت نشد.');
+  if (['completed', 'cancelled', 'rejected'].includes(request.status)) {
+    throw conflict('برای پروندهٔ بسته‌شده نمی‌توان فاکتور صادر کرد.');
+  }
+  const title = String(input.title ?? '').trim();
+  const amount = Math.round(Number(input.amount ?? 0));
+  if (title.length < 3) throw badRequest('عنوان هزینهٔ سازمانی را مشخص کنید (مثلاً «حق بیمه تأمین اجتماعی»).');
+  if (!Number.isFinite(amount) || amount <= 0 || amount > 10_000_000_000) {
+    throw badRequest('مبلغ هزینهٔ سازمانی نامعتبر است.');
+  }
+
+  const invoice: any = await createInvoice({
+    customerId: request.customer_id,
+    requestId,
+    serviceId: request.service_id,
+    kind: request.is_custom ? 'custom' : 'public',
+    purpose: 'external_cost',
+    title,
+    items: [{ title, qty: 1, unitPrice: amount, amount }],
+    notes: input.note?.trim() || 'هزینهٔ سازمانی مربوط به این پرونده؛ جزو حق‌الزحمهٔ دفتر نیست.',
+  }, actor);
+
+  await addEvent({
+    requestId, type: 'invoice', actorId: actor.id, actorName: actor.name,
+    message: `فاکتور هزینهٔ سازمانی صادر شد: «${title}» به مبلغ ${amount.toLocaleString('fa-IR')} ریال — منتظر پرداخت مشتری.`,
+    metadata: { invoiceId: invoice.id, purpose: 'external_cost', amount },
+  });
+
+  // Park the case on the customer while this is unpaid, when allowed.
+  if (request.status !== 'waiting_customer'
+    && (ALLOWED_TRANSITIONS[request.status as RequestStatus] ?? []).includes('waiting_customer')) {
+    await changeStatus(requestId, 'waiting_customer', actor,
+      `در انتظار پرداخت هزینهٔ سازمانی توسط مشتری: «${title}»`).catch(() => undefined);
+  }
+
+  await writeAudit({
+    actorId: actor.id, actorName: actor.name, action: 'request.external_invoice',
+    entityType: 'request', entityId: requestId,
+    after: { invoiceId: invoice.id, title, amount }, ip: actor.ip,
+  });
+
+  const { notifyUser } = await import('../notifications/service.js');
+  await notifyUser(request.customer_id, {
+    title: 'فاکتور هزینهٔ سازمانی پروندهٔ شما صادر شد',
+    body: `«${title}» به مبلغ ${amount.toLocaleString('fa-IR')} ریال — این مبلغ هزینهٔ سازمان مربوطه است و جزو حق‌الزحمه نیست. از صفحهٔ پرونده می‌توانید آن را پرداخت کنید تا کارتان ادامه پیدا کند.`,
+    kind: 'warning',
+    link: `/app/requests/${requestId}`,
+    idempotencyKey: `external-invoice:${invoice.id}`,
+    sms: { eventCode: 'invoice_created', variables: { invoice_number: String(invoice.number ?? ''), amount: String(amount) } },
+  }).catch(() => undefined);
+
+  return getRequest(requestId);
+}
+
 export async function claimRequest(requestId: string, staffId: string, name: string) {
   // The attempt log lives outside the transaction on purpose: a losing claim
   // is rolled back, but the evidence of "somebody else took it" must survive.
@@ -1597,7 +1746,7 @@ export async function forceAssignSweep(options: { now?: Date; limit?: number } =
   for (const request of rows) {
     const service = await getServiceById(request.service_id);
     if (!service) { skipped.push({ requestId: request.id, reason: 'service-missing' }); continue; }
-    const candidates = await candidatesForService(service);
+    const candidates = await candidatesForService(service, { requireOnline: true });
     if (!candidates.length) {
       skipped.push({ requestId: request.id, reason: 'no-available-staff' });
       // The case must not silently rot in the pool: tell the managers (at most

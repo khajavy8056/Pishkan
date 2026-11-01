@@ -228,7 +228,7 @@ export async function pendingEstimate(userId: string) {
   if (!contract || contract.kind !== 'commission') return { percent: 0, items: [], total: 0 };
   const rows = await q<any>(
     `SELECT r.id, r.tracking_code, r.total, r.status, r.service_id, r.assigned_to, s.title AS service_title,
-            (SELECT COALESCE(SUM(i.total - i.tax),0) FROM invoices i WHERE i.request_id=r.id) AS net_total
+            (SELECT COALESCE(SUM(i.total - i.tax),0) FROM invoices i WHERE i.request_id=r.id AND i.purpose='service') AS net_total
      FROM requests r JOIN services s ON s.id=r.service_id
      WHERE r.assigned_to=? AND r.status IN (${OPEN.map(() => '?').join(',')})`,
     [userId, ...OPEN],
@@ -358,6 +358,8 @@ function mapWithdrawal(row: any) {
     note: row.request_note, decisionNote: row.decision_note, reviewedAt: row.reviewed_at,
     approvedAt: row.approved_at, rejectedAt: row.rejected_at, paidAt: row.paid_at,
     paymentMethod: row.payment_method, trackingCode: row.tracking_code, accountingNote: row.accounting_note,
+    receiptFileId: row.receipt_file_id ?? null,
+    receiptUrl: row.receipt_file_id ? `/api/files/${row.receipt_file_id}?variant=original` : null,
     createdAt: row.created_at,
   };
 }
@@ -468,7 +470,7 @@ export async function advanceWithdrawal(
  */
 export async function payWithdrawal(
   withdrawalId: string,
-  input: { method: string; trackingCode: string; paidAt?: string; note?: string },
+  input: { method: string; trackingCode: string; paidAt?: string; note?: string; receiptFileId?: string | null },
   actor: { id: string; name: string },
 ) {
   return tx(async () => {
@@ -477,6 +479,10 @@ export async function payWithdrawal(
     if (row.status === 'paid') throw conflict('این درخواست قبلاً پرداخت شده است.');
     if (!['approved', 'paying'].includes(row.status)) {
       throw conflict('پرداخت فقط پس از تأیید درخواست امکان‌پذیر است.');
+    }
+    if (input.receiptFileId) {
+      const receipt = await one<any>('SELECT id FROM files WHERE id = ?', [input.receiptFileId]);
+      if (!receipt) throw badRequest('فایل رسید پرداخت یافت نشد.');
     }
     const method = String(input.method ?? '').trim();
     const trackingCode = String(input.trackingCode ?? '').trim();
@@ -517,9 +523,9 @@ export async function payWithdrawal(
 
     const changed = await run(
       `UPDATE staff_withdrawals
-       SET status='paid', paid_at=?, payment_method=?, tracking_code=?, accounting_note=?, updated_at=?
+       SET status='paid', paid_at=?, payment_method=?, tracking_code=?, accounting_note=?, receipt_file_id=COALESCE(?, receipt_file_id), updated_at=?
        WHERE id=? AND status IN ('approved','paying')`,
-      [paidAt, method, trackingCode, input.note ?? null, now, withdrawalId],
+      [paidAt, method, trackingCode, input.note ?? null, input.receiptFileId ?? null, now, withdrawalId],
     );
     if (!changed.changes) throw conflict('وضعیت درخواست هم‌زمان تغییر کرده است.');
     await addWithdrawalEvent({
@@ -528,7 +534,8 @@ export async function payWithdrawal(
     });
     await writeAudit({
       actorId: actor.id, actorName: actor.name, action: 'payroll.withdrawal.pay', entityType: 'staff_withdrawal',
-      entityId: withdrawalId, before: { status: row.status }, after: { status: 'paid', amount, method, trackingCode },
+      entityId: withdrawalId, before: { status: row.status },
+      after: { status: 'paid', amount, method, trackingCode, receiptFileId: input.receiptFileId ?? null },
     });
     await logEvent({
       level: 'INFO', category: 'staff', action: 'payroll.withdrawal.pay', result: 'success',
@@ -795,7 +802,7 @@ export async function payrollReports(opts: { from?: string; to?: string } = {}) 
             COALESCE(SUM(i.total),0) AS gross,
             COALESCE(SUM(i.paid_amount),0) AS collected
      FROM invoices i
-     WHERE i.created_at BETWEEN ? AND ? AND i.status <> 'void'`, [from, to],
+     WHERE i.created_at BETWEEN ? AND ? AND i.status <> 'void' AND i.purpose = 'service'`, [from, to],
   );
   const rangeRequests = await q<any>(
     `SELECT r.assigned_to, u.full_name, COUNT(*) AS received,
