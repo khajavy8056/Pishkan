@@ -88,6 +88,12 @@ async function bootstrap() {
   const server = app.listen(env.port, listenHost, () => {
     console.log(`[boot] Pishkan API ${env.version} listening on http://${listenHost}:${env.port} (${env.nodeEnv}, db=${env.dbDriver})`);
   });
+  server.on('error', (error) => {
+    // e.g. EADDRINUSE from a leftover process: land a clear line in the error
+    // log (which the Windows manager now surfaces) instead of a bare stack.
+    console.error(`[boot] server error: ${safeErrorText(error)}`);
+    process.exit(1);
+  });
 
   let shuttingDown = false;
   let leaseTimer: NodeJS.Timeout | null = null;

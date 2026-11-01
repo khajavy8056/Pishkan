@@ -202,11 +202,14 @@ function Apply-PishkanControlTheme($Control) {
   }
 }
 
-function Show-PishkanMessage([string]$Title, [string]$Text, [string]$Kind = 'info') {
+function Show-PishkanMessage([string]$Title, [string]$Text, [string]$Kind = 'info', $Owner = $null) {
   $icon = [System.Windows.Forms.MessageBoxIcon]::Information
   if ($Kind -eq 'error') { $icon = [System.Windows.Forms.MessageBoxIcon]::Error }
   if ($Kind -eq 'warning') { $icon = [System.Windows.Forms.MessageBoxIcon]::Warning }
-  [void][System.Windows.Forms.MessageBox]::Show($Text, $Title, [System.Windows.Forms.MessageBoxButtons]::OK, $icon)
+  # An ownerless MessageBox can open *behind* the window: the app then looks
+  # frozen/dead while it is really waiting for a click nobody can see.
+  if ($Owner) { [void][System.Windows.Forms.MessageBox]::Show($Owner, $Text, $Title, [System.Windows.Forms.MessageBoxButtons]::OK, $icon) }
+  else { [void][System.Windows.Forms.MessageBox]::Show($Text, $Title, [System.Windows.Forms.MessageBoxButtons]::OK, $icon) }
 }
 
 function Get-RepositoryRoot {

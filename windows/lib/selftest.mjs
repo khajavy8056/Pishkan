@@ -291,7 +291,7 @@ test('installer, manager و API فقط پس از opt-in و تأیید Firewall �
   assert.match(manager, /launchLanGuard/);
   assert.match(manager, /PISHKAN_LAN_FIREWALL_STATUS_FILE/);
   assert.match(manager, /PISHKAN_LAN_FIREWALL_TOKEN/);
-  assert.match(manager, /PISHKAN_LAN_FIREWALL_VERIFIED: LAN_ACCESS \? 'true' : 'false'/);
+  assert.match(manager, /PISHKAN_LAN_FIREWALL_VERIFIED: effectiveLan \? 'true' : 'false'/);
   assert.match(lanGuard, /runLanFirewall\('status'/);
   assert.match(lanGuard, /writeLease\(false/);
   assert.match(lanGuard, /stopOwnedServer/);
@@ -392,6 +392,73 @@ await testAsync('installer dry-run persists opt-in LAN exactly and never touches
     assert.equal(settings.LAN_ACCESS, enabled ? 'true' : 'false');
     assert.equal(settings.HOST, enabled ? '0.0.0.0' : '127.0.0.1');
     assert.equal(settings.ZARINPAL_CALLBACK_BASE_URL, '');
+  }
+});
+
+test('شروع Manager هرگز به‌خاطر LAN قفل نمی‌شود و دلیل توقف دیده می‌شود', () => {
+  const manager = readFileSync(path.join(MODULE_DIR, 'manager.mjs'), 'utf8');
+  const gui = readFileSync(path.join(MODULE_DIR, 'manager-gui.ps1'), 'utf8').replace(/^\uFEFF/, '');
+  // LAN failure falls back to loopback instead of refusing to run.
+  assert.match(manager, /effectiveLan/);
+  assert.match(manager, /lanWarning/);
+  // A same-root server whose state file was lost is adopted, not «foreign».
+  assert.match(manager, /discoverListenerPid/);
+  assert.match(manager, /adopted: true/);
+  // The error log (stderr) is where boot fatals live; logs must merge it.
+  assert.match(manager, /readTailLines\(errorLogFile\(ROOT\)/);
+  assert.match(manager, /lastErrorTail/);
+  // GUI: async manager calls (no frozen window), PS5.1 stderr trap defused,
+  // and the log pane refreshes while stopped so the reason is visible.
+  assert.match(gui, /function Invoke-ManagerAsync/);
+  assert.match(gui, /\$ErrorActionPreference = 'Continue'/);
+  assert.doesNotMatch(gui, /\$autoRefresh\.Checked -and \$status\.running/);
+});
+
+await testAsync('manager: خرابی LAN جلوی اجرای محلی را نمی‌گیرد (fallback به loopback)', async () => {
+  if (process.platform === 'win32') {
+    skipped.push('manager LAN fallback: روی Windows واقعی فایروال ممکن است سالم باشد؛ مسیر fallback در Linux اثبات می‌شود.');
+    return;
+  }
+  const repoRoot = path.join(MODULE_DIR, '..', '..');
+  if (!fs.existsSync(path.join(repoRoot, 'apps', 'api', 'dist', 'index.js'))) {
+    skipped.push('manager LAN fallback: خروجی ساخت API (apps/api/dist) در این محیط وجود ندارد.');
+    return;
+  }
+  const root = path.join(tmp, 'manager-fallback');
+  fs.mkdirSync(path.join(root, 'apps', 'api'), { recursive: true });
+  fs.mkdirSync(path.join(root, '.data', 'uploads'), { recursive: true });
+  fs.mkdirSync(path.join(root, '.data', 'backups'), { recursive: true });
+  fs.symlinkSync(path.join(repoRoot, 'apps', 'api', 'dist'), path.join(root, 'apps', 'api', 'dist'), 'junction');
+  fs.symlinkSync(path.join(repoRoot, 'apps', 'api', 'migrations'), path.join(root, 'apps', 'api', 'migrations'), 'junction');
+  fs.writeFileSync(path.join(root, 'package.json'), '{"name":"manager-fallback"}\n', 'utf8');
+  const port = await findFreePort(46100);
+  assert.ok(port, 'پورت آزاد برای آزمون پیدا نشد');
+  fs.writeFileSync(envFilePath(root), [
+    'NODE_ENV=development',
+    'DB_DRIVER=sqlite',
+    `SQLITE_FILE=${path.join(root, '.data', 'pishkan-windows.sqlite')}`,
+    'HOST=0.0.0.0',
+    'LAN_ACCESS=true',
+    `PORT=${port}`,
+    'COOKIE_SECURE=false',
+    'APP_ENCRYPTION_KEY=0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef',
+    `UPLOAD_DIR=${path.join(root, '.data', 'uploads')}`,
+    `BACKUP_DIR=${path.join(root, '.data', 'backups')}`,
+    'AUTH_LOGIN_RATE_LIMIT=60',
+  ].join('\n'), 'utf8');
+  const runManager = (cmd) => spawnSync(process.execPath, [
+    path.join(MODULE_DIR, 'manager.mjs'), cmd, '--root', root, '--json',
+  ], { encoding: 'utf8', timeout: 120_000 });
+  const payload = (r) => JSON.parse(String(r.stdout).split('\n').find((l) => l.startsWith('RESULT_JSON:')).slice(12));
+  try {
+    const started = payload(runManager('start'));
+    assert.equal(started.ok, true, started.message);
+    assert.equal(started.lanAccess, false, 'LAN باید در fallback خاموش باشد');
+    assert.ok(started.lanWarning, 'هشدار LAN باید در نتیجه باشد');
+    const st = payload(runManager('status'));
+    assert.equal(st.running, true, 'سرویس باید روی loopback پاسخ‌گو باشد');
+  } finally {
+    runManager('stop');
   }
 });
 
