@@ -215,11 +215,13 @@ export function ChatWidget({ placement = 'shell' }: { placement?: 'shell' | 'pag
   // Bottom-right corner of the screen. Inside the panels the navy sidebar
   // owns the right edge on desktop, so the widget parks beside it instead of
   // covering the navigation (sidebar is 17.5rem wide).
+  // On mobile both placements float above the bottom navigation dock
+  // (public pages have one too), so nothing tappable hides behind it.
   const fabPosition = placement === 'page'
-    ? 'bottom-5 right-4 lg:bottom-6 lg:right-6'
+    ? 'bottom-20 right-4 lg:bottom-6 lg:right-6'
     : 'bottom-20 right-4 lg:bottom-6 lg:right-[19rem]';
   const panelPosition = placement === 'page'
-    ? 'bottom-[5.5rem] right-4 lg:bottom-24 lg:right-6'
+    ? 'bottom-36 right-4 lg:bottom-24 lg:right-6'
     : 'bottom-36 right-4 lg:bottom-24 lg:right-[19rem]';
   const unreadOf = (ticket: any) => (isCustomer ? ticket.unreadForCustomer : ticket.unreadForStaff) ?? 0;
 

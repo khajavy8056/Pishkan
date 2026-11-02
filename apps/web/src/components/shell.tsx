@@ -20,6 +20,8 @@ import { NotificationGate } from './NotificationGate';
 export interface NavItem {
   to: string;
   label: string;
+  /** Compact label for the mobile bottom dock (falls back to `label`). */
+  short?: string;
   icon: ReactNode;
   end?: boolean;
   permission?: string;
@@ -37,61 +39,61 @@ const SECTION_SUPPORT = 'پشتیبانی';
 
 const customerNav: NavItem[] = [
   { to: '/app', label: 'داشبورد', icon: <LayoutDashboard className="size-5" />, end: true, section: SECTION_WORK },
-  { to: '/app/services', label: 'ثبت درخواست جدید', icon: <CirclePlus className="size-5" />, section: SECTION_WORK },
-  { to: '/app/requests', label: 'پیگیری درخواست‌ها', icon: <Search className="size-5" />, section: SECTION_WORK },
-  { to: '/app/wallet', label: 'کیف پول و پرداخت‌ها', icon: <Wallet className="size-5" />, section: SECTION_ACCOUNT },
+  { to: '/app/services', label: 'ثبت درخواست جدید', short: 'درخواست جدید', icon: <CirclePlus className="size-5" />, section: SECTION_WORK },
+  { to: '/app/requests', label: 'پیگیری درخواست‌ها', short: 'پیگیری', icon: <Search className="size-5" />, section: SECTION_WORK },
+  { to: '/app/wallet', label: 'کیف پول و پرداخت‌ها', short: 'کیف پول', icon: <Wallet className="size-5" />, section: SECTION_ACCOUNT },
   { to: '/app/invoices', label: 'فاکتورها', icon: <Receipt className="size-5" />, section: SECTION_ACCOUNT },
-  { to: '/app/documents', label: 'مدارک من', icon: <FileText className="size-5" />, section: SECTION_WORK },
-  { to: '/app/offers', label: 'پیشنهادهای اختصاصی', icon: <Sparkles className="size-5" />, section: SECTION_ACCOUNT },
+  { to: '/app/documents', label: 'مدارک من', short: 'مدارک', icon: <FileText className="size-5" />, section: SECTION_WORK },
+  { to: '/app/offers', label: 'پیشنهادهای اختصاصی', short: 'پیشنهادها', icon: <Sparkles className="size-5" />, section: SECTION_ACCOUNT },
   { to: '/app/messages', label: 'پیام‌ها', icon: <MessageSquare className="size-5" />, section: SECTION_ACCOUNT },
-  { to: '/app/support', label: 'پشتیبانی و تیکت‌ها', icon: <Headset className="size-5" />, section: SECTION_SUPPORT },
-  { to: '/assistant', label: 'دستیار هوشمند', icon: <LifeBuoy className="size-5" />, section: SECTION_SUPPORT },
-  { to: '/app/profile', label: 'پروفایل و تنظیمات', icon: <Settings className="size-5" />, section: SECTION_ACCOUNT },
+  { to: '/app/support', label: 'پشتیبانی و تیکت‌ها', short: 'پشتیبانی', icon: <Headset className="size-5" />, section: SECTION_SUPPORT },
+  { to: '/assistant', label: 'دستیار هوشمند', short: 'دستیار', icon: <LifeBuoy className="size-5" />, section: SECTION_SUPPORT },
+  { to: '/app/profile', label: 'پروفایل و تنظیمات', short: 'پروفایل', icon: <Settings className="size-5" />, section: SECTION_ACCOUNT },
 ];
 
 const staffNav: NavItem[] = [
-  { to: '/staff', label: 'میز کار من', icon: <LayoutDashboard className="size-5" />, end: true, section: SECTION_OPS },
-  { to: '/staff/automation', label: 'کارتابل و ارجاعات', icon: <ClipboardCheck className="size-5" />, permission: 'requests.view', section: SECTION_OPS },
+  { to: '/staff', label: 'میز کار من', short: 'میز کار', icon: <LayoutDashboard className="size-5" />, end: true, section: SECTION_OPS },
+  { to: '/staff/automation', label: 'کارتابل و ارجاعات', short: 'کارتابل', icon: <ClipboardCheck className="size-5" />, permission: 'requests.view', section: SECTION_OPS },
   { to: '/staff/requests', label: 'درخواست‌ها', icon: <ClipboardList className="size-5" />, permission: 'requests.view', section: SECTION_OPS },
-  { to: '/staff/documents', label: 'بررسی مدارک', icon: <ClipboardCheck className="size-5" />, permission: 'documents.view', section: SECTION_OPS },
+  { to: '/staff/documents', label: 'بررسی مدارک', short: 'مدارک', icon: <ClipboardCheck className="size-5" />, permission: 'documents.view', section: SECTION_OPS },
   { to: '/staff/customers', label: 'مشتریان', icon: <Users className="size-5" />, permission: 'customers.view', section: SECTION_OPS },
-  { to: '/staff/queue', label: 'صف درخواست‌های آزاد', icon: <ClipboardList className="size-5" />, permission: 'requests.view', section: SECTION_OPS },
-  { to: '/staff/custom-services', label: 'خدمت اختصاصی', icon: <Sparkles className="size-5" />, permission: 'services.create', section: SECTION_MORE },
+  { to: '/staff/queue', label: 'صف درخواست‌های آزاد', short: 'صف آزاد', icon: <ClipboardList className="size-5" />, permission: 'requests.view', section: SECTION_OPS },
+  { to: '/staff/custom-services', label: 'خدمت اختصاصی', short: 'سفارشی', icon: <Sparkles className="size-5" />, permission: 'services.create', section: SECTION_MORE },
   { to: '/staff/messages', label: 'پیام‌ها', icon: <MessageSquare className="size-5" />, permission: 'messages.view', section: SECTION_MORE },
-  { to: '/staff/support', label: 'تیکت‌های پشتیبانی', icon: <Headset className="size-5" />, permission: 'support.view', section: SECTION_MORE },
-  { to: '/staff/shifts', label: 'شیفت و حضور', icon: <CalendarClock className="size-5" />, section: SECTION_MORE },
+  { to: '/staff/support', label: 'تیکت‌های پشتیبانی', short: 'تیکت‌ها', icon: <Headset className="size-5" />, permission: 'support.view', section: SECTION_MORE },
+  { to: '/staff/shifts', label: 'شیفت و حضور', short: 'شیفت', icon: <CalendarClock className="size-5" />, section: SECTION_MORE },
   { to: '/staff/finance', label: 'درآمد، عملکرد و تسویه', icon: <Receipt className="size-5" />, section: SECTION_MORE },
-  { to: '/staff/performance', label: 'عملکرد من', icon: <BarChart3 className="size-5" />, section: SECTION_MORE },
-  { to: '/staff/blog', label: 'بلاگ و تولید محتوا', icon: <Newspaper className="size-5" />, permission: 'blog.view', section: SECTION_MORE },
+  { to: '/staff/performance', label: 'عملکرد من', short: 'عملکرد', icon: <BarChart3 className="size-5" />, section: SECTION_MORE },
+  { to: '/staff/blog', label: 'بلاگ و تولید محتوا', short: 'بلاگ', icon: <Newspaper className="size-5" />, permission: 'blog.view', section: SECTION_MORE },
 ];
 
 const accountantNav: NavItem[] = [
-  { to: '/staff/accounting', label: 'حسابداری دفتر', icon: <Wallet className="size-5" />, permission: 'invoices.view', section: SECTION_SYSTEM },
-  { to: '/staff/reports', label: 'گزارش‌های مالی', icon: <BarChart3 className="size-5" />, permission: 'reports.view', section: SECTION_SYSTEM },
-  { to: '/staff/payroll', label: 'حقوق و تسویه کارکنان', icon: <Receipt className="size-5" />, permission: 'payroll.view', section: SECTION_SYSTEM },
-  { to: '/staff/discounts', label: 'کدهای تخفیف', icon: <TicketPercent className="size-5" />, permission: 'discounts.view', section: SECTION_SYSTEM },
+  { to: '/staff/accounting', label: 'حسابداری دفتر', short: 'حسابداری', icon: <Wallet className="size-5" />, permission: 'invoices.view', section: SECTION_SYSTEM },
+  { to: '/staff/reports', label: 'گزارش‌های مالی', short: 'گزارش‌ها', icon: <BarChart3 className="size-5" />, permission: 'reports.view', section: SECTION_SYSTEM },
+  { to: '/staff/payroll', label: 'حقوق و تسویه کارکنان', short: 'حقوق', icon: <Receipt className="size-5" />, permission: 'payroll.view', section: SECTION_SYSTEM },
+  { to: '/staff/discounts', label: 'کدهای تخفیف', short: 'تخفیف', icon: <TicketPercent className="size-5" />, permission: 'discounts.view', section: SECTION_SYSTEM },
 ];
 
 const adminNav: NavItem[] = [
-  { to: '/admin/automation', label: 'کارتابل تأیید و ارجاع', icon: <ClipboardCheck className="size-5" />, permission: 'requests.view', section: SECTION_OPS },
-  { to: '/admin', label: 'داشبورد مدیریت', icon: <LayoutDashboard className="size-5" />, end: true, section: SECTION_OPS },
+  { to: '/admin/automation', label: 'کارتابل تأیید و ارجاع', short: 'کارتابل', icon: <ClipboardCheck className="size-5" />, permission: 'requests.view', section: SECTION_OPS },
+  { to: '/admin', label: 'داشبورد مدیریت', short: 'داشبورد', icon: <LayoutDashboard className="size-5" />, end: true, section: SECTION_OPS },
   { to: '/admin/requests', label: 'درخواست‌ها', icon: <ClipboardList className="size-5" />, permission: 'requests.view', section: SECTION_OPS },
-  { to: '/admin/services', label: 'خدمات و دسته‌ها', icon: <Shapes className="size-5" />, permission: 'services.view', section: SECTION_MANAGE },
-  { to: '/admin/blog', label: 'بلاگ و تولید محتوا', icon: <Newspaper className="size-5" />, permission: 'blog.view', section: SECTION_MANAGE },
+  { to: '/admin/services', label: 'خدمات و دسته‌ها', short: 'خدمات', icon: <Shapes className="size-5" />, permission: 'services.view', section: SECTION_MANAGE },
+  { to: '/admin/blog', label: 'بلاگ و تولید محتوا', short: 'بلاگ', icon: <Newspaper className="size-5" />, permission: 'blog.view', section: SECTION_MANAGE },
   { to: '/admin/customers', label: 'مشتریان', icon: <Users className="size-5" />, permission: 'customers.view', section: SECTION_MANAGE },
-  { to: '/admin/staff', label: 'کارکنان و نقش‌ها', icon: <BadgeCheck className="size-5" />, permission: 'staff.view', section: SECTION_MANAGE },
-  { to: '/admin/shifts', label: 'شیفت و حضور', icon: <CalendarClock className="size-5" />, permission: 'shifts.view', section: SECTION_MANAGE },
+  { to: '/admin/staff', label: 'کارکنان و نقش‌ها', short: 'کارکنان', icon: <BadgeCheck className="size-5" />, permission: 'staff.view', section: SECTION_MANAGE },
+  { to: '/admin/shifts', label: 'شیفت و حضور', short: 'شیفت', icon: <CalendarClock className="size-5" />, permission: 'shifts.view', section: SECTION_MANAGE },
   { to: '/admin/messages', label: 'گفت‌وگوها', icon: <MessageSquare className="size-5" />, permission: 'messages.view', section: SECTION_MANAGE },
-  { to: '/admin/support', label: 'پشتیبانی و تیکت‌ها', icon: <Headset className="size-5" />, permission: 'support.view', section: SECTION_MANAGE },
+  { to: '/admin/support', label: 'پشتیبانی و تیکت‌ها', short: 'پشتیبانی', icon: <Headset className="size-5" />, permission: 'support.view', section: SECTION_MANAGE },
   { to: '/admin/finance', label: 'حسابداری', icon: <Wallet className="size-5" />, permission: 'invoices.view', section: SECTION_SYSTEM },
-  { to: '/admin/wallet', label: 'کیف پول مشتریان', icon: <Wallet className="size-5" />, permission: 'wallet.view', section: SECTION_SYSTEM },
-  { to: '/admin/discounts', label: 'کدهای تخفیف', icon: <TicketPercent className="size-5" />, permission: 'discounts.view', section: SECTION_SYSTEM },
-  { to: '/admin/monitoring', label: 'مرکز پایش', icon: <Activity className="size-5" />, permission: 'monitoring.view', section: SECTION_SYSTEM },
-  { to: '/admin/payroll', label: 'حقوق و تسویه کارکنان', icon: <Users className="size-5" />, permission: 'payroll.view', section: SECTION_SYSTEM },
+  { to: '/admin/wallet', label: 'کیف پول مشتریان', short: 'کیف پول', icon: <Wallet className="size-5" />, permission: 'wallet.view', section: SECTION_SYSTEM },
+  { to: '/admin/discounts', label: 'کدهای تخفیف', short: 'تخفیف', icon: <TicketPercent className="size-5" />, permission: 'discounts.view', section: SECTION_SYSTEM },
+  { to: '/admin/monitoring', label: 'مرکز پایش', short: 'پایش', icon: <Activity className="size-5" />, permission: 'monitoring.view', section: SECTION_SYSTEM },
+  { to: '/admin/payroll', label: 'حقوق و تسویه کارکنان', short: 'حقوق', icon: <Users className="size-5" />, permission: 'payroll.view', section: SECTION_SYSTEM },
   { to: '/admin/reports', label: 'گزارش‌ها', icon: <BarChart3 className="size-5" />, permission: 'reports.view', section: SECTION_SYSTEM },
-  { to: '/admin/settings', label: 'تنظیمات سامانه', icon: <Settings className="size-5" />, permission: 'settings.view', section: SECTION_SYSTEM },
+  { to: '/admin/settings', label: 'تنظیمات سامانه', short: 'تنظیمات', icon: <Settings className="size-5" />, permission: 'settings.view', section: SECTION_SYSTEM },
   { to: '/admin/system', label: 'زیرساخت', icon: <ServerCog className="size-5" />, permission: 'system.view', section: SECTION_SYSTEM },
-  { to: '/admin/audit', label: 'تاریخچه عملیات', icon: <ShieldCheck className="size-5" />, permission: 'audit.view', section: SECTION_SYSTEM },
+  { to: '/admin/audit', label: 'تاریخچه عملیات', short: 'تاریخچه', icon: <ShieldCheck className="size-5" />, permission: 'audit.view', section: SECTION_SYSTEM },
 ];
 
 export function navFor(kind: string) {
@@ -138,6 +140,7 @@ export function AppShell({ children, variant }: { children: ReactNode; variant: 
   const [open, setOpen] = useState(false);
   const [notificationsOpen, setNotificationsOpen] = useState(false);
   const [accountOpen, setAccountOpen] = useState(false);
+  const [searchOpen, setSearchOpen] = useState(false);
   const [notifications, setNotifications] = useState<any[]>([]);
   const [unread, setUnread] = useState(0);
   const knownNotificationIds = useRef<Set<string> | null>(null);
@@ -150,7 +153,7 @@ export function AppShell({ children, variant }: { children: ReactNode; variant: 
     // The money page is named by the server-decided contract: percentage
     // employees get income wording, fixed-salary employees get salary wording.
     return base.map((item) => item.to === '/staff/finance'
-      ? { ...item, label: user?.cooperationType === 'commission' ? 'درآمد و کمیسیون من' : 'اطلاعات مالی و حقوق' }
+      ? { ...item, label: user?.cooperationType === 'commission' ? 'درآمد و کمیسیون من' : 'اطلاعات مالی و حقوق', short: user?.cooperationType === 'commission' ? 'درآمد من' : 'حقوق من' }
       : item);
   }, [variant, user?.kind, user?.roleCode, user?.cooperationType]);
   const visibleNav = nav.filter((item) => !item.permission || can(item.permission));
@@ -166,6 +169,7 @@ export function AppShell({ children, variant }: { children: ReactNode; variant: 
     setOpen(false);
     setNotificationsOpen(false);
     setAccountOpen(false);
+    setSearchOpen(false);
   }, [location.pathname]);
 
   useEffect(() => {
@@ -224,6 +228,19 @@ export function AppShell({ children, variant }: { children: ReactNode; variant: 
 
   const brandHome = homeFor(user);
   const roleLabel = user?.roleName ?? (variant === 'customer' ? 'پنل مشتریان' : 'پنل کارکنان');
+  // Mobile dock: first four destinations, but the page you are on always
+  // earns a seat (e.g. the blog for a content manager, whose nav is long).
+  const dockBase = visibleNav.filter((n) => !n.to.includes('/assistant'));
+  const dockItems = activeItem && !activeItem.to.includes('/assistant') && !dockBase.slice(0, 4).some((n) => n.to === activeItem.to)
+    ? [...dockBase.slice(0, 3), activeItem]
+    : dockBase.slice(0, 4);
+
+  const submitHeaderSearch = (event: React.FormEvent) => {
+    event.preventDefault();
+    const target = user?.kind === 'customer' ? '/app/services' : '/services';
+    setSearchOpen(false);
+    navigate(headerQuery.trim() ? `${target}?q=${encodeURIComponent(headerQuery.trim())}` : target);
+  };
 
   return (
     <div className="min-h-dvh lg:flex">
@@ -237,7 +254,7 @@ export function AppShell({ children, variant }: { children: ReactNode; variant: 
       {/* Sidebar */}
       <aside
         className={clsx(
-          'app-sidebar fixed inset-y-0 right-0 z-40 flex w-[17.5rem] shrink-0 flex-col text-shell-fg shadow-2xl transition-transform duration-300 lg:sticky lg:top-0 lg:h-dvh lg:translate-x-0 lg:shadow-none',
+          'app-sidebar fixed inset-y-0 right-0 z-40 flex w-[min(17.5rem,86vw)] shrink-0 flex-col text-shell-fg shadow-2xl transition-transform duration-300 lg:sticky lg:top-0 lg:h-dvh lg:translate-x-0 lg:shadow-none',
           open ? 'translate-x-0' : 'translate-x-full',
         )}
         aria-label="منوی اصلی"
@@ -388,11 +405,7 @@ export function AppShell({ children, variant }: { children: ReactNode; variant: 
 
             <form
               className={clsx('hidden md:block', variant === 'customer' && 'order-3 min-w-0 flex-1 px-1')}
-              onSubmit={(event) => {
-                event.preventDefault();
-                const target = user?.kind === 'customer' ? '/app/services' : '/services';
-                navigate(headerQuery.trim() ? `${target}?q=${encodeURIComponent(headerQuery.trim())}` : target);
-              }}
+              onSubmit={submitHeaderSearch}
               role="search"
             >
               <label className={clsx(
@@ -409,6 +422,16 @@ export function AppShell({ children, variant }: { children: ReactNode; variant: 
                 />
               </label>
             </form>
+
+            <button
+              type="button"
+              className={clsx('icon-btn shrink-0 md:hidden', variant === 'customer' && 'order-3')}
+              onClick={() => setSearchOpen((v) => !v)}
+              aria-label="جست‌وجو"
+              aria-expanded={searchOpen}
+            >
+              <Search className="size-5" />
+            </button>
 
             {variant === 'customer'
               ? <ThemeSegmented className="order-4 hidden shrink-0 sm:flex" />
@@ -431,7 +454,7 @@ export function AppShell({ children, variant }: { children: ReactNode; variant: 
               </button>
 
               {notificationsOpen && (
-                <div className="animate-pop absolute left-0 top-12 w-[21rem] overflow-hidden rounded-2xl border border-line bg-surface shadow-2xl">
+                <div className="animate-pop absolute left-0 top-12 w-[min(21rem,calc(100vw-1.5rem))] overflow-hidden rounded-2xl border border-line bg-surface shadow-2xl">
                   <div className="flex items-center justify-between border-b border-line px-4 py-3">
                     <span className="text-sm font-semibold text-navy-900">اعلان‌ها</span>
                     {unread > 0 && <button className="text-xs font-medium text-accent hover:underline" onClick={markAllRead}>خواندن همه</button>}
@@ -474,7 +497,7 @@ export function AppShell({ children, variant }: { children: ReactNode; variant: 
               </button>
 
               {accountOpen && (
-                <div className="animate-pop absolute left-0 top-14 w-64 overflow-hidden rounded-2xl border border-line bg-surface p-2 shadow-2xl">
+                <div className="animate-pop absolute left-0 top-14 w-[min(16rem,calc(100vw-1.5rem))] overflow-hidden rounded-2xl border border-line bg-surface p-2 shadow-2xl">
                   <div className="rounded-xl bg-surface-2 px-3 py-2">
                     <p className="truncate text-sm font-semibold text-navy-900">{user?.fullName}</p>
                     <p className="mt-0.5 truncate text-[11px] text-navy-500">{roleLabel}</p>
@@ -507,12 +530,28 @@ export function AppShell({ children, variant }: { children: ReactNode; variant: 
               </button>
             )}
           </div>
+
+          {searchOpen && (
+            <form className="animate-pop border-t border-line px-4 py-2.5 md:hidden" onSubmit={submitHeaderSearch} role="search">
+              <label className="flex items-center gap-2 rounded-full border border-line bg-surface-2 px-3.5 py-2 transition focus-within:border-primary/50 focus-within:bg-surface focus-within:ring-4 focus-within:ring-primary/10">
+                <Search className="size-4 shrink-0 text-navy-400" />
+                <input
+                  autoFocus
+                  value={headerQuery}
+                  onChange={(event) => setHeaderQuery(event.target.value)}
+                  placeholder="جست‌جو در خدمات و پرونده‌ها…"
+                  aria-label="جست‌وجوی خدمات"
+                  className="min-w-0 flex-1 bg-transparent text-sm text-navy-900 outline-none placeholder:text-navy-400"
+                />
+              </label>
+            </form>
+          )}
         </header>
 
         <main id="main-content" className="app-content mx-auto w-full max-w-7xl flex-1 px-4 py-6 pb-28 sm:px-6 lg:py-8 lg:pb-10">{children}</main>
 
         <nav aria-label="دسترسی سریع موبایل" className="mobile-dock fixed inset-x-0 bottom-0 z-20 flex justify-around border-t border-line px-2 pt-1 pb-[env(safe-area-inset-bottom)] backdrop-blur-md lg:hidden">
-          {visibleNav.filter((n) => !n.to.includes('/assistant')).slice(0, 4).map((item) => (
+          {dockItems.map((item) => (
             <NavLink
               key={item.to}
               to={item.to}
@@ -526,7 +565,7 @@ export function AppShell({ children, variant }: { children: ReactNode; variant: 
                 <>
                   <span aria-hidden="true" className={clsx('absolute top-0 h-0.5 w-6 rounded-full bg-brand-700 transition-opacity', isActive ? 'opacity-100' : 'opacity-0')} />
                   {item.icon}
-                  <span>{item.label}</span>
+                  <span className="max-w-[4.4rem] truncate">{item.short ?? item.label}</span>
                 </>
               )}
             </NavLink>
@@ -536,7 +575,7 @@ export function AppShell({ children, variant }: { children: ReactNode; variant: 
           </button>
         </nav>
 
-        <footer className="border-t border-line px-6 py-4 text-center text-xs text-navy-400">
+        <footer className="border-t border-line px-6 pt-4 pb-24 text-center text-xs text-navy-400 lg:pb-4">
           {brand.name} — نسخه {import.meta.env.VITE_APP_VERSION ?? '1.4.0'}
         </footer>
 

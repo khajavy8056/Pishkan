@@ -342,6 +342,10 @@
     font-family: var(--font-sans);
     -webkit-text-size-adjust: 100%;
     scroll-behavior: smooth;
+    /* Decorative absolute art must never create a horizontal scrollbar.
+       `clip` (unlike `hidden`) does not create a scroll container, so
+       sticky headers keep working. */
+    overflow-x: clip;
   }
   body {
     @apply min-h-dvh bg-canvas text-navy-900 antialiased;
@@ -580,6 +584,7 @@
 @media (max-width: 640px) {
   .btn-primary, .btn-navy, .btn-ghost, .btn-soft { min-height: 44px; }
   .input { min-height: 44px; font-size: 16px; }
+  .icon-btn { width: 44px; height: 44px; }
 }
 
 /* Public hero: a deep civic gradient that stays legible in both themes. */

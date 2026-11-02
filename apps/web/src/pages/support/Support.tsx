@@ -4,6 +4,7 @@ import {
   Headset, Inbox, MessageSquareText, Paperclip, Plus, SendHorizonal, Star, StickyNote,
   CheckCircle2, UserRound, X,
 } from 'lucide-react';
+import { ArrowRight } from 'lucide-react';
 import { AppShell, PageHeader } from '../../components/shell';
 import {
   Badge, Button, Card, EmptyState, Field, Input, Loading, Modal, SectionTitle, Select,
@@ -208,7 +209,8 @@ function SupportCore({ mode }: { mode: Mode }) {
       )}
 
       <div className="grid gap-5 lg:grid-cols-[minmax(320px,420px)_1fr]">
-        <Card>
+        {/* Mobile master/detail: one pane at a time, both from lg up. */}
+        <Card className={clsx(selectedId && 'hidden lg:block')}>
           <div className="mb-3 flex flex-wrap items-center gap-2">
             <Tabs tabs={tabs} active={tab} onChange={(key) => { setTab(key); setSelectedId(null); }} />
             {!staffSide && (
@@ -254,13 +256,16 @@ function SupportCore({ mode }: { mode: Mode }) {
           )}
         </Card>
 
-        <Card>
+        <Card className={clsx(!selectedId && 'hidden lg:block')}>
           {!detail ? (
             <EmptyState title="یک تیکت را انتخاب کنید." description="گفت‌وگو و جزئیات تیکت اینجا نمایش داده می‌شود." icon={<MessageSquareText className="size-6" />} />
           ) : (
             <div>
               <div className="flex flex-wrap items-start gap-3 border-b border-line pb-3">
-                <div className="flex-1">
+                <button type="button" onClick={() => setSelectedId(null)} className="btn-ghost btn-sm shrink-0 lg:hidden" aria-label="بازگشت به فهرست تیکت‌ها">
+                  <ArrowRight className="size-4" /> فهرست
+                </button>
+                <div className="min-w-0 flex-1">
                   <h2 className="font-bold text-navy-900">{detail.subject}</h2>
                   <p className="mt-1 text-[11px] leading-5 text-navy-500">
                     <span dir="ltr">{detail.number}</span> · {detail.customerName} · {detail.departmentLabel} ·

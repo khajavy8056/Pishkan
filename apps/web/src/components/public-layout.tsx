@@ -41,6 +41,15 @@ export function PublicLayout({ children }: { children: ReactNode }) {
     .filter((item) => item?.title && item?.url);
   const appUrl = setting('landing.app_android_url');
   const panelLink = homeFor(user);
+  const dockItems: { to: string; label: string; icon: ReactNode; end?: boolean }[] = [
+    { to: '/', label: 'خانه', icon: <House className="size-5" />, end: true },
+    { to: '/services', label: 'خدمات', icon: <LayoutGrid className="size-5" /> },
+    { to: '/blog', label: 'بلاگ', icon: <Newspaper className="size-5" /> },
+    { to: '/assistant', label: 'دستیار', icon: <Sparkles className="size-5" /> },
+    user
+      ? { to: panelLink, label: 'پنل من', icon: <UserRound className="size-5" /> }
+      : { to: '/login', label: 'ورود', icon: <UserRound className="size-5" /> },
+  ];
 
   return (
     <div className="flex min-h-dvh flex-col">
@@ -90,8 +99,8 @@ export function PublicLayout({ children }: { children: ReactNode }) {
               پنل من <ArrowLeft className="size-4" />
             </Link>
           ) : (
-            <Link to="/login" className="btn-primary btn-sm hidden shrink-0 sm:inline-flex">
-              <UserRound className="size-4" /> ورود / ثبت‌نام
+            <Link to="/login" className="btn-primary btn-sm shrink-0">
+              <UserRound className="size-4" /> <span className="sm:hidden">ورود</span><span className="hidden sm:inline">ورود / ثبت‌نام</span>
             </Link>
           )}
 
@@ -209,6 +218,32 @@ export function PublicLayout({ children }: { children: ReactNode }) {
           © {setting('site.footer_text')} – {brand.name}
         </div>
       </footer>
+
+      {/* Spacer so the footer never hides behind the mobile dock. */}
+      <div aria-hidden="true" className="h-16 lg:hidden" />
+
+      <nav aria-label="دسترسی سریع موبایل" className="mobile-dock fixed inset-x-0 bottom-0 z-30 flex justify-around border-t border-line px-2 pt-1 pb-[env(safe-area-inset-bottom)] backdrop-blur-md lg:hidden">
+        {dockItems.map((item) => (
+          <NavLink
+            key={`${item.to}-${item.label}`}
+            to={item.to}
+            end={item.end}
+            className={({ isActive }) => clsx(
+              'relative flex min-h-14 min-w-14 flex-col items-center justify-center gap-1 rounded-2xl px-2 py-1.5 text-[10px] transition',
+              isActive ? 'bg-primary-soft font-bold text-accent shadow-inner' : 'text-navy-500 hover:text-navy-800',
+            )}
+          >
+            {({ isActive }) => (
+              <>
+                <span aria-hidden="true" className={clsx('absolute top-0 h-0.5 w-6 rounded-full bg-brand-700 transition-opacity', isActive ? 'opacity-100' : 'opacity-0')} />
+                {item.icon}
+                <span>{item.label}</span>
+              </>
+            )}
+          </NavLink>
+        ))}
+      </nav>
+
       <ChatWidget placement="page" />
     </div>
   );
