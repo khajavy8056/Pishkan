@@ -66,16 +66,16 @@ const bool = (v: boolean) => v;
 
 export const SETTINGS: SettingDef[] = [
   /* ------------------------------- general -------------------------------- */
-  { key: 'site.name', group: 'general', type: 'text', label: 'نام سامانه', hint: 'در هدر، عنوان صفحه‌ها و پیامک‌ها استفاده می‌شود.', default: 'دفتر پیشخوان دولت', public: true },
-  { key: 'site.short_name', group: 'general', type: 'text', label: 'نام کوتاه', default: 'پیشخوان', public: true },
-  { key: 'site.tagline', group: 'general', type: 'text', label: 'شعار / زیرعنوان', default: 'خدمات دولتی، سریع و شفاف', public: true },
+  { key: 'site.name', group: 'general', type: 'text', label: 'نام سامانه', hint: 'در هدر، عنوان صفحه‌ها و پیامک‌ها استفاده می‌شود.', default: 'پیشخوان آرتا', public: true },
+  { key: 'site.short_name', group: 'general', type: 'text', label: 'نام کوتاه', default: 'پیشخوان آرتا', public: true },
+  { key: 'site.tagline', group: 'general', type: 'text', label: 'شعار / زیرعنوان', default: 'سریع • مطمئن • آسان', public: true },
   { key: 'site.description', group: 'general', type: 'textarea', label: 'توضیحات سایت', hint: 'در فوتر و توضیحات متا استفاده می‌شود.', default: 'سامانه جامع ارائه خدمات دفتر پیشخوان دولت', public: true },
   { key: 'site.logo_file_id', group: 'general', type: 'text', label: 'شناسه فایل لوگو', hint: 'از بخش فایل‌ها آپلود کنید؛ خالی یعنی لوگوی پیش‌فرض.', default: '', public: true },
   { key: 'site.welcome_message', group: 'general', type: 'textarea', label: 'پیام خوشامدگویی پنل مشتری', default: 'به سامانه خدمات پیشخوان خوش آمدید. درخواست خود را انتخاب کنید و مراحل را آنلاین دنبال کنید.', public: true },
   { key: 'site.footer_text', group: 'general', type: 'text', label: 'متن فوتر', default: 'تمام حقوق محفوظ است.', public: true },
   { key: 'brand.primary_color', group: 'general', type: 'color', label: 'رنگ اصلی برند', default: '#1d4ed8', public: true },
   { key: 'brand.navy_color', group: 'general', type: 'color', label: 'رنگ سرمه‌ای برند', default: '#0b1f3a', public: true },
-  { key: 'office.name', group: 'general', type: 'text', label: 'نام دفتر', default: 'دفتر پیشخوان دولت اندیمشک', public: true },
+  { key: 'office.name', group: 'general', type: 'text', label: 'نام دفتر', default: 'پیشخوان آرتا', public: true },
   { key: 'office.phone', group: 'general', type: 'tel', label: 'تلفن دفتر', default: '', public: true },
   { key: 'office.mobile', group: 'general', type: 'tel', label: 'موبایل دفتر', default: '', public: true },
   { key: 'office.email', group: 'general', type: 'email', label: 'ایمیل دفتر', default: '', public: true },
@@ -93,13 +93,14 @@ export const SETTINGS: SettingDef[] = [
 
 
   /* -------------------------------- landing -------------------------------- */
-  { key: 'site.name_en', group: 'landing', type: 'text', label: 'نام لاتین برند', hint: 'زیر نام فارسی برند در کنار لوگو نمایش داده می‌شود (مثل Pishkan). خالی یعنی نمایش داده نشود.', default: 'Pishkan', public: true },
+  { key: 'site.name_en', group: 'landing', type: 'text', label: 'نام لاتین برند', hint: 'زیر نام فارسی برند در کنار لوگو نمایش داده می‌شود (مثل Pishkan). خالی یعنی نمایش داده نشود.', default: 'Pishkan Arena', public: true },
   { key: 'site.logo_url', group: 'landing', type: 'text', label: 'نشانی تصویر لوگو', hint: 'نشانی کامل تصویر لوگو (http/https) یا مسیر داخلی مثل /images/logo.png. اگر خالی باشد، از «شناسهٔ فایل لوگو» در تنظیمات عمومی استفاده می‌شود؛ و اگر آن هم خالی باشد نشان پیش‌فرض برند نمایش داده می‌شود.', default: '', public: true },
   { key: 'landing.hero_badge', group: 'landing', type: 'text', label: 'برچسب بالای عنوان اصلی', default: 'سامانهٔ هوشمند خدمات دولتی', public: true },
   { key: 'landing.hero_title', group: 'landing', type: 'text', label: 'عنوان بزرگ صفحهٔ اصلی', hint: 'خالی یعنی همان «نام سامانه» از تنظیمات عمومی. به این ترتیب با تغییر نام سامانه، عنوان صفحهٔ اصلی هم خودکار عوض می‌شود.', default: '', public: true },
   { key: 'landing.hero_subtitle', group: 'landing', type: 'text', label: 'زیرعنوان صفحهٔ اصلی', default: 'همراه شما در انجام امور اداری و خدمات دولتی', public: true },
   { key: 'landing.hero_text', group: 'landing', type: 'textarea', label: 'متن معرفی زیر عنوان', default: 'به‌سادگی درخواست خود را ثبت کنید و در کوتاه‌ترین زمان از خدمات دولتی بهره‌مند شوید؛ همهٔ مراحل، از ثبت تا تحویل، شفاف و قابل پیگیری است.', public: true },
-  { key: 'landing.hero_image_url', group: 'landing', type: 'text', label: 'تصویر اصلی (هیرو)', hint: 'نشانی کامل تصویر یا مسیر داخلی. خالی یعنی تصویر پیش‌فرض سامانه. همین تصویر در بنر داشبورد مشتری هم استفاده می‌شود.', default: '', public: true },
+  { key: 'landing.hero_image_url', group: 'landing', type: 'text', label: 'تصویر اصلی (هیرو)', hint: 'نشانی کامل تصویر یا مسیر داخلی. خالی یعنی تصویر پیش‌فرض سامانه.', default: '', public: true },
+  { key: 'landing.panel_hero_url', group: 'landing', type: 'text', label: 'تصویر بنر داشبورد مشتری', hint: 'بنر بالای داشبورد مشتری. خالی یعنی تصویر اصلی (هیرو) و اگر آن هم خالی باشد، بنر پیش‌فرض سامانه.', default: '', public: true },
   { key: 'landing.primary_cta_label', group: 'landing', type: 'text', label: 'متن دکمهٔ اصلی', default: 'ثبت درخواست خدمت', public: true },
   { key: 'landing.primary_cta_link', group: 'landing', type: 'text', label: 'پیوند دکمهٔ اصلی', hint: 'مسیر داخلی مثل /app/services یا نشانی کامل. مسیرهای داخل پنل برای مهمان ابتدا به صفحهٔ ورود می‌روند و پس از ورود همان‌جا ادامه می‌یابند.', default: '/app/services', public: true },
   { key: 'landing.secondary_cta_label', group: 'landing', type: 'text', label: 'متن دکمهٔ دوم', default: 'پیگیری درخواست', public: true },

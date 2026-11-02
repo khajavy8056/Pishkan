@@ -4,7 +4,7 @@ import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import {
   ClipboardList, Wallet, MessageSquare, User, Sparkles, UploadCloud, Download, CheckCircle2,
   Clock, FileText, Send, Plus, CreditCard, ReceiptText, ShieldCheck, AlertTriangle, Trash2, Landmark,
-  BellRing, ChevronLeft, Headset, History, ListChecks, Megaphone, Star,
+  BellRing, ChevronLeft, ChevronRight, ArrowLeft, Headset, History, ListChecks, Megaphone, Star,
 } from 'lucide-react';
 import clsx from 'clsx';
 import { AppShell, PageHeader } from '../../components/shell';
@@ -15,7 +15,7 @@ import { useAuth } from '../../lib/auth';
 import { faDate, faDateTime, faNum, relative, rial, STATUS_LABELS } from '../../lib/format';
 import { parseListSetting, useSite, type FormField } from '../../lib/site';
 import { useBrand } from '../../lib/brand';
-import { CategoryIcon, PhoneMockup, Tilt } from '../../components/visual';
+import { CategoryArt, CategoryIcon, PhoneMockup, ShieldArt, Tilt } from '../../components/visual';
 import { availableRequestDocumentRequirements, defaultRequestDocumentRequirementKey, requestDocumentRequirements } from '../../lib/request-documents';
 import { ThemeSegmented } from '../../lib/theme';
 import { DynamicField } from '../public/Services';
@@ -30,6 +30,8 @@ export function CustomerDashboard() {
   const [wallet, setWallet] = useState<{ balance: number; enabled: boolean } | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
+  const [slide, setSlide] = useState(0);
+  const [heroHover, setHeroHover] = useState(false);
 
   const load = () => {
     setLoading(true);
@@ -43,77 +45,128 @@ export function CustomerDashboard() {
   };
   useEffect(load, []);
 
-  if (loading) return <AppShell variant="customer"><Loading rows={4} /></AppShell>;
-  if (error) return <AppShell variant="customer"><ErrorState message={error} onRetry={load} /></AppShell>;
-
   const announcements = parseListSetting<{ title: string; date?: string; link?: string }>(setting('landing.announcements'), [])
     .filter((item) => item?.title);
   const noticeItems: { title: string; meta: string; link?: string }[] = announcements.length > 0
     ? announcements.slice(0, 3).map((item) => ({ title: item.title, meta: item.date ?? '', link: item.link }))
-    : (data.notifications ?? []).slice(0, 3).map((n: any) => ({
+    : (data?.notifications ?? []).slice(0, 3).map((n: any) => ({
       title: n.title,
       meta: relative(n.createdAt),
       link: typeof n.link === 'string' && n.link.startsWith('/') ? n.link : undefined,
     }));
+  const slideCount = 1 + (noticeItems.length > 0 ? 1 : 0) + (wallet ? 1 : 0);
+
+  useEffect(() => {
+    if (slideCount < 2 || heroHover) return;
+    if (typeof window !== 'undefined' && window.matchMedia?.('(prefers-reduced-motion: reduce)').matches) return;
+    const timer = setInterval(() => setSlide((v) => (v + 1) % slideCount), 7000);
+    return () => clearInterval(timer);
+  }, [slideCount, heroHover]);
+
+  if (loading) return <AppShell variant="customer"><Loading rows={4} /></AppShell>;
+  if (error) return <AppShell variant="customer"><ErrorState message={error} onRetry={load} /></AppShell>;
+
   const noticeIcons = [<Megaphone className="size-5" />, <Star className="size-5" />, <BellRing className="size-5" />];
   const showApp = setting('landing.show_app_section') !== 'false';
   const appUrl = setting('landing.app_android_url');
   const quickCategories = (site?.categories ?? []).slice(0, 6);
 
+  const slides: { key: string; title: string; sub?: string; text?: string; ctaTo: string; ctaLabel: string }[] = [
+    {
+      key: 'greet',
+      title: `سلام ${user?.fullName ?? 'کاربر'} عزیز!`,
+      sub: `به ${brand.name} خوش آمدید`,
+      text: setting('site.welcome_message') || 'همراه شما در انجام امور اداری و خدمات دولتی',
+      ctaTo: '/app/services',
+      ctaLabel: 'ثبت درخواست جدید',
+    },
+  ];
+  if (noticeItems.length > 0) {
+    slides.push({
+      key: 'notice',
+      title: 'تازه‌ترین اطلاعیه',
+      sub: noticeItems[0].title,
+      text: noticeItems[0].meta || 'برای مشاهدهٔ جزئیات، روی دکمهٔ زیر کلیک کنید.',
+      ctaTo: noticeItems[0].link ?? '/app/requests',
+      ctaLabel: noticeItems[0].link ? 'مشاهده' : 'پیگیری درخواست‌ها',
+    });
+  }
+  if (wallet) {
+    slides.push({
+      key: 'wallet',
+      title: 'کیف پول شما',
+      sub: `موجودی: ${rial(wallet.balance)}`,
+      text: 'پرداخت هزینهٔ خدمات از کیف پول، سریع و بدون درگاه است.',
+      ctaTo: '/app/wallet',
+      ctaLabel: 'شارژ کیف پول',
+    });
+  }
+  const activeSlide = Math.min(slide, slides.length - 1);
+  const hero = slides[activeSlide];
+
   return (
     <AppShell variant="customer">
       {/* ------------------------------ hero ------------------------------ */}
-      <section className="relative mb-6 overflow-hidden rounded-[2rem] shadow-soft ring-1 ring-line">
-        <img
-          src={brand.heroImage}
-          alt=""
-          aria-hidden="true"
-          className="absolute inset-0 size-full object-cover object-[30%_50%]"
-        />
+      <section
+        className="relative mb-6 overflow-hidden rounded-[2rem] shadow-soft ring-1 ring-line"
+        onMouseEnter={() => setHeroHover(true)}
+        onMouseLeave={() => setHeroHover(false)}
+        aria-label="خوشامد"
+      >
+        <img src={brand.panelHero} alt="" aria-hidden="true" className="absolute inset-0 size-full object-cover" />
         <div
           aria-hidden="true"
           className="absolute inset-0"
           style={{
-            background: 'linear-gradient(to left, color-mix(in oklab, var(--surface) 97%, transparent) 26%, color-mix(in oklab, var(--surface) 82%, transparent) 52%, color-mix(in oklab, var(--surface) 18%, transparent) 78%, transparent 100%)',
+            background: 'linear-gradient(to left, color-mix(in oklab, var(--surface) 94%, transparent) 18%, color-mix(in oklab, var(--surface) 72%, transparent) 44%, color-mix(in oklab, var(--surface) 12%, transparent) 68%, transparent 82%)',
           }}
         />
-        <div aria-hidden="true" className="absolute inset-x-0 bottom-0 h-20 bg-gradient-to-t from-navy-950/25 to-transparent lg:hidden" />
 
-        <div className="relative max-w-xl p-6 pt-40 sm:p-8 sm:pt-44 lg:py-10 lg:pr-10 lg:pl-6 lg:pt-10">
-          <span className="inline-flex items-center gap-1.5 rounded-full bg-primary-soft px-3 py-1 text-[11px] font-bold text-accent ring-1 ring-brand-200/70">
-            <span className="size-1.5 rounded-full bg-emerald-500" aria-hidden="true" />
-            پنل مشتریان {brand.shortName}
-          </span>
-          <h1 className="mt-3 text-2xl font-black tracking-tight text-navy-950 sm:text-[2rem] sm:leading-[1.4]">
-            سلام {user?.fullName ?? 'کاربر'} عزیز!
-          </h1>
-          <p className="mt-1 text-base font-bold text-accent">به {brand.name} خوش آمدید</p>
-          <p className="mt-2 max-w-md text-sm leading-7 text-navy-600">
-            {setting('site.welcome_message') || 'همراه شما در انجام امور اداری و خدمات دولتی؛ درخواست را ثبت کنید و مراحل را همین‌جا دنبال کنید.'}
-          </p>
-
-          <div className="mt-5 flex flex-wrap items-center gap-2.5">
-            <Link to="/app/services" className="btn-primary animate-shine">
-              <Plus className="size-5" /> ثبت درخواست جدید
+        <div className="relative flex min-h-[15rem] items-center sm:min-h-[16.5rem]">
+          <div key={hero.key} className="animate-pop max-w-xl p-6 sm:p-9">
+            <h1 className="text-[1.65rem] leading-[1.45] font-black tracking-tight text-navy-950 sm:text-4xl sm:leading-[1.4]">{hero.title}</h1>
+            {hero.sub && <p className="mt-1.5 text-base font-extrabold text-navy-900 sm:text-lg">{hero.sub}</p>}
+            {hero.text && <p className="mt-2 max-w-md text-[13px] leading-7 text-navy-600 sm:text-sm">{hero.text}</p>}
+            <Link to={hero.ctaTo} className="btn-primary btn-lg animate-shine mt-5">
+              {hero.ctaLabel} <ArrowLeft className="size-5" />
             </Link>
-            <Link to="/app/requests" className="btn-ghost">
-              <ListChecks className="size-5" /> پیگیری درخواست‌ها
-            </Link>
-          </div>
-
-          <div className="mt-6 flex flex-wrap gap-2 text-[11px] font-semibold">
-            <span className="glass-chip !py-1.5"><ClipboardList className="size-4 text-brand-600" /> {faNum(data.stats.open)} پروندهٔ در جریان</span>
-            <span className="glass-chip !py-1.5"><CheckCircle2 className="size-4 text-emerald-600" /> {faNum(data.stats.completed)} تکمیل‌شده</span>
-            <span className="glass-chip !py-1.5"><BellRing className="size-4 text-rose-600" /> {faNum(data.unreadNotifications)} اعلان خوانده‌نشده</span>
           </div>
         </div>
 
-        <div className="glass-chip animate-floaty absolute top-5 left-5 hidden sm:flex" aria-hidden="true">
-          <span className="grid size-9 place-items-center rounded-xl bg-emerald-500 text-white shadow-md shadow-emerald-600/40">
-            <ShieldCheck className="size-5" />
-          </span>
-          امن و معتبر
-        </div>
+        <ShieldArt className="animate-floaty absolute bottom-7 left-[42%] hidden w-20 lg:block xl:left-[40%]" />
+
+        {slides.length > 1 && (
+          <div className="absolute bottom-4 left-5 flex items-center gap-2">
+            <button
+              type="button"
+              aria-label="اسلاید قبلی"
+              onClick={() => setSlide((activeSlide - 1 + slides.length) % slides.length)}
+              className="grid size-9 place-items-center rounded-full bg-white/85 text-navy-700 shadow-lg ring-1 ring-white/60 backdrop-blur transition hover:scale-105 hover:bg-white"
+            >
+              <ChevronRight className="size-5" />
+            </button>
+            <span className="flex items-center gap-1.5 rounded-full bg-white/70 px-2.5 py-2 shadow ring-1 ring-white/50 backdrop-blur">
+              {slides.map((item, index) => (
+                <button
+                  key={item.key}
+                  type="button"
+                  aria-label={`اسلاید ${faNum(index + 1)}`}
+                  aria-current={index === activeSlide}
+                  onClick={() => setSlide(index)}
+                  className={clsx('h-2 rounded-full transition-all', index === activeSlide ? 'w-5 bg-brand-600' : 'w-2 bg-navy-300 hover:bg-navy-400')}
+                />
+              ))}
+            </span>
+            <button
+              type="button"
+              aria-label="اسلاید بعدی"
+              onClick={() => setSlide((activeSlide + 1) % slides.length)}
+              className="grid size-9 place-items-center rounded-full bg-white/85 text-navy-700 shadow-lg ring-1 ring-white/60 backdrop-blur transition hover:scale-105 hover:bg-white"
+            >
+              <ChevronLeft className="size-5" />
+            </button>
+          </div>
+        )}
       </section>
 
       {/* -------------------------- quick access -------------------------- */}
@@ -123,42 +176,27 @@ export function CustomerDashboard() {
             <h2 className="text-base font-black text-navy-900">دسترسی سریع به خدمات</h2>
             <Link to="/app/services" className="text-xs font-bold text-accent hover:underline">همهٔ خدمات</Link>
           </div>
-          <div className="grid grid-cols-3 gap-3 md:grid-cols-6">
-            {quickCategories.map((category) => {
-              const color = category.color ?? '#1d4ed8';
-              return (
-                <Link
-                  key={category.id}
-                  to={`/app/services?category=${category.slug}`}
-                  className="group relative rounded-[1.6rem] p-4 ring-1 ring-white/40 transition duration-300 hover:-translate-y-1.5"
-                  style={{
-                    background: `linear-gradient(160deg, color-mix(in oklab, ${color} 12%, var(--surface)) 0%, color-mix(in oklab, ${color} 24%, var(--surface)) 100%)`,
-                    boxShadow: `0 16px 30px -16px color-mix(in oklab, ${color} 50%, transparent), inset 0 1px 0 rgb(255 255 255 / .5)`,
-                  }}
-                >
-                  <span
-                    className="mx-auto grid size-13 place-items-center rounded-[1.05rem] text-white shadow-lg transition duration-300 group-hover:scale-110 group-hover:-rotate-3 sm:size-14"
-                    style={{
-                      background: `linear-gradient(150deg, color-mix(in oklab, ${color} 76%, #fff) 0%, ${color} 100%)`,
-                      boxShadow: `0 12px 22px -10px color-mix(in oklab, ${color} 68%, transparent), inset 0 1px 0 rgb(255 255 255 / .4)`,
-                    }}
-                  >
-                    <CategoryIcon name={category.icon} className="size-7" />
-                  </span>
-                  <span className="mt-3 block text-center text-xs leading-5 font-bold text-navy-900">{category.title}</span>
-                  <span className="mx-auto mt-2 grid size-5 place-items-center rounded-full bg-surface text-brand-700 shadow-sm ring-1 ring-line transition group-hover:-translate-x-0.5">
-                    <ChevronLeft className="size-3.5" />
-                  </span>
-                </Link>
-              );
-            })}
+          <div className="grid grid-cols-3 gap-3 sm:gap-4 md:grid-cols-6">
+            {quickCategories.map((category) => (
+              <Link
+                key={category.id}
+                to={`/app/services?category=${category.slug}`}
+                className="group relative rounded-[1.7rem] bg-surface p-4 pb-6 text-center shadow-soft ring-1 ring-line transition duration-300 hover:-translate-y-1.5 hover:shadow-xl"
+              >
+                <CategoryArt name={category.icon} color={category.color} className="mx-auto size-16 transition duration-300 group-hover:scale-110 group-hover:-rotate-3 sm:size-[4.4rem]" glyphClassName="size-9" />
+                <span className="mt-3 block text-xs leading-5 font-bold text-navy-900">{category.title}</span>
+                <span className="absolute bottom-3 left-3 grid size-5.5 place-items-center rounded-full bg-surface-3 text-brand-700 ring-1 ring-line transition group-hover:-translate-x-0.5">
+                  <ChevronLeft className="size-3.5" />
+                </span>
+              </Link>
+            ))}
           </div>
         </section>
       )}
 
       {/* ---------------------- wallet + latest requests ------------------- */}
-      <div className="grid gap-5 lg:grid-cols-3">
-        <div className="space-y-5">
+      <div className="grid gap-5 lg:grid-cols-5">
+        <div className="space-y-5 lg:col-span-2">
           <Card className="relative overflow-hidden">
             <div aria-hidden="true" className="pointer-events-none absolute -top-16 -left-12 size-44 rounded-full bg-brand-400/15 blur-3xl" />
             <div className="relative">
@@ -166,22 +204,22 @@ export function CustomerDashboard() {
                 <h2 className="font-black text-navy-900">کیف پول شما</h2>
                 <Link to="/app/wallet" className="text-xs font-bold text-accent hover:underline">مشاهدهٔ جزئیات</Link>
               </div>
-              <p className="text-xs text-navy-500">موجودی کیف پول</p>
-              <div className="mt-2 flex items-end justify-between gap-3">
-                <p className="text-[1.7rem] leading-9 font-black tracking-tight text-navy-950">
-                  {wallet ? rial(wallet.balance) : '—'}
-                </p>
-                <Tilt maxX={10} maxY={12}>
-                  <span className="animate-bob grid size-16 place-items-center rounded-[1.3rem] bg-gradient-to-br from-brand-500 via-brand-700 to-shell text-white shadow-xl shadow-brand-700/35 ring-1 ring-white/30">
-                    <Wallet className="size-8" />
-                  </span>
+              <div className="mt-1 flex items-center gap-4">
+                <div className="min-w-0 flex-1">
+                  <p className="text-xs text-navy-500">موجودی کیف پول</p>
+                  <p className="mt-1.5 text-[1.6rem] leading-9 font-black tracking-tight text-navy-950">
+                    {wallet ? rial(wallet.balance) : '—'}
+                  </p>
+                  {Number(data.stats.outstandingAmount ?? 0) > 0 && (
+                    <p className="mt-1.5 flex items-center gap-1.5 text-[11px] font-semibold text-amber-800">
+                      <AlertTriangle className="size-3.5 shrink-0" /> ماندهٔ پرداخت پرونده‌ها: {rial(data.stats.outstandingAmount)}
+                    </p>
+                  )}
+                </div>
+                <Tilt maxX={8} maxY={10} className="w-28 shrink-0 sm:w-32">
+                  <img src="/images/wallet-3d.jpg" alt="کیف پول" loading="lazy" className="animate-bob aspect-square w-full rounded-[1.6rem] object-cover shadow-lg ring-1 ring-line" />
                 </Tilt>
               </div>
-              {Number(data.stats.outstandingAmount ?? 0) > 0 && (
-                <p className="mt-2 flex items-center gap-1.5 text-[11px] font-semibold text-amber-800">
-                  <AlertTriangle className="size-3.5" /> ماندهٔ پرداخت پرونده‌ها: {rial(data.stats.outstandingAmount)}
-                </p>
-              )}
               <div className="mt-4 flex gap-2">
                 <Link to="/app/wallet" className="btn-primary btn-sm flex-1 justify-center"><Plus className="size-4" /> شارژ کیف پول</Link>
                 <Link to="/app/wallet" className="btn-ghost btn-sm flex-1 justify-center"><History className="size-4" /> تاریخچهٔ تراکنش‌ها</Link>
@@ -196,7 +234,7 @@ export function CustomerDashboard() {
             </div>
             {data.invoices.length === 0 && <p className="text-sm text-navy-400">فاکتوری ندارید.</p>}
             <div className="space-y-2">
-              {data.invoices.map((invoice: any) => (
+              {data.invoices.slice(0, 3).map((invoice: any) => (
                 <Link key={invoice.id} to="/app/invoices" className="flex items-center justify-between gap-2 rounded-2xl bg-surface-3 px-3.5 py-2.5 transition hover:bg-brand-50">
                   <span className="min-w-0">
                     <span className="block truncate text-xs font-semibold text-navy-900">{invoice.title}</span>
@@ -212,7 +250,7 @@ export function CustomerDashboard() {
           </Card>
         </div>
 
-        <Card className="lg:col-span-2">
+        <Card className="lg:col-span-3">
           <div className="mb-4 flex items-center justify-between">
             <h2 className="font-black text-navy-900">آخرین درخواست‌های شما</h2>
             <Link to="/app/requests" className="text-xs font-bold text-accent hover:underline">مشاهدهٔ همه</Link>
@@ -228,9 +266,7 @@ export function CustomerDashboard() {
                   to={`/app/requests/${request.id}`}
                   className="group flex items-center gap-3 rounded-3xl bg-surface-2 px-4 py-3 ring-1 ring-line transition duration-300 hover:-translate-y-0.5 hover:bg-surface hover:shadow-md"
                 >
-                  <span className="grid size-11 shrink-0 place-items-center rounded-2xl bg-gradient-to-br from-brand-500 to-brand-700 text-white shadow-md shadow-brand-600/25 transition group-hover:scale-105">
-                    <ClipboardList className="size-5" />
-                  </span>
+                  <CategoryArt name={request.categoryIcon ?? request.serviceIcon} color={request.categoryColor} className="size-12 rounded-[1rem] transition group-hover:scale-105" glyphClassName="size-6" />
                   <span className="min-w-0 flex-1">
                     <span className="block truncate text-sm font-bold text-navy-900">{request.serviceTitle}</span>
                     <span className="mt-0.5 block text-[11px] text-navy-500">{faDateTime(request.createdAt)} • کد پیگیری {request.trackingCode}</span>
@@ -240,64 +276,23 @@ export function CustomerDashboard() {
               ))}
             </div>
           )}
-
-          <div className="mt-6 grid gap-3 sm:grid-cols-3">
-            {[
-              { to: '/assistant', label: 'پرسیدن از دستیار', icon: <Sparkles className="size-5" /> },
-              { to: '/app/messages', label: 'گفت‌وگو با دفتر', icon: <MessageSquare className="size-5" /> },
-              { to: '/app/documents', label: 'مدارک من', icon: <FileText className="size-5" /> },
-            ].map((action) => (
-              <Link key={action.to} to={action.to} className="group flex items-center gap-3 rounded-3xl bg-surface-3 p-3.5 transition duration-300 hover:-translate-y-0.5 hover:bg-brand-50 hover:shadow-md">
-                <span className="grid size-10 shrink-0 place-items-center rounded-2xl bg-surface text-accent shadow-sm ring-1 ring-line transition group-hover:scale-110">{action.icon}</span>
-                <span className="text-xs font-bold text-navy-800">{action.label}</span>
-              </Link>
-            ))}
-          </div>
         </Card>
       </div>
 
-      {/* -------------------- announcements + app promo -------------------- */}
-      <div className="mt-5 grid gap-5 lg:grid-cols-3">
-        <Card>
-          <div className="mb-3 flex items-center justify-between">
-            <h2 className="font-black text-navy-900">آخرین اطلاعیه‌ها</h2>
-            <Link to="/app/profile" className="text-xs font-bold text-accent hover:underline">تنظیمات اعلان</Link>
-          </div>
-          {noticeItems.length === 0 && <p className="text-sm text-navy-400">اطلاعیه‌ای نیست.</p>}
-          <div className="space-y-2.5">
-            {noticeItems.map((item, index) => {
-              const inner = (
-                <>
-                  <span className="grid size-10 shrink-0 place-items-center rounded-2xl bg-gradient-to-br from-sky-400 to-brand-600 text-white shadow-md shadow-brand-600/25">
-                    {noticeIcons[index % noticeIcons.length]}
-                  </span>
-                  <span className="min-w-0 flex-1">
-                    <span className="block truncate text-[13px] font-bold text-navy-900">{item.title}</span>
-                    {item.meta && <span className="mt-0.5 block text-[11px] text-navy-400">{item.meta}</span>}
-                  </span>
-                </>
-              );
-              const cls = 'flex items-center gap-3 rounded-3xl bg-surface-2 px-3.5 py-3 ring-1 ring-line';
-              return item.link ? (
-                <Link key={`${item.title}-${index}`} to={item.link} className={clsx(cls, 'transition hover:bg-brand-50')}>{inner}</Link>
-              ) : (
-                <div key={`${item.title}-${index}`} className={cls}>{inner}</div>
-              );
-            })}
-          </div>
-        </Card>
-
+      {/* ---------------------- app promo + announcements -------------------- */}
+      <div className="mt-5 grid gap-5 lg:grid-cols-5">
         {showApp ? (
           <section
-            className="relative overflow-hidden rounded-[1.4rem] text-white shadow-soft ring-1 ring-shell-line lg:col-span-2"
-            style={{ background: 'linear-gradient(135deg, var(--shell) 0%, var(--shell-2) 55%, color-mix(in oklab, var(--primary) 72%, var(--shell)) 100%)' }}
+            className="relative overflow-hidden rounded-[1.4rem] text-white shadow-soft ring-1 ring-brand-700/40 lg:col-span-3"
+            style={{ background: 'linear-gradient(120deg, #1e40af 0%, #2563eb 48%, #38bdf8 118%)' }}
             aria-label="اپلیکیشن موبایل"
           >
-            <div aria-hidden="true" className="pointer-events-none absolute -top-20 left-[18%] size-56 rounded-full bg-brand-400/25 blur-3xl" />
+            <div aria-hidden="true" className="pointer-events-none absolute -top-24 left-[16%] size-60 rounded-full bg-white/15 blur-3xl" />
+            <div aria-hidden="true" className="pointer-events-none absolute -bottom-28 -left-10 size-64 rounded-full border-[14px] border-white/10" />
             <div className="relative grid items-center gap-4 p-6 sm:grid-cols-[1fr_auto] sm:p-7">
               <div>
                 <h2 className="text-lg font-black sm:text-xl">{setting('landing.app_title') || `اپلیکیشن اندروید ${brand.name}`}</h2>
-                <p className="mt-1.5 max-w-md text-xs leading-6 text-white/75">دسترسی سریع و آسان به خدمات در دستان شما</p>
+                <p className="mt-1.5 max-w-md text-xs leading-6 text-white/80">{setting('landing.app_text') || 'دسترسی سریع و آسان به خدمات در دستان شما'}</p>
                 <ul className="mt-4 space-y-2 text-[13px] font-semibold">
                   {['ثبت درخواست‌ها', 'پیگیری پرونده‌ها', 'پرداخت آنلاین'].map((text) => (
                     <li key={text} className="flex items-center gap-2">
@@ -325,15 +320,23 @@ export function CustomerDashboard() {
                   </p>
                 )}
               </div>
-              <Tilt maxX={8} maxY={10} className="mx-auto hidden sm:block">
-                <div className="w-36 lg:w-44">
-                  <PhoneMockup />
-                </div>
-              </Tilt>
+              <div className="mx-auto hidden rotate-[7deg] sm:block">
+                <Tilt maxX={8} maxY={10}>
+                  <div className="w-36 lg:w-44">
+                    <PhoneMockup />
+                  </div>
+                </Tilt>
+              </div>
             </div>
+            <img
+              src="/images/android-mascot.jpg"
+              alt="ربات اندروید"
+              loading="lazy"
+              className="animate-floaty-slow absolute -bottom-3 left-4 hidden w-20 rounded-[1.3rem] shadow-2xl ring-4 ring-white/25 md:block"
+            />
           </section>
         ) : (
-          <Card className="lg:col-span-2">
+          <Card className="lg:col-span-3">
             <h2 className="mb-3 font-black text-navy-900">خدمات پرکاربرد</h2>
             <div className="grid gap-3 sm:grid-cols-2">
               {(data.popularServices ?? []).slice(0, 4).map((service: any) => (
@@ -345,14 +348,45 @@ export function CustomerDashboard() {
             </div>
           </Card>
         )}
+
+        <Card className="lg:col-span-2">
+          <div className="mb-3 flex items-center justify-between">
+            <h2 className="font-black text-navy-900">آخرین اطلاعیه‌ها</h2>
+            <Link to="/app/profile" className="text-xs font-bold text-accent hover:underline">مشاهدهٔ همه</Link>
+          </div>
+          {noticeItems.length === 0 && <p className="text-sm text-navy-400">اطلاعیه‌ای نیست.</p>}
+          <div className="space-y-2.5">
+            {noticeItems.map((item, index) => {
+              const inner = (
+                <>
+                  <span className="grid size-10 shrink-0 place-items-center rounded-2xl bg-gradient-to-br from-sky-400 to-brand-600 text-white shadow-md shadow-brand-600/25">
+                    {noticeIcons[index % noticeIcons.length]}
+                  </span>
+                  <span className="min-w-0 flex-1">
+                    <span className="block truncate text-[13px] font-bold text-navy-900">{item.title}</span>
+                    {item.meta && <span className="mt-0.5 block text-[11px] text-navy-400">{item.meta}</span>}
+                  </span>
+                </>
+              );
+              const cls = 'flex items-center gap-3 rounded-3xl bg-surface-2 px-3.5 py-3 ring-1 ring-line';
+              return item.link ? (
+                <Link key={`${item.title}-${index}`} to={item.link} className={clsx(cls, 'transition hover:bg-brand-50')}>{inner}</Link>
+              ) : (
+                <div key={`${item.title}-${index}`} className={cls}>{inner}</div>
+              );
+            })}
+          </div>
+        </Card>
       </div>
 
       {/* ----------------------------- trust strip ------------------------- */}
-      <footer className="mt-6 flex flex-wrap items-center justify-center gap-x-8 gap-y-3 rounded-[1.4rem] bg-surface px-5 py-4 text-xs font-semibold text-navy-600 shadow-soft ring-1 ring-line">
-        <span className="flex items-center gap-2"><Landmark className="size-4 text-brand-600" /> سامانهٔ هوشمند خدمات دولتی</span>
-        <span className="flex items-center gap-2"><ShieldCheck className="size-4 text-emerald-600" /> امنیت و اعتماد با استانداردهای روز</span>
-        <span className="flex items-center gap-2"><Headset className="size-4 text-sky-600" /> پشتیبانی {setting('office.working_hours') ? `(${setting('office.working_hours')})` : 'در ساعات کاری'}</span>
-        <span className="text-navy-400">{brand.name} | همراه شما، در مسیر خدمات بهتر</span>
+      <footer className="mt-6 flex flex-wrap items-center gap-3 rounded-[1.4rem] bg-surface px-4 py-3.5 shadow-soft ring-1 ring-line sm:px-5">
+        <div className="flex flex-wrap items-center gap-2 text-xs font-bold text-navy-700">
+          <span className="flex items-center gap-2 rounded-full bg-surface-2 px-3.5 py-2 ring-1 ring-line"><Landmark className="size-4 text-brand-600" /> سامانهٔ هوشمند خدمات دولتی</span>
+          <span className="flex items-center gap-2 rounded-full bg-surface-2 px-3.5 py-2 ring-1 ring-line"><ShieldCheck className="size-4 text-emerald-600" /> امنیت و اعتماد</span>
+          <span className="flex items-center gap-2 rounded-full bg-surface-2 px-3.5 py-2 ring-1 ring-line"><Headset className="size-4 text-sky-600" /> پشتیبانی {setting('office.working_hours') || 'در تمام روزهای هفته'}</span>
+        </div>
+        <span className="ms-auto text-xs font-semibold text-navy-400">{brand.name} | همراه شما، در مسیر خدمات بهتر</span>
       </footer>
     </AppShell>
   );

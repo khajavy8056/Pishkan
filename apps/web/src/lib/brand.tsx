@@ -12,13 +12,14 @@ export function useBrand() {
   const { setting } = useSite();
   const logoFileId = setting('site.logo_file_id');
   return {
-    name: setting('site.name') || 'دفتر پیشخوان دولت',
-    shortName: setting('site.short_name') || 'پیشخوان',
+    name: setting('site.name') || 'پیشخوان آرتا',
+    shortName: setting('site.short_name') || 'پیشخوان آرتا',
     nameEn: setting('site.name_en'),
     tagline: setting('site.tagline'),
     /** Uploaded/configured logo image; empty → built-in vector mark. */
     logoUrl: setting('site.logo_url') || (logoFileId ? '/api/public/brand-asset/logo' : ''),
     heroImage: setting('landing.hero_image_url') || '/images/hero-building.jpg',
+    panelHero: setting('landing.panel_hero_url') || setting('landing.hero_image_url') || '/images/panel-hero.jpg',
     mascot: setting('landing.mascot_url') || '/images/mascot-robot.jpg',
   };
 }
@@ -35,18 +36,33 @@ export function BrandMark({ className, imgClassName }: { className?: string; img
     );
   }
   return (
-    <svg viewBox="0 0 48 48" role="img" aria-label={name} className={clsx('shrink-0 drop-shadow-lg', className ?? 'size-11')}>
+    <svg
+      viewBox="0 0 48 48"
+      role="img"
+      aria-label={name}
+      className={clsx('shrink-0', className ?? 'size-11')}
+      style={{ filter: 'drop-shadow(0 3px 10px rgb(37 99 235 / .45))' }}
+    >
       <defs>
         <linearGradient id={`bm-${gid}`} x1="0" y1="0" x2="1" y2="1">
-          <stop offset="0" stopColor="#3b82f6" />
-          <stop offset="0.55" stopColor="#1d4ed8" />
-          <stop offset="1" stopColor="#0b2b5b" />
+          <stop offset="0" stopColor="#7dd3fc" />
+          <stop offset="0.42" stopColor="#3b82f6" />
+          <stop offset="0.78" stopColor="#1d4ed8" />
+          <stop offset="1" stopColor="#172554" />
         </linearGradient>
+        <clipPath id={`bm-clip-${gid}`}>
+          <path d="M14 3h13.2c7.8 0 12.8 5.4 12.8 12.4 0 7.2-5.2 12.2-13.2 12.2H22V45h-8Z" />
+        </clipPath>
       </defs>
-      <rect x="2" y="2" width="44" height="44" rx="13" fill={`url(#bm-${gid})`} />
-      <rect x="2" y="2" width="44" height="22" rx="11" fill="#ffffff" opacity="0.14" />
-      <path d="M18 35.5v-23h8.6a7.4 7.4 0 0 1 0 14.8H18" fill="none" stroke="#fff" strokeWidth="4.6" strokeLinecap="round" strokeLinejoin="round" />
-      <circle cx="33.5" cy="33.5" r="2.6" fill="#7dd3fc" />
+      <path
+        fillRule="evenodd"
+        fill={`url(#bm-${gid})`}
+        d="M14 3h13.2c7.8 0 12.8 5.4 12.8 12.4 0 7.2-5.2 12.2-13.2 12.2H22V45h-8Zm8 8h4.9c2.9 0 4.9 2 4.9 4.6 0 2.7-2 4.5-5 4.5H22Z"
+      />
+      <path d="M14 27.6h8l-8 8.6Z" fill="#172554" opacity="0.5" />
+      <g clipPath={`url(#bm-clip-${gid})`}>
+        <ellipse cx="17" cy="8" rx="16" ry="9" fill="#ffffff" opacity="0.28" transform="rotate(-18 17 8)" />
+      </g>
     </svg>
   );
 }

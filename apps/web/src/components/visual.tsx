@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type ReactNode } from 'react';
+import { useEffect, useId, useRef, useState, type ReactNode } from 'react';
 import {
   Backpack, BadgeCheck, BookOpen, Building2, Calculator, CarFront, Cpu, GraduationCap,
   HandCoins, Headset, HeartHandshake, House, Landmark, LayoutGrid, MessagesSquare, Scale,
@@ -93,6 +93,63 @@ export function CategoryIcon({ name, className }: { name?: string | null; classN
 /** Icon component for landing feature lists (same Lucide vocabulary). */
 export function FeatureIcon({ name, className }: { name?: string; className?: string }) {
   return <CategoryIcon name={name} className={className} />;
+}
+
+/**
+ * Glossy "3D object" category art, drawn after the approved design
+ * reference: a coloured glyph floating over a pastel radial disc with a
+ * soft cast shadow and a top gloss highlight. Pure CSS/SVG, so it stays
+ * crisp (and theme-safe) at any size — used by the landing category band,
+ * the customer quick-access tiles and request rows.
+ */
+export function CategoryArt({ name, color, className, glyphClassName }: {
+  name?: string | null; color?: string | null; className?: string; glyphClassName?: string;
+}) {
+  const c = color && /^#[0-9a-f]{6}$/i.test(color) ? color : '#2563eb';
+  const Icon = (name && CATEGORY_ICONS[name]) || LayoutGrid;
+  return (
+    <span className={clsx('relative grid shrink-0 place-items-center', className ?? 'size-16')} aria-hidden="true">
+      <span
+        className="absolute inset-0 rounded-[1.35rem]"
+        style={{
+          background: `radial-gradient(120% 120% at 30% 18%, color-mix(in oklab, ${c} 22%, #fff) 0%, color-mix(in oklab, ${c} 10%, var(--surface)) 55%, color-mix(in oklab, ${c} 24%, var(--surface)) 100%)`,
+          boxShadow: `inset 0 2px 3px rgb(255 255 255 / .65), inset 0 -6px 12px color-mix(in oklab, ${c} 18%, transparent), 0 14px 24px -14px color-mix(in oklab, ${c} 55%, transparent)`,
+        }}
+      />
+      <Icon className={clsx('absolute translate-y-[3px] opacity-30 blur-[1.5px]', glyphClassName ?? 'size-9')} style={{ color: c }} strokeWidth={2.4} />
+      <Icon
+        className={clsx('relative', glyphClassName ?? 'size-9')}
+        style={{ color: c, filter: `drop-shadow(0 3px 4px color-mix(in oklab, ${c} 40%, transparent))` }}
+        strokeWidth={2.1}
+      />
+      <span className="pointer-events-none absolute inset-x-3 top-1.5 h-3.5 rounded-full bg-white/55 blur-[3px]" />
+    </span>
+  );
+}
+
+/** Big glossy trust shield used by the hero banners and the stats band. */
+export function ShieldArt({ className }: { className?: string }) {
+  const gid = useId().replace(/[:]/g, '');
+  return (
+    <svg viewBox="0 0 100 112" aria-hidden="true" className={className} style={{ filter: 'drop-shadow(0 14px 22px rgb(29 78 216 / .45))' }}>
+      <defs>
+        <linearGradient id={`sa-${gid}`} x1="0" y1="0" x2="0" y2="1">
+          <stop offset="0" stopColor="#60a5fa" />
+          <stop offset="0.5" stopColor="#2563eb" />
+          <stop offset="1" stopColor="#1e3a8a" />
+        </linearGradient>
+        <linearGradient id={`sb-${gid}`} x1="0" y1="0" x2="0" y2="1">
+          <stop offset="0" stopColor="#dbeafe" />
+          <stop offset="1" stopColor="#93c5fd" />
+        </linearGradient>
+      </defs>
+      <path d="M50 3 89 15v37c0 26-16.5 44.5-39 57C27.5 96.5 11 78 11 52V15Z" fill={`url(#sa-${gid})`} />
+      <path d="M50 12 80 21.6V52c0 21-13.2 36.3-30 47C33.2 88.3 20 73 20 52V21.6Z" fill={`url(#sb-${gid})`} opacity="0.92" />
+      <path d="M50 20 72 27v25c0 16.6-9.8 28.8-22 37-12.2-8.2-22-20.4-22-37V27Z" fill={`url(#sa-${gid})`} />
+      <path d="M35 55.5 46 66l20-23" fill="none" stroke="#fff" strokeWidth="8.5" strokeLinecap="round" strokeLinejoin="round" />
+      <ellipse cx="38" cy="22" rx="20" ry="9" fill="#fff" opacity="0.3" transform="rotate(-14 38 22)" />
+    </svg>
+  );
 }
 
 /* ----------------------------- phone mockup -------------------------------- */

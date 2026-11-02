@@ -25,8 +25,11 @@ dashboardRouter.get('/summary', asyncRoute(async (req, res) => {
     const [stats, recent, invoices, notifications, popular] = await Promise.all([
       requestStats({ customerId: auth.user.id }),
       q<any>(
-        `SELECT r.id, r.tracking_code, r.status, r.created_at, s.title AS service_title
+        `SELECT r.id, r.tracking_code, r.status, r.created_at, s.title AS service_title,
+                s.icon AS service_icon, s.slug AS service_slug,
+                sc.icon AS category_icon, sc.color AS category_color
          FROM requests r JOIN services s ON s.id = r.service_id
+         LEFT JOIN service_categories sc ON sc.id = s.category_id
          WHERE r.customer_id = ? ORDER BY r.created_at DESC LIMIT 5`, [auth.user.id],
       ),
       q<any>(
@@ -44,6 +47,8 @@ dashboardRouter.get('/summary', asyncRoute(async (req, res) => {
         id: r.id, trackingCode: r.tracking_code, status: r.status,
         statusLabel: STATUS_LABELS[r.status as keyof typeof STATUS_LABELS] ?? r.status,
         serviceTitle: r.service_title, createdAt: r.created_at,
+        serviceIcon: r.service_icon ?? null, serviceSlug: r.service_slug ?? null,
+        categoryIcon: r.category_icon ?? null, categoryColor: r.category_color ?? null,
       })),
       invoices: invoices.map((i) => ({
         id: i.id, number: i.number, title: i.title, total: Number(i.total),

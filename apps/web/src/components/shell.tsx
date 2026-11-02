@@ -4,13 +4,13 @@ import {
   LayoutDashboard, ClipboardList, Wallet, MessageSquare, User, Bell, LogOut, Menu, X, Search, Activity,
   Building2, Users, CalendarClock, FileText, Receipt, BarChart3, Settings, Database, ShieldCheck,
   LifeBuoy, Shapes, Sparkles, ChevronDown, Plus, BadgeCheck, ServerCog, ClipboardCheck, ArrowLeft,
-  Moon, Sun, Monitor, Headset, TicketPercent, ListChecks, BotMessageSquare,
+  Moon, Sun, Monitor, Headset, TicketPercent, ListChecks, BotMessageSquare, CirclePlus,
 } from 'lucide-react';
 import clsx from 'clsx';
 import { useAuth, homeFor } from '../lib/auth';
 import { api } from '../lib/api';
 import { relative, faNum } from '../lib/format';
-import { ThemeToggle, useTheme } from '../lib/theme';
+import { ThemeToggle, ThemeSegmented, useTheme } from '../lib/theme';
 import { BrandLockup, useBrand } from '../lib/brand';
 import { Button, Spinner, useToast } from './ui';
 import { ChatWidget } from './ChatWidget';
@@ -36,8 +36,8 @@ const SECTION_SUPPORT = 'پشتیبانی';
 
 const customerNav: NavItem[] = [
   { to: '/app', label: 'داشبورد', icon: <LayoutDashboard className="size-5" />, end: true, section: SECTION_WORK },
-  { to: '/app/services', label: 'ثبت درخواست جدید', icon: <Plus className="size-5" />, section: SECTION_WORK },
-  { to: '/app/requests', label: 'پیگیری درخواست‌ها', icon: <ListChecks className="size-5" />, section: SECTION_WORK },
+  { to: '/app/services', label: 'ثبت درخواست جدید', icon: <CirclePlus className="size-5" />, section: SECTION_WORK },
+  { to: '/app/requests', label: 'پیگیری درخواست‌ها', icon: <Search className="size-5" />, section: SECTION_WORK },
   { to: '/app/wallet', label: 'کیف پول و پرداخت‌ها', icon: <Wallet className="size-5" />, section: SECTION_ACCOUNT },
   { to: '/app/invoices', label: 'فاکتورها', icon: <Receipt className="size-5" />, section: SECTION_ACCOUNT },
   { to: '/app/documents', label: 'مدارک من', icon: <FileText className="size-5" />, section: SECTION_WORK },
@@ -214,7 +214,10 @@ export function AppShell({ children, variant }: { children: ReactNode; variant: 
         )}
         aria-label="منوی اصلی"
       >
-        <div className="flex items-center justify-between gap-3 px-4 py-5">
+        <div aria-hidden="true" className="pointer-events-none absolute -top-20 -right-16 size-56 rounded-full bg-brand-500/15 blur-3xl" />
+        <div aria-hidden="true" className="pointer-events-none absolute -bottom-28 -left-20 size-72 rounded-full border-[16px] border-brand-400/10" />
+        <div aria-hidden="true" className="pointer-events-none absolute -bottom-16 -left-10 size-48 rounded-full border-[10px] border-sky-400/10" />
+        <div className="relative flex items-center justify-between gap-3 px-4 py-5">
           <Link to={brandHome} className="group flex min-w-0 items-center gap-3 rounded-2xl p-1 transition hover:bg-white/5">
             <BrandLockup tone="light" subtitle={variant === 'customer' ? undefined : roleLabel} />
           </Link>
@@ -223,10 +226,10 @@ export function AppShell({ children, variant }: { children: ReactNode; variant: 
           </button>
         </div>
 
-        <nav className="flex-1 space-y-0.5 overflow-y-auto px-3 pb-4 scrollbar-thin">
+        <nav className="relative flex-1 space-y-0.5 overflow-y-auto px-3 pb-4 scrollbar-thin">
           {groups.map((group, index) => (
             <div key={group.section} className={index === 0 ? '' : 'pt-1'}>
-              <p className="nav-group-label">{group.section}</p>
+              {variant !== 'customer' && <p className="nav-group-label">{group.section}</p>}
               <div className="space-y-1">
                 {group.items.map((item) => (
                   <NavLink
@@ -256,7 +259,7 @@ export function AppShell({ children, variant }: { children: ReactNode; variant: 
         </nav>
 
         {variant === 'customer' && (
-          <div className="px-3 pb-3">
+          <div className="relative px-3 pb-3">
             <div className="group relative overflow-hidden rounded-3xl border border-white/10 bg-white/5">
               <div className="perspective-1200">
                 <img
@@ -278,7 +281,7 @@ export function AppShell({ children, variant }: { children: ReactNode; variant: 
                     window.setTimeout(() => window.dispatchEvent(new CustomEvent('pishkan:open-chat', { detail: {} })), 60);
                   }}
                 >
-                  <BotMessageSquare className="size-4" /> شروع گفتگو
+                  <BotMessageSquare className="size-4" /> شروع گفت‌وگو
                 </button>
               </div>
             </div>
@@ -325,22 +328,24 @@ export function AppShell({ children, variant }: { children: ReactNode; variant: 
               <Menu className="size-5" />
             </button>
 
-            <div className="hidden min-w-0 items-center gap-2 text-xs text-navy-500 sm:flex">
-              <Link to="/" className="inline-flex items-center gap-1.5 rounded-lg px-1.5 py-1 transition hover:bg-surface-3 hover:text-navy-800">
-                <Building2 className="size-4" /> صفحه اصلی
-              </Link>
-              {activeItem && (
-                <>
-                  <span className="text-navy-500">/</span>
-                  <span className="truncate font-medium text-navy-700">{activeItem.label}</span>
-                </>
-              )}
-            </div>
+            {variant !== 'customer' && (
+              <div className="hidden min-w-0 items-center gap-2 text-xs text-navy-500 sm:flex">
+                <Link to="/" className="inline-flex items-center gap-1.5 rounded-lg px-1.5 py-1 transition hover:bg-surface-3 hover:text-navy-800">
+                  <Building2 className="size-4" /> صفحه اصلی
+                </Link>
+                {activeItem && (
+                  <>
+                    <span className="text-navy-500">/</span>
+                    <span className="truncate font-medium text-navy-700">{activeItem.label}</span>
+                  </>
+                )}
+              </div>
+            )}
 
-            <div className="flex-1" />
+            {variant !== 'customer' && <div className="flex-1" />}
 
             <form
-              className="hidden md:block"
+              className={clsx('hidden md:block', variant === 'customer' && 'order-3 min-w-0 flex-1 px-1')}
               onSubmit={(event) => {
                 event.preventDefault();
                 const target = user?.kind === 'customer' ? '/app/services' : '/services';
@@ -348,7 +353,10 @@ export function AppShell({ children, variant }: { children: ReactNode; variant: 
               }}
               role="search"
             >
-              <label className="flex w-56 items-center gap-2 rounded-full border border-line bg-surface-2 px-3.5 py-2 transition focus-within:w-72 focus-within:border-primary/50 focus-within:bg-surface focus-within:ring-4 focus-within:ring-primary/10 lg:w-64">
+              <label className={clsx(
+                'flex items-center gap-2 rounded-full border border-line bg-surface-2 px-3.5 py-2 transition focus-within:border-primary/50 focus-within:bg-surface focus-within:ring-4 focus-within:ring-primary/10',
+                variant === 'customer' ? 'mx-auto w-full max-w-xl' : 'w-56 focus-within:w-72 lg:w-64',
+              )}>
                 <Search className="size-4 shrink-0 text-navy-400" />
                 <input
                   value={headerQuery}
@@ -360,9 +368,11 @@ export function AppShell({ children, variant }: { children: ReactNode; variant: 
               </label>
             </form>
 
-            <ThemeToggle />
+            {variant === 'customer'
+              ? <ThemeSegmented className="order-4 hidden shrink-0 sm:flex" />
+              : <ThemeToggle />}
 
-            <div className="relative">
+            <div className={clsx('relative', variant === 'customer' && 'order-2 shrink-0')}>
               <button
                 type="button"
                 onClick={() => { setNotificationsOpen((v) => !v); setAccountOpen(false); }}
@@ -403,15 +413,15 @@ export function AppShell({ children, variant }: { children: ReactNode; variant: 
               )}
             </div>
 
-            <div className="relative">
+            <div className={clsx('relative', variant === 'customer' && 'order-1 shrink-0')}>
               <button
                 type="button"
                 onClick={() => { setAccountOpen((v) => !v); setNotificationsOpen(false); }}
-                className="flex items-center gap-2 rounded-xl border border-line bg-surface py-1.5 pr-1.5 pl-2.5 text-right shadow-xs transition hover:bg-surface-3"
+                className="flex items-center gap-2 rounded-full border border-line bg-surface py-1.5 pr-1.5 pl-2.5 text-right shadow-xs transition hover:bg-surface-3"
                 aria-label="حساب کاربری"
                 aria-expanded={accountOpen}
               >
-                <span className="grid size-8 place-items-center rounded-xl bg-gradient-to-br from-brand-500 via-brand-700 to-shell text-xs font-bold text-white shadow-md shadow-brand-600/25">
+                <span className="grid size-8 place-items-center rounded-full bg-gradient-to-br from-brand-500 via-brand-700 to-shell text-xs font-bold text-white shadow-md shadow-brand-600/25">
                   {user?.fullName?.slice(0, 1) ?? '؟'}
                 </span>
                 <span className="hidden leading-tight sm:block">
@@ -449,7 +459,7 @@ export function AppShell({ children, variant }: { children: ReactNode; variant: 
               <button
                 type="button"
                 onClick={async () => { await logout(); navigate('/'); }}
-                className="btn-ghost btn-sm hidden shrink-0 md:inline-flex"
+                className="btn-ghost btn-sm order-5 hidden shrink-0 md:inline-flex"
               >
                 <LogOut className="size-4 -scale-x-100" /> خروج
               </button>

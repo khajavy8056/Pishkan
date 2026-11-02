@@ -78,10 +78,15 @@ afterEach(() => {
 });
 
 describe('authenticated panels render', () => {
-  it('renders the customer dashboard with stats', async () => {
+  it('renders the customer dashboard like the approved design', async () => {
     renderAs(customerUser, <CustomerDashboard />);
     await waitFor(() => expect(screen.getByText('سلام مشتری نمونه عزیز!')).toBeTruthy());
-    expect(screen.getByText(/پرونده.*در جریان/)).toBeTruthy();
+    // sidebar, hero banner and mobile dock all expose the new-request entry
+    expect(screen.getAllByRole('link', { name: /ثبت درخواست جدید/ }).length).toBeGreaterThan(1);
+    expect(screen.getByText('دسترسی سریع به خدمات')).toBeTruthy();
+    expect(screen.getByText('کیف پول شما')).toBeTruthy();
+    expect(screen.getByText('آخرین درخواست‌های شما')).toBeTruthy();
+    expect(screen.getByText('آخرین اطلاعیه‌ها')).toBeTruthy();
   });
 
   it('renders the staff workbench with the assignment queue', async () => {
