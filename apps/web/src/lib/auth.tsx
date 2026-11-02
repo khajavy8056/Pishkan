@@ -87,6 +87,7 @@ export function homeFor(user: CurrentUser | null): string {
   if (user.kind === 'customer') return user.profileState?.complete === false ? '/app/profile' : '/app';
   if (user.kind === 'admin') return '/admin';
   if (user.roleCode === 'accountant') return '/staff/accounting';
+  if (user.roleCode === 'content_manager') return '/staff/blog';
   return '/staff';
 }
 

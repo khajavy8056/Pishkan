@@ -2,7 +2,7 @@ import { useState, type ReactNode } from 'react';
 import { Link, NavLink } from 'react-router-dom';
 import {
   Activity, ArrowLeft, Camera, Clapperboard, Clock, Download, Globe, House, Info, LayoutGrid, Mail, MapPin,
-  Menu, MessageCircle, Phone, Send, ShieldCheck, Sparkles, UserRound, X,
+  Menu, MessageCircle, Newspaper, Phone, Send, ShieldCheck, Sparkles, UserRound, X,
 } from 'lucide-react';
 import clsx from 'clsx';
 import { parseListSetting, useSite } from '../lib/site';
@@ -15,6 +15,7 @@ import { ThemeToggle } from '../lib/theme';
 const links = [
   { to: '/', label: 'خانه', end: true, icon: <House className="size-4" /> },
   { to: '/services', label: 'خدمات', icon: <LayoutGrid className="size-4" /> },
+  { to: '/blog', label: 'بلاگ', icon: <Newspaper className="size-4" /> },
   { to: '/assistant', label: 'دستیار هوشمند', icon: <Sparkles className="size-4" /> },
   { to: '/status', label: 'وضعیت سامانه', icon: <Activity className="size-4" /> },
   { to: '/legal', label: 'درباره و شرایط', icon: <Info className="size-4" /> },
@@ -150,6 +151,7 @@ export function PublicLayout({ children }: { children: ReactNode }) {
               {[
                 { to: '/', label: 'خانه' },
                 { to: '/services', label: 'خدمات' },
+                { to: '/blog', label: 'بلاگ' },
                 { to: '/assistant', label: 'دستیار هوشمند' },
                 { to: '/status', label: 'وضعیت سامانه' },
                 { to: '/legal', label: 'شرایط و حریم خصوصی' },

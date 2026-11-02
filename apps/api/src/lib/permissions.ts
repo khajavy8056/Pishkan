@@ -33,6 +33,7 @@ export const RESOURCES = [
   'alerts',
   'support',
   'discounts',
+  'blog',
 ] as const;
 
 export const ACTIONS = ['view', 'create', 'edit', 'approve', 'cancel', 'delete', 'export'] as const;
@@ -57,11 +58,35 @@ export const PAYROLL_PERMISSIONS = [
 /** Restoring a backup is destructive, so it is its own grantable permission. */
 export const BACKUP_PERMISSIONS = ['backup.restore'] as const;
 
+/**
+ * Blog workflow grants beyond plain CRUD: publishing a post, moderating its
+ * comments, managing categories and editing other authors' posts (editor).
+ */
+export const BLOG_PERMISSIONS = ['blog.publish', 'blog.comments', 'blog.categories', 'blog.manage'] as const;
+
+/** Persian labels for every non-grid permission, shown in the role editor. */
+export const EXTRA_PERMISSION_LABELS: Record<string, string> = {
+  'payroll.contracts.edit': 'ثبت و ویرایش قراردادهای همکاری',
+  'payroll.accrue': 'محاسبهٔ تعهد حقوق ماهانه',
+  'payroll.settle': 'ثبت تسویه و پرداخت حقوق',
+  'payroll.reports.view': 'مشاهدهٔ گزارش‌های حقوق و درآمد',
+  'payroll.withdraw': 'ثبت درخواست برداشت درآمد (خودم)',
+  'payroll.approve': 'بررسی و تأیید درخواست‌های برداشت',
+  'wallet.credit': 'شارژ کیف پول مشتری',
+  'wallet.adjust': 'اصلاح موجودی کیف پول مشتری',
+  'backup.restore': 'بازیابی نسخهٔ پشتیبان',
+  'blog.publish': 'انتشار و لغو انتشار مطالب بلاگ',
+  'blog.comments': 'مدیریت و تأیید نظرات بلاگ',
+  'blog.categories': 'مدیریت دسته‌بندی‌های بلاگ',
+  'blog.manage': 'ویرایش مطالب همهٔ نویسندگان بلاگ (سردبیر)',
+};
+
 export type Permission =
   | `${Resource}.${Action}`
   | (typeof PAYROLL_PERMISSIONS)[number]
   | (typeof WALLET_PERMISSIONS)[number]
-  | (typeof BACKUP_PERMISSIONS)[number];
+  | (typeof BACKUP_PERMISSIONS)[number]
+  | (typeof BLOG_PERMISSIONS)[number];
 
 export function allPermissions(): Permission[] {
   return [
@@ -69,6 +94,7 @@ export function allPermissions(): Permission[] {
     ...PAYROLL_PERMISSIONS,
     ...WALLET_PERMISSIONS,
     ...BACKUP_PERMISSIONS,
+    ...BLOG_PERMISSIONS,
   ];
 }
 
@@ -109,6 +135,7 @@ export const RESOURCE_LABELS: Record<Resource, string> = {
   alerts: 'هشدارهای عملیاتی',
   support: 'پشتیبانی و تیکت‌ها',
   discounts: 'کدهای تخفیف',
+  blog: 'بلاگ و تولید محتوا',
 };
 
 /** Default roles shipped with the system. Admins can edit them afterwards. */
@@ -224,6 +251,17 @@ export const DEFAULT_ROLES: {
       'support.view',
       'wallet.view', 'wallet.credit', 'wallet.adjust',
       'logs.view',
+    ],
+  },
+  {
+    code: 'content_manager',
+    name: 'مدیر محتوا (بلاگ)',
+    description: 'فقط تولید و مدیریت محتوای بلاگ: مطالب، دسته‌بندی‌ها، نظرات و خبرنامه؛ بدون دسترسی به سایر بخش‌های سامانه',
+    system: true,
+    permissions: [
+      'dashboard.view',
+      'blog.view', 'blog.create', 'blog.edit', 'blog.delete',
+      'blog.publish', 'blog.comments', 'blog.categories', 'blog.manage',
     ],
   },
 ];

@@ -123,7 +123,7 @@ export function SiteProvider({ children }: { children: ReactNode }) {
       }
       if (typeof res.data.settings['site.name'] === 'string') {
         const tagline = typeof res.data.settings['site.tagline'] === 'string' ? res.data.settings['site.tagline'] : '';
-        document.title = tagline ? `${res.data.settings['site.name']} | ${tagline}` : String(res.data.settings['site.name']);
+        if (!document.documentElement.dataset.seoTitle) document.title = tagline ? `${res.data.settings['site.name']} | ${tagline}` : String(res.data.settings['site.name']);
       }
       const logoUrl = (typeof res.data.settings['site.logo_url'] === 'string' && res.data.settings['site.logo_url'])
         || (res.data.settings['site.logo_file_id'] ? '/api/public/brand-asset/logo' : '');

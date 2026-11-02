@@ -693,6 +693,24 @@ export function AdminStaff() {
                     ))}
                   </tbody>
                 </table>
+                {meta.extras?.length > 0 && (
+                  <div className="mt-4">
+                    <p className="mb-2 text-xs font-bold text-navy-700">مجوزهای ویژه</p>
+                    <div className="grid gap-1.5 sm:grid-cols-2">
+                      {meta.extras.map((extra: any) => (
+                        <label key={extra.code} className="flex cursor-pointer items-center gap-2 rounded-xl bg-surface-3 px-3 py-2 text-xs text-navy-700 ring-1 ring-line transition hover:bg-brand-50">
+                          <input type="checkbox" className="size-4 rounded border-navy-300 text-accent"
+                            checked={roleEditing.permissions.includes(extra.code)}
+                            onChange={() => togglePermission(extra.code)} />
+                          <span className="min-w-0">
+                            <span className="block font-medium">{extra.label}</span>
+                            <span className="block text-[10px] text-navy-400" dir="ltr">{extra.code}</span>
+                          </span>
+                        </label>
+                      ))}
+                    </div>
+                  </div>
+                )}
               </div>
             )}
           </div>

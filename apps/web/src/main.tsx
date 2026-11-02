@@ -31,6 +31,8 @@ import {
 import { StaffWorkbench } from './pages/staff/Workbench';
 import { MessageCenter } from './pages/shared/MessageCenter';
 import { AdminDashboard } from './pages/admin/AdminDashboard';
+import { BlogAdmin, BlogEditor } from './pages/admin/BlogAdmin';
+import { BlogHome, BlogPostPage } from './pages/public/Blog';
 import { AdminServiceEditor, AdminServices } from './pages/admin/CatalogAdmin';
 import { AdminCustomers, AdminStaff } from './pages/admin/PeopleAdmin';
 import { AdminFinance, AdminReports } from './pages/admin/FinanceAdmin';
@@ -76,6 +78,8 @@ function App() {
               <Route path="/panel" element={<PanelEntry />} />
               <Route path="/services" element={<ServicesPage />} />
               <Route path="/services/:slug" element={<ServiceDetailPage />} />
+              <Route path="/blog" element={<BlogHome />} />
+              <Route path="/blog/:slug" element={<BlogPostPage />} />
               <Route path="/assistant" element={<AssistantPage />} />
               <Route path="/status" element={<StatusPage />} />
               <Route path="/legal" element={<LegalPage />} />
@@ -118,12 +122,18 @@ function App() {
               <Route path="/admin/automation" element={adminOnly(<AutomationInbox variant="admin" />,'requests.view')} />
               <Route path="/staff/finance" element={staffOnly(<StaffEarnings />)} />
               <Route path="/staff/performance" element={staffOnly(<StaffPerformance />)} />
+              <Route path="/staff/blog" element={staffOnly(<BlogAdmin variant="staff" />,'blog.view')} />
+              <Route path="/staff/blog/new" element={staffOnly(<BlogEditor variant="staff" />,'blog.create')} />
+              <Route path="/staff/blog/:id/edit" element={staffOnly(<BlogEditor variant="staff" />,'blog.edit')} />
 
               {/* admin */}
               <Route path="/admin" element={adminOnly(<AdminDashboard />)} />
               <Route path="/admin/requests" element={adminOnly(<StaffRequests variant="admin" />)} />
               <Route path="/admin/requests/:id" element={adminOnly(<RequestDetail variant="admin" />)} />
               <Route path="/admin/services" element={adminOnly(<AdminServices />,'services.view')} />
+              <Route path="/admin/blog" element={adminOnly(<BlogAdmin variant="admin" />,'blog.view')} />
+              <Route path="/admin/blog/new" element={adminOnly(<BlogEditor variant="admin" />,'blog.create')} />
+              <Route path="/admin/blog/:id/edit" element={adminOnly(<BlogEditor variant="admin" />,'blog.edit')} />
               <Route path="/admin/services/:id" element={adminOnly(<AdminServiceEditor />,'services.edit')} />
               <Route path="/admin/customers" element={adminOnly(<AdminCustomers />,'customers.view')} />
               <Route path="/admin/staff" element={adminOnly(<AdminStaff />,'staff.view')} />

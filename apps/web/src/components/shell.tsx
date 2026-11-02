@@ -4,7 +4,7 @@ import {
   LayoutDashboard, ClipboardList, Wallet, MessageSquare, User, Bell, LogOut, Menu, X, Search, Activity,
   Building2, Users, CalendarClock, FileText, Receipt, BarChart3, Settings, Database, ShieldCheck,
   LifeBuoy, Shapes, Sparkles, ChevronDown, Plus, BadgeCheck, ServerCog, ClipboardCheck, ArrowLeft,
-  Moon, Sun, Monitor, Headset, TicketPercent, ListChecks, BotMessageSquare, CirclePlus, Clock3, CalendarDays,
+  Moon, Sun, Monitor, Headset, TicketPercent, ListChecks, BotMessageSquare, CirclePlus, Clock3, CalendarDays, Newspaper,
 } from 'lucide-react';
 import clsx from 'clsx';
 import { useAuth, homeFor } from '../lib/auth';
@@ -62,6 +62,7 @@ const staffNav: NavItem[] = [
   { to: '/staff/shifts', label: 'شیفت و حضور', icon: <CalendarClock className="size-5" />, section: SECTION_MORE },
   { to: '/staff/finance', label: 'درآمد، عملکرد و تسویه', icon: <Receipt className="size-5" />, section: SECTION_MORE },
   { to: '/staff/performance', label: 'عملکرد من', icon: <BarChart3 className="size-5" />, section: SECTION_MORE },
+  { to: '/staff/blog', label: 'بلاگ و تولید محتوا', icon: <Newspaper className="size-5" />, permission: 'blog.view', section: SECTION_MORE },
 ];
 
 const accountantNav: NavItem[] = [
@@ -76,6 +77,7 @@ const adminNav: NavItem[] = [
   { to: '/admin', label: 'داشبورد مدیریت', icon: <LayoutDashboard className="size-5" />, end: true, section: SECTION_OPS },
   { to: '/admin/requests', label: 'درخواست‌ها', icon: <ClipboardList className="size-5" />, permission: 'requests.view', section: SECTION_OPS },
   { to: '/admin/services', label: 'خدمات و دسته‌ها', icon: <Shapes className="size-5" />, permission: 'services.view', section: SECTION_MANAGE },
+  { to: '/admin/blog', label: 'بلاگ و تولید محتوا', icon: <Newspaper className="size-5" />, permission: 'blog.view', section: SECTION_MANAGE },
   { to: '/admin/customers', label: 'مشتریان', icon: <Users className="size-5" />, permission: 'customers.view', section: SECTION_MANAGE },
   { to: '/admin/staff', label: 'کارکنان و نقش‌ها', icon: <BadgeCheck className="size-5" />, permission: 'staff.view', section: SECTION_MANAGE },
   { to: '/admin/shifts', label: 'شیفت و حضور', icon: <CalendarClock className="size-5" />, permission: 'shifts.view', section: SECTION_MANAGE },

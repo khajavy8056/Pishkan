@@ -7,7 +7,7 @@ import { created, ok, pagination } from '../http/respond.js';
 import { one, q, run, nowIso, jsonParse, jsonStringify } from '../db/index.js';
 import { hashPassword, id } from '../lib/crypto.js';
 import {
-  ACTIONS, PERMISSION_LABELS, RESOURCES, RESOURCE_LABELS, allPermissions, expandPermissions, hasPermission,
+  ACTIONS, EXTRA_PERMISSION_LABELS, PERMISSION_LABELS, RESOURCES, RESOURCE_LABELS, allPermissions, expandPermissions, hasPermission,
 } from '../lib/permissions.js';
 import { writeAudit } from '../modules/audit/service.js';
 import { validatePasswordAgainstPolicy, revokeAllSessions } from '../modules/auth/service.js';
@@ -319,6 +319,7 @@ staffRouter.get('/meta/permissions', asyncRoute(async (req, res) => {
   ok(res, {
     resources: RESOURCES.map((r) => ({ code: r, label: RESOURCE_LABELS[r] })),
     actions: ACTIONS.map((a) => ({ code: a, label: PERMISSION_LABELS[a] })),
+    extras: Object.entries(EXTRA_PERMISSION_LABELS).map(([code, label]) => ({ code, label })),
     all: allPermissions(),
   });
 }));
