@@ -87,6 +87,7 @@ function App() {
               {/* customer */}
               <Route path="/app" element={customer(<CustomerDashboard />)} />
               <Route path="/app/services" element={customer(<CustomerServices />)} />
+              <Route path="/app/services/:slug" element={customer(<ServiceDetailPage variant="app" />)} />
               <Route path="/app/requests" element={customer(<CustomerRequests />)} />
               <Route path="/app/requests/:id" element={customer(<CustomerRequestDetail />)} />
               <Route path="/app/invoices" element={customer(<CustomerInvoices />)} />

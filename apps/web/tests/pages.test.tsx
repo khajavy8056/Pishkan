@@ -39,6 +39,11 @@ describe('public pages render', () => {
     renderAt('/', <HomePage />);
     await waitFor(() => expect(screen.getAllByText(/دفتر پیشخوان/).length).toBeGreaterThan(0));
     await waitFor(() => expect(screen.getAllByText('سابقه بیمه تأمین اجتماعی').length).toBeGreaterThan(0));
+    // «ثبت درخواست خدمت» for a guest passes the login door first and returns to the panel afterwards.
+    const cta = screen.getByRole('link', { name: /ثبت درخواست خدمت/ });
+    expect(cta.getAttribute('href')).toBe('/login?next=%2Fapp%2Fservices');
+    // Floating support button is present on public pages too.
+    expect(screen.getByRole('button', { name: 'پیام‌ها و پشتیبانی' })).toBeTruthy();
   });
 
   it('lists services returned by the API', async () => {
@@ -47,11 +52,26 @@ describe('public pages render', () => {
     expect(screen.getByRole('heading', { name: 'خدمات پیشخوان' })).toBeTruthy();
   });
 
-  it('renders the dynamic request form for a service', async () => {
+  it('keeps the request form behind login for guests on the public service page', async () => {
     renderAt('/services/insurance-history', <ServiceDetailPage />);
-    await waitFor(() => expect(screen.getByText('کد ملی')).toBeTruthy());
+    await waitFor(() => expect(screen.getByText('مراحل رسیدگی')).toBeTruthy());
     expect(screen.getAllByText('کارت ملی').length).toBeGreaterThan(0);
-    expect(screen.getByText('مراحل رسیدگی')).toBeTruthy();
+    const loginCta = screen.getByRole('link', { name: /ورود و ثبت درخواست/ });
+    expect(decodeURIComponent(loginCta.getAttribute('href') ?? '')).toBe('/login?next=/app/services/insurance-history');
+    expect(screen.getByRole('link', { name: /حساب ندارم/ })).toBeTruthy();
+    expect(screen.queryByRole('button', { name: 'ثبت نهایی درخواست' })).toBeNull();
+    expect(screen.queryByLabelText(/کد ملی/)).toBeNull();
+  });
+
+  it('renders the dynamic request form inside the customer panel', async () => {
+    setAuthUser({ id: 'usr_form_test', kind: 'customer', roleCode: 'customer', fullName: 'مشتری آزمون', permissions: [] });
+    try {
+      renderAt('/app/services/insurance-history', <ServiceDetailPage variant="app" />);
+      await waitFor(() => expect(screen.getByText('کد ملی')).toBeTruthy());
+      expect(screen.getByRole('button', { name: /ثبت نهایی درخواست/ })).toBeTruthy();
+    } finally {
+      setAuthUser(null);
+    }
   });
 
   it('shows actionable field errors returned when a request submission fails', async () => {
@@ -73,9 +93,12 @@ describe('public pages render', () => {
     });
 
     try {
-      const { container } = renderAt('/services/insurance-history', <ServiceDetailPage />);
+      const { container } = renderAt('/app/services/insurance-history', <ServiceDetailPage variant="app" />);
       await screen.findByText('کد ملی');
-      const nationalId = screen.getAllByRole('textbox')[0];
+      // Inside the panel the shell header search is also a textbox; pick the
+      // service form's national-id input (rendered LTR) instead of index 0.
+      const nationalId = container.querySelector('form input[dir="ltr"]');
+      if (!(nationalId instanceof HTMLInputElement)) throw new Error('national-id input was not rendered');
       const fileInput = container.querySelector('input[type="file"]');
       if (!(fileInput instanceof HTMLInputElement)) throw new Error('service-document input was not rendered');
       fireEvent.change(fileInput, { target: { files: [new File(['image'], 'card.png', { type: 'image/png' })] } });
@@ -97,7 +120,7 @@ describe('public pages render', () => {
   it('shows the minute-based quote estimate for a signed-in customer', async () => {
     setAuthUser({ id: 'usr_quote_test', kind: 'customer', roleCode: 'customer', fullName: 'مشتری آزمون', permissions: [] });
     try {
-      renderAt('/services/insurance-history', <ServiceDetailPage />);
+      renderAt('/app/services/insurance-history', <ServiceDetailPage variant="app" />);
       await waitFor(() => expect(screen.getByText('زمان تخمینی خدمت')).toBeTruthy());
       expect(screen.getByText('۴ ساعت')).toBeTruthy();
     } finally {

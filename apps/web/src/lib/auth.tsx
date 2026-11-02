@@ -87,3 +87,19 @@ export function homeFor(user: CurrentUser | null): string {
   if (user.roleCode === 'accountant') return '/staff/accounting';
   return '/staff';
 }
+
+/**
+ * Sanitizes a `?next=` return path. Only same-origin absolute paths are
+ * accepted, never back to a login door (loop), and never into the other
+ * audience's panel (a customer target is dropped on the staff door and the
+ * reverse). Returns null when the caller should fall back to homeFor().
+ */
+export function safeNextPath(raw: string | null | undefined, audience?: 'customer' | 'staff'): string | null {
+  if (!raw) return null;
+  if (!raw.startsWith('/') || raw.startsWith('//') || raw.includes('\\')) return null;
+  const path = raw.split(/[?#]/)[0];
+  if (path === '/login' || path === '/login-admin' || path === '/register' || path === '/reset-password') return null;
+  if (audience === 'customer' && (path === '/admin' || path.startsWith('/admin/') || path === '/staff' || path.startsWith('/staff/'))) return null;
+  if (audience === 'staff' && (path === '/app' || path.startsWith('/app/'))) return null;
+  return raw;
+}

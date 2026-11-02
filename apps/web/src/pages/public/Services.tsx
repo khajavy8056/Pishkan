@@ -3,12 +3,13 @@ import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import {
   Search, ArrowLeft, Clock, FileText, CheckCircle2, AlertTriangle, UploadCloud, Wallet,
   ListOrdered, ChevronLeft, ShieldCheck, Info, TicketPercent, UserRoundCheck, X,
-  Landmark,
+  Landmark, LogIn, UserPlus,
 } from 'lucide-react';
 import clsx from 'clsx';
 import { PublicLayout } from '../../components/public-layout';
+import { AppShell } from '../../components/shell';
 import { formatDuration, useSite, type FormField, type Service } from '../../lib/site';
-import { useAuth } from '../../lib/auth';
+import { useAuth, homeFor } from '../../lib/auth';
 import { api, ApiFailure } from '../../lib/api';
 import { faNum, rial, STATUS_LABELS } from '../../lib/format';
 import { Button, EmptyState, ErrorState, Field, Input, Loading, Modal, Select, Textarea, useToast } from '../../components/ui';
@@ -159,7 +160,8 @@ function normalizeFieldErrors(details: unknown): { path: string; message: string
   });
 }
 
-export function ServiceDetailPage() {
+export function ServiceDetailPage({ variant = 'public' }: { variant?: 'public' | 'app' }) {
+  const inApp = variant === 'app';
   const { slug } = useParams();
   const navigate = useNavigate();
   const { user } = useAuth();
@@ -208,7 +210,7 @@ export function ServiceDetailPage() {
   }, [slug]);
 
   useEffect(()=>{
-    if(!service || user?.kind!=='customer') return;
+    if(!inApp || !service || user?.kind!=='customer') return;
     let active=true;setQuote(null);setQuoteError('');
     api.post<{data:any}>('/api/requests/quote',{serviceId:service.id,priority,discountCode:appliedCode||undefined})
       .then(r=>{if(active)setQuote(r.data)})
@@ -219,16 +221,16 @@ export function ServiceDetailPage() {
         else setQuoteError(e.message);
       });
     return ()=>{active=false};
-  },[service?.id,priority,user?.id,appliedCode]);
+  },[inApp,service?.id,priority,user?.id,appliedCode]);
 
   useEffect(() => {
-    if (user?.kind !== 'customer') return;
+    if (!inApp || user?.kind !== 'customer') return;
     let active = true;
     api.get<{ data: any }>('/api/auth/profile/autofill')
       .then((res) => { if (active) setAutofill(res.data); })
       .catch(() => undefined);
     return () => { active = false; };
-  }, [user?.id]);
+  }, [inApp, user?.id]);
 
   // Map service form fields to profile values: exact key first, then a small
   // set of safe type heuristics (never other people's ids like spouse/child).
@@ -340,7 +342,7 @@ export function ServiceDetailPage() {
     event.preventDefault();
     if (!service) return;
     if (!user) {
-      navigate(`/login?next=${encodeURIComponent(`/services/${service.slug}`)}`);
+      navigate(`/login?next=${encodeURIComponent(`/app/services/${service.slug}`)}`);
       return;
     }
     if (user.kind !== 'customer') {
@@ -427,26 +429,28 @@ export function ServiceDetailPage() {
     }
   };
 
+  const wrap = (node: React.ReactNode) => (inApp
+    ? <AppShell variant="customer">{node}</AppShell>
+    : <PublicLayout>{node}</PublicLayout>);
+
   if (loading) {
-    return <PublicLayout><div className="mx-auto max-w-5xl px-4 py-10"><Loading rows={4} /></div></PublicLayout>;
+    return wrap(<div className="mx-auto max-w-5xl px-4 py-10"><Loading rows={4} /></div>);
   }
   if (error || !service) {
-    return (
-      <PublicLayout>
-        <div className="mx-auto max-w-3xl px-4 py-10">
-          <ErrorState message={error || 'خدمت یافت نشد'} />
-          <Link to="/services" className="btn-ghost mt-4">بازگشت به فهرست خدمات</Link>
-        </div>
-      </PublicLayout>
+    return wrap(
+      <div className="mx-auto max-w-3xl px-4 py-10">
+        <ErrorState message={error || 'خدمت یافت نشد'} />
+        <Link to={inApp ? '/app/services' : '/services'} className="btn-ghost mt-4">بازگشت به فهرست خدمات</Link>
+      </div>,
     );
   }
 
   const errorFor = (key: string) => fieldErrors.find((e) => e.path === key)?.message;
 
-  return (
-    <PublicLayout>
-      <div className="mx-auto max-w-6xl px-4 py-8 sm:px-6">
-        <Link to="/services" className="mb-4 inline-flex items-center gap-1 text-xs text-navy-500 hover:text-navy-900">
+  const page = (
+    <>
+      <div className={inApp ? undefined : 'mx-auto max-w-6xl px-4 py-8 sm:px-6'}>
+        <Link to={inApp ? '/app/services' : '/services'} className="mb-4 inline-flex items-center gap-1 text-xs text-navy-500 hover:text-navy-900">
           <ArrowLeft className="size-3.5 rotate-180" /> همه خدمات
         </Link>
 
@@ -545,8 +549,72 @@ export function ServiceDetailPage() {
             </div>
           </div>
 
-          {/* Booking form */}
+          {/* Booking: the live request form exists only inside the customer
+              panel (/app/services/:slug). The public page is a showcase —
+              starting a request always goes through login first. */}
           <div className="lg:col-span-1">
+            {!inApp ? (
+              <div className="card card-pad sticky top-24">
+                <h2 className="flex items-center gap-2.5 font-bold text-navy-900">
+                  <span className="grid size-9 shrink-0 place-items-center rounded-xl bg-gradient-to-br from-brand-500 to-brand-700 text-white shadow-md shadow-brand-600/30">
+                    <LogIn className="size-5" />
+                  </span>
+                  ثبت درخواست این خدمت
+                </h2>
+
+                <div className="mt-4 space-y-2 rounded-xl bg-surface-3 p-4 text-xs text-navy-600">
+                  <div className="flex items-center justify-between"><span>هزینهٔ تقریبی خدمت</span><span className="font-bold text-navy-900">{rial(service.finalFee)}</span></div>
+                  <div className="flex items-center justify-between"><span>زمان تخمینی انجام</span><span>{formatDuration(service.estimatedMinutes, service.estimatedDays)}</span></div>
+                  <div className="flex items-center justify-between"><span>وضعیت پذیرش</span><span className={service.acceptingRequests ? 'font-bold text-emerald-700' : 'font-bold text-amber-700'}>{service.acceptingRequests ? 'فعال' : 'موقتاً غیرفعال'}</span></div>
+                </div>
+                {service.hasExternalCosts && (
+                  <p className="mt-2 flex items-start gap-1.5 text-[11px] leading-5 text-sky-900">
+                    <Landmark className="mt-0.5 size-3.5 shrink-0" />
+                    این مبلغ فقط حق‌الزحمهٔ انجام خدمت است؛ هزینهٔ سازمانی (اگر پیش بیاید) با فاکتور جداگانه در پرونده‌تان اعلام می‌شود.
+                  </p>
+                )}
+
+                {!service.acceptingRequests ? (
+                  <div className="mt-4 rounded-xl bg-amber-50 p-3 text-xs leading-6 text-amber-900 ring-1 ring-amber-200">
+                    پذیرش این خدمت موقتاً متوقف شده است. برای اطلاع از زمان فعال‌سازی با دفتر تماس بگیرید.
+                  </div>
+                ) : !user ? (
+                  <>
+                    <p className="mt-4 text-xs leading-6 text-navy-600">
+                      ثبت درخواست فقط برای کاربران واردشده است. ابتدا وارد حساب کاربری شوید؛ پس از ورود،
+                      مستقیم به فرم همین خدمت در پنل‌تان هدایت می‌شوید و می‌توانید مدارک را بارگذاری و درخواست را نهایی کنید.
+                    </p>
+                    <Link to={`/login?next=${encodeURIComponent(`/app/services/${service.slug}`)}`} className="btn-primary btn-lg mt-4 w-full">
+                      <LogIn className="size-5" /> ورود و ثبت درخواست
+                    </Link>
+                    <Link to={`/register?next=${encodeURIComponent(`/app/services/${service.slug}`)}`} className="btn-ghost mt-2 w-full">
+                      <UserPlus className="size-4" /> حساب ندارم — ثبت‌نام سریع
+                    </Link>
+                  </>
+                ) : user.kind === 'customer' ? (
+                  <>
+                    <p className="mt-4 text-xs leading-6 text-navy-600">
+                      فرم ثبت این خدمت در پنل مشتری شما آماده است و اطلاعات پروفایل‌تان آنجا به‌صورت خودکار در تکمیل فرم کمکتان می‌کند.
+                    </p>
+                    <Link to={`/app/services/${service.slug}`} className="btn-primary btn-lg mt-4 w-full">
+                      <CheckCircle2 className="size-5" /> ثبت درخواست در پنل من
+                    </Link>
+                  </>
+                ) : (
+                  <>
+                    <p className="mt-4 text-xs leading-6 text-navy-600">
+                      شما با حساب کارکنان وارد شده‌اید؛ ثبت درخواست برای مشتری (پذیرش حضوری) از پنل کارکنان انجام می‌شود.
+                    </p>
+                    <Link to={homeFor(user)} className="btn-primary mt-4 w-full">رفتن به پنل من</Link>
+                  </>
+                )}
+
+                <p className="mt-4 flex items-start gap-1.5 text-[11px] leading-5 text-navy-400">
+                  <ShieldCheck className="mt-0.5 size-3.5 shrink-0 text-emerald-700" />
+                  مدارک و اطلاعات شما فقط برای کارشناس مسئول پرونده قابل مشاهده است.
+                </p>
+              </div>
+            ) : (
             <form onSubmit={submit} className="card card-pad sticky top-24">
               <h2 className="font-bold text-navy-900">ثبت درخواست</h2>
               <p className="mt-1 text-xs leading-6 text-navy-500">فیلدها و مدارک ستاره‌دار الزامی هستند.</p>
@@ -687,9 +755,11 @@ export function ServiceDetailPage() {
                 پرداخت آنلاین فقط پس از تأیید درگاه معتبر ثبت می‌شود؛ پرداخت حضوری توسط کارشناس ثبت خواهد شد.
               </p>
             </form>
+            )}
           </div>
         </div>
       </div>
+      {inApp && (
       <Modal open={autofillOpen} onClose={() => setAutofillOpen(false)} title="استفاده از اطلاعات پروفایل من"
         footer={(
           <>
@@ -721,8 +791,10 @@ export function ServiceDetailPage() {
           </div>
         )}
       </Modal>
-    </PublicLayout>
+      )}
+    </>
   );
+  return wrap(page);
 }
 
 export function DynamicField({ field, value, onChange, fileName, uploading, onFileUpload }: {

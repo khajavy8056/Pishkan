@@ -64,7 +64,7 @@ export function CustomerServices() {
             {service.hasExternalCosts && (
               <p className="mt-1 text-[10px] text-sky-800">+ احتمال هزینهٔ سازمانی جداگانه در حین انجام</p>
             )}
-            <Link to={`/services/${service.slug}`}
+            <Link to={`/app/services/${service.slug}`}
               className={clsx('btn-sm mt-3 w-full', service.acceptingRequests ? 'btn-primary' : 'btn-ghost pointer-events-none opacity-60')}>
               {service.acceptingRequests ? 'ثبت درخواست' : 'موقتاً غیرفعال'}
               <ArrowLeft className="size-3.5" />

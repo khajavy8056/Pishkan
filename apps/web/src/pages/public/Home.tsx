@@ -1,13 +1,14 @@
 import { useEffect, useRef, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import {
-  ArrowLeft, BadgeCheck, BellRing, CheckCircle2, ChevronLeft, ChevronRight, Clock, CreditCard,
+  ArrowLeft, BadgeCheck, BellRing, ChevronLeft, ChevronRight, Clock,
   Download, FileCheck2, Headset, Search, Send, ShieldCheck, Sparkles, Wallet, Zap,
 } from 'lucide-react';
 import clsx from 'clsx';
 import { PublicLayout } from '../../components/public-layout';
 import { formatDuration, isInternalLink, parseListSetting, useSite, type Service } from '../../lib/site';
-import { useBrand } from '../../lib/brand';
+import { useBrand, BrandMark } from '../../lib/brand';
+import { useAuth, homeFor } from '../../lib/auth';
 import { api } from '../../lib/api';
 import { faNum, rial } from '../../lib/format';
 import { Button } from '../../components/ui';
@@ -34,14 +35,27 @@ function pastelTile(color: string | null | undefined) {
 }
 
 function CtaLink({ to, className, children }: { to: string; className?: string; children: React.ReactNode }) {
-  if (isInternalLink(to)) return <Link to={to} className={className}>{children}</Link>;
-  return <a href={to} target="_blank" rel="noreferrer" className={className}>{children}</a>;
+  const { user } = useAuth();
+  let href = to;
+  // Anything inside the customer panel goes through the login door first for
+  // guests; after signing in they land exactly where the button promised.
+  if (isInternalLink(to) && to.startsWith('/app')) {
+    if (!user) href = `/login?next=${encodeURIComponent(to)}`;
+    else if (user.kind !== 'customer') href = homeFor(user);
+  }
+  if (isInternalLink(href)) return <Link to={href} className={className}>{children}</Link>;
+  return <a href={href} target="_blank" rel="noreferrer" className={className}>{children}</a>;
 }
 
 export function HomePage() {
   const { site, setting } = useSite();
   const brand = useBrand();
+  const { user } = useAuth();
   const navigate = useNavigate();
+  const isCustomer = user?.kind === 'customer';
+  const servicesHref = isCustomer ? '/app/services' : '/services';
+  const serviceHref = (slug: string) => (isCustomer ? `/app/services/${slug}` : `/services/${slug}`);
+  const categoryHref = (slug: string) => (isCustomer ? `/app/services?category=${slug}` : `/services?category=${slug}`);
   const [query, setQuery] = useState('');
   const [results, setResults] = useState<Service[] | null>(null);
   const [searching, setSearching] = useState(false);
@@ -68,7 +82,7 @@ export function HomePage() {
 
   const submitSearch = (event: React.FormEvent) => {
     event.preventDefault();
-    navigate(`/services?q=${encodeURIComponent(query)}`);
+    navigate(`${servicesHref}?q=${encodeURIComponent(query)}`);
   };
 
   const scrollCats = (direction: 1 | -1) => {
@@ -113,12 +127,12 @@ export function HomePage() {
             <p className="mt-3 max-w-xl text-sm leading-8 text-navy-600 sm:text-[15px]">{setting('landing.hero_text')}</p>
 
             <div className="mt-7 flex flex-wrap items-center gap-3">
-              <CtaLink to={setting('landing.primary_cta_link') || '/services'} className="btn-primary btn-lg animate-shine">
+              <CtaLink to={setting('landing.primary_cta_link') || '/app/services'} className="btn-primary btn-lg animate-shine">
                 <Send className="size-5 -scale-x-100" />
                 {setting('landing.primary_cta_label') || 'ثبت درخواست خدمت'}
               </CtaLink>
               {setting('landing.secondary_cta_link') && (
-                <CtaLink to={setting('landing.secondary_cta_link')} className="btn-ghost btn-lg">
+                <CtaLink to={setting('landing.secondary_cta_link')} className="btn-soft btn-lg shadow-xl shadow-navy-900/10 ring-1 ring-white/70">
                   <Search className="size-5" />
                   {setting('landing.secondary_cta_label') || 'پیگیری درخواست'}
                 </CtaLink>
@@ -144,7 +158,7 @@ export function HomePage() {
                   {results?.map((item) => (
                     <Link
                       key={item.id}
-                      to={`/services/${item.slug}`}
+                      to={serviceHref(item.slug)}
                       className="flex items-center justify-between border-b border-line px-4 py-3 text-sm transition last:border-0 hover:bg-brand-50"
                     >
                       <span className="flex items-center gap-2">
@@ -170,6 +184,9 @@ export function HomePage() {
           {/* 3D scene */}
           <div className="perspective-1200 relative mx-auto w-full max-w-xl animate-in lg:max-w-none">
             <div aria-hidden="true" className="absolute inset-x-8 -bottom-5 h-10 rounded-[50%] bg-navy-950/15 blur-xl" />
+            <div aria-hidden="true" className="absolute inset-x-16 -bottom-8 h-12 rounded-[50%] bg-brand-500/25 blur-2xl" />
+            <div aria-hidden="true" className="absolute inset-x-2 -bottom-9 h-16 rounded-[50%] border-2 border-brand-400/35" />
+            <div aria-hidden="true" className="absolute -inset-x-3 -bottom-12 h-20 rounded-[50%] border border-brand-300/25" />
             <Tilt maxX={6} maxY={8}>
               <div className="t3d relative">
                 <div className="animate-shine relative overflow-hidden rounded-[2rem] shadow-2xl shadow-brand-900/25 ring-1 ring-white/50">
@@ -183,6 +200,16 @@ export function HomePage() {
                     <Sparkles className="size-4 text-amber-300" />
                     {brand.tagline || 'سریع • مطمئن • آسان'}
                   </div>
+                </div>
+
+                <div
+                  className="absolute top-1/2 left-5 hidden w-44 rounded-[1.6rem] bg-white/85 p-4 text-center shadow-2xl shadow-navy-950/25 ring-1 ring-white/70 backdrop-blur-md sm:block lg:left-7"
+                  style={{ transform: 'translateY(-50%) translateZ(84px) rotateY(6deg)' }}
+                >
+                  <BrandMark className="mx-auto size-14" />
+                  <p className="mt-2.5 truncate text-sm font-black text-navy-950">{brand.name}</p>
+                  {brand.nameEn && <p dir="ltr" className="truncate text-[11px] font-semibold tracking-wide text-navy-500">{brand.nameEn}</p>}
+                  <p className="mt-2 border-t border-navy-900/10 pt-2 text-[11px] font-bold text-accent">{brand.tagline || 'سریع • مطمئن • آسان'}</p>
                 </div>
 
                 <div className="glass-chip animate-floaty absolute -top-4 right-5 sm:right-8" style={{ transform: 'translateZ(56px)' }}>
@@ -211,6 +238,7 @@ export function HomePage() {
 
       {/* ---------------------------- categories ----------------------------- */}
       <section className="mx-auto max-w-7xl px-4 pt-4 pb-2 sm:px-6" aria-label="دسته‌بندی خدمات">
+        <div className="rounded-[2rem] bg-surface px-4 py-5 shadow-xl shadow-navy-900/5 ring-1 ring-line sm:px-6 sm:py-6">
         <div className="mb-6 flex flex-wrap items-end justify-between gap-3">
           <div>
             <h2 className="text-xl font-black text-navy-900 sm:text-2xl">دسته‌بندی خدمات</h2>
@@ -223,7 +251,7 @@ export function HomePage() {
             <button type="button" onClick={() => scrollCats(-1)} className="icon-btn border border-line bg-surface shadow-xs" aria-label="دسته‌های بعدی">
               <ChevronLeft className="size-5" />
             </button>
-            <Link to="/services" className="btn-ghost btn-sm">همهٔ خدمات <ArrowLeft className="size-4" /></Link>
+            <Link to={servicesHref} className="btn-ghost btn-sm">همهٔ خدمات <ArrowLeft className="size-4" /></Link>
           </div>
         </div>
 
@@ -234,7 +262,7 @@ export function HomePage() {
           {(site?.categories ?? []).map((category, index) => (
             <Link
               key={category.id}
-              to={`/services?category=${category.slug}`}
+              to={categoryHref(category.slug)}
               className="group w-[8.6rem] shrink-0 snap-start rounded-[1.6rem] p-4 ring-1 ring-white/40 transition duration-300 hover:-translate-y-1.5 sm:w-40"
               style={{ ...pastelTile(category.color), animationDelay: `${index * 40}ms` }}
             >
@@ -255,6 +283,7 @@ export function HomePage() {
             <p className="px-2 py-6 text-sm text-navy-400">در حال بارگذاری دسته‌ها…</p>
           )}
         </div>
+        </div>
       </section>
 
       {/* ------------------------- popular services -------------------------- */}
@@ -264,7 +293,7 @@ export function HomePage() {
             <h2 className="text-xl font-black text-navy-900 sm:text-2xl">خدمات پرکاربرد</h2>
             <p className="mt-1 text-sm text-navy-500">{setting('services.catalog_notice')}</p>
           </div>
-          <Link to="/services" className="btn-soft btn-sm">مشاهدهٔ همه <ArrowLeft className="size-4" /></Link>
+          <Link to={servicesHref} className="btn-soft btn-sm">مشاهدهٔ همه <ArrowLeft className="size-4" /></Link>
         </div>
 
         <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
@@ -274,7 +303,7 @@ export function HomePage() {
             return (
               <Link
                 key={service.id}
-                to={`/services/${service.slug}`}
+                to={serviceHref(service.slug)}
                 className="group card flex flex-col gap-2 p-5 transition duration-300 hover:-translate-y-1 hover:shadow-xl"
               >
                 <div className="flex items-center justify-between">
@@ -306,9 +335,16 @@ export function HomePage() {
               <div className="card relative overflow-hidden lg:col-span-3">
                 <div aria-hidden="true" className="pointer-events-none absolute -top-20 -left-16 size-64 rounded-full bg-brand-400/15 blur-3xl" />
                 <div className="relative grid items-center gap-6 p-6 sm:grid-cols-[auto_1fr] sm:p-8">
-                  <Tilt maxX={8} maxY={10} className="order-2 sm:order-1">
-                    <PhoneMockup />
-                  </Tilt>
+                  <div className="relative order-2 mx-auto sm:order-1 sm:mx-0">
+                    <Tilt maxX={8} maxY={10}>
+                      <PhoneMockup />
+                    </Tilt>
+                    <img
+                      src={brand.mascot}
+                      alt="ربات پشتیبانی"
+                      className="animate-floaty-slow absolute -bottom-4 -left-4 hidden w-20 rotate-6 rounded-[1.4rem] shadow-2xl ring-4 ring-surface sm:block"
+                    />
+                  </div>
                   <div className="order-1 sm:order-2">
                     <h2 className="text-xl font-black text-navy-900 sm:text-2xl">{appTitle}</h2>
                     <p className="mt-2 text-sm leading-7 text-navy-600">{setting('landing.app_text')}</p>
@@ -374,14 +410,19 @@ export function HomePage() {
           <div className="card relative overflow-hidden">
             <div aria-hidden="true" className="pointer-events-none absolute inset-x-0 top-0 h-1 bg-gradient-to-l from-brand-400 via-brand-600 to-brand-400" />
             <div className="grid grid-cols-2 divide-x divide-line lg:grid-cols-4">
-              {[
+              {(([
+                { icon: <ShieldCheck className="size-7" />, value: 'امن و قابل اعتماد', label: 'با استانداردهای روز', big: true },
                 { icon: <BadgeCheck className="size-5" />, value: `${faNum(stats.services)}+`, label: 'خدمت متنوع' },
                 { icon: <Sparkles className="size-5" />, value: customersStat, label: setting('landing.stat_customers_label') || 'مشتری همراه' },
-                { icon: <CheckCircle2 className="size-5" />, value: `${faNum(stats.completedRequests)}+`, label: 'پروندهٔ تکمیل‌شده' },
-                { icon: <CreditCard className="size-5" />, value: 'امن و شفاف', label: 'پرداخت و پیگیری آنلاین' },
-              ].map((item) => (
+                { icon: <Headset className="size-5" />, value: 'پشتیبانی', label: setting('office.working_hours') || 'در تمام روزهای هفته' },
+              ] as { icon: React.ReactNode; value: string; label: string; big?: boolean }[])).map((item) => (
                 <div key={item.label} className="flex flex-col items-center gap-1 px-4 py-6 text-center">
-                  <span className="grid size-11 place-items-center rounded-2xl bg-primary-soft text-accent">{item.icon}</span>
+                  <span className={clsx(
+                    'grid place-items-center',
+                    item.big
+                      ? 'size-14 rounded-[1.2rem] bg-gradient-to-br from-brand-500 to-brand-800 text-white shadow-lg shadow-brand-700/40 ring-1 ring-white/40'
+                      : 'size-11 rounded-2xl bg-primary-soft text-accent',
+                  )}>{item.icon}</span>
                   <span className="mt-2 text-xl font-black text-navy-900 sm:text-2xl">{item.value}</span>
                   <span className="text-xs text-navy-500">{item.label}</span>
                 </div>

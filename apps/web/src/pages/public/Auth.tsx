@@ -4,7 +4,7 @@ import { Smartphone, KeyRound, ArrowRight, ShieldCheck, Eye, EyeOff, RefreshCw, 
 import clsx from 'clsx';
 import { PublicLayout } from '../../components/public-layout';
 import { formatDuration, useSite } from '../../lib/site';
-import { useAuth, homeFor, type CurrentUser } from '../../lib/auth';
+import { useAuth, homeFor, safeNextPath, type CurrentUser } from '../../lib/auth';
 import { useBrand, BrandLockup, BrandMark } from '../../lib/brand';
 import { api, ApiFailure } from '../../lib/api';
 import { Button, Field, Input, useToast } from '../../components/ui';
@@ -28,7 +28,7 @@ function LoginPanel({ audience }: { audience: Audience }) {
   const navigate = useNavigate();
   const [params] = useSearchParams();
   const { notify } = useToast();
-  const next = params.get('next');
+  const next = safeNextPath(params.get('next'), audience);
 
   const otpEnabled = audience === 'staff' ? Boolean(site?.authMethods.staffOtp) : (site?.authMethods.otp ?? false);
   const passwordEnabled = audience === 'staff' ? true : (site?.authMethods.password ?? false);
@@ -370,6 +370,8 @@ export function RegisterPage() {
   const { site } = useSite();
   const { refresh } = useAuth();
   const navigate = useNavigate();
+  const [params] = useSearchParams();
+  const next = safeNextPath(params.get('next'), 'customer');
   const { notify } = useToast();
   const [form, setForm] = useState({ fullName: '', username: '', mobile: '', password: '', email: '', nationalId: '' });
   const [loading, setLoading] = useState(false);
@@ -391,7 +393,7 @@ export function RegisterPage() {
       }
       const me = await refresh();
       notify('ثبت‌نام با موفقیت انجام شد', 'success');
-      navigate(me ? homeFor(me) : '/app', { replace: true });
+      navigate(me ? (me.profileState?.complete === false ? homeFor(me) : (next ?? homeFor(me))) : '/app', { replace: true });
     } catch (err) {
       setError(err instanceof ApiFailure ? err.message : 'ثبت‌نام ناموفق بود');
     } finally {

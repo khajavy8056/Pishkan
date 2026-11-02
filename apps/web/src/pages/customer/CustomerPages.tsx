@@ -337,7 +337,7 @@ export function CustomerDashboard() {
             <h2 className="mb-3 font-black text-navy-900">خدمات پرکاربرد</h2>
             <div className="grid gap-3 sm:grid-cols-2">
               {(data.popularServices ?? []).slice(0, 4).map((service: any) => (
-                <Link key={service.id} to={`/services/${service.slug}`} className="rounded-3xl bg-surface-2 p-4 ring-1 ring-line transition hover:bg-brand-50">
+                <Link key={service.id} to={`/app/services/${service.slug}`} className="rounded-3xl bg-surface-2 p-4 ring-1 ring-line transition hover:bg-brand-50">
                   <p className="text-sm font-bold text-navy-900">{service.title}</p>
                   <p className="mt-1 line-clamp-2 text-xs leading-5 text-navy-500">{service.summary}</p>
                 </Link>
@@ -385,7 +385,7 @@ export function CustomerRequests() {
   return (
     <AppShell variant="customer">
       <PageHeader title="درخواست‌های من" description="وضعیت هر پرونده، تاریخچه و مدارک را در یک نگاه ببینید."
-        actions={<Link to="/services" className="btn-primary btn-sm"><Plus className="size-4" /> درخواست جدید</Link>} />
+        actions={<Link to="/app/services" className="btn-primary btn-sm"><Plus className="size-4" /> درخواست جدید</Link>} />
 
       <div className="mb-4 flex gap-1 rounded-xl bg-surface p-1 ring-1 ring-line sm:w-fit">
         {[
@@ -403,7 +403,7 @@ export function CustomerRequests() {
       {loading && <Loading />}
       {!loading && items.length === 0 && (
         <EmptyState title="درخواستی در این دسته وجود ندارد" description="می‌توانید از میان خدمات، درخواست جدید ثبت کنید."
-          action={<Link to="/services" className="btn-soft btn-sm">انتخاب خدمت</Link>} />
+          action={<Link to="/app/services" className="btn-soft btn-sm">انتخاب خدمت</Link>} />
       )}
 
       <div className="space-y-3">

@@ -8,6 +8,7 @@ import { parseListSetting, useSite } from '../lib/site';
 import { useAuth, homeFor } from '../lib/auth';
 import { useBrand, BrandLockup } from '../lib/brand';
 import { Skyline } from './visual';
+import { ChatWidget } from './ChatWidget';
 import { ThemeToggle } from '../lib/theme';
 
 const links = [
@@ -78,12 +79,9 @@ export function PublicLayout({ children }: { children: ReactNode }) {
               پنل من <ArrowLeft className="size-4" />
             </Link>
           ) : (
-            <div className="hidden items-center gap-2 sm:flex">
-              <Link to="/register" className="btn-ghost btn-sm">ثبت‌نام</Link>
-              <Link to="/login" className="btn-primary btn-sm">
-                <UserRound className="size-4" /> ورود
-              </Link>
-            </div>
+            <Link to="/login" className="btn-primary btn-sm hidden shrink-0 sm:inline-flex">
+              <UserRound className="size-4" /> ورود / ثبت‌نام
+            </Link>
           )}
 
           <button className="icon-btn lg:hidden" onClick={() => setOpen((v) => !v)} aria-label="منو" aria-expanded={open}>
@@ -233,6 +231,7 @@ export function PublicLayout({ children }: { children: ReactNode }) {
           © {setting('site.footer_text')} — {setting('office.name') || brand.name} · نسخه {site?.version ?? '1.4.0'}
         </div>
       </footer>
+      <ChatWidget placement="page" />
     </div>
   );
 }

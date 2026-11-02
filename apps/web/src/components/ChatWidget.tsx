@@ -1,12 +1,14 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { Link, useLocation } from 'react-router-dom';
 import {
-  ArrowRight, CheckCheck, ExternalLink, Lock, MessagesSquare, Paperclip, Plus, Send, X,
+  ArrowRight, CheckCheck, ExternalLink, Headset, Lock, MessagesSquare, Paperclip, Phone, Plus, Send, X,
 } from 'lucide-react';
 import clsx from 'clsx';
 import { api, ApiFailure } from '../lib/api';
 import { useAuth } from '../lib/auth';
 import { faNum, relative } from '../lib/format';
+import { useSite } from '../lib/site';
+import { useBrand } from '../lib/brand';
 import { useToast } from './ui';
 
 const STATUS_LABELS: Record<string, string> = {
@@ -31,10 +33,13 @@ const STATUS_TONES: Record<string, string> = {
  * customers in parallel — conversations are ordinary support tickets, so the
  * full-page message center and this widget always show the same data.
  */
-export function ChatWidget() {
+export function ChatWidget({ placement = 'shell' }: { placement?: 'shell' | 'page' }) {
   const { user, can } = useAuth();
   const { notify } = useToast();
   const location = useLocation();
+  const { setting } = useSite();
+  const brand = useBrand();
+  const guest = !user;
   const isCustomer = user?.kind === 'customer';
   const canSupport = isCustomer || can('support.view');
 
@@ -107,19 +112,21 @@ export function ChatWidget() {
   // Deep links: bell notifications ("pishkan:open-chat") and push clicks (?chat=).
   useEffect(() => {
     const handler = (event: Event) => {
+      if (guest) { setOpen(true); return; }
       const ticketId = (event as CustomEvent<{ ticketId?: string }>).detail?.ticketId;
       if (ticketId) void openTicket(ticketId);
       else { setOpen(true); setView('list'); void loadTickets(); }
     };
     window.addEventListener('pishkan:open-chat', handler);
     return () => window.removeEventListener('pishkan:open-chat', handler);
-  }, [openTicket, loadTickets]);
+  }, [guest, openTicket, loadTickets]);
 
   useEffect(() => {
     const params = new URLSearchParams(location.search);
     const ticketId = params.get('chat');
     if (ticketId) {
-      void openTicket(ticketId);
+      if (guest) setOpen(true);
+      else void openTicket(ticketId);
       params.delete('chat');
       const rest = params.toString();
       window.history.replaceState(null, '', `${location.pathname}${rest ? `?${rest}` : ''}`);
@@ -134,7 +141,7 @@ export function ChatWidget() {
     if (node) node.scrollTop = node.scrollHeight;
   }, [active?.messages?.length, view]);
 
-  if (!user || !canSupport) return null;
+  if (user && !canSupport) return null;
 
   const uploadAttachment = async (file: File | undefined) => {
     if (!file) return;
@@ -204,7 +211,16 @@ export function ChatWidget() {
     } finally { setBusy(false); }
   };
 
-  const fullPagePath = isCustomer ? '/app/support' : user.kind === 'admin' ? '/admin/support' : '/staff/support';
+  const fullPagePath = !user ? '/login' : isCustomer ? '/app/support' : user.kind === 'admin' ? '/admin/support' : '/staff/support';
+  // Bottom-right corner of the screen. Inside the panels the navy sidebar
+  // owns the right edge on desktop, so the widget parks beside it instead of
+  // covering the navigation (sidebar is 17.5rem wide).
+  const fabPosition = placement === 'page'
+    ? 'bottom-5 right-4 lg:bottom-6 lg:right-6'
+    : 'bottom-20 right-4 lg:bottom-6 lg:right-[19rem]';
+  const panelPosition = placement === 'page'
+    ? 'bottom-[5.5rem] right-4 lg:bottom-24 lg:right-6'
+    : 'bottom-36 right-4 lg:bottom-24 lg:right-[19rem]';
   const unreadOf = (ticket: any) => (isCustomer ? ticket.unreadForCustomer : ticket.unreadForStaff) ?? 0;
 
   return (
@@ -213,8 +229,8 @@ export function ChatWidget() {
       <button
         type="button"
         aria-label="پیام‌ها و پشتیبانی"
-        onClick={() => { setOpen((v) => !v); if (!open) { setView(active ? 'thread' : 'list'); void loadTickets(); } }}
-        className="fixed bottom-20 left-4 z-40 grid size-14 place-items-center rounded-full bg-gradient-to-br from-brand-600 to-shell text-white shadow-2xl ring-1 ring-white/30 transition hover:scale-105 lg:bottom-6 lg:left-6"
+        onClick={() => { setOpen((v) => !v); if (!open && !guest) { setView(active ? 'thread' : 'list'); void loadTickets(); } }}
+        className={clsx('fixed z-40 grid size-14 place-items-center rounded-full bg-gradient-to-br from-brand-600 to-shell text-white shadow-2xl ring-1 ring-white/30 transition hover:scale-105', fabPosition)}
       >
         {open ? <X className="size-6" /> : <MessagesSquare className="size-6" />}
         {!open && unreadTotal > 0 && (
@@ -227,7 +243,7 @@ export function ChatWidget() {
       {open && (
         <section
           aria-label="پنجرهٔ گفت‌وگو"
-          className="animate-pop fixed bottom-36 left-4 z-40 flex h-[min(34rem,calc(100dvh-10rem))] w-[min(24rem,calc(100vw-2rem))] flex-col overflow-hidden rounded-3xl border border-line bg-surface shadow-2xl lg:bottom-24 lg:left-6"
+          className={clsx('animate-pop fixed z-40 flex h-[min(34rem,calc(100dvh-10rem))] w-[min(24rem,calc(100vw-2rem))] flex-col overflow-hidden rounded-3xl border border-line bg-surface shadow-2xl', panelPosition)}
         >
           {/* Header */}
           <header className="flex items-center gap-2 bg-gradient-to-l from-brand-700 to-shell px-4 py-3 text-white">
@@ -242,19 +258,21 @@ export function ChatWidget() {
               <p className="truncate text-sm font-bold">
                 {view === 'thread' && active
                   ? (isCustomer ? active.subject : `${active.customerName ?? 'مشتری'} — ${active.subject}`)
-                  : view === 'compose' ? 'گفت‌وگوی جدید' : 'پیام‌ها و پشتیبانی'}
+                  : view === 'compose' ? 'گفت‌وگوی جدید' : guest ? 'پشتیبانی آنلاین' : 'پیام‌ها و پشتیبانی'}
               </p>
               <p className="truncate text-[10px] text-white/70">
                 {view === 'thread' && active
                   ? `${active.number} · ${STATUS_LABELS[active.status] ?? active.status}${active.requestTrackingCode ? ` · پرونده ${active.requestTrackingCode}` : ''}`
-                  : isCustomer ? 'پاسخ را در همین پنجره دریافت می‌کنید' : 'صف گفت‌وگوهای مشتریان'}
+                  : guest ? 'گفت‌وگوی زنده با کارشناسان دفتر' : isCustomer ? 'پاسخ را در همین پنجره دریافت می‌کنید' : 'صف گفت‌وگوهای مشتریان'}
               </p>
             </div>
-            <Link to={fullPagePath} aria-label="بازکردن صفحهٔ کامل پیام‌ها"
-              className="grid size-8 shrink-0 place-items-center rounded-lg transition hover:bg-white/15"
-              onClick={() => setOpen(false)}>
-              <ExternalLink className="size-4" />
-            </Link>
+            {!guest && (
+              <Link to={fullPagePath} aria-label="بازکردن صفحهٔ کامل پیام‌ها"
+                className="grid size-8 shrink-0 place-items-center rounded-lg transition hover:bg-white/15"
+                onClick={() => setOpen(false)}>
+                <ExternalLink className="size-4" />
+              </Link>
+            )}
             <button type="button" aria-label="بستن پنجرهٔ گفت‌وگو"
               className="grid size-8 shrink-0 place-items-center rounded-lg transition hover:bg-white/15"
               onClick={() => setOpen(false)}>
@@ -262,7 +280,30 @@ export function ChatWidget() {
             </button>
           </header>
 
-          {view === 'list' && (
+          {guest ? (
+            <div className="flex flex-1 flex-col items-center overflow-y-auto px-6 py-8 text-center">
+              <img src={brand.mascot} alt="ربات پشتیبانی" className="w-20 rounded-[1.6rem] shadow-xl ring-1 ring-line" />
+              <p className="mt-4 text-base font-black text-navy-900">سلام! پشتیبانی {brand.shortName} در کنار شماست</p>
+              <p className="mt-2 text-xs leading-6 text-navy-500">
+                برای گفت‌وگوی زنده با کارشناسان دفتر وارد حساب کاربری شوید؛ پس از ورود به همین صفحه برمی‌گردید
+                و گفت‌وگو را همین‌جا ادامه می‌دهید. حساب ندارید؟ ثبت‌نام کمتر از یک دقیقه طول می‌کشد.
+              </p>
+              <Link to={`/login?next=${encodeURIComponent(location.pathname + location.search)}`} className="btn-primary mt-5 w-full" onClick={() => setOpen(false)}>
+                ورود و شروع گفت‌وگو
+              </Link>
+              <Link to={`/register?next=${encodeURIComponent(location.pathname + location.search)}`} className="btn-ghost mt-2 w-full" onClick={() => setOpen(false)}>
+                ثبت‌نام سریع
+              </Link>
+              {setting('office.phone') && (
+                <a href={`tel:${setting('office.phone')}`} className="mt-5 flex items-center gap-2 text-sm font-bold text-accent">
+                  <Phone className="size-4" /> تماس با دفتر: <span dir="ltr">{setting('office.phone')}</span>
+                </a>
+              )}
+              {setting('office.working_hours') && (
+                <p className="mt-2 flex items-center gap-1.5 text-[11px] text-navy-400"><Headset className="size-3.5" /> {setting('office.working_hours')}</p>
+              )}
+            </div>
+          ) : view === 'list' && (
             <>
               <div className="scrollbar-thin flex-1 overflow-y-auto">
                 {tickets.length === 0 && (
@@ -317,7 +358,7 @@ export function ChatWidget() {
             </>
           )}
 
-          {view === 'compose' && (
+          {!guest && view === 'compose' && (
             <div className="flex flex-1 flex-col gap-3 overflow-y-auto p-4">
               <label className="block">
                 <span className="mb-1 block text-xs font-medium text-navy-600">موضوع (اختیاری)</span>
@@ -350,11 +391,11 @@ export function ChatWidget() {
             </div>
           )}
 
-          {view === 'thread' && active && (
+          {!guest && view === 'thread' && active && (
             <>
               <div ref={scrollRef} className="scrollbar-thin flex flex-1 flex-col gap-2 overflow-y-auto bg-surface-2 px-3 py-3">
                 {(active.messages ?? []).map((message: any) => {
-                  const mine = message.senderId === user.id;
+                  const mine = message.senderId === user?.id;
                   return (
                     <div key={message.id} className={clsx('max-w-[85%] rounded-2xl px-3 py-2 shadow-xs', mine ? 'self-end rounded-bl-md bg-brand-600 text-white' : 'self-start rounded-br-md bg-surface text-navy-800 ring-1 ring-line', message.isInternal && 'bg-amber-50 text-amber-950 ring-amber-200')}>
                       {!mine && message.senderName && (
