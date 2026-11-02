@@ -3,7 +3,7 @@ import request from 'supertest';
 import { adminSession, app, createStaff, EXPERT } from './helpers.js';
 
 describe('admin settings', () => {
-  it('exposes all 18 setting groups and masks secrets', async () => {
+  it('exposes all 19 setting groups and masks secrets', async () => {
     const admin = await adminSession();
     const server = await app();
     // store a secret first
@@ -12,7 +12,7 @@ describe('admin settings', () => {
     }).expect(200);
 
     const res = await request(server).get('/api/settings/admin').set('Cookie', admin.cookie);
-    expect(res.body.data.groups).toHaveLength(18);
+    expect(res.body.data.groups).toHaveLength(19);
     const secret = res.body.data.settings.find((s: any) => s.key === 'sms.password');
     expect(secret.isSecret).toBe(true);
     expect(secret.value).toBe('');

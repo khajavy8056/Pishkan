@@ -655,6 +655,8 @@ function Show-InstallResult([bool]$Ok) {
   $finishSummary.Text = ("نصب با موفقیت انجام شد.`n`n" +
     "آدرس همین رایانه: $url`n" + $lanSummary + "`n`n" +
     "نام کاربری مدیر کل: $($userBox.Text.Trim())`n" +
+    "ورود مدیر و کارکنان (فقط از این نشانی): $url/login-admin`n" +
+    "ورود مشتریان از همان آدرس اصلی سایت است.`n" +
     "پوشه داده: " + (Join-Path $pathBox.Text '.data') + "`n`n" +
     "برای اتصال دوباره از «Pishkan Manager» استفاده کنید. گزارش نصب در .data\install-report.json ذخیره شد.")
   $finishSummary.Tag = 'text'

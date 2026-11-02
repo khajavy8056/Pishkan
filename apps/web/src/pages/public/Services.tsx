@@ -16,7 +16,7 @@ import { Button, EmptyState, ErrorState, Field, Input, Loading, Modal, Select, T
 /* ------------------------------- service list ----------------------------- */
 
 export function ServicesPage() {
-  const { site } = useSite();
+  const { site, setting } = useSite();
   const [params, setParams] = useSearchParams();
   const [query, setQuery] = useState(params.get('q') ?? '');
   const [services, setServices] = useState<Service[]>([]);
@@ -53,7 +53,7 @@ export function ServicesPage() {
     <PublicLayout>
       <div className="mx-auto max-w-7xl px-4 py-8 sm:px-6">
         <div className="mb-6">
-          <h1 className="text-2xl font-bold text-navy-900">خدمات دفتر پیشخوان</h1>
+          <h1 className="text-2xl font-black text-navy-900">خدمات {setting('site.short_name') || 'پیشخوان'}</h1>
           <p className="mt-1 text-sm text-navy-500">{site?.settings['services.catalog_notice'] ?? ''}</p>
         </div>
 

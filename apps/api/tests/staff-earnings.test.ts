@@ -32,7 +32,7 @@ const otherExpert = { username: 'earn_other_expert', password: 'Expert#12345', f
 function cookieOf(session: any) { return session.cookie; }
 
 async function sessionOf(username: string, password: string) {
-  const res = await request(server).post('/api/auth/login').send({ identifier: username, password });
+  const res = await request(server).post('/api/auth/staff/login').send({ identifier: username, password });
   return { cookie: res.headers['set-cookie'] as unknown as string[] };
 }
 

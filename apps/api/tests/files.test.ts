@@ -26,7 +26,7 @@ describe('private file authorization and upload validation', () => {
   it('does not grant managers or accountants blanket access to unrelated private files', async () => {
     const server = await app();
     const customer = await customerSession();
-    const customerLogin = await request(server).post('/api/auth/login').send({ identifier: '09121112233', password: 'Customer#12345' });
+    const customerLogin = await request(server).post('/api/auth/customer/login').send({ identifier: '09121112233', password: 'Customer#12345' });
     const ownerId = customerLogin.body.data.user.id;
     const fileId = await storedFile(ownerId, 'private-bank-document');
     const manager = await createStaff('manager', { username: 'files_manager', password: 'Manager#12345', fullName: 'مدیر پرونده' });
@@ -42,12 +42,12 @@ describe('private file authorization and upload validation', () => {
   it('allows only the assigned case worker and the owning customer to read a request document', async () => {
     const server = await app();
     const customer = await customerSession();
-    const profile = await request(server).post('/api/auth/login').send({ identifier: '09121112233', password: 'Customer#12345' });
+    const profile = await request(server).post('/api/auth/customer/login').send({ identifier: '09121112233', password: 'Customer#12345' });
     const customerId = profile.body.data.user.id;
     const serviceId = (await request(server).get('/api/public/services?pageSize=1')).body.data[0].id;
     const expert = await createStaff('service_expert', { username: 'files_assigned', password: 'Expert#12345', fullName: 'کارشناس تخصیص‌یافته' });
     const otherExpert = await createStaff('service_expert', { username: 'files_unassigned', password: 'Expert#12345', fullName: 'کارشناس دیگر' });
-    const expertLogin = await request(server).post('/api/auth/login').send({ identifier: 'files_assigned', password: 'Expert#12345' });
+    const expertLogin = await request(server).post('/api/auth/staff/login').send({ identifier: 'files_assigned', password: 'Expert#12345' });
     const requestId = `request-files-${Date.now()}`;
     const fileId = await storedFile(customerId);
     await run(

@@ -390,9 +390,12 @@ async function checkFrontend() {
 }
 
 async function login(identifier, password, actor = 'anon') {
+  // Since round 4 the two entrances are separate doors: customers only ever
+  // authenticate at the customer door and staff/admin at the staff door.
+  const door = actor === 'customer' ? '/api/auth/customer/login' : '/api/auth/staff/login';
   const attempt = () => {
     jar(actor).clear();
-    return request('/api/auth/login', {
+    return request(door, {
       method: 'POST', body: { identifier, password }, session: true, expect: 200, actor,
     });
   };

@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { Link } from 'react-router-dom';
+import { Link, useSearchParams } from 'react-router-dom';
 import { Search, ArrowLeft, Clock } from 'lucide-react';
 import clsx from 'clsx';
 import { AppShell, PageHeader } from '../../components/shell';
@@ -10,10 +10,17 @@ import { rial } from '../../lib/format';
 
 export function CustomerServices() {
   const { site } = useSite();
+  const [params] = useSearchParams();
   const [services, setServices] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
-  const [query, setQuery] = useState('');
-  const [category, setCategory] = useState('');
+  const [query, setQuery] = useState(params.get('q') ?? '');
+  const [category, setCategory] = useState(params.get('category') ?? '');
+
+  // Header search and dashboard tiles deep-link here with ?q= / ?category=.
+  useEffect(() => {
+    setQuery(params.get('q') ?? '');
+    setCategory(params.get('category') ?? '');
+  }, [params]);
 
   useEffect(() => {
     const timer = setTimeout(() => {

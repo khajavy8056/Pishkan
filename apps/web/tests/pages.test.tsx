@@ -7,7 +7,7 @@ import { ToastProvider } from '../src/components/ui';
 
 import { HomePage } from '../src/pages/public/Home';
 import { ServicesPage, ServiceDetailPage } from '../src/pages/public/Services';
-import { LoginPage, RegisterPage, LegalPage, StatusPage, AssistantPage } from '../src/pages/public/Auth';
+import { LoginPage, StaffLoginPage, RegisterPage, LegalPage, StatusPage, AssistantPage } from '../src/pages/public/Auth';
 import { NotFoundPage } from '../src/pages/public/Auth';
 import { fetchMock, setAuthUser } from './setup';
 
@@ -44,7 +44,7 @@ describe('public pages render', () => {
   it('lists services returned by the API', async () => {
     renderAt('/services', <ServicesPage />);
     await waitFor(() => expect(screen.getByText('سابقه بیمه تأمین اجتماعی')).toBeTruthy());
-    expect(screen.getByRole('heading', { name: 'خدمات دفتر پیشخوان' })).toBeTruthy();
+    expect(screen.getByRole('heading', { name: 'خدمات پیشخوان' })).toBeTruthy();
   });
 
   it('renders the dynamic request form for a service', async () => {
@@ -116,7 +116,7 @@ describe('public pages render', () => {
     let authMeCalls = 0;
     fetchMock.mockImplementation(async (input) => {
       const url = typeof input === 'string' ? input : input instanceof URL ? input.toString() : String(input.url);
-      if (url.includes('/api/auth/login')) {
+      if (url.includes('/api/auth/staff/login')) {
         const data = { user: { id: 'usr_admin', kind: 'admin', fullName: 'مدیر سامانه', roleCode: 'super_admin', permissions: '*' }, token: 'test-session-token' };
         return { ok: true, status: 200, headers: new Headers({ 'content-type': 'application/json' }), json: async () => ({ ok: true, data }), blob: async () => new Blob(), text: async () => '' } as unknown as Response;
       }
@@ -128,11 +128,11 @@ describe('public pages render', () => {
     });
 
     try {
-      renderAt('/login?account=staff', <LoginPage />);
+      renderAt('/login-admin', <StaffLoginPage />);
       await screen.findByText('نام کاربری و رمز');
       fireEvent.click(screen.getByText('نام کاربری و رمز'));
-      await screen.findByLabelText(/نام کاربری، موبایل یا ایمیل/);
-      fireEvent.change(screen.getByLabelText(/نام کاربری، موبایل یا ایمیل/), { target: { value: 'preview-admin' } });
+      await screen.findByLabelText(/نام کاربری یا موبایل/);
+      fireEvent.change(screen.getByLabelText(/نام کاربری یا موبایل/), { target: { value: 'preview-admin' } });
       fireEvent.change(screen.getByLabelText(/رمز عبور/), { target: { value: 'example-password' } });
       fireEvent.click(screen.getByRole('button', { name: 'ورود' }));
       await waitFor(() => expect(screen.getByText(/نشست مرورگر تأیید نشد/)).toBeTruthy());

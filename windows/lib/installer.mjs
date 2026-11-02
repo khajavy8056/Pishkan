@@ -937,6 +937,7 @@ async function main() {
       durationMs: Date.now() - startedAt.getTime(),
       root: ROOT,
       url: `http://127.0.0.1:${config.port}`,
+      adminLoginUrl: `http://127.0.0.1:${config.port}/login-admin`,
       port: config.port,
       lanAccess: config.lanAccess,
       mobileUrls: config.mobileUrls,

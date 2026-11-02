@@ -42,7 +42,7 @@ describe('installer admin upsert', () => {
     expect(changed.status).toBe('updated');
     await login(USER, PASS2);
     const server = await app();
-    const oldLogin = await request(server).post('/api/auth/login').send({ identifier: USER, password: PASS1 });
+    const oldLogin = await request(server).post('/api/auth/staff/login').send({ identifier: USER, password: PASS1 });
     expect(oldLogin.status).toBe(401);
   });
 
@@ -54,7 +54,7 @@ describe('installer admin upsert', () => {
     // The staff account is untouched: original password works, installer password does not.
     await login('taken_user', staffPassword);
     const server = await app();
-    const wrong = await request(server).post('/api/auth/login').send({ identifier: 'taken_user', password: PASS2 });
+    const wrong = await request(server).post('/api/auth/staff/login').send({ identifier: 'taken_user', password: PASS2 });
     expect(wrong.status).toBe(401);
   });
 });

@@ -30,7 +30,7 @@ export interface SettingDef {
 }
 
 export type SettingGroupCode =
-  | 'general' | 'domain' | 'auth' | 'sms' | 'email' | 'security' | 'services'
+  | 'general' | 'landing' | 'domain' | 'auth' | 'sms' | 'email' | 'security' | 'services'
   | 'accounting' | 'wallet' | 'workforce' | 'payroll' | 'assistant' | 'files' | 'backup'
   | 'maintenance' | 'monitoring' | 'multibranch' | 'support';
 
@@ -42,6 +42,7 @@ export const SETTING_GROUPS: {
   order: number;
 }[] = [
   { code: 'general', title: 'تنظیمات عمومی سایت', description: 'نام، لوگو، اطلاعات تماس، ساعات کاری و متن‌های عمومی', icon: 'store', order: 1 },
+  { code: 'landing', title: 'صفحهٔ فرود و هویت بصری', description: 'برند و لوگو، متن و تصویر صفحهٔ اصلی، بخش اپلیکیشن، آمار نمایشی و HTML سفارشی — هر تغییری بلافاصله در صفحهٔ اصلی و پنل مشتری دیده می‌شود', icon: 'sparkles', order: 2 },
   { code: 'domain', title: 'دامنه و نشانی‌ها', description: 'دامنه اصلی، زیردامنه API، HTTPS و اتصال Cloudflare', icon: 'globe', order: 2 },
   { code: 'auth', title: 'ورود و ثبت‌نام', description: 'روش ورود مشتریان و کارکنان، ثبت‌نام و سیاست رمز عبور', icon: 'key', order: 3 },
   { code: 'sms', title: 'پیامک و ملی پیامک', description: 'اتصال به ارائه‌دهنده پیامک، الگوهای تأییدشده و آزمایش ارسال', icon: 'message', order: 4 },
@@ -89,6 +90,33 @@ export const SETTINGS: SettingDef[] = [
   { key: 'site.support_notice', group: 'general', type: 'textarea', label: 'اطلاعیه بالای سایت', hint: 'اگر مقدار داشته باشد به‌صورت نوار اطلاعیه نمایش داده می‌شود.', default: '', public: true },
   { key: 'site.calendar', group: 'general', type: 'select', label: 'تقویم نمایش تاریخ', options: [{ value: 'jalali', label: 'شمسی' }, { value: 'gregorian', label: 'میلادی' }], default: 'jalali', public: true },
   { key: 'site.currency_label', group: 'general', type: 'text', label: 'واحد پول نمایشی', default: 'ریال', public: true },
+
+
+  /* -------------------------------- landing -------------------------------- */
+  { key: 'site.name_en', group: 'landing', type: 'text', label: 'نام لاتین برند', hint: 'زیر نام فارسی برند در کنار لوگو نمایش داده می‌شود (مثل Pishkan). خالی یعنی نمایش داده نشود.', default: 'Pishkan', public: true },
+  { key: 'site.logo_url', group: 'landing', type: 'text', label: 'نشانی تصویر لوگو', hint: 'نشانی کامل تصویر لوگو (http/https) یا مسیر داخلی مثل /images/logo.png. اگر خالی باشد، از «شناسهٔ فایل لوگو» در تنظیمات عمومی استفاده می‌شود؛ و اگر آن هم خالی باشد نشان پیش‌فرض برند نمایش داده می‌شود.', default: '', public: true },
+  { key: 'landing.hero_badge', group: 'landing', type: 'text', label: 'برچسب بالای عنوان اصلی', default: 'سامانهٔ هوشمند خدمات دولتی', public: true },
+  { key: 'landing.hero_title', group: 'landing', type: 'text', label: 'عنوان بزرگ صفحهٔ اصلی', hint: 'خالی یعنی همان «نام سامانه» از تنظیمات عمومی. به این ترتیب با تغییر نام سامانه، عنوان صفحهٔ اصلی هم خودکار عوض می‌شود.', default: '', public: true },
+  { key: 'landing.hero_subtitle', group: 'landing', type: 'text', label: 'زیرعنوان صفحهٔ اصلی', default: 'همراه شما در انجام امور اداری و خدمات دولتی', public: true },
+  { key: 'landing.hero_text', group: 'landing', type: 'textarea', label: 'متن معرفی زیر عنوان', default: 'به‌سادگی درخواست خود را ثبت کنید و در کوتاه‌ترین زمان از خدمات دولتی بهره‌مند شوید؛ همهٔ مراحل، از ثبت تا تحویل، شفاف و قابل پیگیری است.', public: true },
+  { key: 'landing.hero_image_url', group: 'landing', type: 'text', label: 'تصویر اصلی (هیرو)', hint: 'نشانی کامل تصویر یا مسیر داخلی. خالی یعنی تصویر پیش‌فرض سامانه. همین تصویر در بنر داشبورد مشتری هم استفاده می‌شود.', default: '', public: true },
+  { key: 'landing.primary_cta_label', group: 'landing', type: 'text', label: 'متن دکمهٔ اصلی', default: 'ثبت درخواست خدمت', public: true },
+  { key: 'landing.primary_cta_link', group: 'landing', type: 'text', label: 'پیوند دکمهٔ اصلی', hint: 'مسیر داخلی مثل /services یا نشانی کامل.', default: '/services', public: true },
+  { key: 'landing.secondary_cta_label', group: 'landing', type: 'text', label: 'متن دکمهٔ دوم', default: 'پیگیری درخواست', public: true },
+  { key: 'landing.secondary_cta_link', group: 'landing', type: 'text', label: 'پیوند دکمهٔ دوم', hint: 'مسیر داخلی مثل /login یا نشانی کامل. خالی یعنی دکمهٔ دوم نمایش داده نشود.', default: '/login', public: true },
+  { key: 'landing.features_title', group: 'landing', type: 'text', label: 'عنوان بخش «چرا ما؟»', hint: 'خالی یعنی: چرا «نام سامانه»؟', default: '', public: true },
+  { key: 'landing.features', group: 'landing', type: 'json', label: 'ویژگی‌های بخش «چرا ما؟»', hint: 'آرایهٔ JSON از {icon,title,text}؛ آیکون‌ها از مجموعهٔ Lucide (مثل zap, shield-check, headset, heart-handshake, cpu, badge-check).', default: '[{"icon":"zap","title":"سرعت بالا","text":"ثبت و پیگیری درخواست در چند دقیقه، بدون مراجعهٔ غیرضروری."},{"icon":"shield-check","title":"امنیت پیشرفته","text":"مدارک و اطلاعات شما رمزنگاری‌شده و فقط در دسترس کارشناس مسئول است."},{"icon":"headset","title":"پشتیبانی قوی","text":"گفت‌وگوی زنده با دفتر و پاسخ‌گویی کارشناسان در ساعات کاری."},{"icon":"heart-handshake","title":"رضایت مشتریان","text":"شفافیت کامل هزینه و مراحل، از ثبت تا تحویل نهایی."},{"icon":"cpu","title":"مدیریت هوشمند","text":"ارجاع خودکار پرونده به کارشناس مناسب و یادآوری‌های به‌موقع."},{"icon":"badge-check","title":"رعایت استانداردها","text":"فرایندها مطابق ضوابط دفاتر پیشخوان دولت و قابل حسابرسی."}]', public: true },
+  { key: 'landing.show_stats', group: 'landing', type: 'boolean', label: 'نمایش نوار آمار در صفحهٔ اصلی', hint: 'تعداد خدمات و پرونده‌های تکمیل‌شده از دادهٔ واقعی سامانه خوانده می‌شود.', default: bool(true), public: true },
+  { key: 'landing.stat_customers', group: 'landing', type: 'text', label: 'عدد نمایشی «کاربران/مشتریان»', hint: 'خالی یعنی شمارش واقعی مشتریان ثبت‌نام‌شده. می‌توانید متن دلخواه مثل «+۵۰٬۰۰۰» بنویسید.', default: '', public: true },
+  { key: 'landing.stat_customers_label', group: 'landing', type: 'text', label: 'برچسب آمار مشتریان', default: 'مشتری همراه', public: true },
+  { key: 'landing.show_app_section', group: 'landing', type: 'boolean', label: 'نمایش بخش اپلیکیشن موبایل', default: bool(true), public: true },
+  { key: 'landing.app_title', group: 'landing', type: 'text', label: 'عنوان بخش اپلیکیشن', hint: 'خالی یعنی: اپلیکیشن اندروید «نام سامانه».', default: '', public: true },
+  { key: 'landing.app_text', group: 'landing', type: 'textarea', label: 'متن بخش اپلیکیشن', default: 'خدمات دولتی را همیشه و همه‌جا در دسترس داشته باشید؛ ثبت و پیگیری درخواست‌ها، مشاهدهٔ اعلان‌ها و مدیریت کیف پول از روی گوشی.', public: true },
+  { key: 'landing.app_android_url', group: 'landing', type: 'url', label: 'پیوند دانلود اپلیکیشن اندروید', hint: 'پیوند مستقیم فایل APK یا صفحهٔ فروشگاه. تا وقتی خالی است، دکمهٔ دانلود «به‌زودی» نمایش داده می‌شود.', default: '', public: true },
+  { key: 'landing.app_button_label', group: 'landing', type: 'text', label: 'متن دکمهٔ دانلود اپلیکیشن', default: 'دریافت اپلیکیشن', public: true },
+  { key: 'landing.mascot_url', group: 'landing', type: 'text', label: 'تصویر ربات پشتیبانی (ماسکات)', hint: 'در منوی پنل مشتری نمایش داده می‌شود. خالی یعنی تصویر پیش‌فرض سامانه.', default: '', public: true },
+  { key: 'landing.announcements', group: 'landing', type: 'json', label: 'اطلاعیه‌های داشبورد مشتری', hint: 'آرایهٔ JSON از {title, date, link}؛ در کارت «آخرین اطلاعیه‌ها»ی داشبورد مشتری نمایش داده می‌شود. اگر خالی باشد، اعلان‌های خود مشتری نشان داده می‌شوند.', default: '[]', public: true },
+  { key: 'landing.custom_html', group: 'landing', type: 'textarea', label: 'HTML سفارشی صفحهٔ اصلی', hint: 'کد HTML خام که پیش از فوتر در صفحهٔ اصلی درج می‌شود (بنر، ویدیو، فرم خارجی و…). فقط اگر به کد آن مطمئن هستید استفاده کنید؛ اسکریپت‌ها نیز اجرا می‌شوند.', default: '', public: true },
 
   /* -------------------------------- domain -------------------------------- */
   { key: 'domain.primary', group: 'domain', type: 'text', label: 'دامنه اصلی', hint: 'بدون https و بدون اسلش پایانی. مثال: pishkhan.example.ir', default: '', public: true },

@@ -1,33 +1,49 @@
 import { useEffect, useState } from 'react';
 import { Link, useNavigate, useSearchParams } from 'react-router-dom';
-import { Smartphone, KeyRound, ArrowRight, ShieldCheck, Eye, EyeOff, RefreshCw, Info } from 'lucide-react';
+import { Smartphone, KeyRound, ArrowRight, ShieldCheck, Eye, EyeOff, RefreshCw, Info, LogOut, Headset, Zap, LockKeyhole } from 'lucide-react';
 import clsx from 'clsx';
 import { PublicLayout } from '../../components/public-layout';
 import { formatDuration, useSite } from '../../lib/site';
-import { useAuth, homeFor } from '../../lib/auth';
+import { useAuth, homeFor, type CurrentUser } from '../../lib/auth';
+import { useBrand, BrandLockup, BrandMark } from '../../lib/brand';
 import { api, ApiFailure } from '../../lib/api';
 import { Button, Field, Input, useToast } from '../../components/ui';
 
-export function LoginPage() {
-  const { site, setting } = useSite();
-  const { user, refresh, setUser } = useAuth();
+type Audience = 'customer' | 'staff';
+
+function audienceMatches(audience: Audience, user: CurrentUser | null): boolean {
+  if (!user) return false;
+  return audience === 'customer' ? user.kind === 'customer' : user.kind !== 'customer';
+}
+
+/**
+ * One login engine, two strictly separated doors. The customer door only
+ * ever calls the customer endpoints (which only accept customer accounts);
+ * the staff door only calls the staff endpoints. A session from the other
+ * door is never silently reused — the visitor is told and can switch.
+ */
+function LoginPanel({ audience }: { audience: Audience }) {
+  const { site } = useSite();
+  const { user, refresh, setUser, logout } = useAuth();
   const navigate = useNavigate();
   const [params] = useSearchParams();
   const { notify } = useToast();
   const next = params.get('next');
 
-  const [accountKind,setAccountKind]=useState<'customer'|'staff'>(params.get('account')==='staff'?'staff':'customer');
-  const otpEnabled = (accountKind==='staff'?site?.authMethods.staffOtp:site?.authMethods.otp) ?? true;
-  const passwordEnabled = accountKind==='staff' || (site?.authMethods.password ?? false);
-  const [mode, setMode] = useState<'otp' | 'password'>(otpEnabled ? 'otp' : 'password');
+  const otpEnabled = audience === 'staff' ? Boolean(site?.authMethods.staffOtp) : (site?.authMethods.otp ?? false);
+  const passwordEnabled = audience === 'staff' ? true : (site?.authMethods.password ?? false);
+  const [mode, setMode] = useState<'otp' | 'password'>('password');
 
-  useEffect(()=>{if(!otpEnabled)setMode('password');else if(!passwordEnabled)setMode('otp')},[otpEnabled,passwordEnabled]);
+  useEffect(() => {
+    if (otpEnabled && !passwordEnabled) setMode('otp');
+    else if (!otpEnabled && passwordEnabled) setMode('password');
+  }, [otpEnabled, passwordEnabled]);
+
   const [mobile, setMobile] = useState('');
   const [code, setCode] = useState('');
   const [identifier, setIdentifier] = useState('');
   const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
-
   const [step, setStep] = useState<'request' | 'verify'>('request');
   const [countdown, setCountdown] = useState(0);
   const [debugCode, setDebugCode] = useState('');
@@ -37,8 +53,8 @@ export function LoginPage() {
   const [error, setError] = useState('');
 
   useEffect(() => {
-    if (user) navigate(next ?? homeFor(user), { replace: true });
-  }, [user, next, navigate]);
+    if (user && audienceMatches(audience, user)) navigate(next ?? homeFor(user), { replace: true });
+  }, [user, audience, next, navigate]);
 
   useEffect(() => {
     if (countdown <= 0) return;
@@ -51,7 +67,6 @@ export function LoginPage() {
     // browser must send the session cookie back successfully first.
     let authenticated = await refresh();
     if (!authenticated) {
-      // A hosted preview or a freshly-set cookie can take one request to settle.
       await new Promise((resolve) => window.setTimeout(resolve, 200));
       authenticated = await refresh();
     }
@@ -60,16 +75,22 @@ export function LoginPage() {
       setError('ورود پذیرفته شد، اما نشست مرورگر تأیید نشد. کوکی‌های این سایت را فعال کنید و دوباره وارد شوید.');
       return;
     }
-    const target = next ?? homeFor(authenticated);
+    if (!audienceMatches(audience, authenticated)) {
+      // The server doors already guarantee this; kept as a hard client-side wall.
+      setError(audience === 'customer'
+        ? 'این درگاه مخصوص مشتریان است و این حساب مشتری نیست.'
+        : 'این درگاه مخصوص کارکنان است و این حساب کارمندی نیست.');
+      return;
+    }
     notify(`خوش آمدید ${authenticated.fullName ?? ''}`, 'success');
-    navigate(target, { replace: true });
+    navigate(next ?? homeFor(authenticated), { replace: true });
   };
 
   const requestOtp = async () => {
     setError('');
     setLoading(true);
     try {
-      const res = await api.post<{ data: { sent: boolean; debugCode?: string; resendIn: number; error?: string } }>('/api/auth/otp/request', { mobile,kind:accountKind });
+      const res = await api.post<{ data: { sent: boolean; debugCode?: string; resendIn: number; error?: string } }>('/api/auth/otp/request', { mobile, kind: audience });
       setStep('verify');
       setCountdown(res.data.resendIn ?? 60);
       setDebugCode(res.data.debugCode ?? '');
@@ -86,8 +107,8 @@ export function LoginPage() {
     setError('');
     setLoading(true);
     try {
-      const res = await api.post<any>('/api/auth/otp/verify', { mobile, code,kind:accountKind });
-      if(res.data.mfaRequired){setMfa({token:res.data.mfaToken,mode:'totp',message:'کد برنامه تأیید دومرحله‌ای را وارد کنید.'});return;}
+      const res = await api.post<any>('/api/auth/otp/verify', { mobile, code, kind: audience });
+      if (res.data.mfaRequired) { setMfa({ token: res.data.mfaToken, mode: 'totp', message: 'کد برنامه تأیید دومرحله‌ای را وارد کنید.' }); return; }
       await afterLogin();
     } catch (err) {
       setError(err instanceof ApiFailure ? err.message : 'کد وارد شده معتبر نیست');
@@ -100,7 +121,7 @@ export function LoginPage() {
     setError('');
     setLoading(true);
     try {
-      const res = await api.post<any>('/api/auth/login', { identifier, password });
+      const res = await api.post<any>(`/api/auth/${audience}/login`, { identifier, password });
       if (res.data?.mfaRequired) {
         setMfa({ token: res.data.mfaToken, mode: res.data.mode, message: res.data.message });
         if (res.data.mode === 'otp') notify('کد تأیید به موبایل شما ارسال شد.', 'success');
@@ -119,7 +140,7 @@ export function LoginPage() {
     setLoading(true);
     setError('');
     try {
-      const res = await api.post<any>('/api/auth/mfa/verify', { ticket: mfa.token, code: mfaCode, mode: mfa.mode });
+      await api.post<any>('/api/auth/mfa/verify', { ticket: mfa.token, code: mfaCode, mode: mfa.mode });
       await afterLogin();
     } catch (err) {
       setError(err instanceof ApiFailure ? err.message : 'کد تأیید صحیح نیست');
@@ -128,153 +149,218 @@ export function LoginPage() {
     }
   };
 
+  if (user && !audienceMatches(audience, user)) {
+    return (
+      <div className="space-y-4">
+        <div className="rounded-3xl bg-amber-50 p-4 text-sm leading-7 text-amber-900 ring-1 ring-amber-200">
+          {audience === 'customer' ? (
+            <>شما هم‌اکنون با حساب <b>کارکنان</b> ({user.fullName}) وارد شده‌اید. این صفحه فقط برای ورود <b>مشتریان</b> است؛ حساب کارکنان از این درگاه وارد نمی‌شود.</>
+          ) : (
+            <>شما هم‌اکنون با حساب <b>مشتری</b> ({user.fullName}) وارد شده‌اید. این درگاه فقط برای <b>کارکنان و مدیران</b> دفتر است.</>
+          )}
+        </div>
+        <Link to={homeFor(user)} className="btn-primary w-full">رفتن به پنل من</Link>
+        <button
+          type="button"
+          className="btn-ghost w-full"
+          onClick={async () => { await logout(); notify('از حساب خارج شدید؛ حالا می‌توانید وارد شوید.', 'info'); }}
+        >
+          <LogOut className="size-4" /> خروج و ورود با حساب دیگر
+        </button>
+      </div>
+    );
+  }
+
   if (mfa) {
     return (
-      <PublicLayout>
-        <div className="mx-auto max-w-md px-4 py-14">
-          <div className="card card-pad">
-            <h1 className="text-lg font-bold text-navy-900">تأیید دومرحله‌ای</h1>
-            <p className="mt-1 text-sm text-navy-500">{mfa.message}</p>
-            <div className="mt-5 space-y-4">
-              <Field label="کد تأیید">
-                <Input value={mfaCode} onChange={(e) => setMfaCode(e.target.value)} inputMode="numeric" dir="ltr" className="text-center tracking-[0.5em]" maxLength={8} />
-              </Field>
-              {error && <p className="text-xs text-rose-700">{error}</p>}
-              <Button className="w-full" loading={loading} onClick={submitMfa}>تأیید و ورود</Button>
-              <button className="w-full text-xs text-navy-500 hover:text-navy-800" onClick={() => setMfa(null)}>بازگشت</button>
-            </div>
-          </div>
+      <div>
+        <h2 className="text-lg font-bold text-navy-900">تأیید دومرحله‌ای</h2>
+        <p className="mt-1 text-sm text-navy-500">{mfa.message}</p>
+        <div className="mt-5 space-y-4">
+          <Field label="کد تأیید">
+            <Input value={mfaCode} onChange={(e) => setMfaCode(e.target.value)} inputMode="numeric" dir="ltr" className="text-center tracking-[0.5em]" maxLength={8} />
+          </Field>
+          {error && <p className="text-xs text-rose-700">{error}</p>}
+          <Button className="w-full" loading={loading} onClick={submitMfa}>تأیید و ورود</Button>
+          <button className="w-full text-xs text-navy-500 hover:text-navy-800" onClick={() => setMfa(null)}>بازگشت</button>
         </div>
-      </PublicLayout>
+      </div>
     );
   }
 
   return (
-    <PublicLayout>
-      <div className="mx-auto grid max-w-5xl gap-8 px-4 py-12 sm:px-6 lg:grid-cols-2">
-        <div className="auth-intro hidden lg:block">
-          <h1 className="text-2xl font-bold leading-9 text-navy-900">ورود به سامانه {setting('site.short_name')}</h1>
-          <p className="mt-2 text-sm leading-7 text-navy-600">
-            با ورود به حساب، درخواست‌های خود را ثبت و پیگیری کنید، فاکتورها را ببینید و با کارشناس دفتر در ارتباط باشید.
-          </p>
+    <div>
+      <div className="mb-5 flex gap-1 rounded-2xl bg-surface-3 p-1">
+        {otpEnabled && (
+          <button onClick={() => { setMode('otp'); setError(''); }} className={clsx('flex flex-1 items-center justify-center gap-1.5 rounded-xl px-3 py-2.5 text-sm transition', mode === 'otp' ? 'bg-surface font-bold text-navy-900 shadow-sm' : 'text-navy-600')} aria-pressed={mode === 'otp'}>
+            <Smartphone className="size-4" /> کد یک‌بارمصرف
+          </button>
+        )}
+        {passwordEnabled && (
+          <button onClick={() => { setMode('password'); setError(''); }} className={clsx('flex flex-1 items-center justify-center gap-1.5 rounded-xl px-3 py-2.5 text-sm transition', mode === 'password' ? 'bg-surface font-bold text-navy-900 shadow-sm' : 'text-navy-600')} aria-pressed={mode === 'password'}>
+            <KeyRound className="size-4" /> نام کاربری و رمز
+          </button>
+        )}
+        {!otpEnabled && !passwordEnabled && (
+          <p className="px-3 py-2 text-sm text-amber-700">روش ورود توسط مدیر سامانه غیرفعال شده است. با دفتر تماس بگیرید.</p>
+        )}
+      </div>
 
-          <div className="mt-6 space-y-3">
-            {[
-              ['ورود بدون رمز', 'با شماره موبایل و کد یک‌بارمصرف، سریع و امن وارد شوید.'],
-              ['پیگیری شفاف', 'هر تغییر وضعیت با تاریخ و کاربر ثبت می‌شود.'],
-              ['حریم خصوصی', 'اطلاعات پرونده شما فقط برای کارشناس مسئول قابل مشاهده است.'],
-            ].map(([title, text]) => (
-              <div key={title} className="rounded-xl bg-surface p-4 ring-1 ring-line">
-                <p className="text-sm font-semibold text-navy-900">{title}</p>
-                <p className="mt-1 text-xs leading-6 text-navy-500">{text}</p>
-              </div>
-            ))}
-          </div>
-
-          <div className="mt-6 flex items-center gap-2 text-xs text-navy-500">
-            <ShieldCheck className="size-4 text-emerald-700" />
-            کدهای ورود پس از مدت کوتاه منقضی می‌شوند؛ از نشانی HTTPS معتبر سامانه استفاده کنید.
-          </div>
-        </div>
-
-        <div className="card card-pad">
-          <h2 className="mb-2 text-center text-xl font-bold text-navy-900">ورود به سامانه</h2><p className="mb-5 text-center text-xs leading-6 text-navy-500">ورود مشترک کارکنان، حسابداران و مدیران؛ دسترسی‌ها از حساب شما خوانده می‌شوند.</p>
-          <div className="mb-4 flex gap-2">{([['customer','ورود مشتریان'],['staff','ورود کارکنان و مدیران']] as const).map(([kind,label])=><button key={kind} onClick={()=>{setAccountKind(kind);setMode('password');setStep('request');setError('')}} className={clsx('flex-1 rounded-xl border px-3 py-3 text-xs',accountKind===kind?'border-brand-200 bg-brand-50 font-bold text-accent':'border-navy-100 text-navy-500')}>{label}</button>)}</div>
-          <div className="mb-5 flex gap-1 rounded-xl bg-surface-3 p-1">
-            {otpEnabled && (
-              <button onClick={() => { setMode('otp'); setError(''); }} className={clsx('flex flex-1 items-center justify-center gap-1.5 rounded-lg px-3 py-2 text-sm transition', mode === 'otp' ? 'bg-surface font-medium text-navy-900 shadow-sm' : 'text-navy-600')}>
-                <Smartphone className="size-4" /> کد یک‌بارمصرف
-              </button>
-            )}
-            {passwordEnabled && (
-              <button onClick={() => { setMode('password'); setError(''); }} className={clsx('flex flex-1 items-center justify-center gap-1.5 rounded-lg px-3 py-2 text-sm transition', mode === 'password' ? 'bg-surface font-medium text-navy-900 shadow-sm' : 'text-navy-600')}>
-                <KeyRound className="size-4" /> نام کاربری و رمز
-              </button>
-            )}
-            {!otpEnabled && !passwordEnabled && (
-              <p className="px-3 py-2 text-sm text-amber-700">روش ورود مشتریان توسط مدیر سامانه غیرفعال شده است. با دفتر تماس بگیرید.</p>
-            )}
-          </div>
-
-          {mode === 'otp' && otpEnabled && (
-            <div className="space-y-4">
-              {step === 'request' ? (
-                <>
-                  <Field label="شماره موبایل" hint="کد تأیید به همین شماره ارسال می‌شود." required>
-                    <Input value={mobile} onChange={(e) => setMobile(e.target.value)} placeholder="09123456789" inputMode="tel" dir="ltr" className="text-left" />
-                  </Field>
-                  {error && <p className="text-xs text-rose-700">{error}</p>}
-                  <Button className="w-full" loading={loading} onClick={requestOtp} disabled={mobile.replace(/\D/g, '').length < 10}>
-                    دریافت کد تأیید
-                  </Button>
-                </>
-              ) : (
-                <>
-                  <p className="text-sm text-navy-600">کد ارسال‌شده به <span dir="ltr" className="font-medium">{mobile}</span> را وارد کنید.</p>
-                  <Field label="کد تأیید" required>
-                    <Input value={code} onChange={(e) => setCode(e.target.value)} inputMode="numeric" dir="ltr" className="text-center text-lg tracking-[0.5em]" maxLength={8} />
-                  </Field>
-                  {debugCode && (
-                    <div className="flex items-start gap-2 rounded-xl bg-amber-50 p-3 text-xs text-amber-900 ring-1 ring-amber-200">
-                      <Info className="mt-0.5 size-4 shrink-0" />
-                      <span>حالت توسعه: پیامک واقعی ارسال نشده است. کد آزمایشی: <b dir="ltr">{debugCode}</b></span>
-                    </div>
-                  )}
-                  {error && <p className="text-xs text-rose-700">{error}</p>}
-                  <Button className="w-full" loading={loading} onClick={verifyOtp} disabled={code.length < 4}>ورود به سامانه</Button>
-                  <div className="flex items-center justify-between text-xs">
-                    <button className="text-navy-500 hover:text-navy-800" onClick={() => { setStep('request'); setCode(''); }}>تغییر شماره</button>
-                    <button
-                      className="flex items-center gap-1 text-accent hover:underline disabled:text-navy-400"
-                      disabled={countdown > 0 || loading}
-                      onClick={requestOtp}
-                    >
-                      <RefreshCw className="size-3.5" />
-                      {countdown > 0 ? `ارسال مجدد در ${countdown} ثانیه` : 'ارسال مجدد کد'}
-                    </button>
-                  </div>
-                </>
-              )}
-            </div>
-          )}
-
-          {mode === 'password' && passwordEnabled && (
-            <div className="space-y-4">
-              <Field label="نام کاربری، موبایل یا ایمیل" required>
-                <Input value={identifier} onChange={(e) => setIdentifier(e.target.value)} dir="ltr" className="text-left" autoComplete="username" />
-              </Field>
-              <Field label="رمز عبور" required>
-                <div className="relative">
-                  <Input
-                    type={showPassword ? 'text' : 'password'}
-                    value={password}
-                    onChange={(e) => setPassword(e.target.value)}
-                    dir="ltr"
-                    className="text-left pl-10"
-                    autoComplete="current-password"
-                    onKeyDown={(e) => e.key === 'Enter' && passwordLogin()}
-                  />
-                  <button type="button" onClick={() => setShowPassword((v) => !v)} className="absolute left-2 top-1/2 -translate-y-1/2 rounded-lg p-1.5 text-navy-400 hover:bg-surface-3" aria-label="نمایش رمز">
-                    {showPassword ? <EyeOff className="size-4" /> : <Eye className="size-4" />}
-                  </button>
-                </div>
+      {mode === 'otp' && otpEnabled && (
+        <div className="space-y-4">
+          {step === 'request' ? (
+            <>
+              <Field label="شماره موبایل" hint="کد تأیید به همین شماره ارسال می‌شود." required>
+                <Input value={mobile} onChange={(e) => setMobile(e.target.value)} placeholder="09123456789" inputMode="tel" dir="ltr" className="text-left" />
               </Field>
               {error && <p className="text-xs text-rose-700">{error}</p>}
-              <Button className="w-full" loading={loading} onClick={passwordLogin}>ورود</Button>
-              {site?.authMethods.passwordReset && (
-                <Link to="/reset-password" className="block text-center text-xs text-navy-500 hover:text-navy-800">رمز عبور خود را فراموش کرده‌اید؟</Link>
+              <Button className="w-full" loading={loading} onClick={requestOtp} disabled={mobile.replace(/\D/g, '').length < 10}>
+                دریافت کد تأیید
+              </Button>
+            </>
+          ) : (
+            <>
+              <p className="text-sm text-navy-600">کد ارسال‌شده به <span dir="ltr" className="font-medium">{mobile}</span> را وارد کنید.</p>
+              <Field label="کد تأیید" required>
+                <Input value={code} onChange={(e) => setCode(e.target.value)} inputMode="numeric" dir="ltr" className="text-center text-lg tracking-[0.5em]" maxLength={8} />
+              </Field>
+              {debugCode && (
+                <div className="flex items-start gap-2 rounded-2xl bg-amber-50 p-3 text-xs text-amber-900 ring-1 ring-amber-200">
+                  <Info className="mt-0.5 size-4 shrink-0" />
+                  <span>حالت توسعه: پیامک واقعی ارسال نشده است. کد آزمایشی: <b dir="ltr">{debugCode}</b></span>
+                </div>
               )}
-            </div>
-          )}
-
-          {site?.authMethods.registrationOpen && (
-            <p className="mt-5 border-t border-line pt-4 text-center text-xs text-navy-500">
-              حساب ندارید؟ <Link to="/register" className="font-medium text-accent hover:underline">ثبت‌نام کنید</Link>
-            </p>
+              {error && <p className="text-xs text-rose-700">{error}</p>}
+              <Button className="w-full" loading={loading} onClick={verifyOtp} disabled={code.length < 4}>ورود</Button>
+              <div className="flex items-center justify-between text-xs">
+                <button className="text-navy-500 hover:text-navy-800" onClick={() => { setStep('request'); setCode(''); }}>تغییر شماره</button>
+                <button className="flex items-center gap-1 text-accent hover:underline disabled:text-navy-400" disabled={countdown > 0 || loading} onClick={requestOtp}>
+                  <RefreshCw className="size-3.5" />
+                  {countdown > 0 ? `ارسال مجدد در ${countdown} ثانیه` : 'ارسال مجدد کد'}
+                </button>
+              </div>
+            </>
           )}
         </div>
-      </div>
+      )}
+
+      {mode === 'password' && passwordEnabled && (
+        <form className="space-y-4" onSubmit={(event) => { event.preventDefault(); void passwordLogin(); }}>
+          <Field label={audience === 'staff' ? 'نام کاربری یا موبایل' : 'نام کاربری، موبایل یا ایمیل'} required>
+            <Input value={identifier} onChange={(e) => setIdentifier(e.target.value)} dir="ltr" className="text-left" autoComplete="username" />
+          </Field>
+          <Field label="رمز عبور" required>
+            <div className="relative">
+              <Input
+                type={showPassword ? 'text' : 'password'}
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+                dir="ltr"
+                className="text-left pl-10"
+                autoComplete="current-password"
+              />
+              <button type="button" onClick={() => setShowPassword((v) => !v)} className="absolute left-2 top-1/2 -translate-y-1/2 rounded-lg p-1.5 text-navy-400 hover:bg-surface-3" aria-label="نمایش رمز">
+                {showPassword ? <EyeOff className="size-4" /> : <Eye className="size-4" />}
+              </button>
+            </div>
+          </Field>
+          {error && <p className="text-xs text-rose-700">{error}</p>}
+          <Button type="submit" className="w-full" loading={loading}>ورود</Button>
+          {audience === 'customer' && site?.authMethods.passwordReset && (
+            <Link to="/reset-password" className="block text-center text-xs text-navy-500 hover:text-navy-800">رمز عبور خود را فراموش کرده‌اید؟</Link>
+          )}
+        </form>
+      )}
+    </div>
+  );
+}
+
+/** Customer door — the only login linked from the public site. */
+export function LoginPage() {
+  const { site, setting } = useSite();
+  const brand = useBrand();
+
+  return (
+    <PublicLayout>
+      <section className="hero-sky">
+        <div className="mx-auto grid max-w-6xl items-stretch gap-6 px-4 py-10 sm:px-6 lg:grid-cols-2 lg:py-14">
+          <div className="relative hidden overflow-hidden rounded-[2rem] shadow-2xl shadow-brand-900/20 ring-1 ring-white/40 lg:block">
+            <img src={brand.heroImage} alt={brand.name} className="absolute inset-0 size-full object-cover" />
+            <div aria-hidden="true" className="absolute inset-0 bg-gradient-to-t from-navy-950/85 via-navy-950/25 to-transparent" />
+            <div className="relative flex h-full flex-col justify-end p-8 text-white">
+              <BrandLockup tone="light" />
+              <p className="mt-5 max-w-sm text-sm leading-7 text-white/85">
+                {setting('site.welcome_message') || 'با ورود به حساب، درخواست‌های خود را ثبت و پیگیری کنید، فاکتورها را ببینید و با کارشناس دفتر در ارتباط باشید.'}
+              </p>
+              <div className="mt-6 flex flex-wrap gap-2">
+                <span className="glass-chip animate-floaty"><ShieldCheck className="size-4 text-emerald-600" /> امن و معتبر</span>
+                <span className="glass-chip animate-floaty-delay"><Zap className="size-4 text-amber-500" /> سریع و آسان</span>
+                <span className="glass-chip animate-floaty-slow"><Headset className="size-4 text-sky-600" /> پشتیبانی حرفه‌ای</span>
+              </div>
+            </div>
+          </div>
+
+          <div className="card card-pad mx-auto w-full max-w-lg self-center lg:mx-0">
+            <div className="mb-6 text-center">
+              <div className="mb-3 flex justify-center lg:hidden"><BrandMark className="size-14" /></div>
+              <h1 className="text-xl font-black text-navy-900">ورود مشتریان</h1>
+              <p className="mt-1.5 text-xs leading-6 text-navy-500">
+                خوش برگشتید! برای ادامه وارد حساب مشتری خود در {brand.shortName} شوید.
+              </p>
+            </div>
+
+            <LoginPanel audience="customer" />
+
+            {site?.authMethods.registrationOpen && (
+              <p className="mt-5 border-t border-line pt-4 text-center text-xs text-navy-500">
+                حساب ندارید؟ <Link to="/register" className="font-bold text-accent hover:underline">ثبت‌نام مشتری جدید</Link>
+              </p>
+            )}
+          </div>
+        </div>
+      </section>
     </PublicLayout>
+  );
+}
+
+/**
+ * Staff door — deliberately not linked from any public page. Office staff
+ * know this address; customers (and casual scanners) never see it.
+ */
+export function StaffLoginPage() {
+  const brand = useBrand();
+
+  useEffect(() => {
+    const previous = document.title;
+    document.title = `ورود کارکنان | ${brand.name}`;
+    return () => { document.title = previous; };
+  }, [brand.name]);
+
+  return (
+    <div className="relative grid min-h-dvh place-items-center overflow-hidden bg-shell px-4 py-10">
+      <div aria-hidden="true" className="pointer-events-none absolute -top-32 right-[8%] size-96 rounded-full bg-brand-500/20 blur-3xl" />
+      <div aria-hidden="true" className="pointer-events-none absolute -bottom-32 left-[6%] size-80 rounded-full bg-brand-400/10 blur-3xl" />
+      <div aria-hidden="true" className="pointer-events-none absolute top-1/3 left-[16%] size-56 rounded-full border-2 border-dashed border-white/10" />
+
+      <div className="relative w-full max-w-md animate-in">
+        <div className="mb-6 flex flex-col items-center text-center">
+          <BrandMark className="size-16" />
+          <h1 className="mt-4 text-xl font-black text-white">{brand.name}</h1>
+          <p className="mt-1 flex items-center gap-1.5 text-xs text-white/60">
+            <LockKeyhole className="size-3.5" /> درگاه اختصاصی ورود کارکنان و مدیران دفتر
+          </p>
+        </div>
+
+        <div className="card card-pad shadow-2xl">
+          <LoginPanel audience="staff" />
+        </div>
+
+        <p className="mt-5 flex items-center justify-center gap-2 text-center text-[11px] leading-6 text-white/45">
+          <ShieldCheck className="size-4 shrink-0" />
+          تلاش‌های ورود ثبت و پایش می‌شوند. اگر رمز را فراموش کرده‌اید با مدیر کل سامانه تماس بگیرید.
+        </p>
+      </div>
+    </div>
   );
 }
 
@@ -573,7 +659,7 @@ export function ResetPasswordPage() {
   const request = async () => {
     setLoading(true); setError('');
     try {
-      await api.post('/api/auth/otp/request', { mobile, purpose: 'reset' });
+      await api.post('/api/auth/otp/request', { mobile, purpose: 'reset', kind: 'customer' });
       setStep('reset');
       notify('کد بازیابی ارسال شد.', 'success');
     } catch (err) {

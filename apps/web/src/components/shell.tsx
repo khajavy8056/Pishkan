@@ -4,13 +4,14 @@ import {
   LayoutDashboard, ClipboardList, Wallet, MessageSquare, User, Bell, LogOut, Menu, X, Search, Activity,
   Building2, Users, CalendarClock, FileText, Receipt, BarChart3, Settings, Database, ShieldCheck,
   LifeBuoy, Shapes, Sparkles, ChevronDown, Plus, BadgeCheck, ServerCog, ClipboardCheck, ArrowLeft,
-  Moon, Sun, Monitor, Headset, TicketPercent,
+  Moon, Sun, Monitor, Headset, TicketPercent, ListChecks, BotMessageSquare,
 } from 'lucide-react';
 import clsx from 'clsx';
 import { useAuth, homeFor } from '../lib/auth';
 import { api } from '../lib/api';
 import { relative, faNum } from '../lib/format';
 import { ThemeToggle, useTheme } from '../lib/theme';
+import { BrandLockup, useBrand } from '../lib/brand';
 import { Button, Spinner, useToast } from './ui';
 import { ChatWidget } from './ChatWidget';
 import { NotificationGate } from './NotificationGate';
@@ -35,16 +36,16 @@ const SECTION_SUPPORT = 'پشتیبانی';
 
 const customerNav: NavItem[] = [
   { to: '/app', label: 'داشبورد', icon: <LayoutDashboard className="size-5" />, end: true, section: SECTION_WORK },
-  { to: '/app/services', label: 'خدمات', icon: <Shapes className="size-5" />, section: SECTION_WORK },
-  { to: '/app/requests', label: 'درخواست‌های من', icon: <ClipboardList className="size-5" />, section: SECTION_WORK },
+  { to: '/app/services', label: 'ثبت درخواست جدید', icon: <Plus className="size-5" />, section: SECTION_WORK },
+  { to: '/app/requests', label: 'پیگیری درخواست‌ها', icon: <ListChecks className="size-5" />, section: SECTION_WORK },
+  { to: '/app/wallet', label: 'کیف پول و پرداخت‌ها', icon: <Wallet className="size-5" />, section: SECTION_ACCOUNT },
+  { to: '/app/invoices', label: 'فاکتورها', icon: <Receipt className="size-5" />, section: SECTION_ACCOUNT },
   { to: '/app/documents', label: 'مدارک من', icon: <FileText className="size-5" />, section: SECTION_WORK },
-  { to: '/app/invoices', label: 'فاکتورها و پرداخت', icon: <Wallet className="size-5" />, section: SECTION_ACCOUNT },
-  { to: '/app/wallet', label: 'کیف پول', icon: <Wallet className="size-5" />, section: SECTION_ACCOUNT },
   { to: '/app/offers', label: 'پیشنهادهای اختصاصی', icon: <Sparkles className="size-5" />, section: SECTION_ACCOUNT },
   { to: '/app/messages', label: 'پیام‌ها', icon: <MessageSquare className="size-5" />, section: SECTION_ACCOUNT },
-  { to: '/app/profile', label: 'پروفایل', icon: <User className="size-5" />, section: SECTION_ACCOUNT },
-  { to: '/app/support', label: 'پشتیبانی و تیکت', icon: <Headset className="size-5" />, section: SECTION_SUPPORT },
+  { to: '/app/support', label: 'پشتیبانی و تیکت‌ها', icon: <Headset className="size-5" />, section: SECTION_SUPPORT },
   { to: '/assistant', label: 'دستیار هوشمند', icon: <LifeBuoy className="size-5" />, section: SECTION_SUPPORT },
+  { to: '/app/profile', label: 'پروفایل و تنظیمات', icon: <Settings className="size-5" />, section: SECTION_ACCOUNT },
 ];
 
 const staffNav: NavItem[] = [
@@ -104,23 +105,10 @@ function groupNav(items: NavItem[]): { section: string; items: NavItem[] }[] {
   return groups;
 }
 
-function BrandMark({ compact = false }: { compact?: boolean }) {
-  return (
-    <span
-      className={clsx(
-        'relative grid place-items-center overflow-hidden rounded-2xl bg-gradient-to-br from-brand-500 via-brand-700 to-shell font-black text-white shadow-lg shadow-primary/30',
-        compact ? 'size-9 text-sm' : 'size-10 text-base',
-      )}
-      aria-hidden="true"
-    >
-      <span className="absolute inset-0 bg-[radial-gradient(circle_at_30%_20%,rgba(255,255,255,.45),transparent_60%)]" />
-      <span className="relative">پ</span>
-    </span>
-  );
-}
-
 export function AppShell({ children, variant }: { children: ReactNode; variant: 'customer' | 'staff' | 'admin' }) {
   const { user, logout, can } = useAuth();
+  const brand = useBrand();
+  const [headerQuery, setHeaderQuery] = useState('');
   const { notify } = useToast();
   const navigate = useNavigate();
   const location = useLocation();
@@ -227,12 +215,8 @@ export function AppShell({ children, variant }: { children: ReactNode; variant: 
         aria-label="منوی اصلی"
       >
         <div className="flex items-center justify-between gap-3 px-4 py-5">
-          <Link to={brandHome} className="group flex min-w-0 items-center gap-3 rounded-xl p-1 transition hover:bg-white/5">
-            <BrandMark />
-            <span className="min-w-0">
-              <span className="block truncate text-sm font-bold">دفتر پیشخوان</span>
-              <span className="mt-0.5 block truncate text-[11px] text-shell-muted">{roleLabel}</span>
-            </span>
+          <Link to={brandHome} className="group flex min-w-0 items-center gap-3 rounded-2xl p-1 transition hover:bg-white/5">
+            <BrandLockup tone="light" subtitle={variant === 'customer' ? undefined : roleLabel} />
           </Link>
           <button className="icon-btn text-shell-muted hover:bg-white/10 hover:text-shell-fg lg:hidden" onClick={() => setOpen(false)} aria-label="بستن منو">
             <X className="size-5" />
@@ -270,6 +254,36 @@ export function AppShell({ children, variant }: { children: ReactNode; variant: 
             </div>
           ))}
         </nav>
+
+        {variant === 'customer' && (
+          <div className="px-3 pb-3">
+            <div className="group relative overflow-hidden rounded-3xl border border-white/10 bg-white/5">
+              <div className="perspective-1200">
+                <img
+                  src={brand.mascot}
+                  alt="ربات پشتیبانی هوشمند"
+                  loading="lazy"
+                  className="h-40 w-full object-cover object-[50%_18%] transition duration-700 ease-out group-hover:scale-[1.06] group-hover:-rotate-1"
+                />
+              </div>
+              <div aria-hidden="true" className="absolute inset-x-0 top-16 bottom-0 bg-gradient-to-t from-shell via-shell/72 to-transparent" />
+              <div className="relative -mt-12 p-3.5">
+                <p className="text-sm font-black text-white">ربات پشتیبانی هوشمند</p>
+                <p className="mt-0.5 text-[11px] text-white/65">همیشه در کنار شما؛ سؤال دارید؟ همین حالا بپرسید.</p>
+                <button
+                  type="button"
+                  className="btn-primary btn-sm mt-3 w-full"
+                  onClick={() => {
+                    setOpen(false);
+                    window.setTimeout(() => window.dispatchEvent(new CustomEvent('pishkan:open-chat', { detail: {} })), 60);
+                  }}
+                >
+                  <BotMessageSquare className="size-4" /> شروع گفتگو
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
 
         <div className="border-t border-shell-line p-3">
           <div className="rounded-2xl border border-shell-line bg-white/5 p-3">
@@ -325,9 +339,26 @@ export function AppShell({ children, variant }: { children: ReactNode; variant: 
 
             <div className="flex-1" />
 
-            <Link to={user?.kind === 'customer' ? '/app/services' : '/services'} className="btn-ghost btn-sm hidden sm:inline-flex">
-              <Search className="size-4" /> جست‌وجوی خدمات
-            </Link>
+            <form
+              className="hidden md:block"
+              onSubmit={(event) => {
+                event.preventDefault();
+                const target = user?.kind === 'customer' ? '/app/services' : '/services';
+                navigate(headerQuery.trim() ? `${target}?q=${encodeURIComponent(headerQuery.trim())}` : target);
+              }}
+              role="search"
+            >
+              <label className="flex w-56 items-center gap-2 rounded-full border border-line bg-surface-2 px-3.5 py-2 transition focus-within:w-72 focus-within:border-primary/50 focus-within:bg-surface focus-within:ring-4 focus-within:ring-primary/10 lg:w-64">
+                <Search className="size-4 shrink-0 text-navy-400" />
+                <input
+                  value={headerQuery}
+                  onChange={(event) => setHeaderQuery(event.target.value)}
+                  placeholder="جست‌جو در خدمات و پرونده‌ها…"
+                  aria-label="جست‌وجوی خدمات"
+                  className="min-w-0 flex-1 bg-transparent text-xs text-navy-900 outline-none placeholder:text-navy-400"
+                />
+              </label>
+            </form>
 
             <ThemeToggle />
 
@@ -380,15 +411,18 @@ export function AppShell({ children, variant }: { children: ReactNode; variant: 
                 aria-label="حساب کاربری"
                 aria-expanded={accountOpen}
               >
-                <span className="grid size-7 place-items-center rounded-lg bg-gradient-to-br from-brand-600 to-shell text-xs font-bold text-white">
+                <span className="grid size-8 place-items-center rounded-xl bg-gradient-to-br from-brand-500 via-brand-700 to-shell text-xs font-bold text-white shadow-md shadow-brand-600/25">
                   {user?.fullName?.slice(0, 1) ?? '؟'}
                 </span>
-                <span className="hidden max-w-28 truncate text-xs font-medium text-navy-800 sm:block">{user?.fullName}</span>
+                <span className="hidden leading-tight sm:block">
+                  <span className="block max-w-32 truncate text-xs font-bold text-navy-900">{user?.fullName}</span>
+                  <span className="block text-[10px] text-navy-400">{variant === 'customer' ? 'مشتری گرامی' : (user?.roleName ?? 'کارمند دفتر')}</span>
+                </span>
                 <ChevronDown className="size-3.5 text-navy-400" />
               </button>
 
               {accountOpen && (
-                <div className="animate-pop absolute left-0 top-12 w-64 overflow-hidden rounded-2xl border border-line bg-surface p-2 shadow-2xl">
+                <div className="animate-pop absolute left-0 top-14 w-64 overflow-hidden rounded-2xl border border-line bg-surface p-2 shadow-2xl">
                   <div className="rounded-xl bg-surface-2 px-3 py-2">
                     <p className="truncate text-sm font-semibold text-navy-900">{user?.fullName}</p>
                     <p className="mt-0.5 truncate text-[11px] text-navy-500">{roleLabel}</p>
@@ -410,6 +444,16 @@ export function AppShell({ children, variant }: { children: ReactNode; variant: 
                 </div>
               )}
             </div>
+
+            {variant === 'customer' && (
+              <button
+                type="button"
+                onClick={async () => { await logout(); navigate('/'); }}
+                className="btn-ghost btn-sm hidden shrink-0 md:inline-flex"
+              >
+                <LogOut className="size-4 -scale-x-100" /> خروج
+              </button>
+            )}
           </div>
         </header>
 
@@ -422,8 +466,8 @@ export function AppShell({ children, variant }: { children: ReactNode; variant: 
               to={item.to}
               end={item.end}
               className={({ isActive }) => clsx(
-                'relative flex min-h-16 min-w-14 flex-col items-center justify-center gap-1 rounded-xl px-2 text-[10px] transition',
-                isActive ? 'font-bold text-accent' : 'text-navy-500 hover:text-navy-800',
+                'relative flex min-h-14 min-w-14 flex-col items-center justify-center gap-1 rounded-2xl px-2 py-1.5 text-[10px] transition',
+                isActive ? 'bg-primary-soft font-bold text-accent shadow-inner' : 'text-navy-500 hover:text-navy-800',
               )}
             >
               {({ isActive }) => (
@@ -441,7 +485,7 @@ export function AppShell({ children, variant }: { children: ReactNode; variant: 
         </nav>
 
         <footer className="border-t border-line px-6 py-4 text-center text-xs text-navy-400">
-          سامانه جامع دفتر پیشخوان دولت — نسخه {import.meta.env.VITE_APP_VERSION ?? '1.2.0'}
+          {brand.name} — نسخه {import.meta.env.VITE_APP_VERSION ?? '1.4.0'}
         </footer>
 
         <NotificationGate kind={variant} />
@@ -516,7 +560,10 @@ export function RequireRole({ kinds, children, permission, office = false }: { k
 
   useEffect(() => {
     if (loading) return;
-    if (!user) navigate('/login', { replace: true });
+    if (!user) {
+      const door = kinds.includes('customer') ? '/login' : '/login-admin';
+      navigate(`${door}?next=${encodeURIComponent(location.pathname)}`, { replace: true });
+    }
     else if (!kinds.includes(user.kind)) navigate(homeFor(user), { replace: true });
     else if (user.kind === 'customer' && user.profileState?.complete === false && location.pathname !== '/app/profile') navigate('/app/profile', { replace: true });
   }, [user, loading, kinds, navigate, location.pathname]);

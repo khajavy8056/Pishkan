@@ -58,7 +58,7 @@ authRouter.post('/otp/request',
   asyncRoute(async (req, res) => {
     const body = z.object({
       mobile: z.string().min(10).max(20),
-      kind: z.enum(['customer', 'staff']).optional(),
+      kind: z.enum(['customer', 'staff']),
       purpose: z.enum(['login', 'register', 'reset']).optional(),
     }).parse(req.body);
     const result = await requestOtp(body.mobile, body.purpose ?? 'login', { ip: req.ip, userAgent: req.header('user-agent') }, body.kind);
@@ -71,7 +71,7 @@ authRouter.post('/otp/verify',
     const body = z.object({
       mobile: z.string().min(10).max(20),
       code: z.string().min(4).max(8),
-      kind: z.enum(['customer', 'staff']).optional(),
+      kind: z.enum(['customer', 'staff']),
       purpose: z.enum(['login', 'register', 'reset']).optional(),
     }).parse(req.body);
     const result = await verifyOtpAndLogin(body.mobile, body.code, { ip: req.ip, userAgent: req.header('user-agent') }, { purpose: body.purpose ?? 'login', kind: body.kind });
@@ -82,30 +82,42 @@ authRouter.post('/otp/verify',
 
 /* ------------------------------ password login ----------------------------- */
 
-authRouter.post('/login',
-  rateLimit({ windowMs: 300_000, max: Number(process.env.AUTH_LOGIN_RATE_LIMIT ?? 15), message: 'تلاش‌های ورود بیش از حد مجاز است. کمی بعد دوباره تلاش کنید.' }),
-  asyncRoute(async (req, res) => {
-    const body = z.object({
-      identifier: z.string().min(3).max(120),
-      password: z.string().min(1).max(200),
-    }).parse(req.body);
-    const result = await passwordLogin(body.identifier, body.password, { ip: req.ip, userAgent: req.header('user-agent') });
-    if (result.mfaRequired) {
-      return res.json({
-        ok: true,
-        data: {
-          mfaRequired: true,
-          mfaToken: result.mfaToken,
-          mode: result.mfaMode ?? 'totp',
-          message: result.mfaMode === 'otp'
-            ? 'کد تأیید به شماره موبایل شما ارسال شد.'
-            : 'کد ۶ رقمی برنامه Authenticator را وارد کنید.',
-        },
-      });
-    }
-    setSessionCookie(res, result.token, result.expiresAt);
-    res.json({ ok: true, data: await sessionPayload(result.context, result.token, result.expiresAt) });
-  }));
+const loginLimiter = rateLimit({ windowMs: 300_000, max: Number(process.env.AUTH_LOGIN_RATE_LIMIT ?? 15), message: 'تلاش‌های ورود بیش از حد مجاز است. کمی بعد دوباره تلاش کنید.' });
+
+async function runPasswordLogin(req: any, res: any, audience: 'customer' | 'staff') {
+  const body = z.object({
+    identifier: z.string().min(3).max(120),
+    password: z.string().min(1).max(200),
+  }).parse(req.body);
+  const result = await passwordLogin(body.identifier, body.password, { ip: req.ip, userAgent: req.header('user-agent') }, audience);
+  if (result.mfaRequired) {
+    return res.json({
+      ok: true,
+      data: {
+        mfaRequired: true,
+        mfaToken: result.mfaToken,
+        mode: result.mfaMode ?? 'totp',
+        message: result.mfaMode === 'otp'
+          ? 'کد تأیید به شماره موبایل شما ارسال شد.'
+          : 'کد ۶ رقمی برنامه Authenticator را وارد کنید.',
+      },
+    });
+  }
+  setSessionCookie(res, result.token, result.expiresAt);
+  res.json({ ok: true, data: await sessionPayload(result.context, result.token, result.expiresAt) });
+}
+
+/** Customer door — customer accounts only, whatever the credentials say. */
+authRouter.post('/customer/login', loginLimiter, asyncRoute(async (req, res) => runPasswordLogin(req, res, 'customer')));
+
+/** Staff door — staff/admin accounts only. The web page for it lives at /login-admin and is not linked publicly. */
+authRouter.post('/staff/login', loginLimiter, asyncRoute(async (req, res) => runPasswordLogin(req, res, 'staff')));
+
+/** Compatibility shim: the audience must be stated explicitly; there is no mixed door anymore. */
+authRouter.post('/login', loginLimiter, asyncRoute(async (req, res) => {
+  const { audience } = z.object({ audience: z.enum(['customer', 'staff']) }).passthrough().parse(req.body);
+  return runPasswordLogin(req, res, audience);
+}));
 
 authRouter.post('/mfa/verify',
   rateLimit({ windowMs: 300_000, max: 20 }),

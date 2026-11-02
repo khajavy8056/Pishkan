@@ -95,6 +95,7 @@ export interface SiteData {
   categories: Category[];
   popularServices: Service[];
   newestServices: Service[];
+  stats?: { services: number; customers: number; completedRequests: number };
   authMethods: { staffOtp?:boolean; otp: boolean; password: boolean; registrationOpen: boolean; passwordReset: boolean };
   maintenance: boolean;
   assistant: { enabled: boolean; name: string; welcome: string; disclaimer: string };
@@ -121,7 +122,20 @@ export function SiteProvider({ children }: { children: ReactNode }) {
         document.documentElement.style.setProperty('--color-brand-700', res.data.settings['brand.primary_color'] as string);
       }
       if (typeof res.data.settings['site.name'] === 'string') {
-        document.title = `${res.data.settings['site.name']} — خدمات دولتی`;
+        const tagline = typeof res.data.settings['site.tagline'] === 'string' ? res.data.settings['site.tagline'] : '';
+        document.title = tagline ? `${res.data.settings['site.name']} | ${tagline}` : String(res.data.settings['site.name']);
+      }
+      const logoUrl = (typeof res.data.settings['site.logo_url'] === 'string' && res.data.settings['site.logo_url'])
+        || (res.data.settings['site.logo_file_id'] ? '/api/public/brand-asset/logo' : '');
+      if (logoUrl) {
+        let link = document.querySelector<HTMLLinkElement>('link[rel="icon"]');
+        if (!link) {
+          link = document.createElement('link');
+          link.rel = 'icon';
+          document.head.appendChild(link);
+        }
+        link.removeAttribute('type');
+        link.href = String(logoUrl);
       }
     } catch {
       /* the app still renders with defaults */
@@ -147,4 +161,20 @@ export function useSite() {
   const ctx = useContext(SiteContext);
   if (!ctx) throw new Error('useSite must be used inside SiteProvider');
   return ctx;
+}
+
+/** JSON-valued public settings (feature lists, announcements, socials). */
+export function parseListSetting<T>(raw: string | undefined, fallback: T[]): T[] {
+  if (!raw) return fallback;
+  try {
+    const parsed = JSON.parse(raw);
+    return Array.isArray(parsed) ? (parsed as T[]) : fallback;
+  } catch {
+    return fallback;
+  }
+}
+
+/** Internal app paths stay in the SPA; absolute URLs open as-is. */
+export function isInternalLink(link: string): boolean {
+  return link.startsWith('/') && !link.startsWith('//');
 }

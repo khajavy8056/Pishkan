@@ -44,7 +44,7 @@ async function logoutRegister() {
     mobile: '09127770011', password: 'OtherCustomer#1234', fullName: 'مشتری دوم',
   });
   expect([200, 201, 409]).toContain(res.status);
-  const login = await request(server).post('/api/auth/login').send({ identifier: '09127770011', password: 'OtherCustomer#1234' });
+  const login = await request(server).post('/api/auth/customer/login').send({ identifier: '09127770011', password: 'OtherCustomer#1234' });
   expect(login.status).toBe(200);
   return { cookie: login.headers['set-cookie'] as unknown as string[] };
 }

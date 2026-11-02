@@ -324,6 +324,13 @@ test('حساب مدیر کل نصاب تضمینی است: ساخت/به‌رو�
   // Core verification performs a real login with the supplied credentials.
   assert.match(verify, /'admin-login'/);
   assert.match(verify, /loginAs\('admin', ADMIN_USER, ADMIN_PASS\)/);
+  // The customer and staff entrances are separate doors; verification must
+  // knock on the right one (staff door for admin/expert, customer door for
+  // the customer actor) and the installer must tell the human the staff URL.
+  assert.match(verify, /\/api\/auth\/staff\/login/);
+  assert.match(verify, /\/api\/auth\/customer\/login/);
+  assert.doesNotMatch(verify, /request\('\/api\/auth\/login'/);
+  assert.match(installer, /adminLoginUrl: `http:\/\/127\.0\.0\.1:\$\{config\.port\}\/login-admin`/);
 });
 
 test('پنجره نصب اطلاعات مدیر کل را واقعاً به موتور می‌رساند و نصب بدون مدیر موفق گزارش نمی‌شود', () => {

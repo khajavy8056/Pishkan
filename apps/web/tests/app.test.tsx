@@ -80,8 +80,8 @@ afterEach(() => {
 describe('authenticated panels render', () => {
   it('renders the customer dashboard with stats', async () => {
     renderAs(customerUser, <CustomerDashboard />);
-    await waitFor(() => expect(screen.getByText('سلام مشتری 👋')).toBeTruthy());
-    expect(screen.getByText('پرونده‌های در جریان')).toBeTruthy();
+    await waitFor(() => expect(screen.getByText('سلام مشتری نمونه عزیز!')).toBeTruthy());
+    expect(screen.getByText(/پرونده.*در جریان/)).toBeTruthy();
   });
 
   it('renders the staff workbench with the assignment queue', async () => {

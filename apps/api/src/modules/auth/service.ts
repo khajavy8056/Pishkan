@@ -55,9 +55,13 @@ export async function findUserByMobile(mobile: string, kind: 'customer' | 'staff
   return one<UserRow>('SELECT * FROM users WHERE kind = ? AND mobile = ?', [kind, normalizeMobile(mobile)]);
 }
 
-export async function findUserByUsername(username: string): Promise<UserRow | null> {
+export async function findUserByUsername(username: string, kinds?: ('customer' | 'staff' | 'admin')[]): Promise<UserRow | null> {
   const value = String(username ?? '').trim().toLowerCase();
   if (!value) return null;
+  if (kinds?.length) {
+    const marks = kinds.map(() => '?').join(', ');
+    return one<UserRow>(`SELECT * FROM users WHERE (LOWER(username) = ? OR LOWER(email) = ?) AND kind IN (${marks})`, [value, value, ...kinds]);
+  }
   return one<UserRow>('SELECT * FROM users WHERE LOWER(username) = ? OR LOWER(email) = ?', [value, value]);
 }
 
@@ -251,8 +255,9 @@ export async function requestOtp(mobileRaw: string, purpose: 'login' | 'register
   if (!isValidMobile(mobile)) throw badRequest('شماره موبایل را به شکل ۰۹۱۲۳۴۵۶۷۸۹ وارد کنید.');
 
   const staffAccount = await one<UserRow>("SELECT * FROM users WHERE mobile=? AND kind IN ('staff','admin')", [mobile]);
-  const customerAccount = await findUserByMobile(mobile, 'customer');
-  const kind = requestedKind ?? (staffAccount && !customerAccount && purpose === 'login' ? 'staff' : 'customer');
+  // Audience separation: the entrance (customer vs staff door) decides which
+  // account family an OTP may ever touch. We never "helpfully" switch doors.
+  const kind = requestedKind ?? 'customer';
   if (kind === 'staff' && (!staffAccount || (purpose !== 'verify' && !staffAccount.mobile_verified))) throw forbidden('ورود پیامکی کارکنان نیازمند حساب و شماره تأییدشده است.');
   const otpEnabled = await getBool(kind === 'staff' ? 'auth.staff_otp_enabled' : 'auth.customer_otp_enabled');
   if (!otpEnabled && purpose !== 'verify' && purpose !== 'reset') throw forbidden('ورود با رمز یک‌بارمصرف در حال حاضر فعال نیست.');
@@ -336,7 +341,7 @@ export async function verifyOtpAndLogin(
 
   const staffAccount = await one<UserRow>("SELECT * FROM users WHERE mobile=? AND kind IN ('staff','admin')", [mobile]);
   const customerAccount = await findUserByMobile(mobile, 'customer');
-  const kind = options.kind ?? (staffAccount && !customerAccount && purpose === 'login' ? 'staff' : 'customer');
+  const kind = options.kind ?? 'customer';
   if (purpose !== 'verify' && !(await getBool(kind === 'staff' ? 'auth.staff_otp_enabled' : 'auth.customer_otp_enabled'))) throw forbidden('ورود با رمز یک‌بارمصرف غیرفعال است.');
 
   const record = await one<{
@@ -418,12 +423,34 @@ export async function passwordLogin(
   identifier: string,
   password: string,
   client: ClientInfo,
+  audience: 'customer' | 'staff',
 ): Promise<{ context: AuthContext; token: string; expiresAt: string; mfaRequired?: boolean; mfaToken?: string; mfaMode?: 'totp' | 'otp' }> {
   const ident = String(identifier ?? '').trim();
   if (!ident || !password) throw badRequest('نام کاربری و رمز عبور الزامی است.');
 
-  const byMobile = isValidMobile(ident) ? await one<UserRow>('SELECT * FROM users WHERE mobile = ? ORDER BY kind ASC', [normalizeMobile(ident)]) : null;
-  const user = byMobile ?? (await findUserByUsername(ident));
+  // The two entrances are fully separated: the customer door only ever sees
+  // customer accounts and the staff door only staff/admin accounts. Valid
+  // credentials presented at the wrong door fail exactly like unknown ones,
+  // so an entrance never reveals which door an account belongs to.
+  const kinds: ('customer' | 'staff' | 'admin')[] = audience === 'customer' ? ['customer'] : ['staff', 'admin'];
+  const byMobile = isValidMobile(ident)
+    ? await one<UserRow>(
+      audience === 'customer'
+        ? "SELECT * FROM users WHERE mobile = ? AND kind = 'customer'"
+        : "SELECT * FROM users WHERE mobile = ? AND kind IN ('staff','admin')",
+      [normalizeMobile(ident)],
+    )
+    : null;
+  let user = byMobile;
+  if (!user) {
+    user = await findUserByUsername(ident, kinds);
+    if (!user) {
+      const otherDoor = await findUserByUsername(ident);
+      if (otherDoor) {
+        await logLogin({ userId: otherDoor.id, identifier: ident, method: 'password', success: false, reason: 'wrong_audience', client });
+      }
+    }
+  }
   if (!user) {
     await logLogin({ identifier: ident, method: 'password', success: false, reason: 'unknown_user', client });
     throw unauthorized('نام کاربری یا رمز عبور صحیح نیست.');
@@ -460,7 +487,7 @@ export async function passwordLogin(
 
   if (user.kind === 'customer' && (await getBool('auth.customer_combined_required')) && (await getBool('auth.customer_otp_enabled'))) {
     // combined mode: password verified, a fresh OTP is required next
-    await requestOtp(user.mobile ?? '', 'login', client);
+    await requestOtp(user.mobile ?? '', 'login', client, 'customer');
     return { context: null as any, token: '', expiresAt: '', mfaRequired: true, mfaToken: mfaTicket(user.id), mfaMode: 'otp' };
   }
 
@@ -612,7 +639,7 @@ export async function changePassword(userId: string, currentPassword: string, ne
 
 export async function resetPasswordWithOtp(mobileRaw: string, code: string, newPassword: string, client: ClientInfo) {
   if (!(await getBool('auth.allow_customer_password_reset'))) throw forbidden('بازیابی رمز عبور فعال نیست.');
-  const result = await verifyOtpAndLogin(mobileRaw, code, client, { purpose: 'reset' });
+  const result = await verifyOtpAndLogin(mobileRaw, code, client, { purpose: 'reset', kind: 'customer' });
   await validatePasswordAgainstPolicy(newPassword);
   await run('UPDATE users SET password_hash = ?, updated_at = ? WHERE id = ?', [await hashPassword(newPassword), nowIso(), result.context.user.id]);
   await revokeAllSessions(result.context.user.id);

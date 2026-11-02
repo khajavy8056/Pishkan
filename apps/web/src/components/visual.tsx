@@ -1,0 +1,172 @@
+import { useEffect, useRef, useState, type ReactNode } from 'react';
+import {
+  Backpack, BadgeCheck, BookOpen, Building2, Calculator, CarFront, Cpu, GraduationCap,
+  HandCoins, Headset, HeartHandshake, House, Landmark, LayoutGrid, MessagesSquare, Scale,
+  Shield, ShieldCheck, ShieldPlus, Store, Zap,
+} from 'lucide-react';
+import clsx from 'clsx';
+import { BrandMark, useBrand } from '../lib/brand';
+
+/* ------------------------------- 3D tilt ---------------------------------- */
+
+function motionOk() {
+  if (typeof window === 'undefined' || typeof window.matchMedia !== 'function') return false;
+  return !window.matchMedia('(prefers-reduced-motion: reduce)').matches
+    && window.matchMedia('(hover: hover) and (pointer: fine)').matches;
+}
+
+/**
+ * Mouse-reactive 3D tilt: the card leans toward the pointer while children
+ * can float on different Z layers (give them inline `translateZ` styles
+ * inside a `.t3d` parent). Quietly inert on touch devices and for users who
+ * prefer reduced motion.
+ */
+export function Tilt({
+  children, className, maxX = 7, maxY = 9, scale = 1.015,
+}: {
+  children: ReactNode; className?: string; maxX?: number; maxY?: number; scale?: number;
+}) {
+  const ref = useRef<HTMLDivElement>(null);
+  const [transform, setTransform] = useState<string>('perspective(1200px)');
+  const [gliding, setGliding] = useState(true);
+
+  const onMove = (event: React.MouseEvent) => {
+    const node = ref.current;
+    if (!node || !motionOk()) return;
+    const rect = node.getBoundingClientRect();
+    const px = (event.clientX - rect.left) / rect.width - 0.5;
+    const py = (event.clientY - rect.top) / rect.height - 0.5;
+    setGliding(false);
+    setTransform(`perspective(1200px) rotateX(${(-py * maxX).toFixed(2)}deg) rotateY(${(px * maxY).toFixed(2)}deg) scale(${scale})`);
+  };
+  const onLeave = () => {
+    setGliding(true);
+    setTransform('perspective(1200px) rotateX(0deg) rotateY(0deg) scale(1)');
+  };
+
+  return (
+    <div
+      ref={ref}
+      onMouseMove={onMove}
+      onMouseLeave={onLeave}
+      className={clsx('t3d', className)}
+      style={{ transform, transition: gliding ? 'transform .5s cubic-bezier(.22,1,.36,1)' : 'transform .08s linear' }}
+    >
+      {children}
+    </div>
+  );
+}
+
+/* ---------------------------- category icons ------------------------------- */
+
+const CATEGORY_ICONS: Record<string, typeof LayoutGrid> = {
+  'shield-plus': ShieldPlus,
+  'building-2': Building2,
+  'hand-coins': HandCoins,
+  'car-front': CarFront,
+  calculator: Calculator,
+  scale: Scale,
+  'graduation-cap': GraduationCap,
+  house: House,
+  home: House,
+  landmark: Landmark,
+  shield: Shield,
+  'shield-check': ShieldCheck,
+  'book-open': BookOpen,
+  store: Store,
+  backpack: Backpack,
+  'messages-square': MessagesSquare,
+  'layout-grid': LayoutGrid,
+  zap: Zap,
+  headset: Headset,
+  'heart-handshake': HeartHandshake,
+  cpu: Cpu,
+  'badge-check': BadgeCheck,
+};
+
+/** Maps the catalogue's Lucide icon names to components (safe fallback). */
+export function CategoryIcon({ name, className }: { name?: string | null; className?: string }) {
+  const Icon = (name && CATEGORY_ICONS[name]) || LayoutGrid;
+  return <Icon className={className ?? 'size-6'} aria-hidden="true" />;
+}
+
+/** Icon component for landing feature lists (same Lucide vocabulary). */
+export function FeatureIcon({ name, className }: { name?: string; className?: string }) {
+  return <CategoryIcon name={name} className={className} />;
+}
+
+/* ----------------------------- phone mockup -------------------------------- */
+
+/**
+ * A CSS phone whose screen always shows the *configured* brand (logo, name
+ * and hero image from settings), so the app promo rebrands itself.
+ */
+export function PhoneMockup({ className }: { className?: string }) {
+  const brand = useBrand();
+  return (
+    <div className={clsx('relative mx-auto w-52 sm:w-60', className)} dir="rtl">
+      <div className="absolute -inset-6 rounded-[3rem] bg-brand-500/25 blur-2xl" aria-hidden="true" />
+      <div className="relative overflow-hidden rounded-[2.4rem] border-[6px] border-navy-950/90 bg-navy-950 shadow-2xl">
+        <div className="relative aspect-[9/18.5] overflow-hidden bg-gradient-to-b from-brand-600 via-brand-700 to-shell">
+          <img src={brand.heroImage} alt="" className="absolute inset-x-0 bottom-0 h-[46%] w-full object-cover opacity-90" loading="lazy" />
+          <div className="absolute inset-x-0 bottom-0 h-[46%] bg-gradient-to-t from-transparent via-transparent to-brand-700" aria-hidden="true" />
+          <div className="relative flex flex-col items-center px-4 pt-9 text-center">
+            <BrandMark className="size-14" />
+            <p className="mt-3 text-base font-black text-white">{brand.name}</p>
+            {brand.nameEn && <p className="mt-0.5 text-[10px] font-medium tracking-wide text-white/70" dir="ltr">{brand.nameEn}</p>}
+            <div className="mt-5 w-full space-y-2">
+              {['ثبت درخواست جدید', 'پیگیری پرونده‌ها', 'کیف پول و پرداخت'].map((label, i) => (
+                <div key={label} className={clsx('flex items-center gap-2 rounded-xl px-3 py-2 text-right text-[11px] font-semibold', i === 0 ? 'bg-white text-navy-900 shadow-lg' : 'bg-white/12 text-white ring-1 ring-white/15')}>
+                  <span className={clsx('size-1.5 rounded-full', i === 0 ? 'bg-emerald-500' : 'bg-white/60')} />
+                  {label}
+                </div>
+              ))}
+            </div>
+          </div>
+          <div className="absolute left-1/2 top-2 h-4 w-20 -translate-x-1/2 rounded-full bg-navy-950/90" aria-hidden="true" />
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/* ------------------------------- skyline ----------------------------------- */
+
+/** Stylised Tehran skyline silhouette (Tehran + towers) for dark footers. */
+export function Skyline({ className }: { className?: string }) {
+  return (
+    <svg viewBox="0 0 1200 120" preserveAspectRatio="none" aria-hidden="true" className={className}>
+      <path
+        fill="currentColor"
+        d="M0 120 V92 h38 V70 h24 V92 h30 V58 h18 V40 h10 v18 h14 v34 h34 V64 h22 V92 h40 V76 h16 V52 h3 l7-26 7 26 h3 v24 h16 v16 h36 V66 h20 V92 h30 V84 h28 V92 h44 V60 h14 V44 h8 v16 h12 v32 h30 V72 h24 v20 h38 V56 h4 l10-40 10 40 h4 v36 h32 V68 h18 v24 h42 V78 h26 v14 h30 V50 h12 v42 h34 V70 h22 v22 h38 V62 h16 V38 h6 v-10 h4 v10 h6 v24 h14 v30 h36 V74 h24 v18 h30 V58 h20 v34 h40 V80 h26 v12 h34 V64 h18 v28 h44 V72 h22 v20 h1200 Z"
+      />
+    </svg>
+  );
+}
+
+/* ------------------------------ custom HTML -------------------------------- */
+
+/**
+ * Admin-supplied raw HTML for the landing page («HTML سفارشی» setting).
+ * Scripts are re-created so they actually run; this is intentionally the
+ * site owner's own code on their own public page.
+ */
+export function CustomHtml({ html, className }: { html: string; className?: string }) {
+  const ref = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    const host = ref.current;
+    if (!host) return;
+    host.innerHTML = html;
+    host.querySelectorAll('script').forEach((old) => {
+      const script = document.createElement('script');
+      for (const attr of Array.from(old.attributes)) script.setAttribute(attr.name, attr.value);
+      script.textContent = old.textContent;
+      old.replaceWith(script);
+    });
+    return () => { host.innerHTML = ''; };
+  }, [html]);
+
+  if (!html?.trim()) return null;
+  return <div ref={ref} className={className} />;
+}

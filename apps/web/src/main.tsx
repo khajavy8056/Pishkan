@@ -15,7 +15,7 @@ import type { ReactNode } from 'react';
 import { HomePage } from './pages/public/Home';
 import { ServiceDetailPage, ServicesPage } from './pages/public/Services';
 import {
-  AssistantPage, LegalPage, LoginPage, NotFoundPage, RegisterPage, ResetPasswordPage, StatusPage,
+  AssistantPage, LegalPage, LoginPage, NotFoundPage, RegisterPage, ResetPasswordPage, StaffLoginPage, StatusPage,
 } from './pages/public/Auth';
 import {
   CustomerDashboard, CustomerInvoices, CustomerMessages, CustomerOffers, CustomerProfile,
@@ -79,6 +79,8 @@ function App() {
               <Route path="/status" element={<StatusPage />} />
               <Route path="/legal" element={<LegalPage />} />
               <Route path="/login" element={<LoginPage />} />
+              {/* Staff/admin door — intentionally not linked from any public page. */}
+              <Route path="/login-admin" element={<StaffLoginPage />} />
               <Route path="/register" element={<RegisterPage />} />
               <Route path="/reset-password" element={<ResetPasswordPage />} />
 

@@ -20,9 +20,9 @@ interface SettingItem {
 }
 
 const GROUP_ICONS: Record<string, string> = {
-  general: '🏢', domain: '🌐', auth: '🔑', sms: '📩', email: '✉️', security: '🛡️', services: '🧾',
-  accounting: '💳', wallet: '👛', workforce: '🗓️', assistant: '🤖', files: '📁', backup: '💾',
-  maintenance: '📊', monitoring: '📈', multibranch: '🏬',
+  general: '🏢', landing: '🎨', domain: '🌐', auth: '🔑', sms: '📩', email: '✉️', security: '🛡️', services: '🧾',
+  accounting: '💳', wallet: '👛', workforce: '🗓️', payroll: '💰', assistant: '🤖', files: '📁', backup: '💾',
+  maintenance: '📊', monitoring: '📈', multibranch: '🏬', support: '🎧',
 };
 
 export function SettingsCenter() {

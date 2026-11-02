@@ -650,7 +650,7 @@ describe('request lifecycle', () => {
 
     // register a second customer with a different mobile
     await request(server).post('/api/auth/register').send({ mobile: '09127778899', password: 'Other#12345', fullName: 'مشتری دوم' });
-    const second = await request(server).post('/api/auth/login').send({ identifier: '09127778899', password: 'Other#12345' });
+    const second = await request(server).post('/api/auth/customer/login').send({ identifier: '09127778899', password: 'Other#12345' });
     const cookie = second.headers['set-cookie'] as unknown as string[];
 
     const target = created.body.data[0];

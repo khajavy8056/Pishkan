@@ -19,9 +19,9 @@ beforeAll(async()=>{
  const upload=await request(server).post('/api/files/upload?purpose=delivery').set('Cookie',operator.cookie).attach('file',pdfFixture,'result.pdf');expect(upload.status).toBe(201);fileId=upload.body.data.id;
 });
 describe('role-aware professional case automation',()=>{
- it('uses the same password login endpoint for worker, accountant, supervisor and super admin',async()=>{
+ it('uses the staff door for worker, accountant, supervisor and super admin',async()=>{
   for(const [identifier,password,role,kind] of [['auto_worker','Worker#Pass123','operator','staff'],['auto_finance','Finance#Pass123','accountant','staff'],['auto_manager','Manager#Pass123','manager','admin'],[ADMIN.username,ADMIN.password,'super_admin','admin']]){
-   const r=await request(server).post('/api/auth/login').send({identifier,password});expect(r.status).toBe(200);expect(r.body.data.user.roleCode).toBe(role);expect(r.body.data.user.kind).toBe(kind);
+   const r=await request(server).post('/api/auth/staff/login').send({identifier,password});expect(r.status).toBe(200);expect(r.body.data.user.roleCode).toBe(role);expect(r.body.data.user.kind).toBe(kind);
    // Keep the most recent sessions, avoiding the intentional session cap in subsequent assertions.
    if(role==='super_admin')admin={cookie:r.headers['set-cookie']};
   }
