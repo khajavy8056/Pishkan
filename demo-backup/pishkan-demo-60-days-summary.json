@@ -1,0 +1,181 @@
+{
+  "generatedAt": "2026-11-02T22:15:24.841Z",
+  "scenario": "Simulated ~60 days of office activity ending at generation time.",
+  "restore": {
+    "windowsManager": "Open the Pishkan Manager, press «بازیابی», and choose pishkan-demo-60-days.sqlite. The Manager keeps a safety copy of the current database and restarts the service.",
+    "uploads": "The demo is self-contained (no uploaded binaries). pishkan-demo-60-days-uploads.tar.gz mirrors the uploads folder for completeness."
+  },
+  "counts": {
+    "migrations": 27,
+    "customers": 36,
+    "staffAndAdmins": 12,
+    "servicesTotal": 208,
+    "requestsTotal": 115,
+    "requestsByStatus": {
+      "assigned": 8,
+      "cancelled": 5,
+      "completed": 52,
+      "in_progress": 16,
+      "new": 26,
+      "rejected": 2,
+      "waiting_customer": 6
+    },
+    "requestsByWorkBucket": {
+      "action": 34,
+      "cancelled": 7,
+      "completed": 52,
+      "followup": 3,
+      "in_progress": 7,
+      "waiting_customer": 7,
+      "waiting_organization": 5
+    },
+    "freeQueueUnassigned": 26,
+    "invoices": 129,
+    "confirmedPayments": 98,
+    "confirmedPaymentTotal": 473737000,
+    "commissionEntries": 41,
+    "commissionTotal": 18558900,
+    "salaryPayments": 14,
+    "salaryPaidTotal": 423000000,
+    "withdrawalsByStatus": {
+      "approved": 1,
+      "paid": 2,
+      "rejected": 1,
+      "reviewing": 1,
+      "submitted": 1
+    },
+    "expenses": 10,
+    "supportTickets": {
+      "answered": 3,
+      "closed": 3,
+      "open": 4,
+      "resolved": 2
+    },
+    "messageThreads": 7,
+    "blogPosts": {
+      "draft": 1,
+      "published": 6
+    },
+    "blogComments": 5,
+    "shifts": 561,
+    "attendanceRows": 422,
+    "notifications": 1812
+  },
+  "credentials": {
+    "admin": {
+      "username": "admin",
+      "password": "Admin@12345",
+      "login": "/login-admin"
+    },
+    "staffPassword": "Demo@12345",
+    "staff": [
+      {
+        "username": "manager",
+        "fullName": "سارا محمدی",
+        "role": "manager",
+        "contract": "monthly"
+      },
+      {
+        "username": "accounting",
+        "fullName": "رضا کریمی",
+        "role": "accountant",
+        "contract": "monthly"
+      },
+      {
+        "username": "fixed1",
+        "fullName": "مریم حسینی",
+        "role": "operator",
+        "contract": "monthly"
+      },
+      {
+        "username": "fixed2",
+        "fullName": "حسین رضایی",
+        "role": "service_expert",
+        "contract": "monthly"
+      },
+      {
+        "username": "fixed3",
+        "fullName": "فاطمه احمدی",
+        "role": "operator",
+        "contract": "monthly"
+      },
+      {
+        "username": "fixed4",
+        "fullName": "علی محمدی",
+        "role": "service_expert",
+        "contract": "monthly"
+      },
+      {
+        "username": "percent1",
+        "fullName": "زهرا موسوی",
+        "role": "service_expert",
+        "contract": "commission"
+      },
+      {
+        "username": "percent2",
+        "fullName": "محمد صادقی",
+        "role": "service_expert",
+        "contract": "commission"
+      },
+      {
+        "username": "percent3",
+        "fullName": "نگار احمدی",
+        "role": "service_expert",
+        "contract": "commission"
+      },
+      {
+        "username": "percent4",
+        "fullName": "امیر کاظمی",
+        "role": "service_expert",
+        "contract": "commission"
+      },
+      {
+        "username": "content",
+        "fullName": "لیلا احمدی",
+        "role": "content_manager",
+        "contract": "monthly"
+      }
+    ],
+    "customerPassword": "Demo@12345",
+    "customersSample": [
+      {
+        "mobile": "09122100000",
+        "fullName": "رضا محمودی"
+      },
+      {
+        "mobile": "09122100137",
+        "fullName": "زهرا کاظمی"
+      },
+      {
+        "mobile": "09122100274",
+        "fullName": "علی نجفی"
+      },
+      {
+        "mobile": "09122100411",
+        "fullName": "فاطمه مرادی"
+      },
+      {
+        "mobile": "09122100548",
+        "fullName": "حسین صادقی"
+      }
+    ],
+    "note": "Every demo staff account uses the staff password above; every demo customer logs in with their mobile + the customer password."
+  },
+  "checks": {
+    "integrity": "ok",
+    "foreignKeyViolations": 0,
+    "migrations": 27
+  },
+  "files": {
+    "sqlite": {
+      "name": "pishkan-demo-60-days.sqlite",
+      "bytes": 4661248,
+      "sha256": "d3c76945ddd0795f2fbd36018d71658021f79f015cf4d7155e13d8559207d728"
+    },
+    "uploads": {
+      "name": "pishkan-demo-60-days-uploads.tar.gz",
+      "bytes": 217,
+      "sha256": "7f45e3e0905ca1809cc1a8affba58feea1a2174fe9a8dcffb51fcb4733662ef3"
+    }
+  }
+}
