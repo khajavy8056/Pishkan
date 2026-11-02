@@ -200,7 +200,7 @@ function SupportCore({ mode }: { mode: Mode }) {
   return (
     <div>
       {staffSide && stats && (
-        <div className="mb-5 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+        <div className="mb-5 grid grid-cols-2 gap-3 xl:grid-cols-4">
           <StatCard label="تیکت باز" value={faNum(stats.open ?? 0)} icon={<Inbox className="size-5" />} />
           <StatCard label="بدون کارشناس" value={faNum(stats.unassigned ?? 0)} icon={<UserRound className="size-5" />} />
           <StatCard label="اختصاص به من (باز)" value={faNum(stats.mine ?? 0)} icon={<Headset className="size-5" />} />

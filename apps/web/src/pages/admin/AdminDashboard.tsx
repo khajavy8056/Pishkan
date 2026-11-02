@@ -98,7 +98,7 @@ export function AdminDashboard() {
         </div>
       </HeroShell>
 
-      <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+      <div className="grid grid-cols-2 gap-3 sm:gap-4 xl:grid-cols-4">
         <GlossyStat color="#16a34a" icon={<Wallet className="size-7" />} label="درآمد کل سیستم"
           value={rial(finance.revenue ?? 0)} delta={deltas.revenue} to="/admin/finance"
           sub="رشد دریافتی تأییدشده در ۳۰ روز اخیر" />

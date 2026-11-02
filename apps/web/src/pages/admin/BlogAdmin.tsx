@@ -507,7 +507,7 @@ export function BlogAdmin({ variant }: { variant: Variant }) {
       />
 
       {stats && (
-        <div className="mb-6 grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+        <div className="mb-6 grid grid-cols-2 gap-3 sm:gap-4 xl:grid-cols-4">
           <GlossyStat color="#2563eb" icon={<Newspaper className="size-7" />} label="کل مطالب" value={faNum(stats.posts.total)}
             sub={`منتشرشده: ${faNum(stats.posts.published)} · پیش‌نویس: ${faNum(stats.posts.draft)}`} />
           <GlossyStat color="#16a34a" icon={<Eye className="size-7" />} label="مجموع بازدیدها" value={faNum(stats.totalViews)} />

@@ -213,7 +213,7 @@ export function EligibleQueue() {
         </p>
       </HeroShell>
 
-      <div className="mb-6 grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+      <div className="mb-6 grid grid-cols-2 gap-3 sm:gap-4 xl:grid-cols-4">
         <GlossyStat color="#2563eb" icon={<Inbox className="size-7" />} label="درخواست آزاد در صف"
           value={faNum(rows?.length ?? 0)} sub={`امروز ثبت شده: ${faNum(rows?.filter((r) => isToday(r.createdAt)).length ?? 0)}`} />
         <GlossyStat color="#e11d48" icon={<AlertTriangle className="size-7" />} label="فوری"

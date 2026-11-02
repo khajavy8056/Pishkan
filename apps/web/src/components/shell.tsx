@@ -231,9 +231,24 @@ export function AppShell({ children, variant }: { children: ReactNode; variant: 
   // Mobile dock: first four destinations, but the page you are on always
   // earns a seat (e.g. the blog for a content manager, whose nav is long).
   const dockBase = visibleNav.filter((n) => !n.to.includes('/assistant'));
-  const dockItems = activeItem && !activeItem.to.includes('/assistant') && !dockBase.slice(0, 4).some((n) => n.to === activeItem.to)
-    ? [...dockBase.slice(0, 3), activeItem]
-    : dockBase.slice(0, 4);
+  // The phone dock mirrors the approved mock: home, requests, services (or
+  // the work queue), money — then fills any gap from the sidebar order.
+  // Whatever page is open always keeps a seat.
+  const dockPreferred = variant === 'customer'
+    ? ['/app', '/app/requests', '/app/services', '/app/wallet']
+    : variant === 'admin'
+      ? ['/admin', '/admin/requests', '/admin/services', '/admin/wallet']
+      : ['/staff', '/staff/requests', '/staff/automation', '/staff/finance', '/staff/blog'];
+  const dockPicked = dockPreferred
+    .map((to) => dockBase.find((n) => n.to === to))
+    .filter((n): n is NavItem => Boolean(n));
+  for (const item of dockBase) {
+    if (dockPicked.length >= 4) break;
+    if (!dockPicked.some((n) => n.to === item.to)) dockPicked.push(item);
+  }
+  const dockItems = activeItem && !activeItem.to.includes('/assistant') && !dockPicked.slice(0, 4).some((n) => n.to === activeItem.to)
+    ? [...dockPicked.slice(0, 3), activeItem]
+    : dockPicked.slice(0, 4);
 
   const submitHeaderSearch = (event: React.FormEvent) => {
     event.preventDefault();
@@ -489,8 +504,8 @@ export function AppShell({ children, variant }: { children: ReactNode; variant: 
                 <span className="grid size-8 place-items-center rounded-full bg-gradient-to-br from-brand-500 via-brand-700 to-shell text-xs font-bold text-white shadow-md shadow-brand-600/25">
                   {user?.fullName?.slice(0, 1) ?? '؟'}
                 </span>
-                <span className="hidden leading-tight sm:block">
-                  <span className="block max-w-32 truncate text-xs font-bold text-navy-900">{user?.fullName}</span>
+                <span className="leading-tight">
+                  <span className="block max-w-20 truncate text-xs font-bold text-navy-900 sm:max-w-32">{user?.fullName}</span>
                   <span className="block text-[10px] text-navy-400">{variant === 'customer' ? 'مشتری گرامی' : (user?.roleName ?? 'کارمند دفتر')}</span>
                 </span>
                 <ChevronDown className="size-3.5 text-navy-400" />
@@ -571,7 +586,7 @@ export function AppShell({ children, variant }: { children: ReactNode; variant: 
             </NavLink>
           ))}
           <button onClick={() => setOpen(true)} className="flex min-w-14 flex-col items-center justify-center gap-1 rounded-xl px-2 text-[10px] text-navy-500 transition hover:text-navy-800">
-            <Menu className="size-5" /> همه بخش‌ها
+            <Menu className="size-5" /> منو
           </button>
         </nav>
 

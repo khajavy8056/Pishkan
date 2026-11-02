@@ -299,7 +299,7 @@ function FixedHome({ ctx }: { ctx: Ctx }) {
 
       <AvailabilityStrip ctx={ctx} />
 
-      <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+      <div className="grid grid-cols-2 gap-3 sm:gap-4 xl:grid-cols-4">
         <GlossyStat color="#f59e0b" icon={<Medal className="size-7" />} label="پرونده‌های تکمیل این ماه"
           value={faNum(perf?.completedMonth ?? 0)} to="/staff/performance"
           sub={`امروز ${faNum(perf?.completedToday ?? 0)} · این هفته ${faNum(perf?.completedWeek ?? 0)}`} />
@@ -457,7 +457,7 @@ function PercentHome({ ctx }: { ctx: Ctx }) {
 
       <AvailabilityStrip ctx={ctx} />
 
-      <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+      <div className="grid grid-cols-2 gap-3 sm:gap-4 xl:grid-cols-4">
         <GlossyStat color="#f59e0b" icon={<Trophy className="size-7" />} label="رتبهٔ عملکرد این ماه"
           value={payroll?.rank?.position ? `رتبهٔ ${faNum(payroll.rank.position)}` : '—'} to="/staff/performance"
           sub={payroll?.rank?.total ? `از میان ${faNum(payroll.rank.total)} کارمند درصدی` : 'درآمد قطعی این ماه مبنای رتبه است'} />

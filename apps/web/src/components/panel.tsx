@@ -59,9 +59,9 @@ export function GlossyStat({ color = '#2563eb', icon, label, value, sub, delta, 
       <div className="flex items-start justify-between gap-3">
         <div className="min-w-0">
           <p className="truncate text-xs font-semibold text-navy-500">{label}</p>
-          <p className="mt-1.5 text-[1.45rem] font-black leading-8 tracking-tight text-navy-900">{value}</p>
+          <p className="mt-1.5 text-lg font-black leading-7 tracking-tight text-navy-900 sm:text-[1.45rem] sm:leading-8">{value}</p>
         </div>
-        <IconBubble color={color}>{icon}</IconBubble>
+        <IconBubble color={color} className="size-11 sm:size-14">{icon}</IconBubble>
       </div>
       {(sub || delta !== undefined) && (
         <div className="mt-2 flex flex-wrap items-center gap-2">

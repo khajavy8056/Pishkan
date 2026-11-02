@@ -109,16 +109,31 @@ describe('public mobile navigation', () => {
 });
 
 describe('panel mobile dock', () => {
-  it('uses short labels an admin can actually tap', async () => {
+  it('mirrors the approved phone mock for the admin (داشبورد، درخواست‌ها، خدمات، کیف پول، منو)', async () => {
     setAuthUser(adminUser);
     installApi();
     renderAt(<AppShell variant="admin"><p>محتوا</p></AppShell>, '/admin');
 
     const dock = await waitFor(() => dockOf());
-    expect(within(dock).getByText('کارتابل')).toBeTruthy();
+    const hrefs = within(dock).getAllByRole('link').map((a) => a.getAttribute('href'));
+    expect(hrefs).toEqual(['/admin', '/admin/requests', '/admin/services', '/admin/wallet']);
     expect(within(dock).getByText('داشبورد')).toBeTruthy();
-    expect(within(dock).queryByText('کارتابل تأیید و ارجاع')).toBeNull();
-    expect(within(dock).getByText('همه بخش‌ها')).toBeTruthy();
+    expect(within(dock).getByText('خدمات')).toBeTruthy();
+    expect(within(dock).getByText('کیف پول')).toBeTruthy();
+    expect(within(dock).queryByText('خدمات و دسته‌ها')).toBeNull();
+    expect(within(dock).getByRole('button', { name: /منو/ })).toBeTruthy();
+  });
+
+  it('mirrors the approved phone mock for the customer', async () => {
+    setAuthUser({ ...contentUser, kind: 'customer', roleCode: null, roleName: null, permissions: [] });
+    installApi();
+    renderAt(<AppShell variant="customer"><p>محتوا</p></AppShell>, '/app');
+
+    const dock = await waitFor(() => dockOf());
+    const hrefs = within(dock).getAllByRole('link').map((a) => a.getAttribute('href'));
+    expect(hrefs).toEqual(['/app', '/app/requests', '/app/services', '/app/wallet']);
+    expect(within(dock).getByText('پیگیری')).toBeTruthy();
+    expect(within(dock).getByText('کیف پول')).toBeTruthy();
   });
 
   it('seats the active page in the dock even when it is far down the nav (content manager → blog)', async () => {
