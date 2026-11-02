@@ -755,17 +755,15 @@ export async function createRequest(input: CreateRequestInput, actor?: { id: str
     }).catch(() => undefined);
     // Ring the devices of everyone who could pick this case from the free
     // pool right now (Snapp-style): eligible + has free capacity. Best-effort.
-    void (async () => {
-      const candidates = await candidatesForService(service);
-      if (!candidates.length) return;
-      const { sendPushToUsers } = await import('../notifications/push.js');
-      await sendPushToUsers(candidates.map((candidate) => candidate.id), {
+    const candidates = await candidatesForService(service).catch(() => []);
+    for (const candidate of candidates) {
+      await notifyUser(candidate.id, {
         title: 'پروندهٔ تازه در صف آزاد',
         body: `«${service.title}» — کد پیگیری ${toPersianDigits(trackingCode)}`,
-        url: '/staff/queue',
-        tag: `queue:${requestId}`,
-      });
-    })().catch(() => undefined);
+        kind: 'info', link: '/staff/queue', push: true,
+        idempotencyKey: `queue:${requestId}:${candidate.id}`,
+      }).catch(() => undefined);
+    }
   }
 
   await writeAudit({
@@ -794,7 +792,7 @@ export async function createRequest(input: CreateRequestInput, actor?: { id: str
 export async function getRequest(requestId: string, viewer?: { actorId: string; isCustomer: boolean; canViewDocuments?: boolean }) {
   const row = await one<any>(`
     SELECT r.*, s.title AS service_title, s.slug AS service_slug, s.workflow_steps, s.is_custom,
-           s.has_external_costs, s.external_costs_note, s.external_cost_items,
+           s.has_external_costs, s.external_costs_note, s.external_cost_items, s.requires_manager_approval,
            c.full_name AS customer_name, c.mobile AS customer_mobile, c.national_id AS customer_national_id,
            a.full_name AS assignee_name
     FROM requests r
@@ -852,6 +850,7 @@ export async function getRequest(requestId: string, viewer?: { actorId: string; 
     serviceTitle: row.service_title,
     serviceSlug: row.service_slug,
     isCustom: Boolean(row.is_custom),
+    serviceRequiresApproval: Boolean(row.requires_manager_approval),
     assignedTo: row.assigned_to,
     assigneeName: row.assignee_name,
     earnings: earningPreview,
@@ -1128,6 +1127,13 @@ export async function moveStep(
       ip: actor.ip,
     });
     await refreshWorkBucket(requestId);
+    await notifyUser(request.customer_id, {
+      title: 'مرحلهٔ پروندهٔ شما به‌روز شد',
+      body: `مرحلهٔ فعلی: «${steps[next].title}»`,
+      kind: 'info',
+      link: `/app/requests/${requestId}`,
+      push: true,
+    }).catch(() => undefined);
     return getRequest(requestId);
   });
 }
@@ -1195,7 +1201,7 @@ export async function attachDocument(
   title: string,
   actor: { id: string; name: string },
   kind: 'customer' | 'staff' = 'staff',
-  meta: { customerDocumentId?: string | null; documentType?: string | null; expiresAt?: string | null; requirementKey?: string | null; replacesDocumentId?: string | null; ownerId?: string } = {},
+  meta: { customerDocumentId?: string | null; documentType?: string | null; expiresAt?: string | null; requirementKey?: string | null; replacesDocumentId?: string | null; ownerId?: string; delivered?: boolean } = {},
 ) {
   return tx(async () => {
     await run('UPDATE requests SET updated_at=updated_at WHERE id=?', [requestId]);
@@ -1256,18 +1262,19 @@ export async function attachDocument(
     }
 
     const ts = nowIso();
-    const nextStatus = 'under_review';
+    const nextStatus = meta.delivered ? request.status : 'under_review';
     await run(
-      `INSERT INTO request_documents (id, request_id, file_id, title, kind, status, created_at, customer_document_id, document_type, expires_at, requirement_key, replaces_document_id)
-       VALUES (?, ?, ?, ?, ?, 'pending', ?, ?, ?, ?, ?, ?)`,
-      [id('doc'), requestId, fileId, title, kind, ts, meta.customerDocumentId ?? null, meta.documentType ?? null,
-        meta.expiresAt ?? null, meta.requirementKey ?? null, replacesDocumentId],
+      `INSERT INTO request_documents (id, request_id, file_id, title, kind, status, created_at, customer_document_id, document_type, expires_at, requirement_key, replaces_document_id, reviewed_by, review_note)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      [id('doc'), requestId, fileId, title, kind, meta.delivered ? 'approved' : 'pending', ts, meta.customerDocumentId ?? null, meta.documentType ?? null,
+        meta.expiresAt ?? null, meta.requirementKey ?? null, replacesDocumentId,
+        meta.delivered ? actor.id : null, meta.delivered ? 'تحویل مستقیم توسط مجری' : null],
     );
     await run('UPDATE requests SET status = ?, updated_at = ? WHERE id = ?', [nextStatus, ts, requestId]);
     await addEvent({
       requestId, type: 'document', actorId: actor.id, actorName: actor.name,
       message: `مدرک «${title}» بارگذاری شد.`, metadata: { fileId, requirementKey: meta.requirementKey ?? null, replacesDocumentId },
-      visibleToCustomer: kind === 'customer',
+      visibleToCustomer: kind === 'customer' || Boolean(meta.delivered),
     });
     if (nextStatus !== request.status) {
       await addEvent({ requestId, type: 'status', actorId: actor.id, actorName: actor.name,

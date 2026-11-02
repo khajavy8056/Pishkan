@@ -35,6 +35,9 @@ function mapStaff(row: any) {
     maxActiveCases: Number(row.max_active_cases ?? 0),
     acceptsNewCases: Boolean(row.accepts_new_cases),
     activeCases: Number(row.active_cases ?? 0),
+    cooperationKind: row.cooperation_kind ?? null,
+    commissionPercent: row.commission_percent == null ? null : Number(row.commission_percent),
+    monthlyAmount: row.monthly_amount == null ? null : Number(row.monthly_amount),
     mfaEnabled: Boolean(row.mfa_enabled),
     lastLoginAt: row.last_login_at,
     lastSeenAt: row.last_seen_at ?? null,
@@ -46,7 +49,10 @@ function mapStaff(row: any) {
 const STAFF_SELECT = `
   SELECT u.*, r.code AS role_code, r.name AS role_name, sp.employee_code, sp.position, sp.specialties,
          sp.max_active_cases, sp.accepts_new_cases, sp.hired_at,
-         (SELECT COUNT(*) FROM requests rq WHERE rq.assigned_to = u.id AND rq.status NOT IN ('completed','cancelled','rejected')) AS active_cases
+         (SELECT COUNT(*) FROM requests rq WHERE rq.assigned_to = u.id AND rq.status NOT IN ('completed','cancelled','rejected')) AS active_cases,
+         (SELECT c.kind FROM compensation_contracts c WHERE c.user_id = u.id AND c.is_active = 1 ORDER BY c.starts_on DESC LIMIT 1) AS cooperation_kind,
+         (SELECT c.commission_percent FROM compensation_contracts c WHERE c.user_id = u.id AND c.is_active = 1 ORDER BY c.starts_on DESC LIMIT 1) AS commission_percent,
+         (SELECT c.monthly_amount FROM compensation_contracts c WHERE c.user_id = u.id AND c.is_active = 1 ORDER BY c.starts_on DESC LIMIT 1) AS monthly_amount
   FROM users u
   LEFT JOIN roles r ON r.id = u.role_id
   LEFT JOIN staff_profiles sp ON sp.user_id = u.id

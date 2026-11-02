@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState, type ReactNode } from 'react';
+import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { Link, NavLink, useLocation, useNavigate } from 'react-router-dom';
 import {
   LayoutDashboard, ClipboardList, Wallet, MessageSquare, User, Bell, LogOut, Menu, X, Search, Activity,
@@ -11,7 +11,9 @@ import { useAuth, homeFor } from '../lib/auth';
 import { api } from '../lib/api';
 import { relative, faNum } from '../lib/format';
 import { ThemeToggle, useTheme } from '../lib/theme';
-import { Button, Spinner } from './ui';
+import { Button, Spinner, useToast } from './ui';
+import { ChatWidget } from './ChatWidget';
+import { NotificationGate } from './NotificationGate';
 
 export interface NavItem {
   to: string;
@@ -119,6 +121,7 @@ function BrandMark({ compact = false }: { compact?: boolean }) {
 
 export function AppShell({ children, variant }: { children: ReactNode; variant: 'customer' | 'staff' | 'admin' }) {
   const { user, logout, can } = useAuth();
+  const { notify } = useToast();
   const navigate = useNavigate();
   const location = useLocation();
   const [open, setOpen] = useState(false);
@@ -126,6 +129,7 @@ export function AppShell({ children, variant }: { children: ReactNode; variant: 
   const [accountOpen, setAccountOpen] = useState(false);
   const [notifications, setNotifications] = useState<any[]>([]);
   const [unread, setUnread] = useState(0);
+  const knownNotificationIds = useRef<Set<string> | null>(null);
 
   const nav = useMemo(() => {
     const list = navFor(user?.kind === 'admin' ? 'admin' : variant === 'customer' ? 'customer' : 'staff');
@@ -152,18 +156,49 @@ export function AppShell({ children, variant }: { children: ReactNode; variant: 
     let active = true;
     const load = async () => {
       try {
-        const res = await api.list<any>('/api/customers/me/notifications?limit=8');
+        const res = await api.list<any>('/api/customers/me/notifications?limit=30');
         if (!active) return;
         setNotifications(res.data);
         setUnread(Number((res as any).meta?.unread ?? 0));
+        // Toast anything that arrived since the last poll so the user hears
+        // about it even without opening the bell. First load only seeds.
+        const known = knownNotificationIds.current;
+        const fresh = res.data.filter((n: any) => !n.readAt && (!known || !known.has(n.id)));
+        if (known && fresh.length > 0 && !document.hidden) {
+          const latest = fresh[0];
+          notify(
+            fresh.length > 1
+              ? `${faNum(fresh.length)} اعلان تازه: ${latest.title}`
+              : `${latest.title}${latest.body ? ` — ${latest.body}` : ''}`.slice(0, 140),
+            latest.kind === 'error' ? 'error' : latest.kind === 'success' ? 'success' : 'info',
+          );
+        }
+        knownNotificationIds.current = new Set(res.data.map((n: any) => n.id));
       } catch {
         /* notifications are non-critical */
       }
     };
     void load();
-    const timer = setInterval(load, 60_000);
+    const timer = setInterval(load, 25_000);
     return () => { active = false; clearInterval(timer); };
-  }, [location.pathname]);
+  }, [location.pathname, notify]);
+
+  /** Clicking a notice marks exactly that one read (badge follows at once)
+      and routes chat pointers into the floating chat instead of a page. */
+  const openNotification = (n: any, event: React.MouseEvent) => {
+    if (!n.readAt) {
+      void api.post('/api/customers/me/notifications/read', { id: n.id }).catch(() => undefined);
+      setUnread((value) => Math.max(0, value - 1));
+      setNotifications((prev) => prev.map((item) => (item.id === n.id ? { ...item, readAt: new Date().toISOString() } : item)));
+    }
+    if (typeof n.link === 'string' && n.link.startsWith('chat:')) {
+      event.preventDefault();
+      setNotificationsOpen(false);
+      window.dispatchEvent(new CustomEvent('pishkan:open-chat', { detail: { ticketId: n.link.slice(5) } }));
+    } else {
+      setNotificationsOpen(false);
+    }
+  };
 
   const markAllRead = async () => {
     await api.post('/api/customers/me/notifications/read', {});
@@ -323,7 +358,8 @@ export function AppShell({ children, variant }: { children: ReactNode; variant: 
                     {notifications.map((n) => (
                       <Link
                         key={n.id}
-                        to={n.link ?? '#'}
+                        to={n.link && !String(n.link).startsWith('chat:') ? n.link : '#'}
+                        onClick={(event) => openNotification(n, event)}
                         className={clsx('block border-b border-line px-4 py-3 transition last:border-0 hover:bg-surface-3', !n.readAt && 'bg-brand-50/70')}
                       >
                         <p className="text-sm font-medium text-navy-900">{n.title}</p>
@@ -407,6 +443,9 @@ export function AppShell({ children, variant }: { children: ReactNode; variant: 
         <footer className="border-t border-line px-6 py-4 text-center text-xs text-navy-400">
           سامانه جامع دفتر پیشخوان دولت — نسخه {import.meta.env.VITE_APP_VERSION ?? '1.2.0'}
         </footer>
+
+        <NotificationGate kind={variant} />
+        <ChatWidget />
       </div>
     </div>
   );

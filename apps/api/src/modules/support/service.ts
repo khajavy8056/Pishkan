@@ -140,7 +140,8 @@ export async function createTicket(input: {
         title: 'تیکت پشتیبانی جدید',
         body: `${number} — ${subject} (${DEPARTMENT_LABELS[input.department] ?? input.department})`,
         kind: priority === 'urgent' || priority === 'high' ? 'warning' : 'info',
-        link: '/admin/support',
+        link: `chat:${ticketId}`,
+        push: true,
         idempotencyKey: `support-new:${ticketId}`,
       }).catch(() => undefined);
       return getTicket(ticketId, actor);
@@ -270,20 +271,20 @@ export async function replyToTicket(ticketId: string, input: { body: string; fil
         await notifyUser(target, {
           title: 'پاسخ جدید در تیکت پشتیبانی',
           body: `${ticket.number} — ${ticket.subject}`,
-          kind: 'info', link: '/staff/support',
+          kind: 'info', link: `chat:${ticketId}`, push: true,
         }).catch(() => undefined);
       } else {
         await notifyRole(['super_admin', 'manager'], {
           title: 'پاسخ جدید در تیکت بدون مسئول',
           body: `${ticket.number} — ${ticket.subject}`,
-          kind: 'info', link: '/admin/support',
+          kind: 'info', link: `chat:${ticketId}`, push: true,
         }).catch(() => undefined);
       }
     } else {
       await notifyUser(ticket.customer_id, {
         title: 'پاسخ پشتیبانی دریافت شد',
         body: `تیکت ${ticket.number} پاسخ داده شد: ${ticket.subject}`,
-        kind: 'success', link: '/app/support',
+        kind: 'success', link: `chat:${ticketId}`, push: true,
       }).catch(() => undefined);
     }
   }
@@ -345,7 +346,7 @@ export async function updateTicket(ticketId: string, input: {
     await notifyUser(ticket.customer_id, {
       title: input.status === 'resolved' ? 'تیکت شما حل‌شده علامت خورد' : 'تیکت شما بسته شد',
       body: `${ticket.number} — ${ticket.subject}`,
-      kind: 'success', link: '/app/support',
+      kind: 'success', link: `chat:${ticketId}`, push: true,
       idempotencyKey: `support-${input.status}:${ticketId}:${ts}`,
     }).catch(() => undefined);
   }
@@ -353,7 +354,7 @@ export async function updateTicket(ticketId: string, input: {
     await notifyUser(input.assignedTo, {
       title: 'تیکت پشتیبانی به شما واگذار شد',
       body: `${ticket.number} — ${ticket.subject}`,
-      kind: 'info', link: '/staff/support',
+      kind: 'info', link: `chat:${ticketId}`, push: true,
       idempotencyKey: `support-assign:${ticketId}:${input.assignedTo}`,
     }).catch(() => undefined);
   }

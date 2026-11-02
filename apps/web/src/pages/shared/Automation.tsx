@@ -72,7 +72,11 @@ export function CaseAutomation({ request, onChange }: { request: any; onChange: 
   return (
     <Card>
       <h2 className="mb-1 flex items-center gap-2 font-bold"><ClipboardCheck className="size-5 text-accent" />تحویل نتیجه و گردش اداری</h2>
-      <p className="mb-5 text-xs leading-6 text-navy-500">فایل نتیجه تا تأیید مدیریت برای مشتری منتشر نمی‌شود. ارجاع مالی پرداخت یا تسویه خودکار ایجاد نمی‌کند.</p>
+      <p className="mb-5 text-xs leading-6 text-navy-500">
+        {request.serviceRequiresApproval
+          ? 'این خدمت نیازمند تأیید مدیر است؛ فایل نتیجه تا تأیید مدیریت برای مشتری منتشر نمی‌شود. ارجاع مالی پرداخت یا تسویهٔ خودکار ایجاد نمی‌کند.'
+          : 'تحویل این پرونده مستقیم است: با ثبت تحویل، توضیحات و فایل‌های نتیجه برای مشتری منتشر و پرونده بسته می‌شود. ارجاع مالی پرداخت یا تسویهٔ خودکار ایجاد نمی‌کند.'}
+      </p>
       {error && <p className="text-sm text-rose-700">{error}</p>}
 
       {can('requests.edit') && !closed && (
@@ -96,8 +100,9 @@ export function CaseAutomation({ request, onChange }: { request: any; onChange: 
                 files: files.map(({ fileId, title, replacesDocumentId }) => ({ fileId, title, replacesDocumentId })), summary,
               }));
             }}>
-              <h3 className="text-sm font-bold">تحویل کار برای تأیید</h3>
-              <Field label="فایل‌های نتیجه" hint="PDF یا تصویر؛ حداکثر ۱۰ فایل. فایل‌ها ابتدا خصوصی بارگذاری می‌شوند." required>
+              <h3 className="text-sm font-bold">{request.serviceRequiresApproval ? 'تحویل کار برای تأیید مدیر' : 'تحویل نهایی به مشتری'}</h3>
+              <Field label="فایل‌های نتیجه" required={Boolean(request.serviceRequiresApproval)}
+                hint={request.serviceRequiresApproval ? 'PDF یا تصویر؛ حداکثر ۱۰ فایل. فایل‌ها ابتدا خصوصی بارگذاری می‌شوند.' : 'PDF یا تصویر؛ حداکثر ۱۰ فایل. پیوست فایل اختیاری است.'}>
                 <Input type="file" accept=".pdf,.jpg,.jpeg,.png,.webp" multiple disabled={busy} onChange={async (event) => {
                   const selected = Array.from(event.target.files ?? []);
                   if (files.length + selected.length > 10) { notify('حداکثر ۱۰ فایل مجاز است.', 'error'); return; }
@@ -154,9 +159,9 @@ export function CaseAutomation({ request, onChange }: { request: any; onChange: 
               {missingReplacements.length > 0 && (
                 <p role="status" className="text-xs text-amber-800">برای {faNum(missingReplacements.length)} نتیجهٔ ردشده هنوز فایل جایگزین انتخاب نشده است.</p>
               )}
-              <Field label="گزارش انجام کار" required><Textarea required minLength={5} maxLength={2000} value={summary} onChange={(event) => setSummary(event.target.value)} /></Field>
-              <Button type="submit" loading={busy} disabled={!files.length || missingReplacements.length > 0}>
-                <UploadCloud className="size-4" />ارسال برای تأیید مدیریت
+              <Field label={request.serviceRequiresApproval ? 'گزارش انجام کار برای مدیر' : 'توضیحات تحویل برای مشتری'} required><Textarea required minLength={5} maxLength={2000} value={summary} onChange={(event) => setSummary(event.target.value)} /></Field>
+              <Button type="submit" loading={busy} disabled={(Boolean(request.serviceRequiresApproval) && !files.length) || missingReplacements.length > 0}>
+                <UploadCloud className="size-4" />{request.serviceRequiresApproval ? 'ارسال برای تأیید مدیریت' : 'تحویل نهایی به مشتری'}
               </Button>
             </form>
           )}

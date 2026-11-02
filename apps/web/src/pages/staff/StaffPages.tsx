@@ -4,7 +4,7 @@ import { Link, useParams, useSearchParams } from 'react-router-dom';
 import {
   ClipboardList, FileText, Clock, AlertTriangle, CheckCircle2, UserPlus, UploadCloud, Send,
   Users, CalendarClock, ArrowRight, Wallet, RefreshCw, LogIn, LogOut, Search, MessageSquare,
-  ShieldAlert, Download, BadgeCheck, FileCheck2, XCircle, Landmark,
+  ShieldAlert, Download, BadgeCheck, FileCheck2, XCircle, Landmark, PackageCheck, Paperclip,
 } from 'lucide-react';
 import clsx from 'clsx';
 import { AppShell, PageHeader } from '../../components/shell';
@@ -501,6 +501,10 @@ export function RequestDetail({ variant = 'staff' }: { variant?: 'staff' | 'admi
   const [error, setError] = useState('');
   const [note, setNote] = useState('');
   const [statusModal, setStatusModal] = useState(false);
+  const [deliverModal, setDeliverModal] = useState(false);
+  const [deliverSummary, setDeliverSummary] = useState('');
+  const [deliverFiles, setDeliverFiles] = useState<{ fileId: string; title: string }[]>([]);
+  const [deliverBusy, setDeliverBusy] = useState(false);
   const [externalModal, setExternalModal] = useState(false);
   const [externalForm, setExternalForm] = useState({ title: '', amount: 0, note: '' });
   const [deadlineModal, setDeadlineModal] = useState(false);
@@ -562,6 +566,44 @@ export function RequestDetail({ variant = 'staff' }: { variant?: 'staff' | 'admi
     } catch (err) {
       notify(err instanceof ApiFailure ? err.message : 'خطا', 'error');
     } finally { setBusy(false); }
+  };
+
+  const uploadDeliverFiles = async (selected: FileList | null) => {
+    const chosen = Array.from(selected ?? []);
+    if (!chosen.length) return;
+    if (deliverFiles.length + chosen.length > 10) { notify('حداکثر ۱۰ فایل مجاز است.', 'error'); return; }
+    setDeliverBusy(true);
+    const uploaded: { fileId: string; title: string }[] = [];
+    try {
+      for (const file of chosen) {
+        const response = await api.upload<{ data: any }>('/api/files/upload', file, { purpose: 'delivery' });
+        uploaded.push({ fileId: response.data.id, title: response.data.name });
+      }
+      setDeliverFiles((old) => [...old, ...uploaded]);
+      notify(`${faNum(uploaded.length)} فایل آمادهٔ تحویل شد.`, 'success');
+    } catch (err) {
+      setDeliverFiles((old) => [...old, ...uploaded]);
+      notify(err instanceof ApiFailure ? err.message : 'بارگذاری فایل ناموفق بود.', 'error');
+    } finally { setDeliverBusy(false); }
+  };
+
+  const submitDelivery = async () => {
+    setDeliverBusy(true);
+    try {
+      const res = await api.post<{ data: any }>(`/api/requests/${id}/deliver`, {
+        files: deliverFiles,
+        summary: deliverSummary.trim(),
+      });
+      notify(res.data.mode === 'approval'
+        ? 'نتیجه برای تأیید مدیر ارسال شد؛ پس از تأیید، برای مشتری منتشر می‌شود.'
+        : 'پرونده تحویل مشتری شد و با موفقیت به پایان رسید.', 'success');
+      setDeliverModal(false);
+      setDeliverSummary('');
+      setDeliverFiles([]);
+      load();
+    } catch (err) {
+      notify(err instanceof ApiFailure ? err.message : 'ثبت تحویل ناموفق بود.', 'error');
+    } finally { setDeliverBusy(false); }
   };
 
   const openDeadline = () => {
@@ -668,6 +710,7 @@ export function RequestDetail({ variant = 'staff' }: { variant?: 'staff' | 'admi
         backTo={`${base}/requests`}
         actions={
           <div className="flex flex-wrap gap-2">
+            {can('requests.edit') && ['assigned', 'in_progress', 'waiting_documents', 'waiting_customer'].includes(request.status) && <Button size="sm" onClick={() => setDeliverModal(true)}><PackageCheck className="size-4" /> تحویل به مشتری</Button>}
             {can('requests.edit')&&<Button size="sm" variant="ghost" onClick={() => { setNextStatus(request.status); setStatusModal(true); }}>تغییر وضعیت</Button>}
             {can('requests.edit')&&<Button size="sm" variant="ghost" onClick={openDeadline}><CalendarClock className="size-4" /> مهلت قطعی</Button>}
             {office&&can('requests.edit')&&<Button size="sm" variant="ghost" onClick={openAssign}><UserPlus className="size-4" /> ارجاع مسئول</Button>}
@@ -728,10 +771,16 @@ export function RequestDetail({ variant = 'staff' }: { variant?: 'staff' | 'admi
             {can('requests.edit') && request.workflow?.length > 1 && !['completed', 'cancelled', 'rejected'].includes(request.status) && (
               <div className="mt-3 flex flex-wrap items-center gap-2">
                 <Button size="sm" variant="ghost" disabled={busy || request.currentStep <= 0} onClick={() => void moveStep(-1)}>مرحلهٔ قبل</Button>
-                <Button size="sm" loading={busy} disabled={request.currentStep >= request.workflow.length - 1} onClick={() => void moveStep(1)}>
-                  <CheckCircle2 className="size-4" />
-                  {request.currentStepTitle ? `«${request.currentStepTitle}» انجام شد؛ مرحلهٔ بعد` : 'مرحلهٔ بعد'}
-                </Button>
+                {request.currentStep >= request.workflow.length - 1 || request.workflow[request.currentStep]?.kind === 'delivery' ? (
+                  <Button size="sm" onClick={() => setDeliverModal(true)}>
+                    <PackageCheck className="size-4" /> تحویل به مشتری و پایان کار
+                  </Button>
+                ) : (
+                  <Button size="sm" loading={busy} onClick={() => void moveStep(1)}>
+                    <CheckCircle2 className="size-4" />
+                    {request.currentStepTitle ? `«${request.currentStepTitle}» انجام شد؛ مرحلهٔ بعد` : 'مرحلهٔ بعد'}
+                  </Button>
+                )}
                 <span className="text-[11px] text-navy-400">جلو بردن مرحله، دستهٔ پرونده و ظرفیت کاری شما را خودکار به‌روز می‌کند.</span>
               </div>
             )}
@@ -868,6 +917,47 @@ export function RequestDetail({ variant = 'staff' }: { variant?: 'staff' | 'admi
           </Card>
         </div>
       </div>
+
+      <Modal open={deliverModal} onClose={() => setDeliverModal(false)} title="تحویل نهایی به مشتری"
+        footer={<>
+          <Button variant="ghost" onClick={() => setDeliverModal(false)}>انصراف</Button>
+          <Button loading={deliverBusy}
+            disabled={deliverSummary.trim().length < 5 || (Boolean(request.serviceRequiresApproval) && deliverFiles.length === 0)}
+            onClick={() => void submitDelivery()}>
+            <PackageCheck className="size-4" /> ثبت تحویل نهایی
+          </Button>
+        </>}>
+        <div className="space-y-3">
+          {request.serviceRequiresApproval ? (
+            <p className="rounded-xl bg-amber-50 p-3 text-[11px] leading-6 text-amber-950 ring-1 ring-amber-200">
+              این خدمت از موارد خاص است و تحویل آن نیازمند تأیید مدیر اصلی است؛ توضیحات و فایل‌های شما پس از تأیید مدیر برای مشتری منتشر می‌شود و تا آن زمان نزد مشتری دیده نمی‌شود.
+            </p>
+          ) : (
+            <p className="rounded-xl bg-emerald-50 p-3 text-[11px] leading-6 text-emerald-950 ring-1 ring-emerald-200">
+              با ثبت تحویل، توضیحات و فایل‌های نتیجه همان لحظه برای مشتری منتشر می‌شود، پرونده «تکمیل‌شده» می‌شود و برای مشتری اعلان و پیامک ارسال می‌گردد. نیازی به تأیید مدیر نیست.
+            </p>
+          )}
+          <Field label="توضیحات تحویل برای مشتری" required hint="همان چیزی که مشتری باید بداند؛ مثلاً نتیجهٔ کار، نحوهٔ دریافت اصل مدرک یا قدم بعدی.">
+            <Textarea value={deliverSummary} onChange={(e) => setDeliverSummary(e.target.value)} maxLength={2000}
+              placeholder="مثلاً: گواهی صادر شد و تصویر آن پیوست است؛ اصل مدرک در دفتر آمادهٔ تحویل حضوری است." />
+          </Field>
+          <Field label={request.serviceRequiresApproval ? 'فایل‌های نتیجه (حداقل یک فایل)' : 'فایل‌های نتیجه (اختیاری)'} hint="PDF یا تصویر؛ حداکثر ۱۰ فایل.">
+            <Input type="file" accept=".pdf,.jpg,.jpeg,.png,.webp" multiple disabled={deliverBusy}
+              onChange={(e) => { void uploadDeliverFiles(e.target.files); e.target.value = ''; }} />
+          </Field>
+          {deliverFiles.length > 0 && (
+            <ul className="space-y-1.5">
+              {deliverFiles.map((file) => (
+                <li key={file.fileId} className="flex items-center gap-2 rounded-lg bg-surface-3 px-3 py-2 text-xs text-navy-700">
+                  <Paperclip className="size-3.5 shrink-0 text-accent" />
+                  <span className="min-w-0 flex-1 truncate">{file.title}</span>
+                  <button type="button" className="shrink-0 text-rose-700" onClick={() => setDeliverFiles((old) => old.filter((item) => item.fileId !== file.fileId))}>حذف</button>
+                </li>
+              ))}
+            </ul>
+          )}
+        </div>
+      </Modal>
 
       <Modal open={statusModal} onClose={() => setStatusModal(false)} title="تغییر وضعیت پرونده"
         footer={<><Button variant="ghost" onClick={() => setStatusModal(false)}>انصراف</Button><Button loading={busy} onClick={changeStatus} disabled={!nextStatus}>ثبت تغییر</Button></>}>

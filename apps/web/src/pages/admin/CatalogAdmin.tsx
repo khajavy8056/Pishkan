@@ -514,6 +514,17 @@ export function AdminServiceEditor() {
                   </Field>
                 </div>
                 <div className="space-y-4 rounded-2xl border border-navy-100 p-4"><h3 className="text-sm font-bold">محدوده ارائه خدمت</h3><Select value={service.coverage} onChange={e=>set({coverage:e.target.value})} options={[{value:'nationwide',label:'سراسر کشور'},{value:'cities',label:'فقط شهرهای انتخابی'}]} />{service.coverage==='cities'&&<div className="max-h-48 space-y-2 overflow-auto">{cities.map(c=><label key={c.id} className="flex items-center gap-2 text-sm"><input type="checkbox" checked={service.cityIds.includes(c.id)} onChange={e=>set({cityIds:e.target.checked?[...service.cityIds,c.id]:service.cityIds.filter((v:string)=>v!==c.id)})} />{c.province} · {c.name}</label>)}</div>}<Button variant="ghost" size="sm" onClick={async()=>{const province=prompt('نام استان');if(!province)return;const name=prompt('نام شهر');if(!name)return;try{await api.post('/api/catalog/cities',{province,name});setCities((await api.get<{data:any[]}>('/api/public/cities')).data);notify('شهر ثبت شد','success')}catch(e){notify(e instanceof Error?e.message:'خطا','error')}}}>افزودن شهر به مرجع</Button></div>
+                <div className="flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-navy-100 p-4">
+                  <div className="min-w-0">
+                    <h3 className="text-sm font-bold">تأیید مدیر پیش از تحویل به مشتری (موارد خاص)</h3>
+                    <p className="mt-1 text-[11px] leading-6 text-navy-500">
+                      در حالت عادی، مجری کار با دکمهٔ «تحویل به مشتری» نتیجه را مستقیم تحویل می‌دهد و پرونده همان لحظه بسته می‌شود؛ نیازی به تأیید مدیر نیست.
+                      فقط برای خدمت‌های خاص و حساس این گزینه را فعال کنید تا نتیجهٔ مجری اول به کارتابل مدیر برود و پس از تأیید او برای مشتری منتشر شود.
+                    </p>
+                  </div>
+                  <Switch checked={Boolean(service.requiresManagerApproval)} label={service.requiresManagerApproval ? 'نیازمند تأیید مدیر' : 'تحویل مستقیم'}
+                    onChange={(checked) => set({ requiresManagerApproval: checked })} />
+                </div>
                 <div className="space-y-4 rounded-2xl border border-navy-100 p-4">
                   <div className="flex flex-wrap items-center justify-between gap-3">
                     <div>

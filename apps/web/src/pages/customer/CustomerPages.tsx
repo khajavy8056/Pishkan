@@ -415,6 +415,33 @@ export function CustomerRequestDetail() {
             )}
           </Card>
 
+          {(() => {
+            const delivery = [...(request.events ?? [])].reverse().find((event: any) => event.type === 'delivery');
+            if (!delivery) return null;
+            const deliveredDocs = (request.documents ?? []).filter((doc: any) => doc.kind === 'staff' && doc.status === 'approved');
+            return (
+              <Card className="border-emerald-200 bg-emerald-50/60">
+                <h2 className="mb-2 flex items-center gap-2 font-bold text-emerald-900">کار تحویل شد</h2>
+                <p className="whitespace-pre-wrap text-sm leading-7 text-emerald-950">
+                  {String(delivery.message ?? '').replace(/^تحویل نهایی به مشتری:\s*/, '')}
+                </p>
+                <p className="mt-1 text-[11px] text-emerald-800/70">{faDateTime(delivery.createdAt)}</p>
+                {deliveredDocs.length > 0 && (
+                  <div className="mt-3 space-y-1.5">
+                    {deliveredDocs.map((doc: any) => (
+                      <a key={doc.id} href={doc.file?.originalUrl ?? doc.file?.displayUrl} target="_blank" rel="noreferrer"
+                        className="flex items-center gap-2 rounded-xl bg-white/70 px-3 py-2 text-xs font-medium text-emerald-950 ring-1 ring-emerald-200 transition hover:bg-white">
+                        <FileText className="size-4 shrink-0 text-emerald-700" />
+                        <span className="min-w-0 flex-1 truncate">{doc.title}</span>
+                        <span className="shrink-0 text-[10px] text-emerald-700">دریافت فایل</span>
+                      </a>
+                    ))}
+                  </div>
+                )}
+              </Card>
+            );
+          })()}
+
           <Card>
             <h2 className="mb-4 font-bold text-navy-900">تاریخچه پرونده</h2>
             <ol className="relative space-y-4 border-r border-navy-100 pr-4">

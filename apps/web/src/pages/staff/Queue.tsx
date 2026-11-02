@@ -8,6 +8,7 @@ import { AppShell, PageHeader } from '../../components/shell';
 import { Badge, Button, Card, EmptyState, ErrorState, Loading, StatCard, useToast } from '../../components/ui';
 import { api, ApiFailure } from '../../lib/api';
 import { faNum, rial } from '../../lib/format';
+import { disablePush, enablePush } from '../../lib/push';
 
 interface QueueItem {
   id: string;
@@ -41,14 +42,6 @@ function remaining(forceAssignAt: string | null, remainingMinutes: number | null
 
 /* ------------------------------ push opt-in ------------------------------ */
 
-function urlBase64ToUint8Array(base64String: string): Uint8Array {
-  const padding = '='.repeat((4 - (base64String.length % 4)) % 4);
-  const base64 = (base64String + padding).replace(/-/g, '+').replace(/_/g, '/');
-  const rawData = window.atob(base64);
-  const outputArray = new Uint8Array(rawData.length);
-  for (let i = 0; i < rawData.length; i += 1) outputArray[i] = rawData.charCodeAt(i);
-  return outputArray;
-}
 
 function PushToggle() {
   const { notify } = useToast();
@@ -67,41 +60,27 @@ function PushToggle() {
   const enable = async () => {
     setBusy(true);
     try {
-      const server = await api.get<{ data: { enabled: boolean; publicKey: string | null } }>('/api/push/public-key');
-      if (!server.data.enabled || !server.data.publicKey) {
+      const result = await enablePush();
+      if (result === 'subscribed') {
+        setState('on');
+        notify('اعلان این دستگاه فعال شد؛ پروندهٔ تازه که به صف بیاید خبرتان می‌کنیم.', 'success');
+      } else if (result === 'server-off') {
         notify('اعلان لحظه‌ای در تنظیمات سامانه خاموش است.', 'error');
         setState('off');
-        return;
-      }
-      const permission = await Notification.requestPermission();
-      if (permission !== 'granted') {
+      } else if (result === 'denied') {
         notify('برای دریافت اعلان، اجازهٔ مرورگر لازم است.', 'error');
         setState('off');
-        return;
+      } else {
+        notify('فعال‌سازی اعلان ناموفق بود.', 'error');
+        setState('off');
       }
-      const registration = await navigator.serviceWorker.ready;
-      const subscription = await registration.pushManager.subscribe({
-        userVisibleOnly: true,
-        applicationServerKey: urlBase64ToUint8Array(server.data.publicKey) as BufferSource,
-      });
-      await api.post('/api/push/subscribe', subscription.toJSON());
-      setState('on');
-      notify('اعلان این دستگاه فعال شد؛ پروندهٔ تازه که به صف بیاید خبرتان می‌کنیم.', 'success');
-    } catch (err) {
-      notify(err instanceof ApiFailure ? err.message : 'فعال‌سازی اعلان ناموفق بود.', 'error');
-      setState('off');
     } finally { setBusy(false); }
   };
 
   const disable = async () => {
     setBusy(true);
     try {
-      const registration = await navigator.serviceWorker.ready;
-      const subscription = await registration.pushManager.getSubscription();
-      if (subscription) {
-        await api.post('/api/push/unsubscribe', { endpoint: subscription.endpoint }).catch(() => undefined);
-        await subscription.unsubscribe().catch(() => undefined);
-      }
+      await disablePush();
       setState('off');
       notify('اعلان این دستگاه خاموش شد.', 'success');
     } catch {

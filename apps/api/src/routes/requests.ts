@@ -201,7 +201,7 @@ requestsRouter.post('/',
 
 requestsRouter.get('/:id/handoffs',asyncRoute(async(req,res)=>{ok(res,await handoffsForCase(param(req,'id'),req.auth!))}));
 requestsRouter.post('/:id/handoffs',asyncRoute(async(req,res)=>{const b=z.object({department:z.enum(['management','accounting']),reason:z.string().trim().min(5).max(2000)}).parse(req.body);created(res,await handoff(param(req,'id'),b.department,b.reason,req.auth!))}));
-requestsRouter.post('/:id/deliver',asyncRoute(async(req,res)=>{const b=z.object({files:z.array(z.object({fileId:z.string(),title:z.string().trim().min(2).max(200),replacesDocumentId:z.string().min(3).max(80).optional()})).min(1).max(10),summary:z.string().trim().min(5).max(2000)}).parse(req.body);ok(res,await deliver(param(req,'id'),b.files,b.summary,req.auth!))}));
+requestsRouter.post('/:id/deliver',asyncRoute(async(req,res)=>{const b=z.object({files:z.array(z.object({fileId:z.string(),title:z.string().trim().min(2).max(200),replacesDocumentId:z.string().min(3).max(80).optional()})).max(10).default([]),summary:z.string().trim().min(5).max(2000)}).parse(req.body);ok(res,await deliver(param(req,'id'),b.files,b.summary,req.auth!))}));
 
 requestsRouter.patch('/:id/status', requirePermission('requests.edit'), asyncRoute(async (req, res) => {
   const body = z.object({

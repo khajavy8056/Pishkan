@@ -109,6 +109,7 @@ const serviceSchema = z.object({
   tags: z.array(z.string().max(40)).max(20).optional(),
   contactNotice: z.string().max(500).nullable().optional(),
   hasExternalCosts: z.boolean().optional(),
+    requiresManagerApproval: z.boolean().optional(),
   externalCostsNote: z.string().max(1000).nullable().optional(),
   externalCostItems: z.array(z.object({
     title: z.string().min(2).max(200),
@@ -228,6 +229,7 @@ catalogRouter.post('/custom-services', requirePermission('services.create'), asy
     expiryHours: z.number().int().min(1).max(720).optional(),
     createInvoice: z.boolean().optional(),
     hasExternalCosts: z.boolean().optional(),
+    requiresManagerApproval: z.boolean().optional(),
     externalCostsNote: z.string().max(1000).nullable().optional(),
     externalCostItems: z.array(z.object({
       title: z.string().min(2).max(200),
