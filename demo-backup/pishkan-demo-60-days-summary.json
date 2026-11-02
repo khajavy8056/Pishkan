@@ -1,40 +1,46 @@
 {
-  "generatedAt": "2026-11-02T22:15:24.841Z",
+  "generatedAt": "2026-11-02T23:07:23.655Z",
   "scenario": "Simulated ~60 days of office activity ending at generation time.",
   "restore": {
-    "windowsManager": "Open the Pishkan Manager, press «بازیابی», and choose pishkan-demo-60-days.sqlite. The Manager keeps a safety copy of the current database and restarts the service.",
-    "uploads": "The demo is self-contained (no uploaded binaries). pishkan-demo-60-days-uploads.tar.gz mirrors the uploads folder for completeness."
+    "windowsManager": "1) Open the Pishkan Manager, press «بازیابی», and choose pishkan-demo-60-days.sqlite (the Manager keeps a safety copy of the current database and restarts the service). 2) Extract pishkan-demo-60-days-uploads.tar.gz into <install>/.data/uploads, merging the folders. 3) Start the service.",
+    "uploads": "Required: requests hold real uploaded document scans, so the database references files inside this archive. Without step 2 the document previews cannot be served."
   },
   "counts": {
     "migrations": 27,
     "customers": 36,
     "staffAndAdmins": 12,
-    "servicesTotal": 208,
+    "servicesTotal": 196,
     "requestsTotal": 115,
     "requestsByStatus": {
-      "assigned": 8,
       "cancelled": 5,
       "completed": 52,
-      "in_progress": 16,
-      "new": 26,
+      "in_progress": 10,
       "rejected": 2,
-      "waiting_customer": 6
+      "under_review": 39,
+      "waiting_customer": 1,
+      "waiting_documents": 6
     },
     "requestsByWorkBucket": {
-      "action": 34,
       "cancelled": 7,
       "completed": 52,
       "followup": 3,
       "in_progress": 7,
       "waiting_customer": 7,
-      "waiting_organization": 5
+      "waiting_organization": 39
     },
     "freeQueueUnassigned": 26,
-    "invoices": 129,
-    "confirmedPayments": 98,
-    "confirmedPaymentTotal": 473737000,
+    "uploadedFiles": 359,
+    "requestDocumentsByStatus": {
+      "approved": 219,
+      "pending": 113,
+      "rejected": 9
+    },
+    "profileDocuments": 18,
+    "invoices": 128,
+    "confirmedPayments": 97,
+    "confirmedPaymentTotal": 458382000,
     "commissionEntries": 41,
-    "commissionTotal": 18558900,
+    "commissionTotal": 19286050,
     "salaryPayments": 14,
     "salaryPaidTotal": 423000000,
     "withdrawalsByStatus": {
@@ -59,7 +65,7 @@
     "blogComments": 5,
     "shifts": 561,
     "attendanceRows": 422,
-    "notifications": 1812
+    "notifications": 1963
   },
   "credentials": {
     "admin": {
@@ -169,13 +175,13 @@
   "files": {
     "sqlite": {
       "name": "pishkan-demo-60-days.sqlite",
-      "bytes": 4661248,
-      "sha256": "d3c76945ddd0795f2fbd36018d71658021f79f015cf4d7155e13d8559207d728"
+      "bytes": 5677056,
+      "sha256": "581341ce4a46eef85fcf61067928c33817b6838fbb2a9daf34956d16eab04643"
     },
     "uploads": {
       "name": "pishkan-demo-60-days-uploads.tar.gz",
-      "bytes": 217,
-      "sha256": "7f45e3e0905ca1809cc1a8affba58feea1a2174fe9a8dcffb51fcb4733662ef3"
+      "bytes": 9466921,
+      "sha256": "b9fc9d94763cf8027235f3e8e88146e54e75919acb4b55a6cbf380f4801db20c"
     }
   }
 }

@@ -11,9 +11,9 @@
  *                                        Manager "restore" dialog (a clean
  *                                        VACUUM INTO snapshot, the same
  *                                        shape the Manager itself writes).
- *   pishkan-demo-60-days-uploads.tar.gz— companion uploads archive (the demo
- *                                        is intentionally self-contained and
- *                                        needs no uploaded binaries).
+ *   pishkan-demo-60-days-uploads.tar.gz— uploaded document images the
+ *                                        database references (extract into
+ *                                        <install>/.data/uploads on restore).
  *   pishkan-demo-60-days-summary.json  — counts, demo logins, checksums.
  *   SHA256SUMS.txt
  *
@@ -32,6 +32,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
 import { fileURLToPath } from 'node:url';
+import sharp from 'sharp';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const args = new Map();
@@ -113,11 +114,16 @@ class Client {
     this.cookies = new Map();
   }
 
-  async req(method, p, { body, form, headers = {}, expect = [200, 201] } = {}) {
+  async req(method, p, { body, form, upload, headers = {}, expect = [200, 201] } = {}) {
     const h = { ...headers };
     let payload;
     if (body !== undefined) { h['content-type'] = 'application/json'; payload = JSON.stringify(body); }
     if (form) { h['content-type'] = 'application/x-www-form-urlencoded'; payload = new URLSearchParams(form).toString(); }
+    if (upload) {
+      const fd = new FormData();
+      fd.append('file', new Blob([upload.buffer], { type: upload.contentType || 'image/jpeg' }), upload.filename);
+      payload = fd; // fetch sets the multipart content-type + boundary itself
+    }
     const cookie = [...this.cookies].map(([k, v]) => `${k}=${v}`).join('; ');
     if (cookie) h.cookie = cookie;
     const res = await fetch(base + p, { method, headers: h, body: payload, redirect: 'manual' });
@@ -160,6 +166,177 @@ async function finishSandbox(paymentUrl, decision = 'paid') {
     form: { token, decision }, expect: [200, 302, 303],
   });
   return id;
+}
+
+/* ------------------------- demo document images ------------------------- */
+/**
+ * The seeded catalogue services require real document uploads, so the demo
+ * generates document-like scan images (SVG -> JPEG via sharp) and uploads
+ * them through the real files API, exactly like a customer would. Each image
+ * is watermarked as a display sample and varied per upload.
+ */
+function hashSeed(str) {
+  let h = 2166136261;
+  for (let i = 0; i < str.length; i += 1) { h ^= str.charCodeAt(i); h = Math.imul(h, 16777619); }
+  return h >>> 0;
+}
+const FA_DIGITS = '۰۱۲۳۴۵۶۷۸۹';
+const faNum = (s) => String(s).replace(/\d/g, (d) => FA_DIGITS[Number(d)]);
+const xmlEsc = (s) => String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+
+function docFlavor(title = '') {
+  const t = String(title);
+  if (/کارت ملی/.test(t)) return 'id_card';
+  if (/شناسنامه/.test(t)) return 'birth_certificate';
+  if (/عکس/.test(t)) return 'photo';
+  if (/گذرنامه|پاسپورت/.test(t)) return 'passport';
+  if (/خودرو|برگ سبز|پلاک/.test(t)) return 'vehicle';
+  if (/بانکی|شبا|حساب بانکی/.test(t)) return 'bank_card';
+  if (/اجاره|ملکی|قولنامه|سند مالکیت/.test(t)) return 'deed';
+  if (/نتیجه|خروجی/.test(t)) return 'result';
+  if (/تحصیلی|گواهی|مدرک/.test(t)) return 'certificate';
+  return 'form';
+}
+
+const DOC_FLAVORS = {
+  id_card: { w: 920, h: 580, head: '#14532d', title: 'کارت ملی هوشمند', photo: true },
+  birth_certificate: { w: 760, h: 1060, head: '#7c2d12', title: 'شناسنامه', photo: true },
+  passport: { w: 760, h: 1060, head: '#1e3a8a', title: 'گذرنامه', photo: true },
+  photo: { w: 480, h: 640, head: null, title: 'عکس پرسنلی', photo: 'full' },
+  vehicle: { w: 920, h: 640, head: '#065f46', title: 'برگ سبز خودرو', photo: false },
+  bank_card: { w: 920, h: 560, head: '#6d28d9', title: 'کارت بانکی', photo: false },
+  deed: { w: 820, h: 1080, head: '#854d0e', title: 'سند و قرارداد', photo: false },
+  certificate: { w: 820, h: 1080, head: '#0f766e', title: 'گواهی رسمی', photo: false },
+  result: { w: 820, h: 1080, head: '#1d4ed8', title: 'نتیجه و مستند خروجی خدمت', photo: false },
+  form: { w: 820, h: 1080, head: '#334155', title: 'فرم و مدرک ارسالی', photo: false },
+};
+
+function docSvg(flavor, { name, nid, serial, r }) {
+  const F = DOC_FLAVORS[flavor] ?? DOC_FLAVORS.form;
+  const { w: W, h: H } = F;
+  if (flavor === 'photo') {
+    return `<svg xmlns="http://www.w3.org/2000/svg" width="${W}" height="${H}" viewBox="0 0 ${W} ${H}">
+<defs><linearGradient id="bg" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#dbe4f0"/><stop offset="1" stop-color="#aebdd3"/></linearGradient></defs>
+<rect width="${W}" height="${H}" fill="url(#bg)"/>
+<circle cx="${W / 2}" cy="250" r="96" fill="#8d99ae"/>
+<path d="M${W / 2 - 150} ${H} q150 -190 300 0 z" fill="#8d99ae"/>
+<text x="${W / 2}" y="${H - 22}" font-size="17" fill="#5b6b82" text-anchor="middle" font-family="sans-serif">عکس پرسنلی — نمونه نمایشی</text>
+</svg>`;
+  }
+  const startY = F.photo ? 398 : 318;
+  const lineCount = Math.max(2, Math.floor((H - startY - 150) / 34));
+  const lines = Array.from({ length: lineCount }, (_, i) => `<rect x="56" y="${startY + i * 34}" width="${Math.round((W - 112) * (0.45 + r() * 0.5))}" height="11" rx="5.5" fill="#c9c2ae"/>`).join('');
+  const stampX = Math.round(W * (0.6 + r() * 0.2));
+  const stampY = Math.round(H * (0.66 + r() * 0.14));
+  const rot = Math.round(-16 + r() * 32);
+  const bars = Array.from({ length: 36 }, (_, i) => `<rect x="${48 + i * 7}" y="${H - 64}" width="${2 + Math.floor(r() * 3)}" height="40" fill="#26221a"/>`).join('');
+  const photoBox = F.photo ? `<rect x="56" y="128" width="178" height="222" rx="10" fill="#ddd6c4" stroke="#a39a83"/>
+<circle cx="145" cy="212" r="42" fill="#b7ad94"/><path d="M95 332 q50 -58 100 0" stroke="#b7ad94" stroke-width="26" fill="none"/>` : '';
+  return `<svg xmlns="http://www.w3.org/2000/svg" width="${W}" height="${H}" viewBox="0 0 ${W} ${H}">
+<rect width="${W}" height="${H}" fill="#f7f3e9"/>
+<rect x="14" y="14" width="${W - 28}" height="${H - 28}" fill="none" stroke="#d8d0ba" stroke-width="3"/>
+<rect width="${W}" height="96" fill="${F.head}"/>
+<text x="${W / 2}" y="62" font-size="33" fill="#ffffff" text-anchor="middle" font-family="sans-serif">${xmlEsc(F.title)}</text>
+${photoBox}
+<text x="${W - 56}" y="168" font-size="25" fill="#2b2620" text-anchor="end" font-family="sans-serif">نام و نام خانوادگی: ${xmlEsc(name)}</text>
+<text x="${W - 56}" y="214" font-size="24" fill="#2b2620" text-anchor="end" font-family="sans-serif">کد ملی: ${faNum(nid)}</text>
+<text x="${W - 56}" y="260" font-size="21" fill="#6b6252" text-anchor="end" font-family="sans-serif">شماره سند: ${faNum(serial)}</text>
+${lines}
+<g transform="translate(${stampX} ${stampY}) rotate(${rot})" opacity="0.55"><circle r="60" fill="none" stroke="#1d4ed8" stroke-width="4"/><circle r="44" fill="none" stroke="#1d4ed8" stroke-width="2"/><text y="8" font-size="18" fill="#1d4ed8" text-anchor="middle" font-family="sans-serif">دفتر پیشخوان</text></g>
+<path d="M${W - 270} ${H - 108} q40 -26 72 0 t72 0 t62 -6" stroke="#44403c" stroke-width="3" fill="none" stroke-linecap="round"/>
+${bars}
+<text x="${W - 56}" y="${H - 28}" font-size="17" fill="#8a8171" text-anchor="end" font-family="sans-serif">نمونه نمایشی — فاقد اعتبار رسمی</text>
+</svg>`;
+}
+
+async function makeDocImage(flavor, { seedKey = 'doc', personName = 'مشتری نمونه', nationalIdText = '0013546295' } = {}) {
+  const r = mulberry32(hashSeed(seedKey));
+  const serial = String(100000 + Math.floor(r() * 899999));
+  const svg = docSvg(flavor, { name: personName, nid: nationalIdText, serial, r });
+  return sharp(Buffer.from(svg)).jpeg({ quality: 76 }).toBuffer();
+}
+
+let uploadSeq = 0;
+async function uploadDocImage(client, { flavor, seedKey, personName, nationalIdText, purpose = 'document', fileLabel = 'document' }) {
+  uploadSeq += 1;
+  const buffer = await makeDocImage(flavor, { seedKey: `${seedKey}#${uploadSeq}`, personName, nationalIdText });
+  const data = await client.data('POST', `/api/files/upload?purpose=${purpose}`, {
+    upload: { buffer, filename: `${fileLabel}-${uploadSeq}.jpg`, contentType: 'image/jpeg' },
+    expect: [201],
+  });
+  return data.id;
+}
+
+/** Plausible, valid form values for a seeded service form (mirrors the API tests). */
+function buildFormData(service, customer) {
+  const data = {};
+  for (const field of service.form ?? []) {
+    if (field.type === 'file') continue; // filled by buildSubmission uploads
+    if (!field.required) {
+      if (field.type === 'textarea' && rng() < 0.5) data[field.key] = 'در صورت نیاز به مدرک تکمیلی لطفاً در همین پرونده اعلام کنید.';
+      continue;
+    }
+    switch (field.type) {
+      case 'national_id': data[field.key] = nationalId(customer.i + 3); break;
+      case 'tel': data[field.key] = customer.mobile; break;
+      case 'iban': data[field.key] = 'IR062960000000100324200001'; break;
+      case 'postal_code': data[field.key] = '7165812345'; break;
+      case 'number':
+      case 'money': data[field.key] = 1000000; break;
+      case 'select':
+      case 'radio': {
+        const o = field.options?.[0];
+        data[field.key] = o == null ? 'سایر' : (typeof o === 'object' ? (o.value ?? o.label ?? 'سایر') : o);
+        break;
+      }
+      case 'checkbox': data[field.key] = true; break;
+      case 'date': data[field.key] = '1370/01/15'; break;
+      default: data[field.key] = /name/i.test(field.key) ? `${customer.first} ${customer.last}` : 'اطلاعات تکمیلی مشتری';
+    }
+  }
+  return data;
+}
+
+/** Uploads every required service document (plus the odd optional one) as the customer. */
+async function buildSubmission(customer, service, spec) {
+  const formData = buildFormData(service, customer);
+  const documentIds = [];
+  const person = { personName: `${customer.first} ${customer.last}`, nationalIdText: nationalId(customer.i + 3) };
+  for (const doc of service.documents ?? []) {
+    if (!doc.required && spec.index % 4 !== 0) continue;
+    const fileId = await uploadDocImage(customer.client, {
+      flavor: docFlavor(doc.title), seedKey: `req${spec.index}:${doc.key}:${customer.id}`, ...person, fileLabel: 'document',
+    });
+    documentIds.push({ fileId, title: doc.title, requirementKey: doc.key });
+  }
+  for (const field of (service.form ?? []).filter((f) => f.type === 'file' && f.required)) {
+    formData[field.key] = await uploadDocImage(customer.client, {
+      flavor: docFlavor(field.label), seedKey: `req${spec.index}:field:${field.key}:${customer.id}`, ...person, fileLabel: 'form-file',
+    });
+  }
+  return { formData, documentIds };
+}
+
+const DOC_REJECT_NOTES = [
+  'تصویر مدرک خوانا نیست؛ لطفاً عکس واضح‌تر و بدون بازتاب نور بارگذاری کنید.',
+  'مدرک ارسالی ناقص است؛ صفحه توضیحات نیز بارگذاری شود.',
+  'تاریخ اعتبار مدرک گذشته است؛ نسخه معتبر و به‌روز ارسال کنید.',
+];
+/** Operators may view documents but not approve them; the office manager covers their cases. */
+const reviewerFor = (worker) => (worker && worker.def.roleCode === 'service_expert' ? worker : S.staff.get('manager'));
+async function customerDocsOf(client, requestId) {
+  const detail = await client.get(`/api/requests/${requestId}`);
+  return (detail.documents ?? []).filter((d) => d.kind === 'customer');
+}
+/** Approve all pending customer documents; optionally keep the last one pending for a later rejection. */
+async function approveAllDocs(reviewer, requestId, keepLast = false) {
+  const docs = (await customerDocsOf(reviewer.client, requestId)).filter((d) => d.status === 'pending');
+  const keep = keepLast && docs.length ? docs[docs.length - 1] : null;
+  for (const d of docs) {
+    if (keep && d.id === keep.id) continue;
+    await reviewer.client.post(`/api/requests/${requestId}/documents/${d.id}/review`, { decision: 'approved' });
+  }
+  return keep;
 }
 
 /* ------------------------------ API lifecycle --------------------------- */
@@ -288,19 +465,29 @@ const workflow = (follow = false) => [
   { title: 'آماده‌سازی و تحویل نتیجه به مشتری', description: '', kind: 'delivery' },
 ];
 
-const SERVICE_DEFS = [
-  { slug: 'demo-vehicle-plate', title: 'پیگیری تعویض پلاک و فک رهن خودرو', categorySlug: 'vehicle-services', fee: 3_800_000, days: 4, icon: 'car-front', external: true, urgent: true },
-  { slug: 'demo-fuel-card', title: 'درخواست کارت سوخت المثنی و پیگیری صدور', categorySlug: 'vehicle-services', fee: 1_200_000, days: 7, icon: 'fuel' },
-  { slug: 'demo-marriage-loan', title: 'ثبت‌نام و پیگیری وام ازدواج', categorySlug: 'banking-services', fee: 4_500_000, days: 10, icon: 'landmark', follow: true },
-  { slug: 'demo-business-license', title: 'اخذ و تمدید پروانه کسب صنفی', categorySlug: 'business-licenses', fee: 5_500_000, days: 14, icon: 'store', follow: true, external: true },
-  { slug: 'demo-company', title: 'ثبت شرکت و تغییرات ثبتی', categorySlug: 'companies-institutions', fee: 7_500_000, days: 12, icon: 'building-2', follow: true },
-  { slug: 'demo-tax', title: 'تنظیم و ارسال اظهارنامه مالیاتی مشاغل', categorySlug: 'tax-services', fee: 3_200_000, days: 5, icon: 'calculator', urgent: true },
-  { slug: 'demo-insurance', title: 'پیگیری سوابق و اعتراض بیمه تأمین اجتماعی', categorySlug: 'insurance-health', fee: 1_500_000, days: 8, icon: 'shield-plus' },
-  { slug: 'demo-subsidy', title: 'اصلاح خانوار و پیگیری یارانه', categorySlug: 'subsidy-welfare', fee: 900_000, days: 6, icon: 'hand-coins' },
-  { slug: 'demo-passport', title: 'درخواست گذرنامه و پیگیری صدور', categorySlug: 'police-services', fee: 2_800_000, days: 9, icon: 'shield', external: true },
-  { slug: 'demo-university', title: 'ثبت‌نام دانشگاه و انتخاب رشته', categorySlug: 'university-students', fee: 1_800_000, days: 3, icon: 'book-open', urgent: true },
-  { slug: 'demo-housing-loan', title: 'ثبت درخواست وام ودیعه مسکن', categorySlug: 'housing-land', fee: 4_200_000, days: 11, icon: 'house', follow: true },
-  { slug: 'demo-judicial', title: 'خدمات الکترونیک قضایی و ثنا', categorySlug: 'judicial-services', fee: 2_400_000, days: 4, icon: 'scale' },
+/**
+ * The demo runs on the SEEDED catalogue (the office's real services, with
+ * their real forms, required documents and workflows). These picks are the
+ * services the fictional office actually works with; `setupCatalog` plays the
+ * admin who reviews the seeded sample tariffs (the seed data itself demands
+ * this review) and enables urgent handling where marked. `days`/`follow`
+ * are filled from the live DTOs during setup.
+ */
+const SERVICE_PICKS = [
+  { slug: 'plate-replacement-appointment', fee: 3_800_000, urgent: true, external: true },
+  { slug: 'fuel-card-registration', fee: 1_200_000 },
+  { slug: 'marriage-loan-registration', fee: 4_500_000 },
+  { slug: 'business-license-issue', fee: 5_500_000 },
+  { slug: 'register-llc', fee: 7_500_000 },
+  { slug: 'business-tax-return', fee: 3_200_000, urgent: true, external: true },
+  { slug: 'social-security-records-objection', fee: 1_500_000, external: true },
+  { slug: 'subsidy-means-test-request', fee: 900_000 },
+  { slug: 'pilgrimage-passport', fee: 2_800_000, external: true },
+  { slug: 'konkur-major-selection', fee: 1_800_000, urgent: true },
+  { slug: 'rent-deposit-loan', fee: 4_200_000 },
+  { slug: 'sana-registration', fee: 2_400_000 },
+  { slug: 'home-business-loan', fee: 4_800_000 },
+  { slug: 'no-criminal-record', fee: 1_600_000 },
 ];
 
 const STEP_NOTES = [
@@ -336,6 +523,7 @@ const S = {
   blogComments: new Map(), // id -> dates
   blogSubscribers: [], // {email,date}
   customStandalone: [], // {intakeId,offerId,createdAt,updatedAt,expiresAt,decidedAt}
+  profileDocs: [], // {id,customerId,fileId,createdAt,verifiedAt}
   refundedPaymentId: null,
 };
 
@@ -380,10 +568,10 @@ function buildSpecs() {
       && !(spec.outcome === 'cancelled' && i % 2 === 0);
     spec.worker = assigned || spec.outcome === 'cancelled_refunded' ? workers[w++ % workers.length] : null;
     if (spec.outcome === 'followup') {
-      const list = SERVICE_DEFS.filter((s) => s.follow);
+      const list = SERVICE_PICKS.filter((s) => s.follow);
       spec.serviceDef = list[followSvc++ % list.length];
     } else {
-      spec.serviceDef = SERVICE_DEFS[svc++ % SERVICE_DEFS.length];
+      spec.serviceDef = SERVICE_PICKS[svc++ % SERVICE_PICKS.length];
     }
     spec.priority = spec.serviceDef.urgent && i % 11 === 0 ? 'high' : 'normal';
     spec.discountCode = i % 13 === 0 ? 'WELCOME10' : i % 13 === 5 ? 'OFFICE15'
@@ -404,6 +592,12 @@ function buildSpecs() {
   if (customDone) customDone.customMode = 'creator';
   const customPool = specs.find((s) => s.outcome === 'queue' && !s.paid && !s.declineBy);
   if (customPool) customPool.customMode = 'pool';
+  // Two cases demonstrate the document fix loop: a scan is rejected, the
+  // customer uploads a replacement, and work then proceeds normally.
+  const fixAction = specs.find((s) => s.outcome === 'action' && s.worker);
+  if (fixAction) fixAction.docFix = true;
+  const fixDone = specs.find((s) => s.outcome === 'completed' && s.worker && s.age <= 30 && !s.customMode);
+  if (fixDone) fixDone.docFix = true;
   return specs;
 }
 
@@ -484,45 +678,34 @@ async function setupSettings(admin) {
   log('settings applied');
 }
 
-async function setupServices(admin) {
-  const cats = await admin.get('/api/catalog/admin/categories');
-  const bySlug = new Map((Array.isArray(cats) ? cats : []).map((c) => [c.slug, c.id]));
-  for (const def of SERVICE_DEFS) {
-    const created = await admin.post('/api/catalog/services', {
-      title: def.title,
-      slug: def.slug,
-      categoryId: bySlug.get(def.categorySlug) ?? bySlug.get('other-services') ?? null,
-      summary: `انجام کامل «${def.title}» توسط کارشناسان دفتر، از بررسی اولیه تا تحویل نتیجه.`,
-      description: 'این خدمت بدون نیاز به مراجعه حضوری مکرر انجام می‌شود و همه مراحل آن در همین پرونده قابل پیگیری است.',
-      icon: def.icon,
-      baseFee: def.fee,
-      estimatedDays: def.days,
-      paymentMethods: ['online', 'wallet'],
-      tags: ['پیشخوان', 'خدمات دولتی'],
-      form: [
-        { key: 'description', label: 'توضیحات تکمیلی', type: 'textarea', required: false },
-        { key: 'preferred_time', label: 'زمان ترجیحی تماس', type: 'text', required: false },
-      ],
-      documents: [],
-      workflow: workflow(Boolean(def.follow)),
-      hasExternalCosts: Boolean(def.external),
-      externalCostsNote: def.external
-        ? 'ممکن است در حین انجام، مبالغی بابت هزینه سازمان مربوطه (خارج از حق‌الزحمه دفتر) لازم شود که با فاکتور جداگانه در همین پرونده اعلام می‌شود.'
-        : undefined,
-      requiresManagerApproval: false,
-      urgentEnabled: Boolean(def.urgent),
-      urgentPercent: def.urgent ? 35 : 0,
-      urgentMinutes: def.urgent ? 1440 : undefined,
-      urgentCapacity: def.urgent ? 5 : 0,
-      isPublished: true,
-      acceptingRequests: true,
-      needsReview: false,
-    });
-    const svc = { ...created, def };
-    S.services.push(svc);
-    S.serviceBySlug.set(def.slug, svc);
+async function setupCatalog(admin) {
+  // The seeded catalogue ships with sample tariffs flagged needs_review; the
+  // fictional admin confirms real fees for the services this office sells and
+  // enables urgent handling on three of them — an ordinary post-install step.
+  const bySlug = new Map();
+  for (let page = 1; page <= 12; page += 1) {
+    const r = await admin.req('GET', `/api/catalog/admin/services?page=${page}&pageSize=100`);
+    const items = Array.isArray(r.json?.data) ? r.json.data : [];
+    if (!items.length) break;
+    for (const s of items) bySlug.set(s.slug, s);
+    if (items.length < 100) break;
   }
-  log(`created ${S.services.length} demo services`);
+  for (const pickDef of SERVICE_PICKS) {
+    const found = bySlug.get(pickDef.slug);
+    if (!found) throw new Error(`seeded service not found in catalogue: ${pickDef.slug}`);
+    const patch = { baseFee: pickDef.fee, needsReview: false };
+    if (pickDef.urgent) Object.assign(patch, { urgentEnabled: true, urgentPercent: 35, urgentMinutes: 1440, urgentCapacity: 5 });
+    const dto = await admin.patch(`/api/catalog/services/${found.id}`, patch);
+    pickDef.days = dto.estimatedDays ?? 7;
+    pickDef.follow = (dto.workflow ?? []).some((s) => s.kind === 'followup');
+    if (pickDef.external && !dto.hasExternalCosts) throw new Error(`service ${pickDef.slug} lacks the external-cost flag`);
+    if (!(dto.documents ?? []).some((d) => d.required)) throw new Error(`service ${pickDef.slug} has no required documents`);
+    if ((dto.workflow ?? []).length < 3) throw new Error(`service ${pickDef.slug} workflow too short`);
+    const svc = { ...dto, def: pickDef };
+    S.services.push(svc);
+    S.serviceBySlug.set(pickDef.slug, svc);
+  }
+  log(`catalogue reviewed: ${S.services.length} seeded services prepared (fees confirmed by the admin)`);
 }
 
 async function setupStaff(admin) {
@@ -556,8 +739,8 @@ async function setupStaff(admin) {
     });
   }
   // Per-service commission overrides (snapshotted on each payment).
-  const vehicle = S.serviceBySlug.get('demo-vehicle-plate');
-  const tax = S.serviceBySlug.get('demo-tax');
+  const vehicle = S.serviceBySlug.get('plate-replacement-appointment');
+  const tax = S.serviceBySlug.get('business-tax-return');
   await admin.put(`/api/payroll/staff/${S.staff.get('percent1').id}/service-percents`, {
     items: [{ serviceId: vehicle.id, percent: 20, note: 'درصد ویژه خدمات خودرو' }],
   });
@@ -752,10 +935,14 @@ async function runRequestSpec(spec) {
   if (spec.customMode) {
     created = await createViaCustom(spec);
   } else {
+    // The customer uploads the service's required documents first, then books
+    // the (seeded) service with the filled form — the real submission flow.
+    const { formData, documentIds } = await buildSubmission(customer, service, spec);
     created = await customer.client.data('POST', '/api/requests', {
       body: {
         serviceId: service.id,
-        formData: { description: 'درخواست انجام خدمت برای اینجانب ثبت شود؛ در صورت نیاز با بنده تماس بگیرید.', preferred_time: 'ساعت ۱۰ تا ۱۲' },
+        formData,
+        documentIds,
         paymentMethod: 'online',
         priority: spec.priority,
         discountCode: spec.discountCode,
@@ -767,6 +954,15 @@ async function runRequestSpec(spec) {
   const requestId = created.id;
   const invoiceId = created.invoices?.[0]?.id;
   const plan = planFor(spec, requestId, invoiceId, created.trackingCode);
+  if (spec.customMode) {
+    // Custom offers are defined without required documents; the customer
+    // still attaches a supporting scan, which the definer reviews later.
+    const fileId = await uploadDocImage(customer.client, {
+      flavor: 'form', seedKey: `custom:${spec.index}:${customer.id}`,
+      personName: `${customer.first} ${customer.last}`, nationalIdText: nationalId(customer.i + 3), fileLabel: 'custom',
+    });
+    await customer.client.post(`/api/requests/${requestId}/documents`, { fileId, title: 'مدرک تکمیلی پرونده' });
+  }
   const useWallet = spec.paid && Boolean(spec.worker) && walletCustomerIds().has(customer.id) && spec.index % 2 === 0;
 
   if (spec.outcome === 'queue') {
@@ -790,7 +986,24 @@ async function runRequestSpec(spec) {
   if (spec.outcome === 'cancelled' || spec.outcome === 'cancelled_refunded') {
     if (worker) await worker.client.post(`/api/requests/${requestId}/claim`, {});
     if (spec.paid && invoiceId) plan.paymentId = await payInvoice(customer, invoiceId);
-    await customer.client.post(`/api/requests/${requestId}/cancel`, { reason: 'از انجام این خدمت منصرف شدم.' });
+    // A case that just entered document review (under_review) cannot be
+    // cancelled from the customer panel; where the reviewer first rejects an
+    // unreadable scan the customer can cancel themself, otherwise the office
+    // cancels it for them after their call.
+    if (worker && (spec.outcome === 'cancelled_refunded' || spec.index % 2 === 0)) {
+      const reviewer = reviewerFor(worker);
+      const docs = (await customerDocsOf(reviewer.client, requestId)).filter((d) => d.status === 'pending');
+      if (docs[0]) {
+        await reviewer.client.post(`/api/requests/${requestId}/documents/${docs[0].id}/review`, {
+          decision: 'rejected', note: DOC_REJECT_NOTES[0],
+        });
+      }
+      await customer.client.post(`/api/requests/${requestId}/cancel`, { reason: 'از انجام این خدمت منصرف شدم.' });
+    } else {
+      await S.admin.patch(`/api/requests/${requestId}/status`, {
+        status: 'cancelled', note: 'به درخواست مشتری (تماس تلفنی با دفتر) لغو شد.',
+      });
+    }
     if (spec.outcome === 'cancelled_refunded' && plan.paymentId) {
       S.refundedPaymentId = plan.paymentId;
       const accountant = S.staff.get('accounting');
@@ -833,6 +1046,34 @@ async function runRequestSpec(spec) {
     plan.paymentId = await payInvoice(customer, invoiceId, { useWallet });
   }
 
+  // Document review: the assignee (or the manager for operators, who may
+  // view but not approve) checks the customer's scans. Fresh claims and
+  // cases still waiting on the organisation keep pending documents, exactly
+  // what the office's pending-documents queue shows in real life.
+  const reviewer = reviewerFor(worker);
+  let docToReject = null;
+  if (spec.docFix) {
+    const pending = (await customerDocsOf(reviewer.client, requestId)).filter((d) => d.status === 'pending');
+    const victim = pending[0];
+    if (victim) {
+      await reviewer.client.post(`/api/requests/${requestId}/documents/${victim.id}/review`, {
+        decision: 'rejected', note: DOC_REJECT_NOTES[spec.index % DOC_REJECT_NOTES.length],
+      });
+      const replacementId = await uploadDocImage(customer.client, {
+        flavor: docFlavor(victim.title), seedKey: `fix:${requestId}:${victim.requirementKey ?? 'doc'}`,
+        personName: `${customer.first} ${customer.last}`, nationalIdText: nationalId(customer.i + 3), fileLabel: 'replacement',
+      });
+      await customer.client.post(`/api/requests/${requestId}/documents`, {
+        fileId: replacementId, requirementKey: victim.requirementKey ?? undefined, title: victim.title,
+      });
+    }
+  }
+  if (spec.outcome === 'waiting_customer') {
+    docToReject = await approveAllDocs(reviewer, requestId, true);
+  } else if (!['waiting_org', 'assigned_new'].includes(spec.outcome)) {
+    await approveAllDocs(reviewer, requestId);
+  }
+
   // Workflow progress.
   const steps = service.workflow ?? workflow(Boolean(spec.serviceDef.follow));
   const idxOfKind = (kind, after = -1) => steps.findIndex((s, ix) => s.kind === kind && ix > after);
@@ -842,6 +1083,7 @@ async function runRequestSpec(spec) {
   else if (spec.outcome === 'action') advances = Math.max(1, idxOfKind('action', 0));
   else if (spec.outcome === 'waiting_org') advances = Math.max(1, idxOfKind('waiting_organization'));
   else if (spec.outcome === 'followup') advances = Math.max(1, idxOfKind('followup'));
+  if (spec.customMode) advances = Math.min(advances, 3); // custom services carry the compact 5-step workflow
   for (let k = 0; k < advances; k += 1) {
     await worker.client.post(`/api/requests/${requestId}/steps/advance`, {
       note: k === 0 ? STEP_NOTES[spec.index % STEP_NOTES.length] : undefined,
@@ -882,9 +1124,21 @@ async function runRequestSpec(spec) {
     });
   }
 
+  // Waiting-on-customer cases end with one rejected scan and a clear reason.
+  if (docToReject) {
+    await reviewer.client.post(`/api/requests/${requestId}/documents/${docToReject.id}/review`, {
+      decision: 'rejected', note: DOC_REJECT_NOTES[spec.index % DOC_REJECT_NOTES.length],
+    });
+  }
+
   if (spec.outcome === 'completed') {
+    const resultFileId = await uploadDocImage(worker.client, {
+      flavor: 'result', seedKey: `result:${requestId}`,
+      personName: `${customer.first} ${customer.last}`, nationalIdText: nationalId(customer.i + 3), fileLabel: 'result',
+    });
     await worker.client.post(`/api/requests/${requestId}/deliver`, {
-      files: [], summary: DELIVERY_SUMMARIES[spec.index % DELIVERY_SUMMARIES.length],
+      files: [{ fileId: resultFileId, title: 'نتیجه نهایی خدمت' }],
+      summary: DELIVERY_SUMMARIES[spec.index % DELIVERY_SUMMARIES.length],
     });
   }
 }
@@ -908,7 +1162,7 @@ async function runRequests(specs) {
     }
     if (!overrideChanged && spec.age <= 15) {
       overrideChanged = true;
-      const vehicle = S.serviceBySlug.get('demo-vehicle-plate');
+      const vehicle = S.serviceBySlug.get('plate-replacement-appointment');
       await S.admin.put(`/api/payroll/staff/${S.staff.get('percent1').id}/service-percents`, {
         items: [{ serviceId: vehicle.id, percent: 14, note: 'بازنگری درصد ویژه خودرو' }],
       });
@@ -918,6 +1172,38 @@ async function runRequests(specs) {
     if ((spec.index + 1) % 25 === 0) log(`requests ${spec.index + 1}/${specs.length}`);
   }
   log(`requests done (${specs.length})`);
+}
+
+/* ------------------------- profile documents ---------------------------- */
+
+async function profileDocumentsPhase() {
+  const manager = S.staff.get('manager');
+  const subset = S.customers.slice(0, 12);
+  for (const [idx, c] of subset.entries()) {
+    const created = atDaysAgo(Math.max(2, c.regDaysAgo - 2), 11, 15);
+    const types = idx < 6 ? ['national_card', 'birth_certificate'] : ['national_card'];
+    for (const docType of types) {
+      const fileId = await uploadDocImage(c.client, {
+        flavor: docType === 'national_card' ? 'id_card' : 'birth_certificate',
+        seedKey: `profile:${c.id}:${docType}`,
+        personName: `${c.first} ${c.last}`, nationalIdText: nationalId(c.i + 3),
+        purpose: 'profile_document', fileLabel: docType,
+      });
+      const doc = await c.client.data('POST', '/api/documents/mine', { body: { fileId, docType }, expect: [201] });
+      let verifiedAt = null;
+      const leavePending = docType === 'national_card' && (idx === 3 || idx === 9);
+      const rejectOne = idx === 5 && docType === 'birth_certificate';
+      if (!leavePending) {
+        await manager.client.post(`/api/documents/${doc.id}/review`, {
+          decision: rejectOne ? 'rejected' : 'approved',
+          note: rejectOne ? 'تصویر شناسنامه ناخواناست؛ لطفاً نسخه واضح‌تر بارگذاری کنید.' : undefined,
+        });
+        verifiedAt = addDays(created, 1);
+      }
+      S.profileDocs.push({ id: doc.id, customerId: c.id, fileId, createdAt: created, verifiedAt });
+    }
+  }
+  log(`profile documents uploaded (${S.profileDocs.length})`);
 }
 
 /* --------------------------- custom intakes ----------------------------- */
@@ -1472,13 +1758,14 @@ function finalize() {
         }, 'id=?', [inv.id]);
       }
 
-      const events = db.prepare('SELECT rowid AS rid, type, message FROM request_events WHERE request_id=? ORDER BY rowid').all(plan.requestId);
+      const events = db.prepare('SELECT rowid AS rid, type, message, actor_id FROM request_events WHERE request_id=? ORDER BY rowid').all(plan.requestId);
       const evUpd = db.prepare('UPDATE request_events SET created_at=? WHERE rowid=?');
       let last = plan.createdAt;
       events.forEach((ev, i) => {
         let d;
         const msg = String(ev.message ?? '');
         if (ev.type === 'created') d = plan.createdAt;
+        else if (ev.type === 'document' && msg.includes('بارگذاری شد')) d = ev.actor_id === plan.customerId ? plan.createdAt : (plan.completedAt ?? plan.finalAt);
         else if (ev.type === 'assigned' || msg.includes('پذیرش') || msg.includes('ارجاع شد')) d = plan.assignedAt ?? plan.createdAt;
         else if (ev.type === 'payment') d = plan.paidAt ?? plan.createdAt;
         else if (ev.type === 'invoice') d = plan.externalAt ?? plan.createdAt;
@@ -1498,6 +1785,43 @@ function finalize() {
       upd(db, 'request_commission_shares', { created_at: iso(plan.assignedAt ? addHours(plan.assignedAt, 1) : plan.createdAt) }, 'request_id=?', [plan.requestId]);
       upd(db, 'request_handoffs', { created_at: iso(plan.handoffAt ?? plan.finalAt) }, 'request_id=?', [plan.requestId]);
       upd(db, 'discount_code_usages', { created_at: iso(plan.createdAt) }, 'request_id=?', [plan.requestId]);
+
+      /* Uploaded scans, their stored files and the document reviews. */
+      const rdocs = db.prepare('SELECT id, file_id, kind, replaces_document_id FROM request_documents WHERE request_id=? ORDER BY rowid').all(plan.requestId);
+      rdocs.forEach((doc, di) => {
+        let when;
+        if (doc.kind === 'staff') when = plan.completedAt ?? plan.finalAt;
+        else if (doc.replaces_document_id) when = addHours(plan.assignedAt ?? plan.createdAt, 5);
+        else when = addHours(plan.createdAt, 0.15 * (di + 1));
+        const whenIso = iso(clampPast(when));
+        upd(db, 'request_documents', { created_at: whenIso }, 'id=?', [doc.id]);
+        if (doc.file_id) {
+          upd(db, 'files', { created_at: whenIso, processing_started_at: whenIso, processed_at: whenIso }, 'id=?', [doc.file_id]);
+        }
+      });
+      if (tableExists(db, 'document_reviews')) {
+        const revs = db.prepare('SELECT id FROM document_reviews WHERE request_document_id IN (SELECT id FROM request_documents WHERE request_id=?) ORDER BY rowid').all(plan.requestId);
+        revs.forEach((r, ri) => {
+          let d = addHours(plan.assignedAt ?? plan.createdAt, 3 + ri * 2);
+          if (d > plan.finalAt) d = plan.finalAt;
+          upd(db, 'document_reviews', { created_at: iso(d) }, 'id=?', [r.id]);
+        });
+      }
+    }
+
+    /* Profile documents and their files/reviews. */
+    for (const pd of S.profileDocs) {
+      upd(db, 'customer_documents', {
+        created_at: iso(pd.createdAt),
+        updated_at: iso(pd.verifiedAt ?? pd.createdAt),
+        verified_at: pd.verifiedAt ? iso(pd.verifiedAt) : null,
+      }, 'id=?', [pd.id]);
+      upd(db, 'files', {
+        created_at: iso(pd.createdAt), processing_started_at: iso(pd.createdAt), processed_at: iso(pd.createdAt),
+      }, 'id=?', [pd.fileId]);
+      if (pd.verifiedAt && tableExists(db, 'document_reviews')) {
+        upd(db, 'document_reviews', { created_at: iso(pd.verifiedAt) }, 'customer_document_id=?', [pd.id]);
+      }
     }
     // Custom services were born with their request.
     try {
@@ -1831,8 +2155,8 @@ function finalize() {
     generatedAt: new Date().toISOString(),
     scenario: 'Simulated ~60 days of office activity ending at generation time.',
     restore: {
-      windowsManager: 'Open the Pishkan Manager, press «بازیابی», and choose pishkan-demo-60-days.sqlite. The Manager keeps a safety copy of the current database and restarts the service.',
-      uploads: 'The demo is self-contained (no uploaded binaries). pishkan-demo-60-days-uploads.tar.gz mirrors the uploads folder for completeness.',
+      windowsManager: '1) Open the Pishkan Manager, press «بازیابی», and choose pishkan-demo-60-days.sqlite (the Manager keeps a safety copy of the current database and restarts the service). 2) Extract pishkan-demo-60-days-uploads.tar.gz into <install>/.data/uploads, merging the folders. 3) Start the service.',
+      uploads: 'Required: requests hold real uploaded document scans, so the database references files inside this archive. Without step 2 the document previews cannot be served.',
     },
     counts: {
       migrations,
@@ -1843,6 +2167,9 @@ function finalize() {
       requestsByStatus: group('SELECT status AS k, COUNT(*) AS c FROM requests GROUP BY status'),
       requestsByWorkBucket: group('SELECT work_bucket AS k, COUNT(*) AS c FROM requests GROUP BY work_bucket'),
       freeQueueUnassigned: Number(one("SELECT COUNT(*) c FROM requests WHERE assigned_to IS NULL AND status IN ('new','under_review')").c),
+      uploadedFiles: Number(one('SELECT COUNT(*) c FROM files').c),
+      requestDocumentsByStatus: group('SELECT status AS k, COUNT(*) AS c FROM request_documents GROUP BY status'),
+      profileDocuments: Number(one('SELECT COUNT(*) c FROM customer_documents').c),
       invoices: Number(one('SELECT COUNT(*) c FROM invoices').c),
       confirmedPayments: Number(one("SELECT COUNT(*) c FROM payments WHERE status='confirmed'").c),
       confirmedPaymentTotal: Number(one("SELECT COALESCE(SUM(amount),0) s FROM payments WHERE status='confirmed'").s),
@@ -1891,7 +2218,7 @@ async function main() {
     await startApi(port);
     S.admin = await loginStaff(ADMIN.username, ADMIN.password, 'admin');
     await setupSettings(S.admin);
-    await setupServices(S.admin);
+    await setupCatalog(S.admin);
     await setupStaff(S.admin);
     await setupDiscounts(S.admin);
     await stopApi();
@@ -1909,6 +2236,7 @@ async function main() {
     await walletTopUps();
     await setupShifts(S.admin);
     await runRequests(specs);
+    await profileDocumentsPhase();
     await customStandalone();
     await supportPhase();
     await messagesPhase();

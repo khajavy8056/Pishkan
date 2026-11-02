@@ -1,3 +1,3 @@
-d3c76945ddd0795f2fbd36018d71658021f79f015cf4d7155e13d8559207d728  pishkan-demo-60-days.sqlite
-7f45e3e0905ca1809cc1a8affba58feea1a2174fe9a8dcffb51fcb4733662ef3  pishkan-demo-60-days-uploads.tar.gz
-52f1d1a67f68ccfbbbc44a68965650cc5300b384d74d41c38ff274cc05c1f1ac  pishkan-demo-60-days-summary.json
+581341ce4a46eef85fcf61067928c33817b6838fbb2a9daf34956d16eab04643  pishkan-demo-60-days.sqlite
+b9fc9d94763cf8027235f3e8e88146e54e75919acb4b55a6cbf380f4801db20c  pishkan-demo-60-days-uploads.tar.gz
+ac5b71280118e9914a8891d7fb93ef5a0476f5c9b97bb538574fa89f45afca55  pishkan-demo-60-days-summary.json
