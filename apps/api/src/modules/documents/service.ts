@@ -374,7 +374,9 @@ export async function reuseDocumentInRequest(input: {
         `مدرک «${title}» از مدارک پروفایل با تأیید مشتری به پرونده پیوست شد.`,
         JSON.stringify({ fileId: doc.file_id, customerDocumentId: doc.id, requirementKey: input.requirementKey ?? null, replacesDocumentId }), now],
     );
-    await db.run('UPDATE requests SET status = ?, updated_at = ? WHERE id = ?', [nextStatus, now, input.requestId]);
+    // deriveBucket maps under_review to waiting_organization unconditionally;
+    // keep the denormalised bucket in step without importing the requests module.
+    await db.run("UPDATE requests SET status = ?, work_bucket = 'waiting_organization', updated_at = ? WHERE id = ?", [nextStatus, now, input.requestId]);
     if (nextStatus !== currentRequest.status) {
       await db.run(
         `INSERT INTO request_events (id, request_id, actor_id, actor_name, type, message, from_status, to_status, visible_to_customer, created_at)

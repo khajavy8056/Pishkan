@@ -79,6 +79,7 @@ export async function deliver(requestId:string,files:{fileId:string;title:string
    await addEvent({requestId,type:'delivery',actorId:auth.user.id,actorName:auth.user.fullName,message:`ارسال نتیجه برای تأیید: ${summary}`,fromStatus:row.status,toStatus:'under_review',visibleToCustomer:false});
    const review=await handoff(requestId,'management',summary,auth);
    await writeAudit({actorId:auth.user.id,actorName:auth.user.fullName,action:'request.deliver',entityType:'request',entityId:requestId,before:{status:row.status},after:{status:'under_review',mode:'approval',handoffId:review.id,files:preparedFiles.length}});
+   await refreshWorkBucket(requestId);
    return {status:'under_review',handoffId:review.id,mode:'approval'};
   }
 
@@ -136,6 +137,7 @@ export async function decide(handoffId:string,decision:'approved'|'returned',not
   await addEvent({requestId:row.id,type:'handoff_decision',actorId:auth.user.id,actorName:auth.user.fullName,message:`${decision==='approved'?'تأیید':'برگشت برای اصلاح'} ${current.department==='management'?'مدیریت':'حسابداری'}: ${note}`,visibleToCustomer:false,metadata:{handoffId,decision}});
   if(row.assigned_to)await notifyUser(row.assigned_to,{title:decision==='approved'?'ارجاع شما تأیید شد':'ارجاع برای اصلاح برگشت خورد',body:note,link:`/staff/requests/${row.id}`});
   await writeAudit({actorId:auth.user.id,actorName:auth.user.fullName,action:'request.handoff_decide',entityType:'request',entityId:row.id,after:{handoffId,decision,note}});
+  await refreshWorkBucket(row.id);
   return {id:handoffId,status:decision};
  });
 }

@@ -1281,6 +1281,7 @@ export async function attachDocument(
         fromStatus: request.status, toStatus: nextStatus,
         message: 'مدارک جدید برای بررسی ارسال شد؛ پرونده دوباره در صف بازبینی قرار گرفت.' });
     }
+    await refreshWorkBucket(requestId);
   });
 }
 
@@ -1330,6 +1331,7 @@ export async function reconcileAfterDocumentReview(requestId: string, actor: { i
     message: nextStatus === 'ready' ? 'مدارک و نتیجهٔ کار تأیید شد؛ پرونده آماده تحویل است.' : 'مدارک تأیید شد؛ رسیدگی پرونده ادامه می‌یابد.' });
   await writeAudit({ actorId: actor.id, actorName: actor.name, action: 'request.document_review_reconciled', entityType: 'request', entityId: requestId,
     before: { status: request.status }, after: { status: nextStatus }, ip: actor.ip });
+  await refreshWorkBucket(requestId);
 }
 
 export async function reviewDocument(
@@ -1379,6 +1381,7 @@ export async function reviewDocument(
     }
     await writeAudit({ actorId: actor.id, actorName: actor.name, action: `document.${decision}`, entityType: 'document', entityId: documentId,
       before: { status: doc.status }, after: { status: decision, note: cleanNote }, ip: actor.ip });
+    await refreshWorkBucket(doc.request_id);
     return { eventId, requestId: doc.request_id, previousStatus: doc.status, kind: doc.kind };
   });
 }
