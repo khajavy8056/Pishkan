@@ -82,6 +82,7 @@ const serviceSchema = z.object({
   icon: z.string().max(60).nullable().optional(),
   form: z.array(formFieldSchema).optional(),
   documents: z.array(z.object({
+    key: z.string().min(2).max(41).optional(),
     title: z.string().min(2).max(200),
     required: z.boolean().default(false),
     note: z.string().max(300).optional(),
@@ -96,11 +97,13 @@ const serviceSchema = z.object({
   cityIds: z.array(z.string()).max(2000).optional(),
   urgentEnabled: z.boolean().optional(),
   urgentPercent: z.number().int().min(0).max(500).optional(),
-  urgentDays: z.number().int().min(1).max(365).optional(),
+  urgentMinutes: z.number().int().min(1).max(5_256_000).optional(),
+  urgentDays: z.number().int().min(1).max(3650).optional(),
   urgentCapacity: z.number().int().min(0).max(1000).optional(),
   baseFee: z.number().min(0).max(10_000_000_000).optional(),
   discountPercent: z.number().min(0).max(100).optional(),
-  estimatedDays: z.number().int().min(1).max(365).optional(),
+  estimatedMinutes: z.number().int().min(1).max(5_256_000).optional(),
+  estimatedDays: z.number().int().min(1).max(3650).optional(),
   paymentMethods: z.array(z.enum(['online', 'cash', 'pos', 'transfer'])).optional(),
   tags: z.array(z.string().max(40)).max(20).optional(),
   contactNotice: z.string().max(500).nullable().optional(),
@@ -198,12 +201,14 @@ catalogRouter.post('/custom-services', requirePermission('services.create'), asy
   cityIds: z.array(z.string()).max(2000).optional(),
   urgentEnabled: z.boolean().optional(),
   urgentPercent: z.number().int().min(0).max(500).optional(),
-  urgentDays: z.number().int().min(1).max(365).optional(),
+  urgentMinutes: z.number().int().min(1).max(5_256_000).optional(),
+  urgentDays: z.number().int().min(1).max(3650).optional(),
   urgentCapacity: z.number().int().min(0).max(1000).optional(),
   baseFee: z.number().min(0),
     discountPercent: z.number().min(0).max(100).optional(),
-    estimatedDays: z.number().int().min(1).max(365).optional(),
-    documents: z.array(z.object({ title: z.string().min(2).max(200), required: z.boolean() })).optional(),
+    estimatedMinutes: z.number().int().min(1).max(5_256_000).optional(),
+    estimatedDays: z.number().int().min(1).max(3650).optional(),
+    documents: z.array(z.object({ key: z.string().min(2).max(41).optional(), title: z.string().min(2).max(200), required: z.boolean() })).optional(),
     workflow: z.array(z.object({
       title: z.string().min(2).max(200),
       description: z.string().max(500).optional(),
@@ -212,11 +217,12 @@ catalogRouter.post('/custom-services', requirePermission('services.create'), asy
     })).optional(),
     form: z.array(formFieldSchema).optional(),
     message: z.string().max(1000).optional(),
+    expiryHours: z.number().int().min(1).max(720).optional(),
     createInvoice: z.boolean().optional(),
   }).parse(req.body);
 
   const service = await createCustomService(body, { id: req.auth!.user.id, name: req.auth!.user.fullName, ip: req.ip });
-  const expiryHours = await getNumber('services.custom_offer_expiry_hours');
+  const expiryHours = body.expiryHours ?? await getNumber('services.custom_offer_expiry_hours');
   const expiresAt = new Date(Date.now() + expiryHours * 3_600_000).toISOString();
 
   const amount = Math.round(body.baseFee - (body.baseFee * (body.discountPercent ?? 0)) / 100);
@@ -311,9 +317,6 @@ catalogRouter.post('/offers/:id/accept', asyncRoute(async (req, res) => {
   }, { id: req.auth!.user.id, name: req.auth!.user.fullName, ip: req.ip });
 
   await run('UPDATE custom_service_offers SET status = ?, decided_at = ?, request_id = ? WHERE id = ?', ['accepted', nowIso(), request?.id ?? null, offer.id]);
-  if (offer.invoice_id) {
-    await run('UPDATE invoices SET request_id = ?, updated_at = ? WHERE id = ?', [request?.id ?? null, nowIso(), offer.invoice_id]);
-  }
   if (request) {
     await addEvent({
       requestId: request.id, type: 'system', message: 'مشتری پیشنهاد خدمت اختصاصی را تأیید کرد.',

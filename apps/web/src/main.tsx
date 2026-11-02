@@ -7,6 +7,7 @@ import { BrowserRouter, Navigate, Route, Routes, useLocation } from 'react-route
 import { AuthProvider, useAuth, homeFor } from './lib/auth';
 import { SiteProvider } from './lib/site';
 import { ToastProvider } from './components/ui';
+import { ThemeProvider } from './lib/theme';
 import { RequireRole } from './components/shell';
 import type { ReactNode } from 'react';
 
@@ -20,6 +21,7 @@ import {
   CustomerRequestDetail, CustomerRequests,
 } from './pages/customer/CustomerPages';
 import { CustomerServices } from './pages/customer/ServicesPane';
+import { CustomerDocuments } from './pages/customer/Documents';
 import {
   RequestDetail, StaffCustomers, StaffCustomService, StaffDocuments, StaffFinance,
   StaffPerformance, StaffRequests, StaffShifts, StaffWorkbench,
@@ -55,8 +57,9 @@ function ScrollToTop() {
 
 function App() {
   return (
-    <AuthProvider>
-      <SiteProvider>
+    <ThemeProvider>
+      <AuthProvider>
+        <SiteProvider>
         <ToastProvider>
           <BrowserRouter>
             <ScrollToTop />
@@ -80,6 +83,7 @@ function App() {
               <Route path="/app/requests/:id" element={customer(<CustomerRequestDetail />)} />
               <Route path="/app/invoices" element={customer(<CustomerInvoices />)} />
               <Route path="/app/offers" element={customer(<CustomerOffers />)} />
+              <Route path="/app/documents" element={customer(<CustomerDocuments />)} />
               <Route path="/app/messages" element={customer(<CustomerMessages />)} />
               <Route path="/app/profile" element={customer(<CustomerProfile />)} />
 
@@ -124,8 +128,9 @@ function App() {
             </Routes>
           </BrowserRouter>
         </ToastProvider>
-      </SiteProvider>
-    </AuthProvider>
+        </SiteProvider>
+      </AuthProvider>
+    </ThemeProvider>
   );
 }
 

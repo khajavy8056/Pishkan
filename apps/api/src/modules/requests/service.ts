@@ -31,13 +31,13 @@ export const STATUS_LABELS: Record<RequestStatus, string> = {
 };
 
 const ALLOWED_TRANSITIONS: Record<RequestStatus, RequestStatus[]> = {
-  new: ['assigned', 'in_progress', 'cancelled', 'rejected'],
-  assigned: ['in_progress', 'waiting_documents', 'waiting_customer', 'cancelled', 'rejected'],
+  new: ['assigned', 'in_progress', 'under_review', 'cancelled', 'rejected'],
+  assigned: ['in_progress', 'waiting_documents', 'waiting_customer', 'under_review', 'cancelled', 'rejected'],
   in_progress: ['waiting_documents', 'waiting_customer', 'under_review', 'ready', 'completed', 'cancelled', 'rejected'],
   waiting_documents: ['in_progress', 'under_review', 'cancelled', 'rejected'],
   waiting_customer: ['in_progress', 'under_review', 'cancelled', 'rejected'],
   under_review: ['in_progress', 'ready', 'completed', 'cancelled', 'rejected'],
-  ready: ['completed', 'in_progress'],
+  ready: ['completed', 'in_progress', 'under_review'],
   completed: [],
   cancelled: [],
   rejected: [],
@@ -60,6 +60,7 @@ export interface RequestRow {
   payment_status: string;
   current_step: number;
   due_at: string | null;
+  estimated_completion_at: string | null;
   rejected_reason: string | null;
   completed_at: string | null;
   cancelled_at: string | null;
@@ -154,6 +155,11 @@ export function validateFormData(service: ServiceDTO, raw: Record<string, unknow
       }
       case 'checkbox':
         clean[field.key] = value === true || value === 'true' || value === 'on' || value === 1;
+        break;
+      case 'file':
+        if (typeof value !== 'string' || value.trim().length < 3 || value.length > 120) {
+          errors.push({ field: field.key, message: `فایل «${field.label}» معتبر نیست.` });
+        } else clean[field.key] = value.trim();
         break;
       case 'select':
       case 'radio':
@@ -267,12 +273,15 @@ export async function autoAssign(requestId: string): Promise<string | null> {
   if (!chosen) return null;
 
   const assignedAt = nowIso();
-  const assignment = await run('UPDATE requests SET assigned_to = ?, assigned_at = ?, status = ?, updated_at = ? WHERE id = ? AND assigned_to IS NULL AND status = ?', [chosen.id, assignedAt, 'assigned', assignedAt, requestId, request.status]);
+  const nextStatus = request.status === 'under_review' ? 'under_review' : 'assigned';
+  const assignment = await run('UPDATE requests SET assigned_to = ?, assigned_at = ?, status = ?, updated_at = ? WHERE id = ? AND assigned_to IS NULL AND status = ?', [chosen.id, assignedAt, nextStatus, assignedAt, requestId, request.status]);
   if (!assignment.changes) return null;
   await addEvent({
-    requestId, type: 'assigned', message: `پرونده به ${chosen.name} ارجاع شد.`,
-    fromStatus: request.status, toStatus: 'assigned',
+    requestId, type: 'assigned', actorId: 'system', actorName: 'Pishkan auto-assignment',
+    message: `پرونده به ${chosen.name} ارجاع شد.`, fromStatus: request.status, toStatus: nextStatus,
   });
+  await writeAudit({ actorId: 'system', actorName: 'Pishkan auto-assignment', action: 'request.auto_assign', entityType: 'request', entityId: requestId,
+    before: { staffId: null, status: request.status }, after: { staffId: chosen.id, status: nextStatus } });
   return chosen.id;
  });
 }
@@ -305,7 +314,7 @@ export interface CreateRequestInput {
   paymentMethod?: string;
   priority?: string;
   note?: string;
-  documentIds?: { fileId: string; title?: string }[];
+  documentIds?: { fileId: string; title?: string; requirementKey?: string }[];
   existingInvoiceId?: string;
   idempotencyKey?: string;
 }
@@ -317,6 +326,77 @@ function canonicalJson(value: unknown): string {
     return `{${entries.map(([key, item]) => `${JSON.stringify(key)}:${canonicalJson(item)}`).join(',')}}`;
   }
   return JSON.stringify(value) ?? 'null';
+}
+
+type RequestDocumentAttachment = { fileId: string; title: string; requirementKey: string | null };
+
+function documentAttachmentsForSubmission(
+  service: ServiceDTO,
+  formData: Record<string, unknown>,
+  submitted: CreateRequestInput['documentIds'],
+): RequestDocumentAttachment[] {
+  const attachments: RequestDocumentAttachment[] = [];
+  const errors: { field: string; message: string }[] = [];
+  const requirements = service.documents ?? [];
+  const byKey = new Map(requirements.map((document) => [document.key, document]));
+  const seenKeys = new Set<string>();
+  const seenFiles = new Set<string>();
+
+  for (const document of submitted ?? []) {
+    const key = document.requirementKey?.trim();
+    if (!key) {
+      if (requirements.length) errors.push({ field: 'documents', message: 'برای هر مدرک، شناسهٔ مدرک موردنیاز را انتخاب کنید.' });
+      else {
+        if (seenFiles.has(document.fileId)) errors.push({ field: 'documents', message: 'یک فایل را نمی‌توان بیش از یک‌بار پیوست کرد.' });
+        seenFiles.add(document.fileId);
+        attachments.push({ fileId: document.fileId, title: document.title?.trim() || 'مدرک تکمیلی', requirementKey: null });
+      }
+      continue;
+    }
+    const requirement = byKey.get(key);
+    if (!requirement) {
+      errors.push({ field: `documents.${key}`, message: 'این مدرک در فهرست مدارک خدمت وجود ندارد.' });
+      continue;
+    }
+    if (seenKeys.has(key)) errors.push({ field: `documents.${key}`, message: `مدرک «${requirement.title}» بیش از یک‌بار انتخاب شده است.` });
+    if (seenFiles.has(document.fileId)) errors.push({ field: `documents.${key}`, message: 'یک فایل را نمی‌توان برای چند مدرک استفاده کرد.' });
+    seenKeys.add(key);
+    seenFiles.add(document.fileId);
+    attachments.push({ fileId: document.fileId, title: requirement.title, requirementKey: key });
+  }
+
+  for (const requirement of requirements) {
+    if (requirement.required && !seenKeys.has(requirement.key)) {
+      errors.push({ field: `documents.${requirement.key}`, message: `بارگذاری مدرک «${requirement.title}» الزامی است.` });
+    }
+  }
+
+  for (const field of service.form.filter((item) => item.type === 'file')) {
+    const value = formData[field.key];
+    if (value === undefined || value === null || String(value).trim() === '') continue;
+    const fileId = String(value);
+    if (seenFiles.has(fileId)) errors.push({ field: field.key, message: 'یک فایل را نمی‌توان برای چند مدرک استفاده کرد.' });
+    seenFiles.add(fileId);
+    attachments.push({ fileId, title: field.label, requirementKey: `field:${field.key}` });
+  }
+
+  if (errors.length) throw badRequest('مدارک پیوست‌شده کامل یا معتبر نیستند.', errors);
+  return attachments;
+}
+
+async function assertCustomerDocumentFiles(attachments: RequestDocumentAttachment[], customerId: string) {
+  for (const [index, attachment] of attachments.entries()) {
+    const file = await one<any>('SELECT id, owner_id, mime, is_public FROM files WHERE id = ?', [attachment.fileId]);
+    const field = attachment.requirementKey?.startsWith('field:')
+      ? attachment.requirementKey.slice('field:'.length)
+      : attachment.requirementKey ? `documents.${attachment.requirementKey}` : `documents.${index}`;
+    if (!file) throw badRequest('یکی از فایل‌های مدرک یافت نشد.', [{ field, message: 'فایل دیگر در دسترس نیست؛ آن را دوباره بارگذاری کنید.' }]);
+    if (file.owner_id !== customerId) throw forbidden('فقط فایل بارگذاری‌شده توسط مشتریِ همین درخواست قابل استفاده است.');
+    if (Number(file.is_public)) throw badRequest('فایل عمومی نمی‌تواند به‌عنوان مدرک درخواست استفاده شود.');
+    if (!String(file.mime).startsWith('image/') && file.mime !== 'application/pdf') {
+      throw badRequest('مدارک درخواست باید تصویر یا PDF باشند.', [{ field, message: 'قالب فایل پشتیبانی نمی‌شود.' }]);
+    }
+  }
 }
 
 export async function createRequest(input: CreateRequestInput, actor?: { id: string; name: string; ip?: string }) {
@@ -372,11 +452,14 @@ export async function createRequest(input: CreateRequestInput, actor?: { id: str
   const pricing = await quoteRequest(service.id,input.customerId,input.priority);
   const urgentFee = pricing.urgentFee;
   const formData = validateFormData(service, input.formData ?? {});
+  const documentAttachments = documentAttachmentsForSubmission(service, formData, input.documentIds);
+  await assertCustomerDocumentFiles(documentAttachments, input.customerId);
   const fee = service.baseFee;
   const discount = pricing.discount;
   let total = pricing.total;
+  let existingInvoice: any = null;
   if (input.existingInvoiceId) {
-    const existingInvoice = await one<any>('SELECT * FROM invoices WHERE id = ?', [input.existingInvoiceId]);
+    existingInvoice = await one<any>('SELECT * FROM invoices WHERE id = ?', [input.existingInvoiceId]);
     if (!existingInvoice || existingInvoice.customer_id !== input.customerId || existingInvoice.service_id !== service.id) {
       throw badRequest('فاکتور پیش‌صدور با این مشتری و خدمت سازگار نیست.');
     }
@@ -385,22 +468,32 @@ export async function createRequest(input: CreateRequestInput, actor?: { id: str
     }
     total = Number(existingInvoice.total);
   }
-  const methods = service.paymentMethods.length ? service.paymentMethods : ['online', 'cash'];
-  const method = input.paymentMethod && methods.includes(input.paymentMethod) ? input.paymentMethod : methods[0];
+  const methods = service.paymentMethods;
+  if (total > 0 && methods.length === 0) throw badRequest('برای این خدمت روش پرداخت تعریف نشده است؛ با دفتر تماس بگیرید.');
+  if (total > 0 && input.paymentMethod && !methods.includes(input.paymentMethod)) {
+    throw badRequest('روش پرداخت انتخاب‌شده برای این خدمت مجاز نیست.', [{ field: 'paymentMethod', message: 'روش دیگری از گزینه‌های مجاز انتخاب کنید.' }]);
+  }
+  const method = total <= 0 ? 'none' : input.paymentMethod ?? methods[0]!;
+  const existingPaid = Number(existingInvoice?.paid_amount ?? 0);
+  const paymentStatus = total <= 0 ? 'not_required'
+    : existingPaid >= total ? 'paid'
+      : existingPaid > 0 ? 'partial'
+        : method === 'cash' ? 'cash_due'
+          : method === 'pos' || method === 'transfer' ? 'awaiting_manual_payment' : 'unpaid';
 
   const trackingCode = await generateTrackingCode();
   const requestId = id('req');
   const ts = nowIso();
-  const estimated = new Date();
-  estimated.setDate(estimated.getDate() + (input.priority === 'high' ? service.urgentDays : service.estimatedDays));
-  const dueAt = estimated.toISOString();
+  const estimatedMinutes = input.priority === 'high' ? service.urgentMinutes : service.estimatedMinutes;
+  const estimatedCompletionAt = new Date(Date.now() + estimatedMinutes * 60_000).toISOString();
 
   // Immutable snapshot: later edits to the profile or service must not silently
   // change what the customer submitted.
   const snapshot = {
     service: {
       id: service.id, title: service.title, slug: service.slug, baseFee: service.baseFee,
-      discountPercent: service.discountPercent, estimatedDays: service.estimatedDays, urgentFee, urgentPercent: service.urgentPercent, urgentDays: service.urgentDays, coverage: service.coverage,
+      discountPercent: service.discountPercent, estimatedMinutes: service.estimatedMinutes, estimatedDays: service.estimatedDays,
+      urgentFee, urgentPercent: service.urgentPercent, urgentMinutes: service.urgentMinutes, urgentDays: service.urgentDays, coverage: service.coverage,
       form: service.form, documents: service.documents, workflow: service.workflow,
       categoryTitle: service.categoryTitle, paymentMethods: methods,
     },
@@ -419,10 +512,10 @@ export async function createRequest(input: CreateRequestInput, actor?: { id: str
     }
     await db.run(
       `INSERT INTO requests (id, tracking_code, customer_id, service_id, assigned_to, status, priority, form_data, snapshot,
-        fee, discount, total, payment_method, payment_status, current_step, due_at, created_at, updated_at)
-       VALUES (?, ?, ?, ?, NULL, 'new', ?, ?, ?, ?, ?, ?, ?, 'unpaid', 0, ?, ?, ?)`,
+        fee, discount, total, payment_method, payment_status, current_step, due_at, estimated_completion_at, created_at, updated_at)
+       VALUES (?, ?, ?, ?, NULL, 'new', ?, ?, ?, ?, ?, ?, ?, ?, 0, NULL, ?, ?, ?)`,
       [requestId, trackingCode, input.customerId, service.id, input.priority === 'high' ? 'high' : 'normal',
-        jsonStringify(formData), jsonStringify(snapshot), fee, discount, total, method, dueAt, ts, ts],
+        jsonStringify(formData), jsonStringify(snapshot), fee, discount, total, method, paymentStatus, estimatedCompletionAt, ts, ts],
     );
     await db.run(
       `INSERT INTO request_events (id, request_id, actor_id, actor_name, type, message, to_status, metadata, visible_to_customer, created_at)
@@ -430,13 +523,28 @@ export async function createRequest(input: CreateRequestInput, actor?: { id: str
       [id('evt'), requestId, actor?.id ?? input.customerId, actor?.name ?? customer.full_name,
         'درخواست شما ثبت شد و در صف بررسی قرار گرفت.', jsonStringify({ trackingCode }), ts],
     );
+    if (input.existingInvoiceId) {
+      const linked = await db.run(
+        `UPDATE invoices SET request_id=?, updated_at=?
+         WHERE id=? AND customer_id=? AND service_id=? AND request_id IS NULL AND status NOT IN ('void','draft')`,
+        [requestId, ts, input.existingInvoiceId, input.customerId, service.id],
+      );
+      if (!linked.changes) throw conflict('فاکتور پیشنهاد هم‌زمان به پروندهٔ دیگری پیوند خورد؛ صفحه را تازه کنید و با پشتیبانی تماس بگیرید.');
+      await db.run(
+        `INSERT INTO request_events (id, request_id, actor_id, actor_name, type, message, metadata, visible_to_customer, created_at)
+         VALUES (?, ?, ?, ?, 'invoice', ?, ?, 1, ?)`,
+        [id('evt'), requestId, actor?.id ?? input.customerId, actor?.name ?? customer.full_name,
+          `فاکتور ${toPersianDigits(existingInvoice.number)} به درخواست پیوند خورد.`,
+          jsonStringify({ invoiceId: existingInvoice.id, total: Number(existingInvoice.total) }), ts],
+      );
+    }
   });
 
   await run('UPDATE requests SET urgent_fee=? WHERE id=?',[urgentFee,requestId]);
-  if (Array.isArray(input.documentIds)) {
-    for (const doc of input.documentIds) {
-      await attachDocument(requestId, doc.fileId, doc.title ?? 'مدرک ارسالی', { id: input.customerId, name: customer.full_name }, 'customer');
-    }
+  for (const document of documentAttachments) {
+    await attachDocument(requestId, document.fileId, document.title,
+      { id: actor?.id ?? input.customerId, name: actor?.name ?? customer.full_name }, 'customer',
+      { ownerId: input.customerId, requirementKey: document.requirementKey });
   }
 
   if (total > 0 && !input.existingInvoiceId) {
@@ -475,7 +583,7 @@ export async function createRequest(input: CreateRequestInput, actor?: { id: str
 
 /* ---------------------------------- read ----------------------------------- */
 
-export async function getRequest(requestId: string, viewer?: { actorId: string; isCustomer: boolean }) {
+export async function getRequest(requestId: string, viewer?: { actorId: string; isCustomer: boolean; canViewDocuments?: boolean }) {
   const row = await one<any>(`
     SELECT r.*, s.title AS service_title, s.slug AS service_slug, s.workflow_steps, s.is_custom,
            c.full_name AS customer_name, c.mobile AS customer_mobile, c.national_id AS customer_national_id,
@@ -489,17 +597,31 @@ export async function getRequest(requestId: string, viewer?: { actorId: string; 
 
   if (viewer?.isCustomer && row.customer_id !== viewer.actorId) return null;
 
+  const canViewDocuments = !viewer || viewer.isCustomer || viewer.canViewDocuments !== false;
+  const snapshot = jsonParse<any>(row.snapshot, {});
+  const formData = jsonParse<Record<string, unknown>>(row.form_data, {});
+  if (!canViewDocuments) {
+    for (const field of Array.isArray(snapshot?.service?.form) ? snapshot.service.form : []) {
+      if (field?.type === 'file' && typeof field.key === 'string') delete formData[field.key];
+    }
+  }
   const events = await q<any>(
     `SELECT id, actor_id, actor_name, type, message, from_status, to_status, metadata, created_at
      FROM request_events WHERE request_id = ? ${viewer?.isCustomer ? 'AND visible_to_customer = 1' : ''}
+     ${!canViewDocuments ? "AND type <> 'document'" : ''}
      ORDER BY created_at ASC`,
     [requestId],
   );
-  const documents = await q<any>(
-    `SELECT d.*, f.name AS file_name, f.mime AS mime, f.size AS size, f.storage_key
+  const documents = canViewDocuments ? await q<any>(
+    `SELECT d.*, f.name AS file_name, f.mime AS mime, f.size AS size, f.storage_key,
+            f.processing_status, f.processing_mode, f.preview_storage_key, f.original_storage_key,
+            f.original_mime, f.original_size, f.savings_percent, f.width, f.height, f.processing_error
      FROM request_documents d JOIN files f ON f.id = d.file_id WHERE d.request_id = ? ORDER BY d.created_at ASC`,
     [requestId],
-  );
+  ) : [];
+  const documentReviews = documents.length
+    ? await q<any>(`SELECT * FROM document_reviews WHERE request_document_id IN (${documents.map(() => '?').join(',')}) ORDER BY created_at ASC`, documents.map((document) => document.id))
+    : [];
   const invoices = await q<any>('SELECT * FROM invoices WHERE request_id = ? ORDER BY created_at ASC', [requestId]);
 
   return {
@@ -518,8 +640,8 @@ export async function getRequest(requestId: string, viewer?: { actorId: string; 
     isCustom: Boolean(row.is_custom),
     assignedTo: row.assigned_to,
     assigneeName: row.assignee_name,
-    formData: jsonParse(row.form_data, {}),
-    snapshot: jsonParse(row.snapshot, {}),
+    formData,
+    snapshot,
     workflow: jsonParse<any>(row.snapshot, {}).service?.workflow ?? jsonParse(row.workflow_steps, []),
     fee: Number(row.fee),
     discount: Number(row.discount),
@@ -528,6 +650,8 @@ export async function getRequest(requestId: string, viewer?: { actorId: string; 
     paymentStatus: row.payment_status,
     currentStep: Number(row.current_step),
     dueAt: row.due_at,
+    deadlineAt: row.due_at,
+    estimatedCompletionAt: row.estimated_completion_at,
     rejectedReason: row.rejected_reason,
     completedAt: row.completed_at,
     createdAt: row.created_at,
@@ -538,7 +662,26 @@ export async function getRequest(requestId: string, viewer?: { actorId: string; 
     })),
     documents: documents.filter(d=>!viewer?.isCustomer || d.kind!=='staff' || d.status==='approved').map((d) => ({
       id: d.id, title: d.title, kind: d.kind, status: d.status, reviewNote: d.review_note,
-      file: { id: d.file_id, name: d.file_name, mime: d.mime, size: Number(d.size) },
+      requirementKey: d.requirement_key ?? null,
+      replacesDocumentId: d.replaces_document_id ?? null,
+      reviewHistory: documentReviews.filter((review) => review.request_document_id === d.id).map((review) => ({
+        decision: review.decision, note: review.note, reviewerName: review.reviewer_name, createdAt: review.created_at,
+      })),
+      documentType: d.document_type ?? null,
+      customerDocumentId: d.customer_document_id ?? null,
+      expiresAt: d.expires_at ?? null,
+      file: {
+        id: d.file_id, name: d.file_name, mime: d.mime, size: Number(d.size),
+        originalSize: d.original_size === null || d.original_size === undefined ? Number(d.size) : Number(d.original_size),
+        savingsPercent: Number(d.savings_percent ?? 0),
+        width: d.width ?? null, height: d.height ?? null,
+        previewUrl: d.preview_storage_key ? `/api/files/${d.file_id}?variant=preview` : null,
+        originalUrl: `/api/files/${d.file_id}?variant=original`,
+        displayUrl: `/api/files/${d.file_id}`,
+        processing: {
+          status: d.processing_status ?? 'none', mode: d.processing_mode ?? null, error: d.processing_error ?? null,
+        },
+      },
       createdAt: d.created_at,
     })),
     invoices: invoices.map((i) => ({
@@ -605,6 +748,8 @@ export async function listRequests(opts: ListRequestsOptions = {}) {
       total: Number(r.total),
       paymentStatus: r.payment_status,
       dueAt: r.due_at,
+      deadlineAt: r.due_at,
+      estimatedCompletionAt: r.estimated_completion_at,
       createdAt: r.created_at,
       updatedAt: r.updated_at,
     })),
@@ -632,18 +777,22 @@ export async function changeStatus(
     throw conflict(`تغییر وضعیت از «${STATUS_LABELS[from]}» به «${STATUS_LABELS[toStatus]}» مجاز نیست.`);
   }
   if (toStatus === 'completed' && (await getBool('services.require_document_approval'))) {
-    const pending = await one<{ c: number }>(`SELECT COUNT(*) AS c FROM request_documents WHERE request_id = ? AND status = 'pending'`, [requestId]);
-    const requiredDocs = (await getServiceById(request.service_id))?.documents.filter((d) => d.required) ?? [];
-    const approved = await one<{ c: number }>(`SELECT COUNT(*) AS c FROM request_documents WHERE request_id = ? AND status = 'approved'`, [requestId]);
+    const pending = await one<{ c: number }>(`SELECT COUNT(*) AS c FROM request_documents d
+      WHERE d.request_id=? AND d.status='pending'
+        AND NOT EXISTS (SELECT 1 FROM request_documents child WHERE child.replaces_document_id=d.id)`, [requestId]);
     if (Number(pending?.c ?? 0) > 0) throw conflict('مدارک این پرونده هنوز بررسی نشده‌اند.');
-    if (requiredDocs.length > 0 && Number(approved?.c ?? 0) === 0) {
-      throw conflict('مدارک الزامی این خدمت هنوز تأیید نشده است.');
+    if (!(await requiredDocumentsApproved(requestId, request.snapshot))) {
+      throw conflict('هر یک از مدارک الزامی باید جداگانه در آخرین نسخه تأیید شده باشد.');
     }
   }
 
   if(['ready','completed'].includes(toStatus)){
     if(await one("SELECT id FROM request_handoffs WHERE request_id=? AND status='pending'",[requestId]))throw conflict('ابتدا ارجاع‌های باز مدیریت و حسابداری را بررسی کنید.');
-    if(await one("SELECT id FROM request_documents WHERE request_id=? AND kind='staff' AND status<>'approved'",[requestId]))throw conflict('نتیجه کارکنان هنوز تأیید نشده است.');
+    if(await one(`SELECT d.id FROM request_documents d WHERE d.request_id=? AND d.status='pending'
+      AND NOT EXISTS (SELECT 1 FROM request_documents child WHERE child.replaces_document_id=d.id) LIMIT 1`,[requestId]))throw conflict('مدارک این پرونده هنوز بررسی نشده‌اند.');
+    if(await one(`SELECT d.id FROM request_documents d WHERE d.request_id=? AND d.kind='staff' AND d.status<>'approved'
+      AND NOT EXISTS (SELECT 1 FROM request_documents child WHERE child.replaces_document_id=d.id) LIMIT 1`,[requestId]))throw conflict('نتیجه کارکنان هنوز تأیید نشده است.');
+    if(!(await requiredDocumentsApproved(requestId, request.snapshot)))throw conflict('هر یک از مدارک الزامی باید جداگانه در آخرین نسخه تأیید شده باشد.');
   }
   const ts = nowIso();
   const sets = ['status = ?', 'updated_at = ?'];
@@ -667,26 +816,53 @@ export async function changeStatus(
   });
 }
 
-export async function assignRequest(requestId: string, staffId: string | null, actor: { id: string; name: string; ip?: string }) {
-  const request = await one<RequestRow>('SELECT * FROM requests WHERE id = ?', [requestId]);
-  if (!request) throw notFound('درخواست یافت نشد.');
-  if (staffId) {
-    const staff = await one<any>(
-      `SELECT u.id, u.full_name FROM users u JOIN staff_profiles sp ON sp.user_id = u.id
-       WHERE u.id = ? AND u.kind = 'staff' AND u.status = 'active'`, [staffId],
-    );
-    if (!staff) throw badRequest('کارشناس انتخابی معتبر نیست.');
-  }
-  const newStatus = staffId && request.status === 'new' ? 'assigned' : request.status;
-  const assignedAt = staffId ? nowIso() : null;
-  await run('UPDATE requests SET assigned_to = ?, assigned_at = ?, status = ?, updated_at = ? WHERE id = ?', [staffId, assignedAt, newStatus, nowIso(), requestId]);
-  await addEvent({
-    requestId, type: 'assigned', actorId: actor.id, actorName: actor.name,
-    message: staffId ? 'پرونده به کارشناس ارجاع شد.' : 'ارجاع پرونده برداشته شد.',
-    fromStatus: request.status, toStatus: newStatus,
+export async function setRequestDeadline(requestId: string, deadlineAt: string | null, actor: { id: string; name: string; ip?: string }) {
+  return tx(async () => {
+    await run('UPDATE requests SET updated_at=updated_at WHERE id=?', [requestId]);
+    const request = await one<RequestRow>('SELECT * FROM requests WHERE id=?', [requestId]);
+    if (!request) throw notFound('درخواست یافت نشد.');
+    if (['completed', 'cancelled', 'rejected'].includes(request.status)) throw conflict('برای پرونده بسته نمی‌توان مهلت تعیین کرد.');
+    const ts = nowIso();
+    await run('UPDATE requests SET due_at=?, updated_at=? WHERE id=?', [deadlineAt, ts, requestId]);
+    await addEvent({
+      requestId, type: 'deadline', actorId: actor.id, actorName: actor.name,
+      message: deadlineAt ? `مهلت قطعی پرونده تعیین شد: ${deadlineAt}` : 'مهلت قطعی پرونده برداشته شد.',
+      metadata: { previousDeadlineAt: request.due_at, deadlineAt }, visibleToCustomer: true,
+    });
+    await writeAudit({ actorId: actor.id, actorName: actor.name, action: 'request.deadline', entityType: 'request', entityId: requestId,
+      before: { deadlineAt: request.due_at }, after: { deadlineAt }, ip: actor.ip });
+    return getRequest(requestId);
   });
-  await writeAudit({ actorId: actor.id, actorName: actor.name, action: 'request.assign', entityType: 'request', entityId: requestId, after: { staffId }, ip: actor.ip });
-  return getRequest(requestId);
+}
+
+export async function assignRequest(requestId: string, staffId: string | null, actor: { id: string; name: string; ip?: string }) {
+  return tx(async () => {
+    await run('UPDATE requests SET updated_at=updated_at WHERE id=?', [requestId]);
+    const request = await one<RequestRow>('SELECT * FROM requests WHERE id = ?', [requestId]);
+    if (!request) throw notFound('درخواست یافت نشد.');
+    if (request.assigned_to === staffId) return getRequest(requestId);
+    if (staffId) {
+      const staff = await one<any>(
+        `SELECT u.id FROM users u JOIN staff_profiles sp ON sp.user_id = u.id
+         WHERE u.id = ? AND u.kind = 'staff' AND u.status = 'active'`, [staffId],
+      );
+      if (!staff) throw badRequest('کارشناس انتخابی معتبر نیست.');
+    }
+    const newStatus = staffId
+      ? request.status === 'new' ? 'assigned' : request.status
+      : request.status === 'assigned' ? 'new' : request.status;
+    const ts = nowIso();
+    await run('UPDATE requests SET assigned_to = ?, assigned_at = ?, status = ?, updated_at = ? WHERE id = ?',
+      [staffId, staffId ? ts : null, newStatus, ts, requestId]);
+    await addEvent({
+      requestId, type: 'assigned', actorId: actor.id, actorName: actor.name,
+      message: staffId ? 'پرونده به کارشناس ارجاع شد.' : 'ارجاع پرونده برداشته شد.',
+      fromStatus: request.status, toStatus: newStatus,
+    });
+    await writeAudit({ actorId: actor.id, actorName: actor.name, action: 'request.assign', entityType: 'request', entityId: requestId,
+      before: { staffId: request.assigned_to, status: request.status }, after: { staffId, status: newStatus }, ip: actor.ip });
+    return getRequest(requestId);
+  });
 }
 
 export async function addNote(requestId: string, message: string, actor: { id: string; name: string }, visibleToCustomer = true) {
@@ -702,19 +878,134 @@ export async function attachDocument(
   title: string,
   actor: { id: string; name: string },
   kind: 'customer' | 'staff' = 'staff',
+  meta: { customerDocumentId?: string | null; documentType?: string | null; expiresAt?: string | null; requirementKey?: string | null; replacesDocumentId?: string | null; ownerId?: string } = {},
 ) {
-  const file = await one<any>('SELECT * FROM files WHERE id = ?', [fileId]);
-  if (!file) throw badRequest('فایل ارسالی یافت نشد.');
-  if (file.owner_id !== actor.id) throw forbidden('فقط فایل بارگذاری‌شده توسط خودتان قابل پیوست است.');
-  await run(
-    `INSERT INTO request_documents (id, request_id, file_id, title, kind, status, created_at) VALUES (?, ?, ?, ?, ?, 'pending', ?)`,
-    [id('doc'), requestId, fileId, title, kind, nowIso()],
-  );
-  await addEvent({
-    requestId, type: 'document', actorId: actor.id, actorName: actor.name,
-    message: `مدرک «${title}» بارگذاری شد.`, metadata: { fileId },
+  return tx(async () => {
+    await run('UPDATE requests SET updated_at=updated_at WHERE id=?', [requestId]);
+    const file = await one<any>('SELECT * FROM files WHERE id = ?', [fileId]);
+    if (!file) throw badRequest('فایل ارسالی یافت نشد.');
+    const expectedOwner = kind === 'customer' ? meta.ownerId ?? actor.id : actor.id;
+    if (file.owner_id !== expectedOwner) throw forbidden('فقط فایل بارگذاری‌شده توسط مالک پرونده قابل پیوست است.');
+    if (Number(file.is_public)) throw badRequest('فایل عمومی نمی‌تواند به‌عنوان مدرک پرونده پیوست شود.');
+    if (!String(file.mime).startsWith('image/') && file.mime !== 'application/pdf') throw badRequest('مدارک پرونده باید تصویر یا PDF باشند.');
+
+    const request = await one<any>('SELECT status,snapshot FROM requests WHERE id = ?', [requestId]);
+    if (!request) throw notFound('درخواست یافت نشد.');
+    if (['completed', 'cancelled', 'rejected'].includes(request.status)) throw conflict('به این پرونده بسته‌شده نمی‌توان مدرک جدید افزود.');
+    const existing = await one<any>('SELECT id FROM request_documents WHERE request_id = ? AND file_id = ?', [requestId, fileId]);
+    if (existing) throw conflict('این فایل قبلاً به همین پرونده پیوست شده است.');
+
+    if (kind === 'customer') {
+      const service = jsonParse<any>(request.snapshot, {})?.service ?? {};
+      const serviceDocuments = Array.isArray(service.documents) ? service.documents : [];
+      const fileFields = Array.isArray(service.form) ? service.form.filter((field: any) => field?.type === 'file') : [];
+      const validKeys = new Set<string>([
+        ...serviceDocuments.map((document: any, index: number) => String(document?.key || `document_${index + 1}`)),
+        ...fileFields.map((field: any) => `field:${String(field.key)}`),
+      ]);
+      if (validKeys.size && !meta.requirementKey) throw badRequest('برای پیوست‌کردن مدرک، نیازمندی مرتبط را انتخاب کنید.');
+      if (meta.requirementKey && !validKeys.has(meta.requirementKey)) throw badRequest('شناسه مدرک با فرم زمان ثبت درخواست سازگار نیست.');
+    }
+
+    let replacesDocumentId: string | null = null;
+    if (kind === 'customer' && meta.requirementKey) {
+      const previous = await one<any>(`SELECT d.id,d.status FROM request_documents d
+        WHERE d.request_id=? AND d.kind='customer' AND (d.requirement_key=? OR (d.requirement_key IS NULL AND d.title=?))
+          AND NOT EXISTS (SELECT 1 FROM request_documents child WHERE child.replaces_document_id=d.id)
+        ORDER BY d.created_at DESC LIMIT 1`, [requestId, meta.requirementKey, title]);
+      if (previous && previous.status !== 'rejected') throw conflict('برای این نیازمندی مدرک فعال وجود دارد؛ فقط پس از رد آن می‌توان نسخه جایگزین فرستاد.');
+      replacesDocumentId = previous?.id ?? null;
+    } else if (kind === 'staff') {
+      let previous: any = null;
+      if (meta.replacesDocumentId) {
+        previous = await one<any>(`SELECT d.id,d.status,d.kind FROM request_documents d
+          WHERE d.id=? AND d.request_id=? AND NOT EXISTS (SELECT 1 FROM request_documents child WHERE child.replaces_document_id=d.id)`,
+        [meta.replacesDocumentId, requestId]);
+        if (!previous) throw notFound('نتیجهٔ ردشده برای جایگزینی در این پرونده پیدا نشد.');
+      } else {
+        const rejected = await q<any>(`SELECT d.id,d.title,d.status,d.kind FROM request_documents d
+          WHERE d.request_id=? AND d.kind='staff' AND d.status='rejected'
+            AND NOT EXISTS (SELECT 1 FROM request_documents child WHERE child.replaces_document_id=d.id)
+          ORDER BY d.created_at DESC`, [requestId]);
+        const exact = rejected.filter((document) => document.title === title);
+        if (exact.length === 1) previous = exact[0];
+        else if (rejected.length === 1) previous = rejected[0];
+        else if (rejected.length > 1) throw conflict('برای جایگزینی نتیجهٔ ردشده، شناسهٔ مدرک قبلی را مشخص کنید.');
+      }
+      if (previous && (previous.kind !== 'staff' || previous.status !== 'rejected')) {
+        throw conflict('فقط نتیجهٔ ردشدهٔ همین پرونده را می‌توان جایگزین کرد.');
+      }
+      if (previous) replacesDocumentId = previous.id;
+    }
+
+    const ts = nowIso();
+    const nextStatus = 'under_review';
+    await run(
+      `INSERT INTO request_documents (id, request_id, file_id, title, kind, status, created_at, customer_document_id, document_type, expires_at, requirement_key, replaces_document_id)
+       VALUES (?, ?, ?, ?, ?, 'pending', ?, ?, ?, ?, ?, ?)`,
+      [id('doc'), requestId, fileId, title, kind, ts, meta.customerDocumentId ?? null, meta.documentType ?? null,
+        meta.expiresAt ?? null, meta.requirementKey ?? null, replacesDocumentId],
+    );
+    await run('UPDATE requests SET status = ?, updated_at = ? WHERE id = ?', [nextStatus, ts, requestId]);
+    await addEvent({
+      requestId, type: 'document', actorId: actor.id, actorName: actor.name,
+      message: `مدرک «${title}» بارگذاری شد.`, metadata: { fileId, requirementKey: meta.requirementKey ?? null, replacesDocumentId },
+      visibleToCustomer: kind === 'customer',
+    });
+    if (nextStatus !== request.status) {
+      await addEvent({ requestId, type: 'status', actorId: actor.id, actorName: actor.name,
+        fromStatus: request.status, toStatus: nextStatus,
+        message: 'مدارک جدید برای بررسی ارسال شد؛ پرونده دوباره در صف بازبینی قرار گرفت.' });
+    }
   });
-  await run('UPDATE requests SET updated_at = ? WHERE id = ?', [nowIso(), requestId]);
+}
+
+async function requiredDocumentsApproved(requestId: string, snapshot: unknown) {
+  const serviceSnapshot = jsonParse<any>(snapshot, {})?.service ?? {};
+  const documents = Array.isArray(serviceSnapshot.documents) ? serviceSnapshot.documents : [];
+  const formFields = Array.isArray(serviceSnapshot.form) ? serviceSnapshot.form : [];
+  const requirements = [
+    ...documents.flatMap((raw: any, index: number) => raw?.required ? [{
+      key: typeof raw.key === 'string' && raw.key ? raw.key : `document_${index + 1}`,
+      title: String(raw.title ?? ''),
+    }] : []),
+    ...formFields.filter((field: any) => field?.type === 'file' && field?.required).map((field: any) => ({
+      key: `field:${String(field.key)}`, title: String(field.label ?? ''),
+    })),
+  ];
+  for (const requirement of requirements) {
+    const latest = await one<any>(`SELECT d.status FROM request_documents d
+      WHERE d.request_id=? AND d.kind='customer' AND (d.requirement_key=? OR (d.requirement_key IS NULL AND d.title=?))
+        AND NOT EXISTS (SELECT 1 FROM request_documents child WHERE child.replaces_document_id=d.id)
+      ORDER BY d.created_at DESC LIMIT 1`, [requestId, requirement.key, requirement.title]);
+    if (!latest || latest.status !== 'approved') return false;
+  }
+  return true;
+}
+
+export async function reconcileAfterDocumentReview(requestId: string, actor: { id: string; name: string; ip?: string }) {
+  const request = await one<RequestRow>('SELECT * FROM requests WHERE id=?', [requestId]);
+  if (!request || !['waiting_documents', 'under_review'].includes(request.status)) return;
+  const [pendingCustomer, pendingStaff, openHandoff, staffDocuments] = await Promise.all([
+    one<any>(`SELECT COUNT(*) AS c FROM request_documents d WHERE d.request_id=? AND d.kind='customer' AND d.status='pending'
+      AND NOT EXISTS (SELECT 1 FROM request_documents child WHERE child.replaces_document_id=d.id)`, [requestId]),
+    one<any>(`SELECT COUNT(*) AS c FROM request_documents d WHERE d.request_id=? AND d.kind='staff' AND d.status<>'approved'
+      AND NOT EXISTS (SELECT 1 FROM request_documents child WHERE child.replaces_document_id=d.id)`, [requestId]),
+    one<any>("SELECT id FROM request_handoffs WHERE request_id=? AND status='pending' LIMIT 1", [requestId]),
+    one<any>(`SELECT COUNT(*) AS c FROM request_documents d WHERE d.request_id=? AND d.kind='staff'
+      AND NOT EXISTS (SELECT 1 FROM request_documents child WHERE child.replaces_document_id=d.id)`, [requestId]),
+  ]);
+  if (Number(pendingCustomer?.c ?? 0) > 0 || Number(pendingStaff?.c ?? 0) > 0 || openHandoff) return;
+  if (!(await requiredDocumentsApproved(requestId, request.snapshot))) return;
+  const nextStatus = Number(staffDocuments?.c ?? 0) > 0 ? 'ready' : 'in_progress';
+  if (request.status === nextStatus) return;
+  const ts = nowIso();
+  await run('UPDATE requests SET status=?, updated_at=? WHERE id=?', [nextStatus, ts, requestId]);
+  await addEvent({ requestId, type: 'status', actorId: actor.id, actorName: actor.name,
+    fromStatus: request.status, toStatus: nextStatus,
+    message: nextStatus === 'ready' ? 'مدارک و نتیجهٔ کار تأیید شد؛ پرونده آماده تحویل است.' : 'مدارک تأیید شد؛ رسیدگی پرونده ادامه می‌یابد.' });
+  await writeAudit({ actorId: actor.id, actorName: actor.name, action: 'request.document_review_reconciled', entityType: 'request', entityId: requestId,
+    before: { status: request.status }, after: { status: nextStatus }, ip: actor.ip });
 }
 
 export async function reviewDocument(
@@ -723,22 +1014,49 @@ export async function reviewDocument(
   note: string | undefined,
   actor: { id: string; name: string; ip?: string },
 ) {
-  const doc = await one<any>('SELECT * FROM request_documents WHERE id = ?', [documentId]);
-  if (!doc) throw notFound('مدرک یافت نشد.');
-  await run(
-    'UPDATE request_documents SET status = ?, reviewed_by = ?, review_note = ? WHERE id = ?',
-    [decision, actor.id, note ?? null, documentId],
-  );
-  const eventId = await addEvent({
-    requestId: doc.request_id, type: 'document', actorId: actor.id, actorName: actor.name,
-    message: decision === 'approved' ? 'مدرک تأیید شد.' : `مدرک رد شد. ${note ?? ''}`.trim(),
-    metadata: { documentId },
+  return tx(async () => {
+    const initialDoc = await one<any>('SELECT * FROM request_documents WHERE id = ?', [documentId]);
+    if (!initialDoc) throw notFound('مدرک یافت نشد.');
+    await run('UPDATE requests SET updated_at=updated_at WHERE id=?', [initialDoc.request_id]);
+    const doc = await one<any>('SELECT * FROM request_documents WHERE id = ?', [documentId]);
+    if (!doc) throw notFound('مدرک یافت نشد.');
+    if (doc.status !== 'pending') throw conflict('فقط مدرکِ در انتظار بررسی قابل تصمیم‌گیری است.');
+    if (decision === 'rejected' && (note ?? '').trim().length < 3) throw badRequest('برای رد مدرک، دلیل حداقل سه‌حرفی لازم است.');
+    const request = await one<RequestRow>('SELECT * FROM requests WHERE id=?', [doc.request_id]);
+    if (!request) throw notFound('درخواست یافت نشد.');
+    const ts = nowIso();
+    const cleanNote = note?.trim().slice(0, 1000) || null;
+    const changed = await run("UPDATE request_documents SET status=?, reviewed_by=?, review_note=? WHERE id=? AND status='pending'",
+      [decision, actor.id, cleanNote, documentId]);
+    if (!changed.changes) throw conflict('این مدرک هم‌زمان توسط کاربر دیگری بررسی شد.');
+    await run(`INSERT INTO document_reviews (id, request_document_id, customer_document_id, decision, note, reviewer_id, reviewer_name, created_at)
+      VALUES (?, ?, NULL, ?, ?, ?, ?, ?)`, [id('drev'), documentId, decision, cleanNote, actor.id, actor.name, ts]);
+    const eventId = await addEvent({
+      requestId: doc.request_id, type: 'document', actorId: actor.id, actorName: actor.name,
+      message: decision === 'approved' ? 'مدرک تأیید شد.' : `مدرک رد شد: ${cleanNote}`,
+      metadata: { documentId, decision, note: cleanNote }, visibleToCustomer: doc.kind === 'customer',
+    });
+
+    if (decision === 'rejected' && doc.kind === 'customer') {
+      const nextStatus = 'waiting_documents';
+      if (!['completed', 'cancelled', 'rejected'].includes(request.status) && request.status !== nextStatus) {
+        await run('UPDATE requests SET status=?, updated_at=? WHERE id=?', [nextStatus, ts, request.id]);
+        await addEvent({ requestId: request.id, type: 'status', actorId: actor.id, actorName: actor.name,
+          fromStatus: request.status, toStatus: nextStatus, message: 'مدرک نیازمند اصلاح است؛ پرونده تا بارگذاری مدرک جایگزین متوقف شد.' });
+      }
+    } else if (decision === 'rejected' && doc.kind === 'staff') {
+      if (!['completed', 'cancelled', 'rejected'].includes(request.status) && request.status !== 'in_progress') {
+        await run('UPDATE requests SET status=?, updated_at=? WHERE id=?', ['in_progress', ts, request.id]);
+        await addEvent({ requestId: request.id, type: 'status', actorId: actor.id, actorName: actor.name,
+          fromStatus: request.status, toStatus: 'in_progress', message: 'نتیجهٔ کار برای اصلاح برگشت داده شد.' });
+      }
+    } else {
+      await reconcileAfterDocumentReview(request.id, actor);
+    }
+    await writeAudit({ actorId: actor.id, actorName: actor.name, action: `document.${decision}`, entityType: 'document', entityId: documentId,
+      before: { status: doc.status }, after: { status: decision, note: cleanNote }, ip: actor.ip });
+    return { eventId, requestId: doc.request_id, previousStatus: doc.status, kind: doc.kind };
   });
-  if (decision === 'rejected') {
-    await run(`UPDATE requests SET status = 'waiting_documents', updated_at = ? WHERE id = ? AND status NOT IN ('completed','cancelled','rejected')`, [nowIso(), doc.request_id]);
-  }
-  await writeAudit({ actorId: actor.id, actorName: actor.name, action: `document.${decision}`, entityType: 'document', entityId: documentId, ip: actor.ip });
-  return { eventId, requestId: doc.request_id, previousStatus: doc.status };
 }
 
 export async function customerCancel(requestId: string, customerId: string, reason: string, actor: { id: string; name: string }) {
@@ -765,11 +1083,15 @@ export async function requestStats(scope: { customerId?: string; assignedTo?: st
   const open = Object.entries(counts).filter(([k]) => !['completed', 'cancelled', 'rejected'].includes(k)).reduce((s, [, v]) => s + v, 0);
   const total = Object.values(counts).reduce((s, v) => s + v, 0);
 
+  const invoiceWhere = ["i.status IN ('issued','partially_paid')"];
+  const invoiceArgs: string[] = [];
+  if (scope.customerId) { invoiceWhere.push('r.customer_id = ?'); invoiceArgs.push(scope.customerId); }
+  if (scope.assignedTo) { invoiceWhere.push('r.assigned_to = ?'); invoiceArgs.push(scope.assignedTo); }
   const unpaid = await one<{ total: number }>(
     `SELECT COALESCE(SUM(i.total - i.paid_amount),0) AS total FROM invoices i
      JOIN requests r ON r.id = i.request_id
-     WHERE i.status IN ('issued','partially_paid') ${scope.customerId ? 'AND r.customer_id = ?' : ''}`,
-    scope.customerId ? [scope.customerId] : [],
+     WHERE ${invoiceWhere.join(' AND ')}`,
+    invoiceArgs,
   );
 
   return {
@@ -799,12 +1121,13 @@ export async function quoteRequest(serviceId: string, customerId: string, priori
  const subtotal = service.baseFee + urgentFee;
  const tax = Math.round((subtotal-discount)*await getNumber('accounting.tax_percent')/100);
  const active = await one<any>("SELECT COUNT(*) AS c FROM requests WHERE service_id=? AND priority='high' AND status NOT IN ('completed','cancelled','rejected')",[serviceId]);
- return {baseFee:service.baseFee,discount,urgentFee,tax,total:subtotal-discount+tax,currency:'IRR',estimatedDays:priority==='high'?service.urgentDays:service.estimatedDays,urgentAvailable:service.urgentEnabled && service.urgentCapacity>Number(active?.c),quotedAt:nowIso()};
+ const estimatedMinutes=priority==='high'?service.urgentMinutes:service.estimatedMinutes;
+ return {baseFee:service.baseFee,discount,urgentFee,tax,total:subtotal-discount+tax,currency:'IRR',estimatedMinutes,estimatedDays:Math.ceil(estimatedMinutes/1440),urgentAvailable:service.urgentEnabled && service.urgentCapacity>Number(active?.c),quotedAt:nowIso()};
 }
 
 /** Queue metadata deliberately excludes customer identity, documents and finances. */
 export async function eligibleQueue(staffId:string) {
- const rows=await q<any>("SELECT r.id,r.tracking_code,r.service_id,r.created_at,r.priority,s.title FROM requests r JOIN services s ON s.id=r.service_id WHERE r.assigned_to IS NULL AND r.status='new' ORDER BY r.created_at LIMIT 200");
+ const rows=await q<any>("SELECT r.id,r.tracking_code,r.service_id,r.created_at,r.priority,r.status,s.title FROM requests r JOIN services s ON s.id=r.service_id WHERE r.assigned_to IS NULL AND r.status IN ('new','under_review') ORDER BY r.created_at LIMIT 200");
  const result=[];
  for(const r of rows){const service=await getServiceById(r.service_id);if(service&&(await candidatesForService(service)).some(c=>c.id===staffId))result.push({id:r.id,trackingCode:r.tracking_code,serviceTitle:r.title,priority:r.priority,createdAt:r.created_at})}
  return result;
@@ -814,13 +1137,16 @@ export async function claimRequest(requestId:string,staffId:string,name:string){
   await run('UPDATE users SET updated_at=updated_at WHERE id=?',[staffId]);
   await run('UPDATE requests SET updated_at=updated_at WHERE id=?',[requestId]);
   const r=await one<any>('SELECT * FROM requests WHERE id=?',[requestId]);
-  if(!r || r.assigned_to || r.status!=='new')throw conflict('این پرونده قبلاً پذیرفته شده یا قابل پذیرش نیست.');
+  if(!r || r.assigned_to || !['new','under_review'].includes(r.status))throw conflict('این پرونده قبلاً پذیرفته شده یا قابل پذیرش نیست.');
   const service=await getServiceById(r.service_id);
   if(!service || !(await candidatesForService(service)).some(c=>c.id===staffId))throw forbidden('مهارت، شیفت یا ظرفیت لازم برای این خدمت را ندارید.');
   const assignedAt=nowIso();
-  const changed=await run("UPDATE requests SET assigned_to=?,assigned_at=?,status='assigned',updated_at=? WHERE id=? AND assigned_to IS NULL AND status='new'",[staffId,assignedAt,assignedAt,requestId]);
+  const nextStatus=r.status==='under_review'?'under_review':'assigned';
+  const changed=await run("UPDATE requests SET assigned_to=?,assigned_at=?,status=?,updated_at=? WHERE id=? AND assigned_to IS NULL AND status=?",[staffId,assignedAt,nextStatus,assignedAt,requestId,r.status]);
   if(!changed.changes)throw conflict('کارمند دیگری پرونده را پذیرفته است.');
-  await addEvent({requestId,type:'assigned',actorId:staffId,actorName:name,message:`پرونده توسط ${name} پذیرفته شد.`,fromStatus:'new',toStatus:'assigned'});
+  await addEvent({requestId,type:'assigned',actorId:staffId,actorName:name,message:`پرونده توسط ${name} پذیرفته شد.`,fromStatus:r.status,toStatus:nextStatus});
+  await writeAudit({actorId:staffId,actorName:name,action:'request.claim',entityType:'request',entityId:requestId,
+    before:{staffId:null,status:r.status},after:{staffId,status:nextStatus}});
   return {id:requestId};
  });
 }

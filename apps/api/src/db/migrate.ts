@@ -3,6 +3,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { getDb, nowIso } from './index.js';
+import { safeErrorText } from '../lib/safe-log.js';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 
@@ -82,7 +83,7 @@ if (import.meta.url === `file://${process.argv[1]}`) {
       process.exit(0);
     })
     .catch((err) => {
-      console.error('[migrate] failed:', err);
+      console.error(`[migrate] failed: ${safeErrorText(err)}`);
       process.exit(1);
     });
 }

@@ -6,7 +6,7 @@ import {
 } from 'lucide-react';
 import clsx from 'clsx';
 import { PublicLayout } from '../../components/public-layout';
-import { useSite, type FormField, type Service } from '../../lib/site';
+import { formatDuration, useSite, type FormField, type Service } from '../../lib/site';
 import { useAuth } from '../../lib/auth';
 import { api, ApiFailure } from '../../lib/api';
 import { faNum, rial, STATUS_LABELS } from '../../lib/format';
@@ -57,7 +57,7 @@ export function ServicesPage() {
         </div>
 
         <div className="card mb-6 flex flex-col gap-3 p-4 sm:flex-row sm:items-center">
-          <div className="flex flex-1 items-center gap-2 rounded-xl bg-navy-50 px-3">
+          <div className="flex flex-1 items-center gap-2 rounded-xl bg-surface-3 px-3">
             <Search className="size-4 text-navy-400" />
             <input
               value={query}
@@ -87,7 +87,7 @@ export function ServicesPage() {
           <button
             onClick={() => updateParam('category', '')}
             className={clsx('rounded-full px-3.5 py-1.5 text-xs ring-1 transition',
-              !category ? 'bg-navy-900 text-white ring-navy-900' : 'bg-white text-navy-600 ring-navy-900/10 hover:bg-navy-50')}
+              !category ? 'bg-shell text-shell-fg ring-shell' : 'bg-surface text-navy-600 ring-line hover:bg-surface-3')}
           >
             همه دسته‌ها
           </button>
@@ -96,7 +96,7 @@ export function ServicesPage() {
               key={cat.id}
               onClick={() => updateParam('category', cat.slug)}
               className={clsx('rounded-full px-3.5 py-1.5 text-xs ring-1 transition',
-                category === cat.slug ? 'bg-navy-900 text-white ring-navy-900' : 'bg-white text-navy-600 ring-navy-900/10 hover:bg-navy-50')}
+                category === cat.slug ? 'bg-shell text-shell-fg ring-shell' : 'bg-surface text-navy-600 ring-line hover:bg-surface-3')}
             >
               {cat.title}
             </button>
@@ -118,13 +118,13 @@ export function ServicesPage() {
           {services.map((service) => (
             <Link key={service.id} to={`/services/${service.slug}`} className="card group flex flex-col p-5 transition hover:-translate-y-0.5 hover:shadow-lg">
               <div className="flex items-start justify-between gap-2">
-                <span className="badge bg-brand-50 text-brand-800">{service.categoryTitle ?? 'خدمت'}</span>
+                <span className="badge bg-brand-50 text-accent">{service.categoryTitle ?? 'خدمت'}</span>
                 {!service.acceptingRequests && <span className="badge bg-amber-50 text-amber-800">موقتاً غیرفعال</span>}
               </div>
               <h3 className="mt-3 font-semibold leading-6 text-navy-900">{service.title}</h3>
               <p className="mt-1.5 line-clamp-2 text-xs leading-6 text-navy-500">{service.summary}</p>
               <div className="mt-4 flex items-center justify-between border-t border-navy-900/5 pt-3 text-xs">
-                <span className="flex items-center gap-1 text-navy-500"><Clock className="size-3.5" /> {faNum(service.estimatedDays)} روز کاری</span>
+                <span className="flex items-center gap-1 text-navy-500"><Clock className="size-3.5" /> {formatDuration(service.estimatedMinutes, service.estimatedDays)}</span>
                 <span className="font-semibold text-navy-900">{rial(service.finalFee)}</span>
               </div>
             </Link>
@@ -146,6 +146,17 @@ export function ServicesPage() {
 /* ------------------------------ service detail ---------------------------- */
 
 const emptyValue = (field: FormField) => (field.type === 'checkbox' ? false : '');
+const isMissingRequiredValue = (field: FormField, value: unknown) => field.type === 'checkbox'
+  ? value !== true && value !== 'true' && value !== 'on' && value !== 1
+  : value === undefined || value === null || String(value).trim() === '';
+
+function normalizeFieldErrors(details: unknown): { path: string; message: string }[] {
+  if (!Array.isArray(details)) return [];
+  return details.flatMap((detail: any) => {
+    const path = typeof detail?.path === 'string' ? detail.path : typeof detail?.field === 'string' ? detail.field : '';
+    return path && typeof detail?.message === 'string' ? [{ path, message: detail.message }] : [];
+  });
+}
 
 export function ServiceDetailPage() {
   const { slug } = useParams();
@@ -156,6 +167,9 @@ export function ServiceDetailPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [values, setValues] = useState<Record<string, any>>({});
+  const [documentUploads, setDocumentUploads] = useState<Record<string, { fileId: string; name: string }>>({});
+  const [formFileNames, setFormFileNames] = useState<Record<string, string>>({});
+  const [uploadingFiles, setUploadingFiles] = useState<Record<string, boolean>>({});
   const [priority,setPriority]=useState('normal');
   const [quote,setQuote]=useState<any>(null);
   const [quoteError,setQuoteError]=useState('');
@@ -175,6 +189,9 @@ export function ServiceDetailPage() {
         const initial: Record<string, any> = {};
         for (const field of res.data.form) initial[field.key] = emptyValue(field);
         setValues(initial);
+        setDocumentUploads({});
+        setFormFileNames({});
+        setUploadingFiles({});
         setPaymentMethod(res.data.paymentMethods[0] ?? 'online');
       })
       .catch((err) => active && setError(err instanceof ApiFailure ? err.message : 'خدمت یافت نشد'))
@@ -189,10 +206,51 @@ export function ServiceDetailPage() {
     return ()=>{active=false};
   },[service?.id,priority,user?.id]);
 
+  const documentRequirements = useMemo(() => (service?.documents ?? []).map((document, index) => ({
+    ...document,
+    key: document.key || `document_${index + 1}`,
+  })), [service]);
   const missingRequired = useMemo(() => {
     if (!service) return 0;
-    return service.form.filter((f) => f.required && (values[f.key] === '' || values[f.key] === undefined)).length;
+    return service.form.filter((field) => field.required && isMissingRequiredValue(field, values[field.key])).length;
   }, [service, values]);
+  const missingRequiredDocuments = useMemo(() => documentRequirements.filter((doc) => doc.required && !documentUploads[doc.key]).length,
+    [documentRequirements, documentUploads]);
+
+  const uploadFormFile = async (field: FormField, file: File) => {
+    setUploadingFiles((current) => ({ ...current, [field.key]: true }));
+    try {
+      const uploaded = await api.upload<{ data: { id: string; name: string; processing: { status: string }; savingsPercent: number } }>(
+        '/api/files/upload', file, { purpose: 'document' },
+      );
+      setValues((current) => ({ ...current, [field.key]: uploaded.data.id }));
+      setFormFileNames((current) => ({ ...current, [field.key]: uploaded.data.name }));
+      setFieldErrors((current) => current.filter((error) => error.path !== field.key));
+      notify(uploaded.data.processing.status === 'ready'
+        ? `فایل «${field.label}» بارگذاری و بهینه شد.` : `فایل «${field.label}» بارگذاری شد؛ نسخه اصلی حفظ شده است.`, 'success');
+    } catch (err) {
+      notify(err instanceof ApiFailure ? err.message : 'بارگذاری فایل ناموفق بود.', 'error');
+    } finally {
+      setUploadingFiles((current) => ({ ...current, [field.key]: false }));
+    }
+  };
+
+  const uploadServiceDocument = async (requirement: Service['documents'][number], file: File) => {
+    setUploadingFiles((current) => ({ ...current, [requirement.key]: true }));
+    try {
+      const uploaded = await api.upload<{ data: { id: string; name: string; processing: { status: string }; savingsPercent: number } }>(
+        '/api/files/upload', file, { purpose: 'document' },
+      );
+      setDocumentUploads((current) => ({ ...current, [requirement.key]: { fileId: uploaded.data.id, name: uploaded.data.name } }));
+      setFieldErrors((current) => current.filter((error) => error.path !== `documents.${requirement.key}`));
+      notify(uploaded.data.processing.status === 'ready'
+        ? `مدرک «${requirement.title}» بارگذاری و بهینه شد.` : `مدرک «${requirement.title}» بارگذاری شد؛ نسخه اصلی حفظ شده است.`, 'success');
+    } catch (err) {
+      notify(err instanceof ApiFailure ? err.message : 'بارگذاری مدرک ناموفق بود.', 'error');
+    } finally {
+      setUploadingFiles((current) => ({ ...current, [requirement.key]: false }));
+    }
+  };
 
   const submit = async (event: React.FormEvent) => {
     event.preventDefault();
@@ -205,16 +263,40 @@ export function ServiceDetailPage() {
       notify('ثبت درخواست از این فرم برای مشتریان است. از پنل کارکنان درخواست را ثبت کنید.', 'info');
       return;
     }
-    if(user.profileState?.complete === false){navigate('/app/profile');return;}
-    setSubmitting(true);
+    if (user.profileState?.complete === false) {
+      notify('برای ثبت درخواست، ابتدا اطلاعات الزامی پروفایل را تکمیل کنید.', 'info');
+      navigate('/app/profile');
+      return;
+    }
+
     setFormError('');
     setFieldErrors([]);
+    const incompleteFields = service.form.filter((field) => field.required && isMissingRequiredValue(field, values[field.key]));
+    if (incompleteFields.length > 0) {
+      setFieldErrors(incompleteFields.map((field) => ({
+        path: field.key,
+        message: field.type === 'checkbox' ? `«${field.label}» باید تأیید شود.` : `«${field.label}» الزامی است.`,
+      })));
+      setFormError('پیش از ثبت، فیلدهای الزامی مشخص‌شده را کامل کنید.');
+      return;
+    }
+    if (missingRequiredDocuments > 0) {
+      const missingDocuments = documentRequirements.filter((document) => document.required && !documentUploads[document.key]);
+      setFieldErrors(missingDocuments.map((document) => ({ path: `documents.${document.key}`, message: `بارگذاری مدرک «${document.title}» الزامی است.` })));
+      setFormError(`برای ادامه ${faNum(missingRequiredDocuments)} مدرک الزامی را بارگذاری کنید.`);
+      return;
+    }
+    setSubmitting(true);
     try {
       const payload = {
         serviceId: service.id,
         formData: values,
         paymentMethod,
         priority,
+        documentIds: documentRequirements.flatMap((document) => {
+          const uploaded = documentUploads[document.key];
+          return uploaded ? [{ fileId: uploaded.fileId, title: document.title, requirementKey: document.key }] : [];
+        }),
       };
       const fingerprint = JSON.stringify(payload);
       const storageKey = `pishkan:request-submit:v1:${user.id}:${service.id}`;
@@ -251,7 +333,7 @@ export function ServiceDetailPage() {
           submissionKeyRef.current = null;
         }
         setFormError(err.message);
-        if (Array.isArray(err.details)) setFieldErrors(err.details as any);
+        setFieldErrors(normalizeFieldErrors(err.details));
       } else {
         setFormError('خطا در ثبت درخواست');
       }
@@ -287,7 +369,7 @@ export function ServiceDetailPage() {
           <div className="lg:col-span-2">
             <div className="card card-pad">
               <div className="flex flex-wrap items-center gap-2">
-                <span className="badge bg-brand-50 text-brand-800">{service.categoryTitle ?? 'خدمت'}</span>
+                <span className="badge bg-brand-50 text-accent">{service.categoryTitle ?? 'خدمت'}</span>
                 {service.needsReview && (
                   <span className="badge bg-amber-50 text-amber-800">
                     <AlertTriangle className="size-3.5" /> هزینه و شرایط نمونه است
@@ -298,16 +380,16 @@ export function ServiceDetailPage() {
               <p className="mt-2 text-sm leading-8 text-navy-600">{service.description || service.summary}</p>
 
               <div className="mt-5 grid gap-3 sm:grid-cols-3">
-                <div className="rounded-xl bg-navy-50/70 p-4">
+                <div className="rounded-xl bg-surface-3 p-4">
                   <p className="text-[11px] text-navy-500">هزینه تقریبی</p>
                   <p className="mt-1 font-bold text-navy-900">{rial(service.finalFee)}</p>
                   {service.discountPercent > 0 && <p className="text-[11px] text-emerald-700">{faNum(service.discountPercent)}٪ تخفیف</p>}
                 </div>
-                <div className="rounded-xl bg-navy-50/70 p-4">
+                <div className="rounded-xl bg-surface-3 p-4">
                   <p className="text-[11px] text-navy-500">زمان تخمینی</p>
-                  <p className="mt-1 font-bold text-navy-900">{faNum(service.estimatedDays)} روز کاری</p>
+                  <p className="mt-1 font-bold text-navy-900">{formatDuration(service.estimatedMinutes, service.estimatedDays)}</p>
                 </div>
-                <div className="rounded-xl bg-navy-50/70 p-4">
+                <div className="rounded-xl bg-surface-3 p-4">
                   <p className="text-[11px] text-navy-500">وضعیت پذیرش</p>
                   <p className={clsx('mt-1 font-bold', service.acceptingRequests ? 'text-emerald-700' : 'text-amber-700')}>
                     {service.acceptingRequests ? 'پذیرش درخواست فعال' : 'موقتاً غیرفعال'}
@@ -324,11 +406,11 @@ export function ServiceDetailPage() {
 
             {/* Workflow */}
             <div className="card card-pad mt-6">
-              <h2 className="flex items-center gap-2 font-bold text-navy-900"><ListOrdered className="size-5 text-brand-700" /> مراحل رسیدگی</h2>
+              <h2 className="flex items-center gap-2 font-bold text-navy-900"><ListOrdered className="size-5 text-accent" /> مراحل رسیدگی</h2>
               <ol className="mt-4 space-y-3">
                 {service.workflow.map((step, index) => (
                   <li key={step.title} className="flex gap-3">
-                    <span className="grid size-7 shrink-0 place-items-center rounded-full bg-brand-50 text-xs font-bold text-brand-800">{faNum(index + 1)}</span>
+                    <span className="grid size-7 shrink-0 place-items-center rounded-full bg-brand-50 text-xs font-bold text-accent">{faNum(index + 1)}</span>
                     <div>
                       <p className="text-sm font-medium text-navy-900">{step.title}</p>
                       {step.description && <p className="mt-0.5 text-xs leading-6 text-navy-500">{step.description}</p>}
@@ -340,12 +422,12 @@ export function ServiceDetailPage() {
 
             {/* Documents */}
             <div className="card card-pad mt-6">
-              <h2 className="flex items-center gap-2 font-bold text-navy-900"><FileText className="size-5 text-brand-700" /> مدارک مورد نیاز</h2>
+              <h2 className="flex items-center gap-2 font-bold text-navy-900"><FileText className="size-5 text-accent" /> مدارک مورد نیاز</h2>
               <ul className="mt-3 space-y-2">
-                {service.documents.map((doc) => (
-                  <li key={doc.title} className="flex items-center justify-between gap-3 rounded-xl bg-navy-50/60 px-4 py-2.5">
+                {documentRequirements.map((doc) => (
+                  <li key={doc.key} className="flex items-center justify-between gap-3 rounded-xl bg-surface-3 px-4 py-2.5">
                     <span className="text-sm text-navy-800">{doc.title}</span>
-                    <span className={clsx('badge', doc.required ? 'bg-rose-50 text-rose-700' : 'bg-white text-navy-500 ring-1 ring-navy-900/8')}>
+                    <span className={clsx('badge', doc.required ? 'bg-rose-50 text-rose-700' : 'bg-surface text-navy-500 ring-1 ring-line')}>
                       {doc.required ? 'الزامی' : 'اختیاری'}
                     </span>
                   </li>
@@ -353,7 +435,7 @@ export function ServiceDetailPage() {
                 {service.documents.length === 0 && <li className="text-sm text-navy-500">مدرک خاصی نیاز نیست.</li>}
               </ul>
               <p className="mt-3 flex items-center gap-1.5 text-[11px] text-navy-500">
-                <ShieldCheck className="size-3.5 text-emerald-600" /> مدارک فقط برای کارشناس پرونده شما قابل مشاهده است.
+                <ShieldCheck className="size-3.5 text-emerald-700" /> مدارک فقط برای کارشناس پرونده شما قابل مشاهده است.
               </p>
             </div>
           </div>
@@ -362,7 +444,7 @@ export function ServiceDetailPage() {
           <div className="lg:col-span-1">
             <form onSubmit={submit} className="card card-pad sticky top-24">
               <h2 className="font-bold text-navy-900">ثبت درخواست</h2>
-              <p className="mt-1 text-xs leading-6 text-navy-500">فیلدهای ستاره‌دار الزامی هستند.</p>
+              <p className="mt-1 text-xs leading-6 text-navy-500">فیلدها و مدارک ستاره‌دار الزامی هستند.</p>
 
               <div className="mt-4 space-y-4">
                 {service.form.map((field) => (
@@ -370,14 +452,36 @@ export function ServiceDetailPage() {
                     <DynamicField
                       field={field}
                       value={values[field.key]}
-                      onChange={(value) => setValues((prev) => ({ ...prev, [field.key]: value }))}
+                      fileName={formFileNames[field.key]}
+                      uploading={Boolean(uploadingFiles[field.key])}
+                      onFileUpload={(file) => void uploadFormFile(field, file)}
+                      onChange={(value) => {
+                        setValues((prev) => ({ ...prev, [field.key]: value }));
+                        setFieldErrors((current) => current.filter((error) => error.path !== field.key));
+                        if (!value) setFormFileNames((prev) => { const next = { ...prev }; delete next[field.key]; return next; });
+                      }}
                     />
                   </Field>
                 ))}
               </div>
 
-              {service.urgentEnabled && <label className="mt-5 flex cursor-pointer items-start gap-3 rounded-xl border border-amber-200 bg-amber-50 p-4 text-sm"><input type="checkbox" checked={priority==='high'} onChange={e=>setPriority(e.target.checked?'high':'normal')} className="mt-1 size-4 accent-amber-600" /><span><b>انجام فوری</b><small className="mt-1 block leading-6">افزایش {faNum(service.urgentPercent ?? 0)}٪ مبلغ پایه · زمان {faNum(service.urgentDays ?? 1)} روز کاری · ظرفیت محدود</small></span></label>}
-              {quote && <div aria-live="polite" className="mt-4 space-y-2 rounded-xl bg-navy-50 p-4 text-xs text-navy-600"><div className="flex justify-between"><span>هزینه پایه</span><span>{rial(quote.baseFee)}</span></div><div className="flex justify-between"><span>هزینه فوری</span><span>{rial(quote.urgentFee)}</span></div><div className="flex justify-between"><span>تخفیف / مالیات</span><span>{rial(quote.discount)} / {rial(quote.tax)}</span></div><div className="flex justify-between border-t border-navy-200 pt-3 text-sm font-bold text-navy-900"><span>جمع قابل پرداخت</span><span>{rial(quote.total)}</span></div>{priority==='high'&&!quote.urgentAvailable&&<p className="text-rose-700">ظرفیت فوری تکمیل است؛ حالت عادی را انتخاب کنید.</p>}</div>}
+              {documentRequirements.length > 0 && (
+                <div className="mt-5 space-y-3 rounded-xl bg-surface-3/70 p-3">
+                  <h3 className="text-sm font-bold text-navy-900">بارگذاری مدارک خدمت</h3>
+                  {documentRequirements.map((document) => (
+                    <Field key={document.key} label={document.title} required={document.required}
+                      hint={document.note || (document.required ? 'برای ثبت درخواست لازم است.' : 'اختیاری')} error={errorFor(`documents.${document.key}`)}>
+                      <Input type="file" accept=".jpg,.jpeg,.png,.webp,.pdf" disabled={Boolean(uploadingFiles[document.key])}
+                        onChange={(event) => event.target.files?.[0] && void uploadServiceDocument(document, event.target.files[0])} />
+                      {uploadingFiles[document.key] && <p className="mt-1 text-[11px] text-navy-500">در حال بارگذاری…</p>}
+                      {documentUploads[document.key] && <p className="mt-1 text-[11px] text-emerald-700">بارگذاری شد: {documentUploads[document.key].name}</p>}
+                    </Field>
+                  ))}
+                </div>
+              )}
+
+              {service.urgentEnabled && <label className="mt-5 flex cursor-pointer items-start gap-3 rounded-xl border border-amber-200 bg-amber-50 p-4 text-sm"><input type="checkbox" checked={priority==='high'} onChange={e=>setPriority(e.target.checked?'high':'normal')} className="mt-1 size-4 accent-amber-600" /><span><b>انجام فوری</b><small className="mt-1 block leading-6">افزایش {faNum(service.urgentPercent ?? 0)}٪ مبلغ پایه · زمان {formatDuration(service.urgentMinutes, service.urgentDays)} · ظرفیت محدود</small></span></label>}
+              {quote && <div aria-live="polite" className="mt-4 space-y-2 rounded-xl bg-surface-3 p-4 text-xs text-navy-600"><div className="flex justify-between"><span>زمان تخمینی خدمت</span><span>{formatDuration(quote.estimatedMinutes, quote.estimatedDays)}</span></div><div className="flex justify-between"><span>هزینه پایه</span><span>{rial(quote.baseFee)}</span></div><div className="flex justify-between"><span>هزینه فوری</span><span>{rial(quote.urgentFee)}</span></div><div className="flex justify-between"><span>تخفیف / مالیات</span><span>{rial(quote.discount)} / {rial(quote.tax)}</span></div><div className="flex justify-between border-t border-navy-200 pt-3 text-sm font-bold text-navy-900"><span>جمع قابل پرداخت</span><span>{rial(quote.total)}</span></div>{priority==='high'&&!quote.urgentAvailable&&<p className="text-rose-700">ظرفیت فوری تکمیل است؛ حالت عادی را انتخاب کنید.</p>}</div>}
               {quoteError && <p role="alert" className="mt-4 text-sm text-rose-700">{quoteError} <Link className="underline" to="/app/profile">تکمیل پروفایل</Link></p>}
               {service.paymentMethods.length > 1 && (
                 <div className="mt-4">
@@ -389,7 +493,7 @@ export function ServiceDetailPage() {
                         type="button"
                         onClick={() => setPaymentMethod(method)}
                         className={clsx('rounded-xl px-3 py-2 text-xs ring-1 transition',
-                          paymentMethod === method ? 'bg-brand-700 text-white ring-brand-700' : 'bg-white text-navy-700 ring-navy-900/10 hover:bg-navy-50')}
+                          paymentMethod === method ? 'bg-brand-700 text-white ring-brand-700' : 'bg-surface text-navy-700 ring-line hover:bg-surface-3')}
                       >
                         {STATUS_LABELS[method] ?? method}
                       </button>
@@ -399,10 +503,17 @@ export function ServiceDetailPage() {
               )}
 
               {formError && (
-                <div className="mt-4 rounded-xl bg-rose-50 p-3 text-xs leading-6 text-rose-700 ring-1 ring-rose-200">{formError}</div>
+                <div role="alert" className="mt-4 rounded-xl bg-rose-50 p-3 text-xs leading-6 text-rose-700 ring-1 ring-rose-200">
+                  <p>{formError}</p>
+                  {fieldErrors.length > 0 && (
+                    <ul className="mt-1 list-inside list-disc space-y-0.5">
+                      {fieldErrors.map((fieldError, index) => <li key={`${fieldError.path}-${index}`}>{fieldError.message}</li>)}
+                    </ul>
+                  )}
+                </div>
               )}
 
-              <div className="mt-5 flex items-center justify-between rounded-xl bg-navy-50/70 px-4 py-3">
+              <div className="mt-5 flex items-center justify-between rounded-xl bg-surface-3 px-4 py-3">
                 <span className="text-xs text-navy-600">مبلغ قابل پرداخت</span>
                 <span className="font-bold text-navy-900">{rial(service.finalFee)}</span>
               </div>
@@ -412,7 +523,7 @@ export function ServiceDetailPage() {
                   پذیرش این خدمت موقتاً متوقف شده است. برای اطلاع از زمان فعال‌سازی با دفتر تماس بگیرید.
                 </div>
               ) : (
-                <Button type="submit" loading={submitting} className="mt-4 w-full">
+                <Button type="submit" loading={submitting} disabled={missingRequiredDocuments > 0 || Object.values(uploadingFiles).some(Boolean)} className="mt-4 w-full">
                   <CheckCircle2 className="size-4" />
                   {user ? 'ثبت نهایی درخواست' : 'ورود و ثبت درخواست'}
                 </Button>
@@ -420,6 +531,9 @@ export function ServiceDetailPage() {
 
               {missingRequired > 0 && (
                 <p className="mt-2 text-center text-[11px] text-navy-400">{faNum(missingRequired)} فیلد الزامی باقی مانده است.</p>
+              )}
+              {missingRequiredDocuments > 0 && (
+                <p className="mt-2 text-center text-[11px] text-rose-700">{faNum(missingRequiredDocuments)} مدرک الزامی باید بارگذاری شود.</p>
               )}
 
               <p className="mt-3 flex items-start gap-1.5 text-[11px] leading-5 text-navy-400">
@@ -434,7 +548,9 @@ export function ServiceDetailPage() {
   );
 }
 
-export function DynamicField({ field, value, onChange }: { field: FormField; value: any; onChange: (value: any) => void }) {
+export function DynamicField({ field, value, onChange, fileName, uploading, onFileUpload }: {
+  field: FormField; value: any; onChange: (value: any) => void; fileName?: string; uploading?: boolean; onFileUpload?: (file: File) => void;
+}) {
   switch (field.type) {
     case 'textarea':
       return <Textarea value={value ?? ''} placeholder={field.placeholder} onChange={(e) => onChange(e.target.value)} />;
@@ -456,7 +572,7 @@ export function DynamicField({ field, value, onChange }: { field: FormField; val
               type="button"
               onClick={() => onChange(option)}
               className={clsx('rounded-xl px-3 py-2 text-xs ring-1 transition',
-                value === option ? 'bg-brand-700 text-white ring-brand-700' : 'bg-white text-navy-700 ring-navy-900/10 hover:bg-navy-50')}
+                value === option ? 'bg-brand-700 text-white ring-brand-700' : 'bg-surface text-navy-700 ring-line hover:bg-surface-3')}
             >
               {option}
             </button>
@@ -465,15 +581,18 @@ export function DynamicField({ field, value, onChange }: { field: FormField; val
       );
     case 'checkbox':
       return (
-        <label className="flex items-start gap-2 rounded-xl bg-navy-50/60 p-3 text-xs text-navy-700">
+        <label className="flex items-start gap-2 rounded-xl bg-surface-3 p-3 text-xs text-navy-700">
           <input type="checkbox" checked={Boolean(value)} onChange={(e) => onChange(e.target.checked)} className="mt-0.5 size-4 rounded border-navy-300" />
           <span>{field.label}</span>
         </label>
       );
     case 'file':
       return (
-        <div className="flex items-center gap-2 rounded-xl border border-dashed border-navy-300 bg-navy-50/40 px-3 py-2.5 text-xs text-navy-500">
-          <UploadCloud className="size-4" /> پس از ثبت درخواست، از صفحه پرونده فایل را بارگذاری کنید.
+        <div className="space-y-1.5">
+          <Input type="file" accept=".jpg,.jpeg,.png,.webp,.pdf" disabled={uploading}
+            onChange={(event) => event.target.files?.[0] && onFileUpload?.(event.target.files[0])} />
+          {uploading && <p className="text-[11px] text-navy-500">در حال بارگذاری…</p>}
+          {value && <p className="flex items-center gap-1 text-[11px] text-emerald-700"><UploadCloud className="size-3.5" /> {fileName || 'فایل بارگذاری شد.'}</p>}
         </div>
       );
     case 'money':

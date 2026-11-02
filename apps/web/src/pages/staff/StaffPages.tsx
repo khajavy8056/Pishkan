@@ -9,6 +9,7 @@ import {
 } from 'lucide-react';
 import clsx from 'clsx';
 import { AppShell, PageHeader } from '../../components/shell';
+import { DocumentViewer, FileSummary, FileThumbnail } from '../../components/documents';
 import {
   Badge, Button, Card, EmptyState, ErrorState, Field, Input, Loading, Modal, Select, StatCard,
   StatusBadge, Textarea, useToast,
@@ -16,7 +17,14 @@ import {
 import { api, ApiFailure } from '../../lib/api';
 import { faDate, faDateTime, faNum, relative, rial, STATUS_LABELS } from '../../lib/format';
 import { useAuth } from '../../lib/auth';
-import { useSite } from '../../lib/site';
+import { formatDuration, useSite } from '../../lib/site';
+
+const SERVICE_DURATION_UNITS = [
+  { value: 'minute', label: 'دقیقه', factor: 1 },
+  { value: 'hour', label: 'ساعت', factor: 60 },
+  { value: 'day', label: 'روز', factor: 1440 },
+] as const;
+const serviceDurationFactor = (unit: string) => SERVICE_DURATION_UNITS.find((item) => item.value === unit)?.factor ?? 1;
 
 /* -------------------------------- workbench ------------------------------- */
 
@@ -98,7 +106,7 @@ export function StaffWorkbench() {
         <Card className="lg:col-span-2">
           <div className="mb-3 flex items-center justify-between">
             <h2 className="font-bold text-navy-900">پرونده‌های در دست من</h2>
-            <Link to="/staff/requests" className="text-xs text-brand-700 hover:underline">همه درخواست‌ها</Link>
+            <Link to="/staff/requests" className="text-xs text-accent hover:underline">همه درخواست‌ها</Link>
           </div>
           {(!workload || workload.activeRequests.length === 0) ? (
             <EmptyState title="پرونده فعالی ندارید" description="از صف درخواست‌ها می‌توانید پرونده بردارید یا منتظر ارجاع خودکار بمانید." />
@@ -106,12 +114,12 @@ export function StaffWorkbench() {
             <div className="space-y-2">
               {workload.activeRequests.map((item: any) => (
                 <Link key={item.id} to={`/staff/requests/${item.id}`}
-                  className="flex flex-wrap items-center justify-between gap-2 rounded-xl bg-navy-50/60 px-4 py-3 transition hover:bg-brand-50">
+                  className="flex flex-wrap items-center justify-between gap-2 rounded-xl bg-surface-3 px-4 py-3 transition hover:bg-brand-50">
                   <div className="min-w-0">
                     <p className="truncate text-sm font-medium text-navy-900">{item.serviceTitle}</p>
                     <p className="mt-0.5 text-[11px] text-navy-500">
                       {item.customerName} • {item.trackingCode}
-                      {item.dueAt ? ` • مهلت ${faDate(item.dueAt)}` : ''}
+                      {item.estimatedCompletionAt ? ` • برآورد ${faDate(item.estimatedCompletionAt)}` : ''}{item.deadlineAt ? ` • مهلت قطعی ${faDate(item.deadlineAt)}` : ''}
                     </p>
                   </div>
                   <div className="flex items-center gap-2">
@@ -126,15 +134,15 @@ export function StaffWorkbench() {
 
         <div className="space-y-6">
           <Card>
-            <h2 className="mb-3 flex items-center gap-2 font-bold text-navy-900"><FileText className="size-4 text-brand-700" /> مدارک در انتظار بررسی</h2>
+            <h2 className="mb-3 flex items-center gap-2 font-bold text-navy-900"><FileText className="size-4 text-accent" /> مدارک در انتظار بررسی</h2>
             {(!workload || workload.pendingDocuments.length === 0) ? (
               <p className="text-sm text-navy-400">مدرکی در انتظار بررسی نیست.</p>
             ) : (
               <div className="space-y-2">
                 {workload.pendingDocuments.map((doc: any) => (
-                  <Link key={doc.id} to={`/staff/requests/${doc.requestId}`} className="block rounded-xl bg-amber-50/70 px-3 py-2.5 hover:bg-amber-100/70">
+                  <Link key={`${doc.recordType}:${doc.id}`} to={doc.recordType === 'profile' ? '/staff/documents' : `/staff/requests/${doc.requestId}`} className="block rounded-xl bg-amber-50/70 px-3 py-2.5 hover:bg-amber-100/70">
                     <p className="truncate text-xs font-medium text-navy-900">{doc.title}</p>
-                    <p className="mt-0.5 text-[10px] text-navy-500">{doc.trackingCode} • {relative(doc.createdAt)}</p>
+                    <p className="mt-0.5 text-[10px] text-navy-500">{doc.recordType === 'profile' ? 'مدرک پروفایل' : doc.trackingCode} • {relative(doc.createdAt)}</p>
                   </Link>
                 ))}
               </div>
@@ -209,7 +217,7 @@ export function StaffRequests({ variant = 'staff' }: { variant?: 'staff' | 'admi
 
       <div className="card mb-4 space-y-3 p-3">
         <div className="flex flex-col gap-2 sm:flex-row">
-          <div className="flex flex-1 items-center gap-2 rounded-xl bg-navy-50 px-3">
+          <div className="flex flex-1 items-center gap-2 rounded-xl bg-surface-3 px-3">
             <Search className="size-4 text-navy-400" />
             <input
               value={search}
@@ -234,19 +242,19 @@ export function StaffRequests({ variant = 'staff' }: { variant?: 'staff' | 'admi
           ].map((tab) => (
             <button key={tab.value} onClick={() => { setParam('group', tab.value); setParam('status', ''); }}
               className={clsx('rounded-full px-3 py-1.5 ring-1 transition',
-                tab.active ? 'bg-navy-900 text-white ring-navy-900' : 'bg-white text-navy-600 ring-navy-900/10 hover:bg-navy-50')}>
+                tab.active ? 'bg-shell text-shell-fg ring-shell' : 'bg-surface text-navy-600 ring-line hover:bg-surface-3')}>
               {tab.label}
             </button>
           ))}
-          <span className="mx-1 w-px bg-navy-900/10" />
+          <span className="mx-1 w-px bg-line" />
           <button onClick={() => setParam('mine', mine ? '' : 'true')}
             className={clsx('rounded-full px-3 py-1.5 ring-1 transition',
-              mine ? 'bg-brand-700 text-white ring-brand-700' : 'bg-white text-navy-600 ring-navy-900/10 hover:bg-navy-50')}>
+              mine ? 'bg-brand-700 text-white ring-brand-700' : 'bg-surface text-navy-600 ring-line hover:bg-surface-3')}>
             فقط پرونده‌های من
           </button>
           <button onClick={() => setParam('unassigned', unassigned ? '' : 'true')}
             className={clsx('rounded-full px-3 py-1.5 ring-1 transition',
-              unassigned ? 'bg-amber-600 text-white ring-amber-600' : 'bg-white text-navy-600 ring-navy-900/10 hover:bg-navy-50')}>
+              unassigned ? 'bg-amber-600 text-white ring-amber-600' : 'bg-surface text-navy-600 ring-line hover:bg-surface-3')}>
             بدون کارشناس
           </button>
         </div>
@@ -302,11 +310,14 @@ export function RequestDetail({ variant = 'staff' }: { variant?: 'staff' | 'admi
   const [error, setError] = useState('');
   const [note, setNote] = useState('');
   const [statusModal, setStatusModal] = useState(false);
+  const [deadlineModal, setDeadlineModal] = useState(false);
+  const [deadlineInput, setDeadlineInput] = useState('');
   const [assignModal, setAssignModal] = useState(false);
   const [candidates, setCandidates] = useState<any[]>([]);
   const [nextStatus, setNextStatus] = useState('');
   const [statusNote, setStatusNote] = useState('');
   const [busy, setBusy] = useState(false);
+  const [viewer, setViewer] = useState<any>(null);
   const fileInput = useRef<HTMLInputElement>(null);
   const base = variant === 'admin' ? '/admin' : '/staff';
 
@@ -329,6 +340,27 @@ export function RequestDetail({ variant = 'staff' }: { variant?: 'staff' | 'admi
       load();
     } catch (err) {
       notify(err instanceof ApiFailure ? err.message : 'خطا', 'error');
+    } finally { setBusy(false); }
+  };
+
+  const openDeadline = () => {
+    if (!request?.deadlineAt) setDeadlineInput('');
+    else {
+      const value = new Date(request.deadlineAt);
+      setDeadlineInput(new Date(value.getTime() - value.getTimezoneOffset() * 60_000).toISOString().slice(0, 16));
+    }
+    setDeadlineModal(true);
+  };
+
+  const saveDeadline = async (deadlineAt: string | null) => {
+    setBusy(true);
+    try {
+      await api.patch(`/api/requests/${id}/deadline`, { deadlineAt });
+      notify(deadlineAt ? 'مهلت قطعی ذخیره شد.' : 'مهلت قطعی برداشته شد.', 'success');
+      setDeadlineModal(false);
+      load();
+    } catch (err) {
+      notify(err instanceof ApiFailure ? err.message : 'ذخیره مهلت ناموفق بود.', 'error');
     } finally { setBusy(false); }
   };
 
@@ -416,6 +448,7 @@ export function RequestDetail({ variant = 'staff' }: { variant?: 'staff' | 'admi
         actions={
           <div className="flex flex-wrap gap-2">
             {can('requests.edit')&&<Button size="sm" variant="ghost" onClick={() => { setNextStatus(request.status); setStatusModal(true); }}>تغییر وضعیت</Button>}
+            {can('requests.edit')&&<Button size="sm" variant="ghost" onClick={openDeadline}><CalendarClock className="size-4" /> مهلت قطعی</Button>}
             {office&&can('requests.edit')&&<Button size="sm" variant="ghost" onClick={openAssign}><UserPlus className="size-4" /> ارجاع مسئول</Button>}
             <Link to={`${base}/messages?request=${request.id}`} className="btn-ghost btn-sm"><MessageSquare className="size-4" /> گفت‌وگو</Link>
           </div>
@@ -429,7 +462,8 @@ export function RequestDetail({ variant = 'staff' }: { variant?: 'staff' | 'admi
               <div className="flex flex-wrap items-center gap-2">
                 <StatusBadge status={request.status} label={request.statusLabel} />
                 <StatusBadge status={request.paymentStatus} />
-                {request.dueAt && <span className="text-xs text-navy-500">مهلت: {faDate(request.dueAt)}</span>}
+                {request.estimatedCompletionAt && <span className="text-xs text-navy-500">برآورد پایان: {faDate(request.estimatedCompletionAt)}</span>}
+                {request.deadlineAt && <span className="text-xs font-medium text-rose-700">مهلت قطعی: {faDate(request.deadlineAt)}</span>}
               </div>
               <span className="text-sm font-bold text-navy-900">{rial(request.total)}</span>
             </div>
@@ -451,29 +485,36 @@ export function RequestDetail({ variant = 'staff' }: { variant?: 'staff' | 'admi
             {request.documents.length === 0 && <p className="text-sm text-navy-400">مدرکی پیوست نشده است.</p>}
             <div className="space-y-2">
               {request.documents.map((doc: any) => (
-                <div key={doc.id} className="rounded-xl bg-navy-50/60 p-3">
+                <div key={doc.id} className="flex gap-3 rounded-xl bg-surface-3 p-3">
+                  <FileThumbnail file={doc.file} onOpen={() => setViewer(doc)} />
+                  <div className="min-w-0 flex-1">
                   <div className="flex flex-wrap items-start justify-between gap-2">
                     <div className="min-w-0">
                       <p className="truncate text-sm font-medium text-navy-900">{doc.title}</p>
-                      <p className="text-[10px] text-navy-500">{faDate(doc.createdAt)} • {doc.kind === 'staff' ? 'کارکنان' : 'مشتری'}</p>
+                      <p className="text-[10px] text-navy-500">
+                        {faDate(doc.createdAt)} • {doc.kind === 'staff' ? 'کارکنان' : 'مشتری'}
+                        {doc.customerDocumentId ? ' • از مدارک پروفایل' : ''}
+                      </p>
                     </div>
                     <StatusBadge status={doc.status} />
                   </div>
-                  {doc.reviewNote && <p className="mt-1 text-[11px] text-rose-600">{doc.reviewNote}</p>}
+                  {doc.reviewNote && <p className="mt-1 text-[11px] text-rose-700">{doc.reviewNote}</p>}
+                  <FileSummary file={doc.file} />
                   <div className="mt-2 flex flex-wrap gap-2">
-                    <a href={`/api/files/${doc.file.id}`} target="_blank" rel="noreferrer" className="btn-ghost btn-sm">
+                    <Button size="sm" variant="ghost" onClick={() => setViewer(doc)}>
                       <Download className="size-3.5" /> مشاهده
-                    </a>
+                    </Button>
                     {doc.status === 'pending' && can('documents.approve') && (doc.kind!=='staff'||office) && (
                       <>
-                        <button onClick={() => reviewDoc(doc.id, 'approved')} className="btn-sm rounded-lg bg-emerald-600 px-2.5 py-1 text-xs text-white hover:bg-emerald-700">
+                        <button onClick={() => reviewDoc(doc.id, 'approved')} className="btn-sm rounded-lg bg-emerald-600 px-2.5 py-1 text-xs text-white hover:brightness-110">
                           <CheckCircle2 className="inline size-3.5" /> تأیید
                         </button>
-                        <button onClick={() => reviewDoc(doc.id, 'rejected')} className="btn-sm rounded-lg bg-rose-600 px-2.5 py-1 text-xs text-white hover:bg-rose-700">
+                        <button onClick={() => reviewDoc(doc.id, 'rejected')} className="btn-sm rounded-lg bg-rose-600 px-2.5 py-1 text-xs text-white hover:brightness-110">
                           <XCircle className="inline size-3.5" /> رد
                         </button>
                       </>
                     )}
+                  </div>
                   </div>
                 </div>
               ))}
@@ -526,7 +567,7 @@ export function RequestDetail({ variant = 'staff' }: { variant?: 'staff' | 'admi
             <h2 className="mb-3 font-bold text-navy-900">اطلاعات فرم</h2>
             <dl className="space-y-2">
               {Object.entries(request.formData ?? {}).map(([key, value]) => (
-                <div key={key} className="rounded-lg bg-navy-50/60 px-3 py-2">
+                <div key={key} className="rounded-lg bg-surface-3 px-3 py-2">
                   <dt className="text-[10px] text-navy-500">{key}</dt>
                   <dd className="text-xs text-navy-800">{String(value)}</dd>
                 </div>
@@ -535,11 +576,11 @@ export function RequestDetail({ variant = 'staff' }: { variant?: 'staff' | 'admi
           </Card>
 
           <Card>
-            <h2 className="mb-3 flex items-center gap-2 font-bold text-navy-900"><Wallet className="size-4 text-brand-700" /> مالی پرونده</h2>
+            <h2 className="mb-3 flex items-center gap-2 font-bold text-navy-900"><Wallet className="size-4 text-accent" /> مالی پرونده</h2>
             {request.invoices.length === 0 && <p className="text-xs text-navy-400">فاکتوری صادر نشده است.</p>}
             <div className="space-y-2">
               {request.invoices.map((invoice: any) => (
-                <div key={invoice.id} className="rounded-xl bg-navy-50/60 px-3 py-2">
+                <div key={invoice.id} className="rounded-xl bg-surface-3 px-3 py-2">
                   <div className="flex items-center justify-between gap-2">
                     <span className="text-xs font-medium text-navy-900">{invoice.number}</span>
                     <StatusBadge status={invoice.status} />
@@ -571,6 +612,25 @@ export function RequestDetail({ variant = 'staff' }: { variant?: 'staff' | 'admi
         </div>
       </Modal>
 
+      <Modal open={deadlineModal} onClose={() => setDeadlineModal(false)} title="تعیین مهلت قطعی"
+        footer={<>
+          <Button variant="ghost" onClick={() => setDeadlineModal(false)}>انصراف</Button>
+          {request.deadlineAt && <Button variant="danger" loading={busy} onClick={() => saveDeadline(null)}>برداشتن مهلت</Button>}
+          <Button loading={busy} onClick={() => {
+            if (!deadlineInput) { notify('زمان مهلت را انتخاب کنید یا از گزینهٔ برداشتن مهلت استفاده کنید.', 'error'); return; }
+            const value = new Date(deadlineInput);
+            if (Number.isNaN(value.getTime())) { notify('تاریخ و ساعت معتبر نیست.', 'error'); return; }
+            void saveDeadline(value.toISOString());
+          }}>ثبت مهلت</Button>
+        </>}>
+        <div className="space-y-3">
+          <Field label="تاریخ و ساعت مهلت قطعی" required>
+            <Input type="datetime-local" value={deadlineInput} onChange={(event) => setDeadlineInput(event.target.value)} dir="ltr" />
+          </Field>
+          {request.estimatedCompletionAt && <p className="rounded-lg bg-surface-3 p-3 text-[11px] leading-6 text-navy-600">برآورد فعلی پایان خدمت: {faDateTime(request.estimatedCompletionAt)}. این مقدار جدا از مهلت قطعی عملیات است.</p>}
+        </div>
+      </Modal>
+
       <Modal open={assignModal} onClose={() => setAssignModal(false)} title="ارجاع پرونده"
         footer={<><Button variant="ghost" onClick={() => setAssignModal(false)}>بستن</Button><Button loading={busy} onClick={autoAssign}><RefreshCw className="size-4" /> ارجاع خودکار</Button></>}>
         <p className="mb-2 text-xs leading-6 text-navy-500">
@@ -584,7 +644,7 @@ export function RequestDetail({ variant = 'staff' }: { variant?: 'staff' | 'admi
         <div className="space-y-2">
           {candidates.map((candidate) => (
             <button key={candidate.id} onClick={() => assign(candidate.id)} disabled={busy}
-              className="flex w-full items-center justify-between rounded-xl bg-navy-50/60 px-3 py-2.5 text-right hover:bg-brand-50">
+              className="flex w-full items-center justify-between rounded-xl bg-surface-3 px-3 py-2.5 text-right hover:bg-brand-50">
               <span className="text-sm font-medium text-navy-900">{candidate.name}</span>
               <span className="text-[11px] text-navy-500">بار کاری {faNum(candidate.load)} {candidate.onShift ? '• در شیفت' : ''}</span>
             </button>
@@ -596,6 +656,8 @@ export function RequestDetail({ variant = 'staff' }: { variant?: 'staff' | 'admi
           )}
         </div>
       </Modal>
+
+      <DocumentViewer file={viewer?.file ?? null} title={viewer?.title ?? 'مدرک'} open={Boolean(viewer)} onClose={() => setViewer(null)} />
     </AppShell>
   );
 }
@@ -604,9 +666,11 @@ export function RequestDetail({ variant = 'staff' }: { variant?: 'staff' | 'admi
 
 export function StaffDocuments() {
   const { notify } = useToast();
+  const { can } = useAuth();
   const [items, setItems] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [onlyMine, setOnlyMine] = useState(false);
+  const [viewer, setViewer] = useState<any>(null);
 
   const load = () => {
     setLoading(true);
@@ -618,10 +682,17 @@ export function StaffDocuments() {
   useEffect(load, [onlyMine]);
 
   const review = async (doc: any, decision: 'approved' | 'rejected') => {
-    const note = decision === 'rejected' ? window.prompt('دلیل رد مدرک:') ?? '' : '';
+    const note = decision === 'rejected' ? window.prompt('دلیل رد مدرک (حداقل ۳ نویسه):') : '';
+    if (decision === 'rejected' && (note ?? '').trim().length < 3) {
+      if (note !== null) notify('برای رد مدرک دلیل حداقل سه‌حرفی لازم است.', 'error');
+      return;
+    }
+    const path = doc.recordType === 'profile'
+      ? `/api/documents/${doc.id}/review`
+      : `/api/requests/${doc.requestId}/documents/${doc.id}/review`;
     try {
-      await api.post(`/api/requests/${doc.requestId}/documents/${doc.id}/review`, { decision, note: note || undefined });
-      notify(decision === 'approved' ? 'مدرک تأیید شد.' : 'مدرک رد شد.', 'success');
+      await api.post(path, { decision, note: note?.trim() || undefined });
+      notify(decision === 'approved' ? 'مدرک تأیید شد.' : 'مدرک رد شد و دلیل برای مشتری ثبت شد.', 'success');
       load();
     } catch (err) {
       notify(err instanceof ApiFailure ? err.message : 'خطا', 'error');
@@ -630,7 +701,7 @@ export function StaffDocuments() {
 
   return (
     <AppShell variant="staff">
-      <PageHeader title="بررسی مدارک" description="مدارک بارگذاری‌شده توسط مشتریان که در انتظار تأیید یا رد هستند."
+      <PageHeader title="بررسی مدارک" description="مدارک پرونده و پروفایل مشتری که در انتظار بررسی و ثبت تصمیم هستند."
         actions={<Button size="sm" variant={onlyMine ? 'primary' : 'ghost'} onClick={() => setOnlyMine((v) => !v)}>فقط پرونده‌های من</Button>} />
       {loading && <Loading />}
       {!loading && items.length === 0 && <EmptyState title="مدرکی در انتظار بررسی نیست" description="به‌محض بارگذاری مدرک جدید، در این فهرست نمایش داده می‌شود." />}
@@ -638,23 +709,33 @@ export function StaffDocuments() {
         {items.map((doc) => (
           <Card key={doc.id}>
             <div className="flex flex-wrap items-start justify-between gap-3">
-              <div className="min-w-0">
-                <p className="font-medium text-navy-900">{doc.title}</p>
-                <p className="mt-0.5 text-xs text-navy-500">
-                  {doc.customerName} • {doc.serviceTitle} • {doc.trackingCode} • {relative(doc.createdAt)}
-                </p>
-                <p className="mt-1 text-[11px] text-navy-400">{doc.file.name} ({faNum(Math.round(doc.file.size / 1024))} کیلوبایت)</p>
+              <div className="flex min-w-0 gap-3">
+                <FileThumbnail file={doc.file} onOpen={() => setViewer(doc)} />
+                <div className="min-w-0">
+                  <p className="font-medium text-navy-900">{doc.title}</p>
+                  <p className="mt-0.5 text-xs text-navy-500">
+                    {doc.customerName} • {doc.recordType === 'profile' ? `مدرک پروفایل${doc.docTypeLabel ? ` (${doc.docTypeLabel})` : ''}` : `${doc.serviceTitle} • ${doc.trackingCode}`} • {relative(doc.createdAt)}
+                  </p>
+                  <p className="mt-1 truncate text-[11px] text-navy-400" dir="ltr">{doc.file.name}</p>
+                  <FileSummary file={doc.file} />
+                  {doc.file.processing?.status === 'failed' && (
+                    <p className="mt-1 text-[11px] text-amber-700">پردازش تصویر انجام نشد؛ نسخه اصلی حفظ شده است.</p>
+                  )}
+                </div>
               </div>
               <div className="flex flex-wrap gap-2">
-                <a href={`/api/files/${doc.file.id}`} target="_blank" rel="noreferrer" className="btn-ghost btn-sm"><Download className="size-3.5" /> مشاهده</a>
-                <Link to={`/staff/requests/${doc.requestId}`} className="btn-ghost btn-sm"><ArrowRight className="size-3.5" /> پرونده</Link>
-                <Button size="sm" onClick={() => review(doc, 'approved')}>تأیید</Button>
-                <Button size="sm" variant="danger" onClick={() => review(doc, 'rejected')}>رد</Button>
+                <Button size="sm" variant="ghost" onClick={() => setViewer(doc)}><Download className="size-3.5" /> مشاهده</Button>
+                {doc.requestId && <Link to={`/staff/requests/${doc.requestId}`} className="btn-ghost btn-sm"><ArrowRight className="size-3.5" /> پرونده</Link>}
+                {can('documents.approve') && <>
+                  <Button size="sm" onClick={() => review(doc, 'approved')}>تأیید</Button>
+                  <Button size="sm" variant="danger" onClick={() => review(doc, 'rejected')}>رد</Button>
+                </>}
               </div>
             </div>
           </Card>
         ))}
       </div>
+      <DocumentViewer file={viewer?.file ?? null} title={viewer?.title ?? 'مدرک'} open={Boolean(viewer)} onClose={() => setViewer(null)} />
     </AppShell>
   );
 }
@@ -667,8 +748,27 @@ export function StaffCustomers() {
   const [loading, setLoading] = useState(true);
   const [selected, setSelected] = useState<any>(null);
   const [creating, setCreating] = useState(false);
+  const [profileViewer, setProfileViewer] = useState<any>(null);
   const [form, setForm] = useState({ fullName: '', mobile: '', nationalId: '', email: '', password: '' });
   const { notify } = useToast();
+  const { user } = useAuth();
+  const can = (permission: string) => user?.permissions === '*' || Boolean(user?.permissions?.includes(permission));
+
+  const reviewProfile = async (document: any, decision: 'approved' | 'rejected') => {
+    const noteText = decision === 'rejected' ? window.prompt('دلیل رد مدرک پروفایل (حداقل ۳ نویسه):') : '';
+    if (decision === 'rejected' && (noteText ?? '').trim().length < 3) {
+      if (noteText !== null) notify('برای رد مدرک دلیل حداقل سه‌حرفی لازم است.', 'error');
+      return;
+    }
+    try {
+      await api.post(`/api/documents/${document.id}/review`, { decision, note: noteText || undefined });
+      notify(decision === 'approved' ? 'مدرک پروفایل تأیید شد.' : 'مدرک پروفایل رد شد.', 'success');
+      const res = await api.get<{ data: any }>(`/api/customers/${selected.id}`);
+      setSelected(res.data);
+    } catch (err) {
+      notify(err instanceof ApiFailure ? err.message : 'خطا', 'error');
+    }
+  };
 
   useEffect(() => {
     const timer = setTimeout(() => {
@@ -719,7 +819,7 @@ export function StaffCustomers() {
                   <td dir="ltr" className="text-left">{customer.mobile}</td>
                   <td><StatusBadge status={customer.status} /></td>
                   <td>{faNum(customer.requestCount)}</td>
-                  <td className={customer.outstanding > 0 ? 'text-rose-600' : 'text-navy-400'}>{rial(customer.outstanding)}</td>
+                  <td className={customer.outstanding > 0 ? 'text-rose-700' : 'text-navy-400'}>{rial(customer.outstanding)}</td>
                   <td><Button size="sm" variant="ghost" onClick={() => open(customer)}>مشاهده</Button></td>
                 </tr>
               ))}
@@ -733,17 +833,17 @@ export function StaffCustomers() {
         {selected && (
           <div className="space-y-3 text-sm">
             <dl className="grid gap-2 sm:grid-cols-2">
-              <div className="rounded-lg bg-navy-50/70 p-2"><dt className="text-[10px] text-navy-500">موبایل</dt><dd dir="ltr">{selected.mobile}</dd></div>
-              <div className="rounded-lg bg-navy-50/70 p-2"><dt className="text-[10px] text-navy-500">کد ملی</dt><dd dir="ltr">{selected.nationalId ?? '—'}</dd></div>
-              <div className="rounded-lg bg-navy-50/70 p-2"><dt className="text-[10px] text-navy-500">شهر</dt><dd>{selected.profile?.city ?? '—'}</dd></div>
-              <div className="rounded-lg bg-navy-50/70 p-2"><dt className="text-[10px] text-navy-500">آخرین ورود</dt><dd>{selected.lastLoginAt ? faDateTime(selected.lastLoginAt) : '—'}</dd></div>
+              <div className="rounded-lg bg-surface-3 p-2"><dt className="text-[10px] text-navy-500">موبایل</dt><dd dir="ltr">{selected.mobile}</dd></div>
+              <div className="rounded-lg bg-surface-3 p-2"><dt className="text-[10px] text-navy-500">کد ملی</dt><dd dir="ltr">{selected.nationalId ?? '—'}</dd></div>
+              <div className="rounded-lg bg-surface-3 p-2"><dt className="text-[10px] text-navy-500">شهر</dt><dd>{selected.profile?.city ?? '—'}</dd></div>
+              <div className="rounded-lg bg-surface-3 p-2"><dt className="text-[10px] text-navy-500">آخرین ورود</dt><dd>{selected.lastLoginAt ? faDateTime(selected.lastLoginAt) : '—'}</dd></div>
             </dl>
             <div>
               <p className="mb-1 text-xs font-semibold text-navy-800">پرونده‌ها</p>
               {selected.requests.length === 0 && <p className="text-xs text-navy-400">پرونده‌ای ندارد.</p>}
               <div className="space-y-1">
                 {selected.requests.map((request: any) => (
-                  <div key={request.id} className="flex items-center justify-between rounded-lg bg-navy-50/60 px-2 py-1.5 text-xs">
+                  <div key={request.id} className="flex items-center justify-between rounded-lg bg-surface-3 px-2 py-1.5 text-xs">
                     <span>{request.serviceTitle} — {request.trackingCode}</span>
                     <StatusBadge status={request.status} label={request.statusLabel} />
                   </div>
@@ -751,11 +851,41 @@ export function StaffCustomers() {
               </div>
             </div>
             <div>
+              <p className="mb-1 text-xs font-semibold text-navy-800">مدارک پروفایل</p>
+              {(selected.profileDocuments ?? []).length === 0 && <p className="text-xs text-navy-400">مدرکی در پروفایل ثبت نشده است.</p>}
+              <div className="space-y-1">
+                {(selected.profileDocuments ?? []).map((document: any) => (
+                  <div key={document.id} className="flex items-center justify-between gap-2 rounded-lg bg-surface-3 px-2 py-1.5 text-xs">
+                    <button type="button" className="flex min-w-0 items-center gap-2 text-right" onClick={() => setProfileViewer(document)}>
+                      <FileThumbnail file={document.file} className="h-10 w-8" />
+                      <span className="min-w-0">
+                        <span className="block truncate">{document.docTypeLabel}</span>
+                        <span className="block text-[10px] text-navy-500">
+                          {document.expiresAt ? `اعتبار تا ${faDate(document.expiresAt)}` : 'بدون تاریخ انقضا'}
+                          {document.file.processing?.status === 'ready' ? ` • ${faNum(document.file.savingsPercent ?? 0)}٪ کم‌حجم‌تر` : ''}
+                        </span>
+                      </span>
+                    </button>
+                    <span className="flex shrink-0 items-center gap-1">
+                      <StatusBadge status={document.status} />
+                      {document.status === 'pending' && can('documents.approve') && (
+                        <>
+                          <button onClick={() => reviewProfile(document, 'approved')} className="rounded-lg bg-emerald-600 px-2 py-1 text-[10px] text-white">تأیید</button>
+                          <button onClick={() => reviewProfile(document, 'rejected')} className="rounded-lg bg-rose-600 px-2 py-1 text-[10px] text-white">رد</button>
+                        </>
+                      )}
+                    </span>
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            <div>
               <p className="mb-1 text-xs font-semibold text-navy-800">فاکتورها</p>
               {selected.invoices.length === 0 && <p className="text-xs text-navy-400">فاکتوری ندارد.</p>}
               <div className="space-y-1">
                 {selected.invoices.map((invoice: any) => (
-                  <div key={invoice.id} className="flex items-center justify-between rounded-lg bg-navy-50/60 px-2 py-1.5 text-xs">
+                  <div key={invoice.id} className="flex items-center justify-between rounded-lg bg-surface-3 px-2 py-1.5 text-xs">
                     <span>{invoice.number} — {rial(invoice.total)}</span>
                     <StatusBadge status={invoice.status} />
                   </div>
@@ -765,6 +895,13 @@ export function StaffCustomers() {
           </div>
         )}
       </Modal>
+
+      <DocumentViewer
+        file={profileViewer?.file ?? null}
+        title={profileViewer?.docTypeLabel ?? 'مدرک پروفایل'}
+        open={Boolean(profileViewer)}
+        onClose={() => setProfileViewer(null)}
+      />
 
       <Modal open={creating} onClose={() => setCreating(false)} title="ایجاد حساب مشتری"
         footer={<><Button variant="ghost" onClick={() => setCreating(false)}>انصراف</Button><Button onClick={create} disabled={form.fullName.length < 3 || form.mobile.length < 10}>ایجاد</Button></>}>
@@ -790,7 +927,7 @@ export function StaffCustomService() {
   const [services, setServices] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [form, setForm] = useState({
-    customerId: '', title: '', description: '', baseFee: 0, estimatedDays: 3,
+    customerId: '', title: '', description: '', baseFee: 0, estimatedMinutes: 4320, durationUnit: 'day',
     message: '', expiryHours: 72, documents: '', steps: '',
   });
   const [creating, setCreating] = useState(false);
@@ -813,14 +950,14 @@ export function StaffCustomService() {
         title: form.title,
         description: form.description,
         baseFee: Number(form.baseFee),
-        estimatedDays: Number(form.estimatedDays),
+        estimatedMinutes: Number(form.estimatedMinutes),
         message: form.message,
         expiryHours: Number(form.expiryHours),
         documents: form.documents.split('\n').map((t) => t.trim()).filter(Boolean).map((title) => ({ title, required: true })),
         workflow: form.steps.split('\n').map((t) => t.trim()).filter(Boolean).map((title) => ({ title })),
       });
       notify('خدمت اختصاصی ایجاد شد و پیشنهاد برای مشتری ارسال شد.', 'success');
-      setForm({ customerId: '', title: '', description: '', baseFee: 0, estimatedDays: 3, message: '', expiryHours: 72, documents: '', steps: '' });
+      setForm({ customerId: '', title: '', description: '', baseFee: 0, estimatedMinutes: 4320, durationUnit: 'day', message: '', expiryHours: 72, documents: '', steps: '' });
       load();
     } catch (err) {
       notify(err instanceof ApiFailure ? err.message : 'خطا', 'error');
@@ -847,7 +984,15 @@ export function StaffCustomService() {
             <Field label="توضیحات"><Textarea value={form.description} onChange={(e) => setForm({ ...form, description: e.target.value })} /></Field>
             <div className="grid gap-3 sm:grid-cols-3">
               <Field label="هزینه (ریال)" required><Input type="number" value={form.baseFee} onChange={(e) => setForm({ ...form, baseFee: Number(e.target.value) })} /></Field>
-              <Field label="روز کاری"><Input type="number" value={form.estimatedDays} onChange={(e) => setForm({ ...form, estimatedDays: Number(e.target.value) })} /></Field>
+              <Field label="زمان تخمینی">
+                <div className="flex gap-2">
+                  <Input type="number" min={1} step={form.durationUnit === 'minute' ? 1 : 0.5}
+                    value={Math.round((Number(form.estimatedMinutes) / serviceDurationFactor(form.durationUnit)) * 100) / 100}
+                    onChange={(e) => setForm({ ...form, estimatedMinutes: Number(e.target.value) * serviceDurationFactor(form.durationUnit) })} />
+                  <Select value={form.durationUnit} onChange={(e) => setForm({ ...form, durationUnit: e.target.value })}
+                    options={SERVICE_DURATION_UNITS.map((unit) => ({ value: unit.value, label: unit.label }))} className="w-32" />
+                </div>
+              </Field>
               <Field label="اعتبار پیشنهاد (ساعت)"><Input type="number" value={form.expiryHours} onChange={(e) => setForm({ ...form, expiryHours: Number(e.target.value) })} /></Field>
             </div>
             <Field label="پیام به مشتری"><Textarea value={form.message} onChange={(e) => setForm({ ...form, message: e.target.value })} placeholder="توضیح شرایط و مبلغ پیشنهادی…" /></Field>
@@ -863,11 +1008,11 @@ export function StaffCustomService() {
           {!loading && services.length === 0 && <EmptyState title="خدمت اختصاصی ثبت نشده" />}
           <div className="space-y-2">
             {services.map((service) => (
-              <div key={service.id} className="rounded-xl bg-navy-50/60 p-3">
+              <div key={service.id} className="rounded-xl bg-surface-3 p-3">
                 <div className="flex items-start justify-between gap-2">
                   <div className="min-w-0">
                     <p className="truncate text-sm font-medium text-navy-900">{service.title}</p>
-                    <p className="mt-0.5 text-[11px] text-navy-500">{service.customerName} • {rial(service.baseFee)}</p>
+                    <p className="mt-0.5 text-[11px] text-navy-500">{service.customerName} • {rial(service.baseFee)} • {formatDuration(service.estimatedMinutes, service.estimatedDays)}</p>
                   </div>
                   <StatusBadge status={service.offerStatus ?? 'draft'} />
                 </div>
@@ -953,12 +1098,12 @@ export function StaffShifts() {
           <h2 className="mb-3 font-bold text-navy-900">هفته جاری</h2>
           <div className="grid gap-2 sm:grid-cols-4 lg:grid-cols-7">
             {weekDays.map((day) => (
-              <div key={day} className="rounded-xl bg-navy-50/60 p-3">
+              <div key={day} className="rounded-xl bg-surface-3 p-3">
                 <p className="text-[11px] font-medium text-navy-700">{faDate(day)}</p>
                 <div className="mt-1.5 space-y-1">
                   {calendar.days[day].length === 0 && <p className="text-[10px] text-navy-400">—</p>}
                   {calendar.days[day].map((shift: any) => (
-                    <p key={shift.id} className="rounded-lg bg-white px-2 py-1 text-[10px] text-navy-700 ring-1 ring-navy-900/8">
+                    <p key={shift.id} className="rounded-lg bg-surface px-2 py-1 text-[10px] text-navy-700 ring-1 ring-line">
                       {shift.startTime}–{shift.endTime}
                       {shift.userName ? ` • ${shift.userName}` : ''}
                     </p>
@@ -976,7 +1121,7 @@ export function StaffShifts() {
           {shifts.length === 0 && <p className="text-sm text-navy-400">شیفتی ثبت نشده است.</p>}
           <div className="space-y-2">
             {shifts.map((shift) => (
-              <div key={shift.id} className="flex items-center justify-between gap-2 rounded-xl bg-navy-50/60 px-3 py-2">
+              <div key={shift.id} className="flex items-center justify-between gap-2 rounded-xl bg-surface-3 px-3 py-2">
                 <div>
                   <p className="text-xs font-medium text-navy-900">{faDate(shift.date)}</p>
                   <p className="text-[11px] text-navy-500">{shift.startTime} تا {shift.endTime} {shift.userName && shift.userName !== '—' ? `• ${shift.userName}` : ''}</p>
@@ -992,7 +1137,7 @@ export function StaffShifts() {
           {changes.length === 0 && <p className="text-sm text-navy-400">درخواستی ندارید.</p>}
           <div className="space-y-2">
             {changes.map((change) => (
-              <div key={change.id} className="rounded-xl bg-navy-50/60 px-3 py-2">
+              <div key={change.id} className="rounded-xl bg-surface-3 px-3 py-2">
                 <div className="flex items-start justify-between gap-2">
                   <div className="min-w-0">
                     <p className="text-xs font-medium text-navy-900">
@@ -1077,7 +1222,7 @@ export function StaffPerformance() {
             <h2 className="mb-3 font-bold text-navy-900">توزیع وضعیت پرونده‌ها</h2>
             <div className="flex flex-wrap gap-2">
               {data.byStatus.map((row: any) => (
-                <div key={row.status} className="rounded-xl bg-navy-50/60 px-4 py-2">
+                <div key={row.status} className="rounded-xl bg-surface-3 px-4 py-2">
                   <p className="text-[11px] text-navy-500">{STATUS_LABELS[row.status] ?? row.status}</p>
                   <p className="text-lg font-bold text-navy-900">{faNum(row.count)}</p>
                 </div>

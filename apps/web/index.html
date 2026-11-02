@@ -3,13 +3,32 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
-    <meta name="theme-color" content="#0b1f3a" />
+    <meta name="theme-color" content="#f2f6fc" />
+    <meta name="color-scheme" content="light dark" />
     <meta name="description" content="سامانه جامع خدمات دفتر پیشخوان دولت: ثبت درخواست، پیگیری پرونده، پرداخت و ارتباط با کارشناس" />
     <title>سامانه دفتر پیشخوان دولت</title>
     <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
     <link rel="apple-touch-icon" href="/icons/icon-192.png" />
   </head>
   <body>
+    <script>
+      /* Apply the saved theme before the first paint so dark mode never flashes white. */
+      (function () {
+        try {
+          var stored = window.localStorage.getItem('pishkan.theme');
+          var mode = stored === 'light' || stored === 'dark' ? stored : 'system';
+          var dark = mode === 'dark' || (mode === 'system' &&
+            typeof window.matchMedia === 'function' &&
+            window.matchMedia('(prefers-color-scheme: dark)').matches);
+          var root = document.documentElement;
+          root.classList.toggle('dark', dark);
+          root.dataset.theme = dark ? 'dark' : 'light';
+          root.style.colorScheme = dark ? 'dark' : 'light';
+          var meta = document.querySelector('meta[name="theme-color"]');
+          if (meta) meta.setAttribute('content', dark ? '#060c17' : '#f2f6fc');
+        } catch (error) { /* private mode / blocked storage */ }
+      })();
+    </script>
     <div id="root"></div>
     <script type="module" src="/src/main.tsx"></script>
   </body>

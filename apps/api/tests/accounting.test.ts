@@ -163,6 +163,70 @@ describe('accounting', () => {
     }
   });
 
+  it('completes an online Zarinpal Sandbox callback without completing the request', async () => {
+    const admin = await adminSession();
+    const customer = await customerSession();
+    const server = await app();
+    const merchantId = '12345678-1234-1234-1234-123456789abc';
+    const originalFetch = globalThis.fetch;
+    const calls: { url: string; payload: any }[] = [];
+    const authority = `A${'1'.repeat(20)}`;
+    globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      const payload = JSON.parse(String(init?.body ?? '{}'));
+      calls.push({ url, payload });
+      const data = url.endsWith('/request.json')
+        ? { code: 100, authority }
+        : url.endsWith('/verify.json') ? { code: 100, ref_id: 987654321 } : null;
+      if (!data) throw new Error(`Unexpected gateway URL: ${url}`);
+      return new Response(JSON.stringify({ data }), { status: 200, headers: { 'content-type': 'application/json' } });
+    }) as typeof fetch;
+
+    try {
+      await updateSettings({
+        'accounting.online_payment_enabled': true,
+        'accounting.gateway': 'zarinpal',
+        'accounting.gateway_sandbox': true,
+        'accounting.gateway_merchant_id': merchantId,
+      }, { id: 'system', name: 'test-zarinpal-sandbox' }, { confirmCritical: true });
+      const service = await request(server).post('/api/catalog/services').set('Cookie', admin.cookie).send({
+        title: 'خدمت پرداخت Sandbox', slug: 'zarinpal-sandbox-request', baseFee: 50000,
+        paymentMethods: ['online'], form: [], documents: [], workflow: [],
+      }).expect(201);
+      const created = await request(server).post('/api/requests').set('Cookie', customer.cookie)
+        .send({ serviceId: service.body.data.id, formData: {}, paymentMethod: 'online' }).expect(201);
+      const statusBeforePayment = created.body.data.status;
+      const invoice = created.body.data.invoices[0];
+      expect(created.body.data.paymentStatus).toBe('unpaid');
+      expect(invoice).toBeTruthy();
+
+      const started = await request(server).post(`/api/accounting/my/invoices/${invoice.id}/pay`)
+        .set('Cookie', customer.cookie).expect(200);
+      expect(started.body.data.paymentUrl).toContain('https://sandbox.zarinpal.com/pg/StartPay/');
+      expect(calls[0].url).toBe('https://sandbox.zarinpal.com/pg/v4/payment/request.json');
+      expect(calls[0].payload).toMatchObject({ merchant_id: merchantId, amount: 50000, currency: 'IRR' });
+      expect(calls[0].payload.callback_url).toContain(started.body.data.paymentId);
+
+      const callback = await request(server).get('/api/accounting/gateway/zarinpal')
+        .query({ paymentId: started.body.data.paymentId, Authority: authority, Status: 'OK' }).expect(303);
+      expect(callback.headers.location).toContain('payment=confirmed');
+      expect(calls[1].url).toBe('https://sandbox.zarinpal.com/pg/v4/payment/verify.json');
+      expect(calls[1].payload).toMatchObject({ merchant_id: merchantId, amount: 50000, authority });
+
+      const paidRequest = await request(server).get(`/api/requests/${created.body.data.id}`).set('Cookie', customer.cookie).expect(200);
+      expect(paidRequest.body.data.paymentStatus).toBe('paid');
+      expect(paidRequest.body.data.status).toBe(statusBeforePayment);
+    } finally {
+      globalThis.fetch = originalFetch;
+      await updateSettings({
+        'accounting.online_payment_enabled': false,
+        'accounting.gateway': 'none',
+        'accounting.gateway_sandbox': true,
+        'accounting.gateway_merchant_id': '',
+      }, { id: 'system', name: 'test-zarinpal-sandbox-cleanup' }, { confirmCritical: true });
+    }
+  });
+
   it('enforces financial permissions for non-accountants', async () => {
     const server = await app();
     const accountant = await createStaff('accountant', ACCOUNTANT);

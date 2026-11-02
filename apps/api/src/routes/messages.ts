@@ -131,8 +131,13 @@ messagesRouter.post('/threads', asyncRoute(async (req, res) => {
 messagesRouter.get('/threads/:id', asyncRoute(async (req, res) => {
   const thread = await loadThread(param(req, 'id'), req);
   const messages = await q<any>(
-    `SELECT m.*, u.full_name AS sender_name FROM messages m LEFT JOIN users u ON u.id = m.sender_id
-     WHERE m.thread_id = ? ORDER BY m.created_at ASC LIMIT 500`, [thread.id],
+    `SELECT m.*, u.full_name AS sender_name,
+            f.name AS file_name, f.mime AS file_mime, f.size AS file_size,
+            f.processing_status AS file_processing_status
+       FROM messages m
+       LEFT JOIN users u ON u.id = m.sender_id
+       LEFT JOIN files f ON f.id = m.file_id
+      WHERE m.thread_id = ? ORDER BY m.created_at ASC LIMIT 500`, [thread.id],
   );
   await run(
     `UPDATE messages SET read_at = ? WHERE thread_id = ? AND read_at IS NULL AND sender_role <> ?`,
@@ -147,6 +152,14 @@ messagesRouter.get('/threads/:id', asyncRoute(async (req, res) => {
     messages: messages.map((m) => ({
       id: m.id, body: m.body, senderId: m.sender_id, senderRole: m.sender_role,
       senderName: m.sender_name, fileId: m.file_id, createdAt: m.created_at, readAt: m.read_at,
+      // Attachment metadata so the client can render a preview without an extra request.
+      file: m.file_id ? {
+        id: m.file_id,
+        name: m.file_name ?? 'پیوست',
+        mime: m.file_mime ?? null,
+        size: m.file_size === null || m.file_size === undefined ? null : Number(m.file_size),
+        processingStatus: m.file_processing_status ?? null,
+      } : null,
     })),
   });
 }));

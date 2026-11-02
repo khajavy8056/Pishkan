@@ -1,5 +1,6 @@
 import { q, run, one, nowIso, jsonStringify, jsonParse } from '../../db/index.js';
 import { id } from '../../lib/crypto.js';
+import { safeErrorText } from '../../lib/safe-log.js';
 
 export interface AuditInput {
   actorId?: string | null;
@@ -32,7 +33,7 @@ export async function writeAudit(input: AuditInput): Promise<void> {
       ],
     );
   } catch (err) {
-    console.error('[audit] failed to persist audit entry', err);
+    console.error(`[audit] failed to persist audit entry: ${safeErrorText(err)}`);
   }
 }
 

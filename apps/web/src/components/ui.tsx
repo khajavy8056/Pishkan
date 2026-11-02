@@ -12,12 +12,13 @@ export function Card({ children, className, pad = true }: { children: ReactNode;
   return <div className={clsx('card', pad && 'card-pad', className)}>{children}</div>;
 }
 
-export function SectionTitle({ title, description, action }: { title: string; description?: string; action?: ReactNode }) {
+export function SectionTitle({ title, description, action, eyebrow }: { title: string; description?: string; action?: ReactNode; eyebrow?: string }) {
   return (
     <div className="mb-4 flex flex-wrap items-start justify-between gap-3">
-      <div>
+      <div className="min-w-0">
+        {eyebrow && <p className="mb-1 text-[11px] font-semibold tracking-wide text-accent">{eyebrow}</p>}
         <h2 className="text-lg font-bold text-navy-900">{title}</h2>
-        {description && <p className="mt-1 text-sm text-navy-500">{description}</p>}
+        {description && <p className="mt-1 text-sm leading-relaxed text-navy-500">{description}</p>}
       </div>
       {action}
     </div>
@@ -26,26 +27,26 @@ export function SectionTitle({ title, description, action }: { title: string; de
 
 export function Badge({ tone = 'default', children, className }: { tone?: 'default' | 'info' | 'success' | 'warning' | 'danger' | 'navy'; children: ReactNode; className?: string }) {
   const tones: Record<string, string> = {
-    default: 'bg-navy-50 text-navy-700 ring-1 ring-navy-900/8',
-    info: 'bg-brand-50 text-brand-700 ring-1 ring-brand-200',
-    success: 'bg-emerald-50 text-emerald-700 ring-1 ring-emerald-200',
-    warning: 'bg-amber-50 text-amber-800 ring-1 ring-amber-200',
-    danger: 'bg-rose-50 text-rose-700 ring-1 ring-rose-200',
-    navy: 'bg-navy-900 text-white',
+    default: 'bg-surface-3 text-navy-700 ring-1 ring-line',
+    info: 'bg-primary-soft text-accent ring-1 ring-brand-200/70',
+    success: 'bg-emerald-50 text-emerald-800 ring-1 ring-emerald-200/70',
+    warning: 'bg-amber-50 text-amber-800 ring-1 ring-amber-200/70',
+    danger: 'bg-rose-50 text-rose-800 ring-1 ring-rose-200/70',
+    navy: 'bg-shell text-shell-fg',
   };
   return <span className={clsx('badge', tones[tone], className)}>{children}</span>;
 }
 
 export function StatusBadge({ status, label }: { status: string; label?: string }) {
   return (
-    <span className={clsx('badge', STATUS_STYLES[status] ?? 'bg-slate-100 text-slate-600 ring-1 ring-slate-200')}>
+    <span className={clsx('badge', STATUS_STYLES[status] ?? 'bg-surface-3 text-navy-600 ring-1 ring-line')}>
       {label ?? STATUS_LABELS[status] ?? status}
     </span>
   );
 }
 
 export function Spinner({ className }: { className?: string }) {
-  return <Loader2 className={clsx('size-5 animate-spin text-brand-600', className)} />;
+  return <Loader2 className={clsx('size-5 animate-spin text-accent', className)} />;
 }
 
 export function Loading({ label = 'در حال بارگذاری…', rows = 3 }: { label?: string; rows?: number }) {
@@ -63,12 +64,12 @@ export function Loading({ label = 'در حال بارگذاری…', rows = 3 }:
 
 export function EmptyState({ title, description, action, icon }: { title: string; description?: string; action?: ReactNode; icon?: ReactNode }) {
   return (
-    <div className="flex flex-col items-center justify-center gap-3 rounded-2xl border border-dashed border-navy-900/12 bg-white/60 px-6 py-12 text-center">
-      <div className="grid size-12 place-items-center rounded-2xl bg-navy-50 text-navy-400">
+    <div className="flex flex-col items-center justify-center gap-3 rounded-2xl border border-dashed border-line-strong bg-surface-2/70 px-6 py-12 text-center">
+      <div className="grid size-12 place-items-center rounded-2xl bg-surface-3 text-navy-400">
         {icon ?? <Inbox className="size-6" />}
       </div>
       <p className="font-medium text-navy-800">{title}</p>
-      {description && <p className="max-w-sm text-sm text-navy-500">{description}</p>}
+      {description && <p className="max-w-sm text-sm leading-relaxed text-navy-500">{description}</p>}
       {action}
     </div>
   );
@@ -76,7 +77,7 @@ export function EmptyState({ title, description, action, icon }: { title: string
 
 export function ErrorState({ message, onRetry }: { message: string; onRetry?: () => void }) {
   return (
-    <div className="flex flex-col items-start gap-3 rounded-2xl border border-rose-200 bg-rose-50/70 p-5">
+    <div className="flex flex-col items-start gap-3 rounded-2xl border border-rose-200 bg-rose-50 p-5">
       <div className="flex items-center gap-2 font-medium text-rose-800">
         <AlertTriangle className="size-5" /> خطا
       </div>
@@ -131,7 +132,7 @@ export function Field({ label, hint, error, required, children, className }: {
       {label && (
         <label className="label" htmlFor={controlId}>
           {label}
-          {required && <span className="text-rose-600"> *</span>}
+          {required && <span className="text-rose-700"> *</span>}
         </label>
       )}
       {controls}
@@ -170,7 +171,7 @@ export function Switch({ checked, onChange, label, hint, disabled }: {
   checked: boolean; onChange: (v: boolean) => void; label: string; hint?: string; disabled?: boolean;
 }) {
   return (
-    <label className={clsx('flex cursor-pointer items-start justify-between gap-4 rounded-xl border border-navy-900/8 bg-white px-4 py-3', disabled && 'opacity-60')}>
+    <label className={clsx('flex cursor-pointer items-start justify-between gap-4 rounded-xl border border-line bg-surface px-4 py-3 transition hover:border-line-strong', disabled && 'opacity-60')}>
       <span>
         <span className="block text-sm font-medium text-navy-900">{label}</span>
         {hint && <span className="mt-0.5 block text-xs leading-relaxed text-navy-500">{hint}</span>}
@@ -184,7 +185,7 @@ export function Switch({ checked, onChange, label, hint, disabled }: {
         onClick={() => onChange(!checked)}
         className={clsx(
           'relative mt-0.5 h-6 w-11 shrink-0 rounded-full transition',
-          checked ? 'bg-brand-600' : 'bg-navy-200',
+          checked ? 'bg-primary' : 'bg-navy-200',
         )}
       >
         <span className={clsx('absolute top-0.5 size-5 rounded-full bg-white shadow transition-all', checked ? 'right-0.5' : 'right-[22px]')} />
@@ -213,23 +214,23 @@ export function Modal({ open, onClose, title, children, footer, size = 'md' }: {
   if (!open) return null;
   const widths = { sm: 'max-w-md', md: 'max-w-xl', lg: 'max-w-3xl' };
   return (
-    <div className="fixed inset-0 z-50 flex items-end justify-center bg-navy-950/40 p-0 backdrop-blur-sm sm:items-center sm:p-6" onClick={onClose}>
+    <div className="fixed inset-0 z-50 flex items-end justify-center bg-scrim p-0 backdrop-blur-sm sm:items-center sm:p-6" onClick={onClose}>
       <div
         ref={ref}
         role="dialog"
         aria-modal="true"
         aria-label={title}
-        className={clsx('animate-pop max-h-[92vh] w-full overflow-hidden rounded-t-3xl bg-white shadow-2xl sm:rounded-2xl', widths[size])}
+        className={clsx('animate-pop max-h-[92vh] w-full overflow-hidden rounded-t-3xl border border-line bg-surface shadow-2xl sm:rounded-2xl', widths[size])}
         onClick={(e) => e.stopPropagation()}
       >
-        <div className="flex items-center justify-between border-b border-navy-900/8 px-5 py-4">
+        <div className="flex items-center justify-between gap-3 border-b border-line px-5 py-4">
           <h3 className="font-bold text-navy-900">{title}</h3>
-          <button type="button" onClick={onClose} aria-label="بستن" className="rounded-lg p-1.5 text-navy-400 hover:bg-navy-50">
+          <button type="button" onClick={onClose} aria-label="بستن" className="icon-btn">
             <X className="size-5" />
           </button>
         </div>
         <div className="max-h-[70vh] overflow-y-auto px-5 py-4 scrollbar-thin">{children}</div>
-        {footer && <div className="flex justify-end gap-2 border-t border-navy-900/8 bg-navy-50/40 px-5 py-3">{footer}</div>}
+        {footer && <div className="flex justify-end gap-2 border-t border-line bg-surface-2 px-5 py-3">{footer}</div>}
       </div>
     </div>
   );
@@ -260,7 +261,7 @@ export function ToastProvider({ children }: { children: ReactNode }) {
             className={clsx('animate-pop pointer-events-auto flex items-start gap-2 rounded-xl px-4 py-3 text-sm shadow-lg ring-1',
               toast.tone === 'success' && 'bg-emerald-600 text-white ring-emerald-700',
               toast.tone === 'error' && 'bg-rose-600 text-white ring-rose-700',
-              toast.tone === 'info' && 'bg-navy-900 text-white ring-navy-800',
+              toast.tone === 'info' && 'bg-shell text-shell-fg ring-shell-line',
             )}
           >
             {toast.tone === 'success' ? <CheckCircle2 className="mt-0.5 size-4 shrink-0" />
@@ -298,15 +299,16 @@ export function Pagination({ page, pageSize, total, onChange }: { page: number; 
 
 export function Tabs({ tabs, active, onChange }: { tabs: { key: string; label: string; count?: number }[]; active: string; onChange: (key: string) => void }) {
   return (
-    <div role="tablist" className="flex flex-wrap gap-1 rounded-xl bg-navy-50 p-1">
+    <div role="tablist" className="segmented flex-wrap">
       {tabs.map((tab) => (
         <button
           key={tab.key}
           role="tab"
           aria-selected={active === tab.key}
           onClick={() => onChange(tab.key)}
+          aria-pressed={active === tab.key}
           className={clsx('rounded-lg px-3 py-1.5 text-sm transition',
-            active === tab.key ? 'bg-white font-medium text-navy-900 shadow-sm' : 'text-navy-600 hover:text-navy-900')}
+            active === tab.key ? 'bg-surface font-semibold text-navy-900 shadow-xs ring-1 ring-line' : 'text-navy-600 hover:text-navy-900')}
         >
           {tab.label}
           {tab.count !== undefined && <span className="mr-1 text-xs text-navy-400">({faNum(tab.count)})</span>}
@@ -316,18 +318,45 @@ export function Tabs({ tabs, active, onChange }: { tabs: { key: string; label: s
   );
 }
 
+export function WelcomePanel({ title, subtitle, badge, actions, aside, className }: {
+  title: string; subtitle?: string; badge?: string; actions?: ReactNode; aside?: ReactNode; className?: string;
+}) {
+  return (
+    <section className={clsx('relative isolate mb-6 overflow-hidden rounded-2xl border border-shell-line bg-gradient-to-l from-shell via-shell-2 to-primary p-5 text-white shadow-soft sm:p-7', className)}>
+      <div aria-hidden="true" className="pointer-events-none absolute -top-24 -left-16 size-64 rounded-full bg-white/10 blur-3xl" />
+      <div aria-hidden="true" className="pointer-events-none absolute -right-10 -bottom-10 size-56 rounded-full bg-brand-300/20 blur-3xl" />
+      <div className="relative flex flex-wrap items-end justify-between gap-5">
+        <div className="min-w-0">
+          {badge && (
+            <span className="mb-2 inline-flex items-center gap-1.5 rounded-full border border-white/20 bg-white/10 px-2.5 py-1 text-[11px] font-medium text-white/90">
+              <span className="size-1.5 rounded-full bg-emerald-300" aria-hidden="true" />
+              {badge}
+            </span>
+          )}
+          <h1 className="text-2xl font-bold tracking-tight text-balance sm:text-[1.7rem]">{title}</h1>
+          {subtitle && <p className="mt-1.5 max-w-2xl text-sm leading-relaxed text-white/80">{subtitle}</p>}
+        </div>
+        <div className="flex flex-wrap items-center gap-2">
+          {actions}
+          {aside}
+        </div>
+      </div>
+    </section>
+  );
+}
+
 export function StatCard({ label, value, hint, icon, tone = 'brand' }: {
   label: string; value: ReactNode; hint?: string; icon?: ReactNode; tone?: 'brand' | 'emerald' | 'amber' | 'rose' | 'navy';
 }) {
   const tones: Record<string, string> = {
-    brand: 'bg-brand-50 text-brand-700',
+    brand: 'bg-primary-soft text-accent',
     emerald: 'bg-emerald-50 text-emerald-700',
     amber: 'bg-amber-50 text-amber-700',
     rose: 'bg-rose-50 text-rose-700',
-    navy: 'bg-navy-50 text-navy-800',
+    navy: 'bg-surface-3 text-navy-700',
   };
   return (
-    <div className="card card-pad flex items-start justify-between gap-3">
+    <div className="card card-pad lift flex items-start justify-between gap-3">
       <div className="min-w-0">
         <p className="truncate text-xs font-medium text-navy-500">{label}</p>
         <p className="mt-1 text-2xl font-bold tracking-tight text-navy-900">{value}</p>

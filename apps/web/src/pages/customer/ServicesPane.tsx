@@ -5,8 +5,8 @@ import clsx from 'clsx';
 import { AppShell, PageHeader } from '../../components/shell';
 import { EmptyState, Loading, Select } from '../../components/ui';
 import { api } from '../../lib/api';
-import { useSite } from '../../lib/site';
-import { faNum, rial } from '../../lib/format';
+import { formatDuration, useSite } from '../../lib/site';
+import { rial } from '../../lib/format';
 
 export function CustomerServices() {
   const { site } = useSite();
@@ -30,7 +30,7 @@ export function CustomerServices() {
       <PageHeader title="خدمات قابل درخواست" description="خدمت مورد نظر را انتخاب کنید تا فرم اختصاصی آن باز شود." />
 
       <div className="card mb-4 flex flex-col gap-2 p-3 sm:flex-row">
-        <div className="flex flex-1 items-center gap-2 rounded-xl bg-navy-50 px-3">
+        <div className="flex flex-1 items-center gap-2 rounded-xl bg-surface-3 px-3">
           <Search className="size-4 text-navy-400" />
           <input value={query} onChange={(e) => setQuery(e.target.value)} placeholder="جست‌وجوی خدمت…" className="w-full bg-transparent py-2 text-sm outline-none" />
         </div>
@@ -45,13 +45,13 @@ export function CustomerServices() {
         {services.map((service) => (
           <div key={service.id} className="card flex flex-col p-4">
             <div className="flex items-start justify-between gap-2">
-              <span className="badge bg-brand-50 text-brand-800">{service.categoryTitle ?? 'خدمت'}</span>
+              <span className="badge bg-brand-50 text-accent">{service.categoryTitle ?? 'خدمت'}</span>
               {!service.acceptingRequests && <span className="badge bg-amber-50 text-amber-800">غیرفعال</span>}
             </div>
             <p className="mt-2 font-semibold text-navy-900">{service.title}</p>
             <p className="mt-1 line-clamp-2 flex-1 text-xs leading-6 text-navy-500">{service.summary}</p>
             <div className="mt-3 flex items-center justify-between border-t border-navy-900/5 pt-2 text-[11px]">
-              <span className="flex items-center gap-1 text-navy-500"><Clock className="size-3.5" /> {faNum(service.estimatedDays)} روز</span>
+              <span className="flex items-center gap-1 text-navy-500"><Clock className="size-3.5" /> {formatDuration(service.estimatedMinutes, service.estimatedDays)}</span>
               <span className="font-semibold text-navy-900">{rial(service.finalFee)}</span>
             </div>
             <Link to={`/services/${service.slug}`}

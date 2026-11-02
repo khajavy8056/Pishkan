@@ -3,7 +3,7 @@ import { id } from '../../lib/crypto.js';
 import { badRequest,conflict,forbidden,notFound } from '../../http/errors.js';
 import { hasPermission } from '../../lib/permissions.js';
 import { officeScope } from '../../lib/scope.js';
-import { addEvent,attachDocument } from '../requests/service.js';
+import { addEvent,attachDocument,reviewDocument,reconcileAfterDocumentReview } from '../requests/service.js';
 import { notifyRole,notifyUser } from '../notifications/service.js';
 import { writeAudit } from '../audit/service.js';
 
@@ -32,14 +32,41 @@ export async function handoff(requestId:string,department:'management'|'accounti
   return {id:handoffId};
  });
 }
-export async function deliver(requestId:string,files:{fileId:string;title:string}[],summary:string,auth:Auth){
+export async function deliver(requestId:string,files:{fileId:string;title:string;replacesDocumentId?:string|null}[],summary:string,auth:Auth){
  return tx(async()=>{
   await run('UPDATE requests SET updated_at=updated_at WHERE id=?',[requestId]);
   const row=await caseAccess(requestId,auth);
   if(!hasPermission(auth.permissions,'requests.edit'))throw forbidden();
   if(!['assigned','in_progress','waiting_documents','waiting_customer'].includes(row.status))throw conflict('پرونده در وضعیت قابل تحویل نیست.');
   if(!files.length)throw badRequest('حداقل یک فایل نتیجه لازم است.');
-  for(const file of files)await attachDocument(requestId,file.fileId,file.title,{id:auth.user.id,name:auth.user.fullName},'staff');
+  if(await one("SELECT id FROM request_handoffs WHERE request_id=? AND department='management' AND status='pending' LIMIT 1",[requestId])) {
+   throw conflict('ارجاع مدیریت قبلی هنوز باز است؛ ابتدا تصمیم آن را ثبت کنید.');
+  }
+
+  const rejected=await q<any>(`SELECT d.id,d.title FROM request_documents d
+   WHERE d.request_id=? AND d.kind='staff' AND d.status='rejected'
+    AND NOT EXISTS(SELECT 1 FROM request_documents child WHERE child.replaces_document_id=d.id)
+   ORDER BY d.created_at DESC`,[requestId]);
+  const selectedReplacements=new Set<string>();
+  const preparedFiles=files.map((file)=>{
+   let replacesDocumentId=file.replacesDocumentId??null;
+   if(!replacesDocumentId&&rejected.length){
+    const exact=rejected.filter((document)=>document.title===file.title&&!selectedReplacements.has(document.id));
+    if(exact.length===1)replacesDocumentId=exact[0].id;
+    else if(rejected.length===1&&files.length===1)replacesDocumentId=rejected[0].id;
+   }
+   if(replacesDocumentId){
+    if(!rejected.some((document)=>document.id===replacesDocumentId))throw conflict('شناسهٔ جایگزینی باید به نتیجهٔ ردشده و فعال همین پرونده اشاره کند.');
+    if(selectedReplacements.has(replacesDocumentId))throw conflict('هر نتیجهٔ ردشده فقط یک بار می‌تواند جایگزین شود.');
+    selectedReplacements.add(replacesDocumentId);
+   }
+   return {...file,replacesDocumentId};
+  });
+  if(rejected.some((document)=>!selectedReplacements.has(document.id))){
+   throw conflict('برای هر نتیجهٔ ردشده، نسخهٔ جایگزین را انتخاب کنید؛ نتیجهٔ قبلی تا آن زمان جلوی تحویل نهایی را می‌گیرد.');
+  }
+
+  for(const file of preparedFiles)await attachDocument(requestId,file.fileId,file.title,{id:auth.user.id,name:auth.user.fullName},'staff',{replacesDocumentId:file.replacesDocumentId});
   await run("UPDATE requests SET status='under_review',updated_at=? WHERE id=?",[nowIso(),requestId]);
   await addEvent({requestId,type:'delivery',actorId:auth.user.id,actorName:auth.user.fullName,message:`ارسال نتیجه برای تأیید: ${summary}`,fromStatus:row.status,toStatus:'under_review',visibleToCustomer:false});
   const review=await handoff(requestId,'management',summary,auth);
@@ -54,11 +81,32 @@ export async function decide(handoffId:string,decision:'approved'|'returned',not
   await run('UPDATE requests SET updated_at=updated_at WHERE id=?',[current.request_id]);
   const changed=await run("UPDATE request_handoffs SET status=?,decision_note=?,decided_by=?,decided_at=? WHERE id=? AND status='pending'",[decision,note,auth.user.id,nowIso(),handoffId]);
   if(!changed.changes)throw conflict('این ارجاع قبلاً بررسی شده است.');
-  const row=await one<any>('SELECT * FROM requests WHERE id=?',[current.request_id]);
+  let row=await one<any>('SELECT * FROM requests WHERE id=?',[current.request_id]);
+  if(!row)throw notFound('درخواست یافت نشد.');
+
   if(current.department==='management'&&decision==='approved'){
-   await run("UPDATE request_documents SET status='approved',reviewed_by=?,review_note=? WHERE request_id=? AND kind='staff' AND status='pending'",[auth.user.id,note,current.request_id]);
+   const pendingFiles=await q<any>(`SELECT d.id FROM request_documents d
+    WHERE d.request_id=? AND d.kind='staff' AND d.status='pending'
+     AND NOT EXISTS(SELECT 1 FROM request_documents child WHERE child.replaces_document_id=d.id)
+    ORDER BY d.created_at ASC`,[current.request_id]);
+   for(const file of pendingFiles)await reviewDocument(file.id,'approved',note,{id:auth.user.id,name:auth.user.fullName});
   }
-  if(decision==='returned'&&row.status==='under_review')await run("UPDATE requests SET status='in_progress',updated_at=? WHERE id=?",[nowIso(),row.id]);
+  if(current.department==='management'&&decision==='returned'&&row.status==='under_review'){
+   const pendingFiles=await q<any>(`SELECT d.id FROM request_documents d
+    WHERE d.request_id=? AND d.kind='staff' AND d.status='pending'
+     AND NOT EXISTS(SELECT 1 FROM request_documents child WHERE child.replaces_document_id=d.id)
+    ORDER BY d.created_at ASC`,[current.request_id]);
+   for(const file of pendingFiles)await reviewDocument(file.id,'rejected',note,{id:auth.user.id,name:auth.user.fullName});
+   row=await one<any>('SELECT * FROM requests WHERE id=?',[current.request_id]);
+   if(row?.status==='under_review'){
+    const ts=nowIso();
+    await run("UPDATE requests SET status='in_progress',updated_at=? WHERE id=?",[ts,row.id]);
+    await addEvent({requestId:row.id,type:'status',actorId:auth.user.id,actorName:auth.user.fullName,fromStatus:'under_review',toStatus:'in_progress',message:'نتیجهٔ تحویل برای اصلاح برگشت داده شد.'});
+    row={...row,status:'in_progress'};
+   }
+  }
+
+  await reconcileAfterDocumentReview(row.id,{id:auth.user.id,name:auth.user.fullName});
   await addEvent({requestId:row.id,type:'handoff_decision',actorId:auth.user.id,actorName:auth.user.fullName,message:`${decision==='approved'?'تأیید':'برگشت برای اصلاح'} ${current.department==='management'?'مدیریت':'حسابداری'}: ${note}`,visibleToCustomer:false,metadata:{handoffId,decision}});
   if(row.assigned_to)await notifyUser(row.assigned_to,{title:decision==='approved'?'ارجاع شما تأیید شد':'ارجاع برای اصلاح برگشت خورد',body:note,link:`/staff/requests/${row.id}`});
   await writeAudit({actorId:auth.user.id,actorName:auth.user.fullName,action:'request.handoff_decide',entityType:'request',entityId:row.id,after:{handoffId,decision,note}});

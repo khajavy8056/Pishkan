@@ -1,6 +1,7 @@
 import { officeScope } from '../lib/scope.js';
 import { Router } from 'express';
 import { asyncRoute, requireAuth } from '../http/middleware.js';
+import { forbidden } from '../http/errors.js';
 import { ok } from '../http/respond.js';
 import { one, q, nowIso } from '../db/index.js';
 import { hasPermission } from '../lib/permissions.js';
@@ -16,6 +17,7 @@ dashboardRouter.use(requireAuth);
 /** Role-aware dashboard payload: one endpoint, three experiences. */
 dashboardRouter.get('/summary', asyncRoute(async (req, res) => {
   const auth = req.auth!;
+  if (auth.user.kind !== 'customer' && !hasPermission(auth.permissions, 'dashboard.view')) throw forbidden();
   const kind = auth.user.kind === 'customer' ? 'customer'
     : officeScope(auth) ? 'admin' : 'staff';
 
@@ -72,13 +74,15 @@ dashboardRouter.get('/summary', asyncRoute(async (req, res) => {
   const unassigned = await one<{ c: number }>(
     `SELECT COUNT(*) AS c FROM requests WHERE assigned_to IS NULL AND status NOT IN ('completed','cancelled','rejected')`,
   );
-  const pendingDocs = await one<{ c: number }>(`SELECT COUNT(*) AS c FROM request_documents WHERE status = 'pending'`);
+  const pendingDocs = await one<{ c: number }>(`SELECT
+    (SELECT COUNT(*) FROM request_documents WHERE status='pending') +
+    (SELECT COUNT(*) FROM customer_documents WHERE status='pending') AS c`);
   const unreadThreads = await one<{ c: number }>(
     `SELECT COUNT(*) AS c FROM messages WHERE read_at IS NULL AND sender_role = 'customer'`,
   );
 
   const recentRequests = await q<any>(
-    `SELECT r.id, r.tracking_code, r.status, r.priority, r.created_at, r.due_at,
+    `SELECT r.id, r.tracking_code, r.status, r.priority, r.created_at, r.due_at, r.estimated_completion_at,
             s.title AS service_title, c.full_name AS customer_name, a.full_name AS assignee_name
      FROM requests r JOIN services s ON s.id = r.service_id JOIN users c ON c.id = r.customer_id
      LEFT JOIN users a ON a.id = r.assigned_to
@@ -126,10 +130,10 @@ dashboardRouter.get('/summary', asyncRoute(async (req, res) => {
       id: r.id, trackingCode: r.tracking_code, status: r.status,
       statusLabel: STATUS_LABELS[r.status as keyof typeof STATUS_LABELS] ?? r.status,
       priority: r.priority, serviceTitle: r.service_title, customerName: r.customer_name,
-      assigneeName: r.assignee_name, dueAt: r.due_at, createdAt: r.created_at,
+      assigneeName: r.assignee_name, dueAt: r.due_at, deadlineAt: r.due_at, estimatedCompletionAt: r.estimated_completion_at, createdAt: r.created_at,
     })),
     urgent: urgent.map((r) => ({
-      id: r.id, trackingCode: r.tracking_code, status: r.status, dueAt: r.due_at,
+      id: r.id, trackingCode: r.tracking_code, status: r.status, dueAt: r.due_at, deadlineAt: r.due_at,
       serviceTitle: r.service_title, customerName: r.customer_name,
     })),
     staffLoad: staffLoad.map((s) => ({ id: s.id, fullName: s.full_name, active: Number(s.active) })),

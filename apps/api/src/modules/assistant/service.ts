@@ -6,7 +6,7 @@ export interface AssistantReply {
   reply: string;
   suggestions: {
     id: string; slug: string; title: string; summary: string; categoryTitle?: string | null;
-    fee: number; estimatedDays: number; needsReview: boolean;
+    fee: number; estimatedMinutes: number; estimatedDays: number; needsReview: boolean;
   }[];
   followUpQuestions: string[];
   intent: 'greeting' | 'find_service' | 'fee' | 'status' | 'documents' | 'handoff' | 'smalltalk' | 'unknown';
@@ -22,6 +22,15 @@ const FEE_WORDS = ['هزینه', 'قیمت', 'تعرفه', 'چقدر', 'مبلغ
 const DOC_WORDS = ['مدرک', 'مدارک', 'چه چیز لازم', 'چه مدارکی', 'نیاز دارم'];
 const HUMAN_WORDS = ['کارشناس', 'اپراتور', 'انسانی', 'پشتیبان', 'تماس بگیر', 'شکایت'];
 
+function formatServiceDuration(minutes: number): string {
+  const total = Math.max(0, Math.trunc(Number(minutes) || 0));
+  const formatNumber = (value: number) => value.toLocaleString('fa-IR');
+  if (total < 1) return '—';
+  if (total % 1440 === 0) return `${formatNumber(total / 1440)} روز`;
+  if (total % 60 === 0) return `${formatNumber(total / 60)} ساعت`;
+  return `${formatNumber(total)} دقیقه`;
+}
+
 function toSuggestion(service: ServiceDTO) {
   return {
     id: service.id,
@@ -30,6 +39,7 @@ function toSuggestion(service: ServiceDTO) {
     summary: service.summary,
     categoryTitle: service.categoryTitle,
     fee: service.finalFee,
+    estimatedMinutes: service.estimatedMinutes,
     estimatedDays: service.estimatedDays,
     needsReview: service.needsReview,
   };
@@ -118,9 +128,9 @@ async function builtinReply(message: string, options: { customerId?: string }): 
       : 'برای این خدمت مدارک اختصاصی ثبت نشده است.';
     reply = `مدارک خدمت «${primary.title}»:\n${docs}`;
   } else if (wantsFee) {
-    reply = `هزینه نمایش‌داده‌شده برای «${primary.title}» حدود ${primary.finalFee.toLocaleString('fa-IR')} ریال و زمان تخمینی ${primary.estimatedDays} روز کاری است. این مقدار نمونه است و هزینه نهایی پس از بررسی مدارک توسط دفتر اعلام می‌شود.`;
+    reply = `هزینه نمایش‌داده‌شده برای «${primary.title}» حدود ${primary.finalFee.toLocaleString('fa-IR')} ریال و زمان تخمینی ${formatServiceDuration(primary.estimatedMinutes)} است. این مقدار نمونه است و هزینه نهایی پس از بررسی مدارک توسط دفتر اعلام می‌شود.`;
   } else {
-    reply = `بر اساس درخواست شما، این خدمات را پیشنهاد می‌کنم:\n${top.map((s, i) => `${i + 1}. ${s.title} — ${s.summary}`).join('\n')}\n\nبرای ثبت درخواست، روی خدمت مورد نظر بزنید؛ فرم اختصاصی همان خدمت باز می‌شود.`;
+    reply = `بر اساس درخواست شما، این خدمات را پیشنهاد می‌کنم:\n${top.map((s, i) => `${i + 1}. ${s.title} — ${s.summary} (زمان تخمینی ${formatServiceDuration(s.estimatedMinutes)})`).join('\n')}\n\nبرای ثبت درخواست، روی خدمت مورد نظر بزنید؛ فرم اختصاصی همان خدمت باز می‌شود.`;
   }
 
   return {
@@ -152,7 +162,8 @@ async function llmReply(message: string, history: { role: 'user' | 'assistant'; 
 
   const matches = await searchServices(message, { limit: 6, customerId });
   const context = matches.map((s) => ({
-    title: s.title, summary: s.summary, fee_sample: s.finalFee, days: s.estimatedDays,
+    title: s.title, summary: s.summary, fee_sample: s.finalFee,
+    estimated_minutes: s.estimatedMinutes, estimated_days: s.estimatedDays,
     documents: s.documents.map((d) => d.title), required_fields: s.form.filter((f) => f.required).map((f) => f.label),
   }));
 

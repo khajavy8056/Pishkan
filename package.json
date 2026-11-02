@@ -1,7 +1,7 @@
 {
   "name": "pishkan",
   "private": true,
-  "version": "1.0.0",
+  "version": "1.2.0",
   "description": "سامانه جامع اتوماسیون دفتر پیشخوان دولت",
   "license": "UNLICENSED",
   "workspaces": [
@@ -16,9 +16,20 @@
     "test": "npm run test --workspace apps/api && npm run test --workspace apps/web",
     "migrate": "npm run migrate --workspace apps/api",
     "seed": "npm run seed --workspace apps/api",
-    "typecheck": "npm run typecheck --workspace apps/api && npm run typecheck --workspace apps/web"
+    "typecheck": "npm run typecheck --workspace apps/api && npm run typecheck --workspace apps/web",
+    "check:contrast": "npm run check:contrast --workspace apps/web",
+    "verify": "npm run typecheck && npm test && npm run check:contrast",
+    "test:windows": "node windows/lib/selftest.mjs",
+    "verify:runtime": "node windows/lib/verify.mjs --mode core --env .env.windows.local",
+    "verify:workflow": "node windows/lib/verify.mjs --mode workflow --env .env.windows.local",
+    "windows:icon": "node windows/lib/make-icon.mjs",
+    "windows:manager": "node windows/lib/manager.mjs"
   },
   "engines": {
     "node": ">=22.22.2"
+  },
+  "devDependencies": {
+    "tree-sitter-powershell": "^0.26.6",
+    "web-tree-sitter": "^0.27.1"
   }
 }

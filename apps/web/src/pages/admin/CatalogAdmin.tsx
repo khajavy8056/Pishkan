@@ -13,9 +13,21 @@ import {
 import { api, ApiFailure } from '../../lib/api';
 import { faNum, rial } from '../../lib/format';
 import { useAuth } from '../../lib/auth';
-import type { FormField, WorkflowStep } from '../../lib/site';
+import { formatDuration, type FormField, type WorkflowStep } from '../../lib/site';
 
-interface DocItem { title: string; required: boolean; note?: string }
+interface DocItem { key: string; title: string; required: boolean; note?: string }
+
+const DURATION_UNITS = [
+  { value: 'minute', label: 'دقیقه', factor: 1 },
+  { value: 'hour', label: 'ساعت', factor: 60 },
+  { value: 'day', label: 'روز', factor: 1440 },
+] as const;
+function durationUnitFor(minutes: number) {
+  return minutes % 1440 === 0 ? 'day' : minutes % 60 === 0 ? 'hour' : 'minute';
+}
+function durationFactor(unit: string) {
+  return DURATION_UNITS.find((candidate) => candidate.value === unit)?.factor ?? 1;
+}
 
 /* ------------------------------ services list ----------------------------- */
 
@@ -88,10 +100,10 @@ export function AdminServices() {
         actions={can('services.create') ? <Link to="/admin/services/new" className="btn-primary btn-sm"><Plus className="size-4" /> خدمت جدید</Link> : undefined}
       />
 
-      <div className="mb-4 flex gap-1 rounded-xl bg-white p-1 ring-1 ring-navy-900/8 sm:w-fit">
+      <div className="mb-4 flex gap-1 rounded-xl bg-surface p-1 ring-1 ring-line sm:w-fit">
         {[{ key: 'services', label: 'خدمات' }, { key: 'categories', label: 'دسته‌بندی‌ها' }].map((item) => (
           <button key={item.key} onClick={() => setTab(item.key as any)}
-            className={clsx('rounded-lg px-4 py-1.5 text-sm transition', tab === item.key ? 'bg-brand-700 text-white' : 'text-navy-600 hover:bg-navy-50')}>
+            className={clsx('rounded-lg px-4 py-1.5 text-sm transition', tab === item.key ? 'bg-brand-700 text-white' : 'text-navy-600 hover:bg-surface-3')}>
             {item.label}
           </button>
         ))}
@@ -100,7 +112,7 @@ export function AdminServices() {
       {tab === 'services' && (
         <>
           <div className="card mb-4 flex flex-col gap-2 p-3 sm:flex-row">
-            <div className="flex flex-1 items-center gap-2 rounded-xl bg-navy-50 px-3">
+            <div className="flex flex-1 items-center gap-2 rounded-xl bg-surface-3 px-3">
               <Search className="size-4 text-navy-400" />
               <input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="جست‌وجوی خدمت…" className="w-full bg-transparent py-2 text-sm outline-none" />
             </div>
@@ -117,7 +129,7 @@ export function AdminServices() {
                 <div className="flex flex-wrap items-start justify-between gap-3">
                   <div className="min-w-0">
                     <div className="flex flex-wrap items-center gap-2">
-                      <Link to={`/admin/services/${service.id}`} className="font-medium text-navy-900 hover:text-brand-700">{service.title}</Link>
+                      <Link to={`/admin/services/${service.id}`} className="font-medium text-navy-900 hover:text-accent">{service.title}</Link>
                       {!service.isPublished && <Badge tone="default">پنهان از کاتالوگ</Badge>}
                       {service.isPublished && !service.acceptingRequests && <Badge tone="warning">پذیرش متوقف</Badge>}
                       {service.needsReview && <Badge tone="warning">نیازمند بازبینی</Badge>}
@@ -125,7 +137,7 @@ export function AdminServices() {
                     </div>
                     <p className="mt-1 text-[11px] text-navy-500">
                       {service.categoryTitle ?? 'بدون دسته'} • {rial(service.finalFee)}
-                      {service.discountPercent > 0 ? ` (${faNum(service.discountPercent)}٪ تخفیف)` : ''} • {faNum(service.estimatedDays)} روز
+                      {service.discountPercent > 0 ? ` (${faNum(service.discountPercent)}٪ تخفیف)` : ''} • {formatDuration(service.estimatedMinutes, service.estimatedDays)}
                       • {faNum(service.form.length)} فیلد فرم • {faNum(service.documents.length)} مدرک
                     </p>
                   </div>
@@ -210,8 +222,8 @@ const FIELD_TYPES = [
 
 const emptyService = {
   title: '', slug: '', categoryId: '', summary: '', description: '', icon: '', image: null as string | null,
-  coverage:'nationwide',cityIds:[] as string[],urgentEnabled:false,urgentPercent:25,urgentDays:1,urgentCapacity:2,
-  baseFee: 0, discountPercent: 0, estimatedDays: 3, paymentMethods: ['online', 'cash'] as string[],
+  coverage:'nationwide',cityIds:[] as string[],urgentEnabled:false,urgentPercent:25,urgentMinutes:1440,urgentUnit:'day',urgentDays:1,urgentCapacity:2,
+  baseFee: 0, discountPercent: 0, estimatedMinutes: 4320, estimatedUnit:'day', estimatedDays: 3, paymentMethods: ['online', 'cash'] as string[],
   tags: [] as string[], contactNotice: '', isPublished: true, acceptingRequests: true, needsReview: true, sortOrder: 100,
   form: [] as FormField[], documents: [] as DocItem[], workflow: [] as WorkflowStep[],
 };
@@ -234,7 +246,13 @@ export function AdminServiceEditor() {
     api.get<{data:any[]}>('/api/public/cities').then(r=>setCities(r.data)).catch(()=>notify('دریافت شهرها ناموفق بود','error'));
     if (isNew) return;
     api.get<{ data: any }>(`/api/catalog/admin/services/${id}`)
-      .then((res) => setService({ ...emptyService, ...res.data }))
+      .then((res) => setService({
+        ...emptyService, ...res.data,
+        estimatedMinutes: Number(res.data.estimatedMinutes ?? Number(res.data.estimatedDays ?? 3) * 1440),
+        estimatedUnit: durationUnitFor(Number(res.data.estimatedMinutes ?? Number(res.data.estimatedDays ?? 3) * 1440)),
+        urgentMinutes: Number(res.data.urgentMinutes ?? Number(res.data.urgentDays ?? 1) * 1440),
+        urgentUnit: durationUnitFor(Number(res.data.urgentMinutes ?? Number(res.data.urgentDays ?? 1) * 1440)),
+      }))
       .catch((err) => setError(err instanceof ApiFailure ? err.message : 'خدمت یافت نشد'))
       .finally(() => setLoading(false));
   }, [id]);
@@ -252,6 +270,10 @@ export function AdminServiceEditor() {
       delete payload.createdAt;
       delete payload.updatedAt;
       delete payload.id;
+      delete payload.estimatedDays;
+      delete payload.urgentDays;
+      delete payload.estimatedUnit;
+      delete payload.urgentUnit;
       delete payload.finalFee;
       delete payload.isCustom;
       delete payload.ownerCustomerId;
@@ -286,7 +308,12 @@ export function AdminServiceEditor() {
     set({ form: next });
   };
 
-  const addDoc = () => set({ documents: [...service.documents, { title: '', required: true }] });
+  const addDoc = () => {
+    const used = new Set<string>(service.documents.map((doc: DocItem) => doc.key));
+    let index = 1;
+    while (used.has(`document_${index}`)) index += 1;
+    set({ documents: [...service.documents, { key: `document_${index}`, title: '', required: true }] });
+  };
   const updateDoc = (index: number, patch: Partial<DocItem>) =>
     set({ documents: service.documents.map((d: DocItem, i: number) => (i === index ? { ...d, ...patch } : d)) });
 
@@ -320,11 +347,11 @@ export function AdminServiceEditor() {
 
       {error && <ErrorState message={error} />}
 
-      <div className="mb-4 flex flex-wrap gap-1 rounded-xl bg-white p-1 ring-1 ring-navy-900/8">
+      <div className="mb-4 flex flex-wrap gap-1 rounded-xl bg-surface p-1 ring-1 ring-line">
         {tabs.map((item) => (
           <button key={item.key} onClick={() => setTab(item.key)}
             className={clsx('flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-sm transition',
-              tab === item.key ? 'bg-brand-700 text-white' : 'text-navy-600 hover:bg-navy-50')}>
+              tab === item.key ? 'bg-brand-700 text-white' : 'text-navy-600 hover:bg-surface-3')}>
             {item.icon} {item.label}
           </button>
         ))}
@@ -374,7 +401,7 @@ export function AdminServiceEditor() {
               {service.form.length === 0 && <EmptyState title="فیلدی تعریف نشده" description="حداقل نام و شماره تماس را اضافه کنید." />}
               <div className="space-y-3">
                 {service.form.map((field: FormField, index: number) => (
-                  <div key={index} className="rounded-xl bg-navy-50/50 p-3">
+                  <div key={index} className="rounded-xl bg-surface-3/50 p-3">
                     <div className="mb-2 flex items-center justify-between">
                       <span className="flex items-center gap-1 text-[11px] text-navy-500"><GripVertical className="size-3.5" /> فیلد {faNum(index + 1)}</span>
                       <div className="flex gap-1">
@@ -416,14 +443,18 @@ export function AdminServiceEditor() {
               {service.documents.length === 0 && <EmptyState title="مدرکی تعریف نشده" />}
               <div className="space-y-2">
                 {service.documents.map((doc: DocItem, index: number) => (
-                  <div key={index} className="flex flex-wrap items-center gap-2 rounded-xl bg-navy-50/50 p-2">
-                    <Input value={doc.title} onChange={(e) => updateDoc(index, { title: e.target.value })} placeholder="عنوان مدرک (مثلاً: تصویر کارت ملی)" className="flex-1" />
-                    <label className="flex items-center gap-1 text-[11px] text-navy-700">
-                      <input type="checkbox" checked={doc.required} onChange={(e) => updateDoc(index, { required: e.target.checked })} className="size-3.5" /> الزامی
-                    </label>
-                    <Button size="sm" variant="ghost" onClick={() => set({ documents: service.documents.filter((_: any, i: number) => i !== index) })} aria-label="حذف">
-                      <Trash2 className="size-3.5" />
-                    </Button>
+                  <div key={doc.key || index} className="space-y-2 rounded-xl bg-surface-3/50 p-3">
+                    <div className="flex flex-wrap items-center gap-2">
+                      <Input value={doc.key ?? `document_${index + 1}`} onChange={(e) => updateDoc(index, { key: e.target.value.replace(/[^a-zA-Z0-9_]/g, '') })} placeholder="شناسه یکتا" dir="ltr" className="w-36 text-left" aria-label="شناسه مدرک" />
+                      <Input value={doc.title} onChange={(e) => updateDoc(index, { title: e.target.value })} placeholder="عنوان مدرک (مثلاً: تصویر کارت ملی)" className="min-w-48 flex-1" />
+                      <label className="flex items-center gap-1 text-[11px] text-navy-700">
+                        <input type="checkbox" checked={doc.required} onChange={(e) => updateDoc(index, { required: e.target.checked })} className="size-3.5" /> الزامی
+                      </label>
+                      <Button size="sm" variant="ghost" onClick={() => set({ documents: service.documents.filter((_: any, i: number) => i !== index) })} aria-label="حذف">
+                        <Trash2 className="size-3.5" />
+                      </Button>
+                    </div>
+                    <Input value={doc.note ?? ''} onChange={(e) => updateDoc(index, { note: e.target.value })} placeholder="توضیح برای مشتری (اختیاری)" />
                   </div>
                 ))}
               </div>
@@ -442,7 +473,7 @@ export function AdminServiceEditor() {
               {service.workflow.length === 0 && <EmptyState title="مرحله‌ای تعریف نشده" />}
               <div className="space-y-2">
                 {service.workflow.map((step: WorkflowStep, index: number) => (
-                  <div key={index} className="rounded-xl bg-navy-50/50 p-3">
+                  <div key={index} className="rounded-xl bg-surface-3/50 p-3">
                     <div className="flex items-center gap-2">
                       <span className="grid size-6 shrink-0 place-items-center rounded-full bg-brand-700 text-[11px] text-white">{faNum(index + 1)}</span>
                       <Input value={step.title} onChange={(e) => updateStep(index, { title: e.target.value })} placeholder="عنوان مرحله" />
@@ -465,10 +496,33 @@ export function AdminServiceEditor() {
                     <Input type="number" value={service.baseFee} onChange={(e) => set({ baseFee: Number(e.target.value) })} />
                   </Field>
                   <Field label="درصد تخفیف"><Input type="number" value={service.discountPercent} onChange={(e) => set({ discountPercent: Number(e.target.value) })} /></Field>
-                  <Field label="زمان تخمینی (روز)"><Input type="number" value={service.estimatedDays} onChange={(e) => set({ estimatedDays: Number(e.target.value) })} /></Field>
+                  <Field label="زمان تخمینی" hint="به دقیقه ذخیره می‌شود؛ مقدار می‌تواند دقیقه، ساعت یا روز باشد.">
+                    <div className="flex gap-2">
+                      <Input type="number" min={1} step={service.estimatedUnit === 'minute' ? 1 : 0.5}
+                        value={Math.round((Number(service.estimatedMinutes) / durationFactor(service.estimatedUnit)) * 100) / 100}
+                        onChange={(e) => set({ estimatedMinutes: Number(e.target.value) * durationFactor(service.estimatedUnit) })} />
+                      <Select value={service.estimatedUnit} onChange={(e) => set({ estimatedUnit: e.target.value })}
+                        options={DURATION_UNITS.map((unit) => ({ value: unit.value, label: unit.label }))} className="w-32" />
+                    </div>
+                  </Field>
                 </div>
                 <div className="space-y-4 rounded-2xl border border-navy-100 p-4"><h3 className="text-sm font-bold">محدوده ارائه خدمت</h3><Select value={service.coverage} onChange={e=>set({coverage:e.target.value})} options={[{value:'nationwide',label:'سراسر کشور'},{value:'cities',label:'فقط شهرهای انتخابی'}]} />{service.coverage==='cities'&&<div className="max-h-48 space-y-2 overflow-auto">{cities.map(c=><label key={c.id} className="flex items-center gap-2 text-sm"><input type="checkbox" checked={service.cityIds.includes(c.id)} onChange={e=>set({cityIds:e.target.checked?[...service.cityIds,c.id]:service.cityIds.filter((v:string)=>v!==c.id)})} />{c.province} · {c.name}</label>)}</div>}<Button variant="ghost" size="sm" onClick={async()=>{const province=prompt('نام استان');if(!province)return;const name=prompt('نام شهر');if(!name)return;try{await api.post('/api/catalog/cities',{province,name});setCities((await api.get<{data:any[]}>('/api/public/cities')).data);notify('شهر ثبت شد','success')}catch(e){notify(e instanceof Error?e.message:'خطا','error')}}}>افزودن شهر به مرجع</Button></div>
-                <div className="space-y-4 rounded-2xl border border-amber-200 bg-amber-50/50 p-4"><label className="flex items-center gap-2 text-sm font-bold"><input type="checkbox" checked={service.urgentEnabled} onChange={e=>set({urgentEnabled:e.target.checked})} />پذیرش درخواست فوری</label>{service.urgentEnabled&&<div className="grid gap-3 sm:grid-cols-3"><Field label="افزایش درصدی مبلغ پایه"><Input type="number" min={0} max={500} value={service.urgentPercent} onChange={e=>set({urgentPercent:Number(e.target.value)})} /></Field><Field label="زمان فوری (روز کاری)"><Input type="number" min={1} value={service.urgentDays} onChange={e=>set({urgentDays:Number(e.target.value)})} /></Field><Field label="ظرفیت همزمان فوری"><Input type="number" min={0} value={service.urgentCapacity} onChange={e=>set({urgentCapacity:Number(e.target.value)})} /></Field></div>}</div>
+                <div className="space-y-4 rounded-2xl border border-amber-200 bg-amber-50/50 p-4">
+                  <label className="flex items-center gap-2 text-sm font-bold"><input type="checkbox" checked={service.urgentEnabled} onChange={(e) => set({ urgentEnabled: e.target.checked })} />پذیرش درخواست فوری</label>
+                  {service.urgentEnabled && <div className="grid gap-3 sm:grid-cols-3">
+                    <Field label="افزایش درصدی مبلغ پایه"><Input type="number" min={0} max={500} value={service.urgentPercent} onChange={(e) => set({ urgentPercent: Number(e.target.value) })} /></Field>
+                    <Field label="زمان فوری">
+                      <div className="flex gap-2">
+                        <Input type="number" min={1} step={service.urgentUnit === 'minute' ? 1 : 0.5}
+                          value={Math.round((Number(service.urgentMinutes) / durationFactor(service.urgentUnit)) * 100) / 100}
+                          onChange={(e) => set({ urgentMinutes: Number(e.target.value) * durationFactor(service.urgentUnit) })} />
+                        <Select value={service.urgentUnit} onChange={(e) => set({ urgentUnit: e.target.value })}
+                          options={DURATION_UNITS.map((unit) => ({ value: unit.value, label: unit.label }))} className="w-32" />
+                      </div>
+                    </Field>
+                    <Field label="ظرفیت همزمان فوری"><Input type="number" min={0} value={service.urgentCapacity} onChange={(e) => set({ urgentCapacity: Number(e.target.value) })} /></Field>
+                  </div>}
+                </div>
                 <div className="rounded-xl bg-brand-50/60 p-3 text-xs text-brand-900">
                   هزینه نهایی برای مشتری: <b>{rial(Math.round(service.baseFee * (1 - (service.discountPercent || 0) / 100)))}</b>
                 </div>
@@ -478,7 +532,7 @@ export function AdminServiceEditor() {
                     {[['online', 'پرداخت آنلاین'], ['cash', 'نقدی در دفتر'], ['pos', 'کارت‌خوان'], ['transfer', 'کارت به کارت']].map(([value, label]) => (
                       <button key={value} type="button" onClick={() => togglePayment(value)}
                         className={clsx('rounded-xl px-3 py-2 text-xs ring-1 transition',
-                          service.paymentMethods.includes(value) ? 'bg-brand-700 text-white ring-brand-700' : 'bg-white text-navy-700 ring-navy-900/10 hover:bg-navy-50')}>
+                          service.paymentMethods.includes(value) ? 'bg-brand-700 text-white ring-brand-700' : 'bg-surface text-navy-700 ring-line hover:bg-surface-3')}>
                         {label}
                       </button>
                     ))}
@@ -496,12 +550,12 @@ export function AdminServiceEditor() {
         <div className="space-y-4">
           <Card>
             <h2 className="mb-2 text-sm font-bold text-navy-900">پیش‌نمایش کارت</h2>
-            <div className="rounded-xl border border-navy-900/8 p-4">
+            <div className="rounded-xl border border-line p-4">
               <Badge tone="info">{categories.find((c) => c.id === service.categoryId)?.title ?? 'بدون دسته'}</Badge>
               <p className="mt-2 font-semibold text-navy-900">{service.title || 'عنوان خدمت'}</p>
               <p className="mt-1 line-clamp-2 text-xs text-navy-500">{service.summary || 'خلاصه خدمت…'}</p>
               <div className="mt-3 flex items-center justify-between border-t border-navy-900/5 pt-2 text-xs">
-                <span className="text-navy-500">{faNum(service.estimatedDays)} روز</span>
+                <span className="text-navy-500">{formatDuration(service.estimatedMinutes, service.estimatedDays)}</span>
                 <span className="font-semibold">{rial(Math.round(service.baseFee * (1 - (service.discountPercent || 0) / 100)))}</span>
               </div>
             </div>
@@ -513,7 +567,7 @@ export function AdminServiceEditor() {
           </Card>
 
           <Card>
-            <h2 className="mb-2 flex items-center gap-1.5 text-sm font-bold text-navy-900"><AlertTriangle className="size-4 text-amber-600" /> یادآوری</h2>
+            <h2 className="mb-2 flex items-center gap-1.5 text-sm font-bold text-navy-900"><AlertTriangle className="size-4 text-amber-700" /> یادآوری</h2>
             <p className="text-[11px] leading-6 text-navy-600">
               هزینه‌ها و شرایط خدمات دولتی باید از منبع رسمی همان دستگاه تأیید شود. مقادیر نمونه را قبل از انتشار عمومی
               با تعرفه رسمی جایگزین کنید و گزینه «هزینه/شرایط نمونه است» را خاموش کنید.
@@ -523,7 +577,7 @@ export function AdminServiceEditor() {
           {!isNew && (
             <Card>
               <h2 className="mb-2 flex items-center gap-1.5 text-sm font-bold text-navy-900"><Copy className="size-4" /> نشانی عمومی</h2>
-              <code dir="ltr" className="block break-all rounded-lg bg-navy-50 p-2 text-[11px] text-navy-700">/services/{service.slug}</code>
+              <code dir="ltr" className="block break-all rounded-lg bg-surface-3 p-2 text-[11px] text-navy-700">/services/{service.slug}</code>
             </Card>
           )}
         </div>

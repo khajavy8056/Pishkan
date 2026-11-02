@@ -1,0 +1,8 @@
+# Windows launchers must keep CRLF line endings: cmd.exe resolves `goto` labels
+# reliably only with CRLF, and Windows editors keep them unchanged.
+*.cmd text eol=crlf
+*.ps1 text eol=crlf
+
+# PowerShell 5.1 reads a BOM-less script with the ANSI code page, which breaks
+# the Persian text in our scripts. The BOM itself is stored as bytes in the file;
+# `windows/lib/ps-lint.mjs` enforces it in `npm run test:windows`.

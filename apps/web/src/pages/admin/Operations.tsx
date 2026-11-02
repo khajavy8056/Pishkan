@@ -112,7 +112,7 @@ export function AdminShifts() {
           {shifts.length === 0 && <EmptyState title="شیفتی ثبت نشده" />}
           <div className="max-h-96 space-y-2 overflow-y-auto scrollbar-thin">
             {shifts.slice(0, 40).map((shift) => (
-              <div key={shift.id} className="flex items-center justify-between gap-2 rounded-xl bg-navy-50/60 px-3 py-2">
+              <div key={shift.id} className="flex items-center justify-between gap-2 rounded-xl bg-surface-3 px-3 py-2">
                 <div className="min-w-0">
                   <p className="text-xs font-medium text-navy-900">{shift.userName ?? '—'}</p>
                   <p className="text-[11px] text-navy-500">{faDate(shift.date)} • {shift.startTime}–{shift.endTime} {shift.templateTitle ? `• ${shift.templateTitle}` : ''}</p>
@@ -131,7 +131,7 @@ export function AdminShifts() {
           {templates.length === 0 && <p className="text-sm text-navy-400">الگویی تعریف نشده است.</p>}
           <div className="space-y-2">
             {templates.map((template) => (
-              <div key={template.id} className="flex items-center justify-between gap-2 rounded-xl bg-navy-50/60 px-3 py-2">
+              <div key={template.id} className="flex items-center justify-between gap-2 rounded-xl bg-surface-3 px-3 py-2">
                 <div>
                   <p className="text-xs font-medium text-navy-900">{template.title}</p>
                   <p className="text-[11px] text-navy-500">
@@ -156,7 +156,7 @@ export function AdminShifts() {
           {changes.length === 0 && <p className="text-sm text-navy-400">درخواستی وجود ندارد.</p>}
           <div className="space-y-2">
             {changes.map((change) => (
-              <div key={change.id} className="rounded-xl bg-navy-50/60 px-3 py-2">
+              <div key={change.id} className="rounded-xl bg-surface-3 px-3 py-2">
                 <div className="flex items-start justify-between gap-2">
                   <div className="min-w-0">
                     <p className="text-xs font-medium text-navy-900">
@@ -236,7 +236,7 @@ export function AdminShifts() {
                       : [...templateForm.weekdays, index],
                   })}
                   className={clsx('rounded-lg px-2.5 py-1 text-xs ring-1 transition',
-                    templateForm.weekdays.includes(index) ? 'bg-brand-700 text-white ring-brand-700' : 'bg-white text-navy-600 ring-navy-900/10')}>
+                    templateForm.weekdays.includes(index) ? 'bg-brand-700 text-white ring-brand-700' : 'bg-surface text-navy-600 ring-line')}>
                   {day}
                 </button>
               ))}
@@ -257,6 +257,10 @@ export function AdminSystem() {
   const [backups, setBackups] = useState<{ items: any[]; status?: any }>({ items: [] });
   const [sessions, setSessions] = useState<any[]>([]);
   const [domain, setDomain] = useState<any>(null);
+  const [media, setMedia] = useState<any>(null);
+  const [mediaDiagnostics, setMediaDiagnostics] = useState<any>(null);
+  const [pruneResult, setPruneResult] = useState<any>(null);
+  const [mediaBusy, setMediaBusy] = useState(false);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [restoreModal, setRestoreModal] = useState<any>(null);
@@ -273,10 +277,13 @@ export function AdminSystem() {
       api.list<any>('/api/system/backups').catch(() => ({ data: [] } as any)),
       api.list<any>('/api/system/sessions').catch(() => ({ data: [] } as any)),
       api.get<{ data: any }>('/api/settings/domain-check').catch(() => null),
-    ]).then(([st, hl, bk, ss, dm]) => {
+      api.get<{ data: any }>('/api/files/media/stats').catch(() => null),
+      api.get<{ data: any }>('/api/files/media/diagnostics').catch(() => null),
+    ]).then(([st, hl, bk, ss, dm, md, mdg]) => {
       setStatus(st.data); setHealth(hl?.data ?? null);
       setBackups({ items: bk.data, status: (bk as any).meta ?? null });
       setSessions(ss.data); setDomain(dm?.data ?? null);
+      setMedia(md?.data ?? null); setMediaDiagnostics(mdg?.data ?? null);
     }).catch((err) => setError(err instanceof ApiFailure ? err.message : 'خطا در دریافت وضعیت'))
       .finally(() => setLoading(false));
   };
@@ -317,6 +324,17 @@ export function AdminSystem() {
     } finally { setBusy(false); }
   };
 
+  const previewPrune = async () => {
+    setMediaBusy(true);
+    try {
+      const res = await api.post<{ data: any }>('/api/files/media/prune-originals', { dryRun: true });
+      setPruneResult(res.data);
+      notify(res.data.candidates ? `${faNum(res.data.candidates)} نسخه اصلی قدیمی و قابل حذف شناسایی شد (بدون حذف).` : 'نسخه اصلی قدیمی برای حذف وجود ندارد.', 'info');
+    } catch (err) {
+      notify(err instanceof ApiFailure ? err.message : 'خطا در بررسی نسخه‌های اصلی', 'error');
+    } finally { setMediaBusy(false); }
+  };
+
   const revokeSession = async (session: any) => {
     try {
       await api.delete(`/api/system/sessions/${session.id}`);
@@ -346,7 +364,7 @@ export function AdminSystem() {
 
           <div className="mt-6 grid gap-6 lg:grid-cols-2">
             <Card>
-              <h2 className="mb-3 flex items-center gap-2 font-bold text-navy-900"><Database className="size-4 text-brand-700" /> پشتیبان‌گیری</h2>
+              <h2 className="mb-3 flex items-center gap-2 font-bold text-navy-900"><Database className="size-4 text-accent" /> پشتیبان‌گیری</h2>
               <div className="mb-3 flex flex-wrap gap-2">
                 <Button size="sm" loading={busy} onClick={createBackup}>ایجاد نسخه پشتیبان</Button>
                 <span className="self-center text-[11px] text-navy-500">
@@ -356,7 +374,7 @@ export function AdminSystem() {
               {backups.items.length === 0 && <p className="text-sm text-navy-400">نسخه پشتیبانی وجود ندارد.</p>}
               <div className="space-y-2">
                 {backups.items.map((backup) => (
-                  <div key={backup.id} className="rounded-xl bg-navy-50/60 px-3 py-2">
+                  <div key={backup.id} className="rounded-xl bg-surface-3 px-3 py-2">
                     <div className="flex flex-wrap items-center justify-between gap-2">
                       <div className="min-w-0">
                         <p dir="ltr" className="truncate text-right text-xs font-medium text-navy-900">{backup.filename}</p>
@@ -378,16 +396,53 @@ export function AdminSystem() {
             </Card>
 
             <Card>
-              <h2 className="mb-3 flex items-center gap-2 font-bold text-navy-900"><Globe className="size-4 text-brand-700" /> بررسی دامنه و HTTPS</h2>
+              <h2 className="mb-3 flex items-center gap-2 font-bold text-navy-900"><HardDrive className="size-4 text-accent" /> پردازش تصاویر و مدارک</h2>
+              {!media && <p className="text-sm text-navy-400">آمار رسانه در دسترس نیست.</p>}
+              {media && (
+                <>
+                  <div className="grid grid-cols-2 gap-2 text-xs">
+                    <div className="rounded-xl bg-surface-3 p-2"><p className="text-[10px] text-navy-500">فایل‌های خصوصی</p><p className="font-bold text-navy-900">{faNum(media.totalFiles)}</p></div>
+                    <div className="rounded-xl bg-surface-3 p-2"><p className="text-[10px] text-navy-500">میانگین کاهش حجم</p><p className="font-bold text-emerald-700">{faNum(media.averageSavingsPercent)}٪</p></div>
+                    <div className="rounded-xl bg-surface-3 p-2"><p className="text-[10px] text-navy-500">حجم ورودی اصلی</p><p className="font-bold text-navy-900">{faNum(Math.round(media.originalBytes / 1048576))} MB</p></div>
+                    <div className="rounded-xl bg-surface-3 p-2"><p className="text-[10px] text-navy-500">حجم نسخه نمایشی</p><p className="font-bold text-navy-900">{faNum(Math.round(media.servedBytes / 1048576))} MB</p></div>
+                  </div>
+                  <div className="mt-2 flex flex-wrap gap-1 text-[10px] text-navy-600">
+                    {Object.entries(media.byStatus ?? {}).map(([status, count]) => (
+                      <span key={status} className="rounded-lg bg-surface-3 px-2 py-1">{status}: {faNum(count as number)}</span>
+                    ))}
+                  </div>
+                  {mediaDiagnostics?.queue && (
+                    <p className="mt-2 text-[10px] text-navy-500">
+                      صف پردازش: {faNum(mediaDiagnostics.queue.active)} فعال، {faNum(mediaDiagnostics.queue.queued)} در انتظار
+                      {mediaDiagnostics.config ? ` • سیاست: ${mediaDiagnostics.config.qualityMode}` : ''}
+                    </p>
+                  )}
+                  <div className="mt-3 flex flex-wrap items-center gap-2">
+                    <Button size="sm" variant="ghost" loading={mediaBusy} onClick={previewPrune}>بررسی حذف نسخه‌های اصلی قدیمی</Button>
+                    {pruneResult && (
+                      <span className="text-[10px] text-navy-500">
+                        {faNum(pruneResult.candidates)} مورد واجد شرایط؛ حذف واقعی فقط با تأیید متنی در API انجام می‌شود.
+                      </span>
+                    )}
+                  </div>
+                  <p className="mt-2 text-[10px] leading-5 text-navy-500">
+                    نسخه اصلی مدارک به‌صورت پیش‌فرض دائمی نگهداری می‌شود؛ حذف خودکار انجام نمی‌شود تا بازیابی و بازبینی انسانی همیشه ممکن باشد.
+                  </p>
+                </>
+              )}
+            </Card>
+
+            <Card>
+              <h2 className="mb-3 flex items-center gap-2 font-bold text-navy-900"><Globe className="size-4 text-accent" /> بررسی دامنه و HTTPS</h2>
               {!domain && <p className="text-sm text-navy-400">اطلاعات دامنه در دسترس نیست.</p>}
               {domain && (
                 <>
                   <div className="space-y-2">
                     {domain.checks.map((check: any) => (
-                      <div key={check.key} className="flex items-start gap-2 rounded-xl bg-navy-50/60 px-3 py-2">
-                        {check.status === 'ok' ? <CheckCircle2 className="mt-0.5 size-4 text-emerald-600" />
-                          : check.status === 'warning' ? <AlertTriangle className="mt-0.5 size-4 text-amber-600" />
-                            : <XCircle className="mt-0.5 size-4 text-rose-600" />}
+                      <div key={check.key} className="flex items-start gap-2 rounded-xl bg-surface-3 px-3 py-2">
+                        {check.status === 'ok' ? <CheckCircle2 className="mt-0.5 size-4 text-emerald-700" />
+                          : check.status === 'warning' ? <AlertTriangle className="mt-0.5 size-4 text-amber-700" />
+                            : <XCircle className="mt-0.5 size-4 text-rose-700" />}
                         <div>
                           <p className="text-xs font-medium text-navy-900">{check.label}</p>
                           <p className="text-[11px] text-navy-500">{check.message}</p>
@@ -406,11 +461,11 @@ export function AdminSystem() {
             </Card>
 
             <Card>
-              <h2 className="mb-3 flex items-center gap-2 font-bold text-navy-900"><KeyRound className="size-4 text-brand-700" /> نشست‌های فعال</h2>
+              <h2 className="mb-3 flex items-center gap-2 font-bold text-navy-900"><KeyRound className="size-4 text-accent" /> نشست‌های فعال</h2>
               {sessions.length === 0 && <p className="text-sm text-navy-400">نشست فعالی نیست.</p>}
               <div className="max-h-64 space-y-2 overflow-y-auto scrollbar-thin">
                 {sessions.map((session) => (
-                  <div key={session.id} className="flex items-center justify-between gap-2 rounded-xl bg-navy-50/60 px-3 py-2">
+                  <div key={session.id} className="flex items-center justify-between gap-2 rounded-xl bg-surface-3 px-3 py-2">
                     <div className="min-w-0">
                       <p className="text-xs font-medium text-navy-900">{session.userName} <Badge tone="default">{session.kind === 'customer' ? 'مشتری' : 'کارمند'}</Badge></p>
                       <p dir="ltr" className="text-right text-[10px] text-navy-500">{session.ip} • {relative(session.lastSeenAt)}</p>
@@ -422,7 +477,7 @@ export function AdminSystem() {
             </Card>
 
             <Card>
-              <h2 className="mb-3 flex items-center gap-2 font-bold text-navy-900"><ShieldCheck className="size-4 text-emerald-600" /> سلامت سرویس</h2>
+              <h2 className="mb-3 flex items-center gap-2 font-bold text-navy-900"><ShieldCheck className="size-4 text-emerald-700" /> سلامت سرویس</h2>
               {!health && <p className="text-sm text-navy-400">اطلاعات سلامت در دسترس نیست.</p>}
               {health && (
                 <dl className="space-y-2 text-sm">
@@ -436,7 +491,7 @@ export function AdminSystem() {
               {health && (
                 <div className="mt-3 grid grid-cols-3 gap-2">
                   {Object.entries(health.records ?? {}).map(([key, value]) => (
-                    <div key={key} className="rounded-lg bg-navy-50/70 p-2 text-center">
+                    <div key={key} className="rounded-lg bg-surface-3 p-2 text-center">
                       <p className="text-[10px] text-navy-500">{key}</p>
                       <p className="text-sm font-semibold text-navy-900">{faNum(Number(value))}</p>
                     </div>
@@ -500,7 +555,7 @@ export function AdminAudit() {
                 <tr key={row.id}>
                   <td className="text-[11px]">{faDateTime(row.createdAt ?? row.created_at)}</td>
                   <td className="text-xs">{row.actorName ?? row.actor_name ?? 'سیستم'}</td>
-                  <td dir="ltr" className="text-left text-[11px] font-medium text-brand-800">{row.action}</td>
+                  <td dir="ltr" className="text-left text-[11px] font-medium text-accent">{row.action}</td>
                   <td className="text-[11px] text-navy-500">{row.entityType ?? row.entity_type} {row.entityId ?? row.entity_id ? `• ${(row.entityId ?? row.entity_id).slice(0, 10)}…` : ''}</td>
                   <td dir="ltr" className="text-left text-[11px] text-navy-400">{row.ip ?? '—'}</td>
                 </tr>

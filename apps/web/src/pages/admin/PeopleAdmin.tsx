@@ -99,7 +99,7 @@ export function AdminCustomers() {
         actions={can('customers.create') ? <Button size="sm" onClick={() => setCreating(true)}><UserPlus className="size-4" /> مشتری جدید</Button> : undefined} />
 
       <div className="card mb-4 flex flex-col gap-2 p-3 sm:flex-row">
-        <div className="flex flex-1 items-center gap-2 rounded-xl bg-navy-50 px-3">
+        <div className="flex flex-1 items-center gap-2 rounded-xl bg-surface-3 px-3">
           <Search className="size-4 text-navy-400" />
           <input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="نام، موبایل یا کد ملی…" className="w-full bg-transparent py-2 text-sm outline-none" />
         </div>
@@ -119,7 +119,7 @@ export function AdminCustomers() {
                   <td dir="ltr" className="text-left text-xs">{customer.mobile}</td>
                   <td className="text-xs text-navy-500">{customer.city ?? '—'}</td>
                   <td>{faNum(customer.requestCount)}</td>
-                  <td className={customer.outstanding > 0 ? 'text-rose-600' : 'text-navy-400'}>{rial(customer.outstanding)}</td>
+                  <td className={customer.outstanding > 0 ? 'text-rose-700' : 'text-navy-400'}>{rial(customer.outstanding)}</td>
                   <td><StatusBadge status={customer.status} /></td>
                   <td>
                     <div className="flex justify-end gap-1">
@@ -141,9 +141,9 @@ export function AdminCustomers() {
         {selected && (
           <div className="space-y-4 text-sm">
             <div className="grid gap-2 sm:grid-cols-3">
-              <div className="rounded-xl bg-navy-50/70 p-3"><p className="text-[10px] text-navy-500">موبایل</p><p dir="ltr">{selected.mobile}</p></div>
-              <div className="rounded-xl bg-navy-50/70 p-3"><p className="text-[10px] text-navy-500">کد ملی</p><p dir="ltr">{selected.nationalId ?? '—'}</p></div>
-              <div className="rounded-xl bg-navy-50/70 p-3"><p className="text-[10px] text-navy-500">آخرین ورود</p><p className="text-xs">{selected.lastLoginAt ? faDateTime(selected.lastLoginAt) : '—'}</p></div>
+              <div className="rounded-xl bg-surface-3 p-3"><p className="text-[10px] text-navy-500">موبایل</p><p dir="ltr">{selected.mobile}</p></div>
+              <div className="rounded-xl bg-surface-3 p-3"><p className="text-[10px] text-navy-500">کد ملی</p><p dir="ltr">{selected.nationalId ?? '—'}</p></div>
+              <div className="rounded-xl bg-surface-3 p-3"><p className="text-[10px] text-navy-500">آخرین ورود</p><p className="text-xs">{selected.lastLoginAt ? faDateTime(selected.lastLoginAt) : '—'}</p></div>
             </div>
             <div className="grid gap-2 sm:grid-cols-4">
               <StatCard label="پرونده‌ها" value={faNum(selected.stats?.total ?? 0)} />
@@ -156,7 +156,7 @@ export function AdminCustomers() {
               {selected.requests.length === 0 && <p className="text-xs text-navy-400">پرونده‌ای ندارد.</p>}
               <div className="space-y-1">
                 {selected.requests.map((request: any) => (
-                  <Link key={request.id} to={`/admin/requests/${request.id}`} className="flex items-center justify-between rounded-lg bg-navy-50/60 px-2 py-1.5 text-xs hover:bg-brand-50">
+                  <Link key={request.id} to={`/admin/requests/${request.id}`} className="flex items-center justify-between rounded-lg bg-surface-3 px-2 py-1.5 text-xs hover:bg-brand-50">
                     <span className="truncate">{request.serviceTitle} — {request.trackingCode}</span>
                     <StatusBadge status={request.status} label={request.statusLabel} />
                   </Link>
@@ -168,7 +168,7 @@ export function AdminCustomers() {
               {selected.invoices.length === 0 && <p className="text-xs text-navy-400">فاکتوری ندارد.</p>}
               <div className="space-y-1">
                 {selected.invoices.map((invoice: any) => (
-                  <div key={invoice.id} className="flex items-center justify-between rounded-lg bg-navy-50/60 px-2 py-1.5 text-xs">
+                  <div key={invoice.id} className="flex items-center justify-between rounded-lg bg-surface-3 px-2 py-1.5 text-xs">
                     <span>{invoice.number} — {rial(invoice.total)}</span>
                     <StatusBadge status={invoice.status} />
                   </div>
@@ -345,10 +345,10 @@ export function AdminStaff() {
       <PageHeader title="کارکنان و نقش‌ها" description="مدیریت کارکنان دفتر، ظرفیت کاری، تخصص و مجوزهای هر نقش."
         actions={can('staff.create') ? <Button size="sm" onClick={() => setCreating(true)}><Plus className="size-4" /> کارمند جدید</Button> : undefined} />
 
-      <div className="mb-4 flex gap-1 rounded-xl bg-white p-1 ring-1 ring-navy-900/8 sm:w-fit">
+      <div className="mb-4 flex gap-1 rounded-xl bg-surface p-1 ring-1 ring-line sm:w-fit">
         {[{ key: 'staff', label: 'کارکنان' }, { key: 'roles', label: 'نقش‌ها و مجوزها' }].map((item) => (
           <button key={item.key} onClick={() => { setTab(item.key as any); if (item.key === 'roles') void openRolesMeta(); }}
-            className={clsx('rounded-lg px-4 py-1.5 text-sm transition', tab === item.key ? 'bg-brand-700 text-white' : 'text-navy-600 hover:bg-navy-50')}>
+            className={clsx('rounded-lg px-4 py-1.5 text-sm transition', tab === item.key ? 'bg-brand-700 text-white' : 'text-navy-600 hover:bg-surface-3')}>
             {item.label}
           </button>
         ))}
@@ -506,7 +506,7 @@ export function AdminStaff() {
                           return (
                             <td key={permission} className="text-center">
                               <input type="checkbox" checked={checked} onChange={() => togglePermission(permission)}
-                                className="size-4 rounded border-navy-300 text-brand-600" aria-label={permission} />
+                                className="size-4 rounded border-navy-300 text-accent" aria-label={permission} />
                             </td>
                           );
                         })}

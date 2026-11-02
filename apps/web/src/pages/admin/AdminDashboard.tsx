@@ -4,8 +4,8 @@ import {
   ClipboardList, Wallet, Users, AlertTriangle, TrendingUp, TrendingDown, ArrowLeft, BadgeCheck,
   FileWarning, MessageSquare, Clock, RefreshCw,
 } from 'lucide-react';
-import { AppShell, PageHeader } from '../../components/shell';
-import { BarChart, Card, EmptyState, ErrorState, Loading, StatCard, StatusBadge } from '../../components/ui';
+import { AppShell } from '../../components/shell';
+import { BarChart, Card, EmptyState, ErrorState, Loading, StatCard, StatusBadge, WelcomePanel } from '../../components/ui';
 import { api, ApiFailure } from '../../lib/api';
 import { faDate, faNum, relative, rial } from '../../lib/format';
 
@@ -30,10 +30,16 @@ export function AdminDashboard() {
 
   return (
     <AppShell variant="admin">
-      <PageHeader
+      <WelcomePanel
+        badge="پنل مدیریت"
         title="داشبورد مدیریت"
-        description="نمای کلی پرونده‌ها، عملکرد کارکنان و وضعیت مالی دفتر."
-        actions={<Link to="/admin/reports" className="btn-primary btn-sm">گزارش‌های کامل <ArrowLeft className="size-4" /></Link>}
+        subtitle="نمای کلی پرونده‌ها، عملکرد کارکنان و وضعیت مالی دفتر در یک نگاه."
+        actions={(
+          <>
+            <Link to="/admin/reports" className="btn btn-sm border border-white/20 bg-white text-shell hover:bg-white/90">گزارش‌های کامل <ArrowLeft className="size-4" /></Link>
+            <Link to="/admin/automation" className="btn btn-sm border border-white/25 bg-white/10 text-white hover:bg-white/20"><ClipboardList className="size-4" /> کارتابل تأیید</Link>
+          </>
+        )}
       />
 
       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
@@ -45,19 +51,19 @@ export function AdminDashboard() {
 
       <div className="mt-4 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
         <Link to="/admin/requests?unassigned=true" className="card flex items-center gap-3 p-4 transition hover:shadow-lg">
-          <span className="grid size-10 place-items-center rounded-xl bg-rose-50 text-rose-600"><AlertTriangle className="size-5" /></span>
+          <span className="grid size-10 place-items-center rounded-xl bg-rose-50 text-rose-700"><AlertTriangle className="size-5" /></span>
           <span><span className="block text-lg font-bold text-navy-900">{faNum(data.cards.unassigned)}</span><span className="text-[11px] text-navy-500">بدون کارشناس</span></span>
         </Link>
         <Link to="/staff/documents" className="card flex items-center gap-3 p-4 transition hover:shadow-lg">
-          <span className="grid size-10 place-items-center rounded-xl bg-amber-50 text-amber-600"><FileWarning className="size-5" /></span>
+          <span className="grid size-10 place-items-center rounded-xl bg-amber-50 text-amber-700"><FileWarning className="size-5" /></span>
           <span><span className="block text-lg font-bold text-navy-900">{faNum(data.cards.pendingDocuments)}</span><span className="text-[11px] text-navy-500">مدرک در انتظار</span></span>
         </Link>
         <Link to="/admin/messages" className="card flex items-center gap-3 p-4 transition hover:shadow-lg">
-          <span className="grid size-10 place-items-center rounded-xl bg-brand-50 text-brand-700"><MessageSquare className="size-5" /></span>
+          <span className="grid size-10 place-items-center rounded-xl bg-brand-50 text-accent"><MessageSquare className="size-5" /></span>
           <span><span className="block text-lg font-bold text-navy-900">{faNum(data.cards.unreadMessages)}</span><span className="text-[11px] text-navy-500">پیام خوانده‌نشده</span></span>
         </Link>
         <div className="card flex items-center gap-3 p-4">
-          <span className="grid size-10 place-items-center rounded-xl bg-emerald-50 text-emerald-600"><BadgeCheck className="size-5" /></span>
+          <span className="grid size-10 place-items-center rounded-xl bg-emerald-50 text-emerald-700"><BadgeCheck className="size-5" /></span>
           <span><span className="block text-lg font-bold text-navy-900">{faNum(data.cards.checkedInToday)}</span><span className="text-[11px] text-navy-500">حاضر امروز</span></span>
         </div>
       </div>
@@ -91,7 +97,7 @@ export function AdminDashboard() {
           <div className="space-y-2">
             {data.recentRequests.map((request: any) => (
               <Link key={request.id} to={`/admin/requests/${request.id}`}
-                className="flex flex-wrap items-center justify-between gap-2 rounded-xl bg-navy-50/60 px-3 py-2.5 hover:bg-brand-50">
+                className="flex flex-wrap items-center justify-between gap-2 rounded-xl bg-surface-3 px-3 py-2.5 hover:bg-brand-50">
                 <span className="min-w-0">
                   <span className="block truncate text-sm font-medium text-navy-900">{request.serviceTitle}</span>
                   <span className="block text-[11px] text-navy-500">{request.customerName} • {request.trackingCode} • {relative(request.createdAt)}</span>
@@ -104,7 +110,7 @@ export function AdminDashboard() {
 
         <div className="space-y-6">
           <Card>
-            <h2 className="mb-3 flex items-center gap-2 font-bold text-navy-900"><Clock className="size-4 text-rose-600" /> پرونده‌های عقب‌افتاده</h2>
+            <h2 className="mb-3 flex items-center gap-2 font-bold text-navy-900"><Clock className="size-4 text-rose-700" /> پرونده‌های عقب‌افتاده</h2>
             {data.urgent.length === 0 ? <p className="text-sm text-navy-400">موردی نیست.</p> : (
               <div className="space-y-2">
                 {data.urgent.map((request: any) => (
@@ -118,7 +124,7 @@ export function AdminDashboard() {
           </Card>
 
           <Card>
-            <h2 className="mb-3 flex items-center gap-2 font-bold text-navy-900"><Users className="size-4 text-brand-700" /> بار کاری کارکنان</h2>
+            <h2 className="mb-3 flex items-center gap-2 font-bold text-navy-900"><Users className="size-4 text-accent" /> بار کاری کارکنان</h2>
             <div className="space-y-2">
               {data.staffLoad.map((staff: any) => {
                 const max = Math.max(...data.staffLoad.map((s: any) => s.active), 1);
