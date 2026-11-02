@@ -26,8 +26,9 @@ import { CustomerWallet } from './pages/customer/Wallet';
 import { CustomerDocuments } from './pages/customer/Documents';
 import {
   RequestDetail, StaffCustomers, StaffCustomService, StaffDocuments,
-  StaffPerformance, StaffRequests, StaffShifts, StaffWorkbench,
+  StaffPerformance, StaffRequests, StaffShifts,
 } from './pages/staff/StaffPages';
+import { StaffWorkbench } from './pages/staff/Workbench';
 import { MessageCenter } from './pages/shared/MessageCenter';
 import { AdminDashboard } from './pages/admin/AdminDashboard';
 import { AdminServiceEditor, AdminServices } from './pages/admin/CatalogAdmin';

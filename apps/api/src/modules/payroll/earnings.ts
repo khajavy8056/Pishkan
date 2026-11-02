@@ -642,15 +642,58 @@ export async function salaryHistory(userId: string) {
 
 /* ---------------------------------- dashboards ---------------------------- */
 
+/** Public staff-profile bits the workbench info card shows (never money). */
+async function staffProfileOf(userId: string) {
+  const row = await one<any>('SELECT employee_code, position, hired_at FROM staff_profiles WHERE user_id=?', [userId]);
+  return row ? { employeeCode: row.employee_code, position: row.position, hiredAt: row.hired_at } : null;
+}
+
+/** Rank of a percentage employee inside the active percentage cohort, by this
+ * month's definite commission income. Position is null with no income yet. */
+async function commissionRank(userId: string) {
+  const actives = await q<any>(
+    `SELECT DISTINCT user_id FROM compensation_contracts
+     WHERE kind='commission' AND is_active=1 AND starts_on<=? AND (ends_on IS NULL OR ends_on>=?)`,
+    [todayIso(), todayIso()],
+  );
+  const activeIds = new Set(actives.map((r: any) => r.user_id));
+  if (!activeIds.has(userId)) return { position: null, total: activeIds.size };
+  const totals = await q<any>(
+    `SELECT user_id, COALESCE(SUM(amount),0) AS s FROM compensation_entries
+     WHERE kind IN ('commission','reversal','adjustment') AND created_at >= ?
+     GROUP BY user_id ORDER BY s DESC`,
+    [startOfMonthIso()],
+  );
+  const ranked = totals.filter((r: any) => activeIds.has(r.user_id));
+  const index = ranked.findIndex((r: any) => r.user_id === userId);
+  return { position: index >= 0 ? index + 1 : null, total: activeIds.size };
+}
+
 export async function staffDashboard(userId: string) {
   const type = await cooperationType(userId);
   const performance = await performanceSummary(userId);
   if (type === 'commission') {
+    const income = await incomeSummary(userId);
+    const contract = await activeContract(userId);
+    const target = contract?.monthly_target ? Number(contract.monthly_target) : null;
     return {
       cooperationType: type,
       cooperationLabel: 'درصدی',
       performance,
-      income: await incomeSummary(userId),
+      profile: await staffProfileOf(userId),
+      contract: contract ? {
+        commissionPercent: Number(contract.commission_percent),
+        monthlyTarget: target,
+        startsOn: contract.starts_on,
+        endsOn: contract.ends_on,
+      } : null,
+      goal: target ? {
+        target,
+        achieved: income.month,
+        percent: Math.max(0, Math.min(100, Math.round((income.month / target) * 100))),
+      } : null,
+      rank: await commissionRank(userId),
+      income,
       balance: await withdrawableBalance(userId),
       withdrawals: (await listWithdrawals({ userId, pageSize: 10 })).items,
       openWithdrawal: await one<any>(
@@ -664,6 +707,10 @@ export async function staffDashboard(userId: string) {
     cooperationType: type,
     cooperationLabel: type === 'monthly' ? 'حقوق ثابت' : 'بدون قرارداد',
     performance,
+    profile: await staffProfileOf(userId),
+    contract: null,
+    goal: null,
+    rank: null,
     salary,
     // Fixed employees never receive a percentage/withdrawal panel.
     income: null,

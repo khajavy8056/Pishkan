@@ -16,6 +16,8 @@ export interface CurrentUser {
   mustChangePassword: boolean;
   roleCode: string | null;
   roleName: string | null;
+  /** Server-decided cooperation contract kind; drives staff panel variants. */
+  cooperationType?: 'commission' | 'monthly' | 'none';
   permissions: string[] | '*';
 }
 

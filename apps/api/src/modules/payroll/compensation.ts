@@ -23,6 +23,7 @@ export interface Contract {
   settlement_period: SettlementPeriod;
   settlement_days: number;
   min_withdrawal: number;
+  monthly_target?: number | null;
   rules: string;
   is_active: number;
   created_by: string;

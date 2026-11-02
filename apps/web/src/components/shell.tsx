@@ -4,7 +4,7 @@ import {
   LayoutDashboard, ClipboardList, Wallet, MessageSquare, User, Bell, LogOut, Menu, X, Search, Activity,
   Building2, Users, CalendarClock, FileText, Receipt, BarChart3, Settings, Database, ShieldCheck,
   LifeBuoy, Shapes, Sparkles, ChevronDown, Plus, BadgeCheck, ServerCog, ClipboardCheck, ArrowLeft,
-  Moon, Sun, Monitor, Headset, TicketPercent, ListChecks, BotMessageSquare, CirclePlus,
+  Moon, Sun, Monitor, Headset, TicketPercent, ListChecks, BotMessageSquare, CirclePlus, Clock3, CalendarDays,
 } from 'lucide-react';
 import clsx from 'clsx';
 import { useAuth, homeFor } from '../lib/auth';
@@ -12,6 +12,7 @@ import { api } from '../lib/api';
 import { relative, faNum } from '../lib/format';
 import { ThemeToggle, ThemeSegmented, useTheme } from '../lib/theme';
 import { BrandLockup, useBrand } from '../lib/brand';
+import { useSite } from '../lib/site';
 import { Button, Spinner, useToast } from './ui';
 import { ChatWidget } from './ChatWidget';
 import { NotificationGate } from './NotificationGate';
@@ -60,6 +61,7 @@ const staffNav: NavItem[] = [
   { to: '/staff/support', label: 'تیکت‌های پشتیبانی', icon: <Headset className="size-5" />, permission: 'support.view', section: SECTION_MORE },
   { to: '/staff/shifts', label: 'شیفت و حضور', icon: <CalendarClock className="size-5" />, section: SECTION_MORE },
   { to: '/staff/finance', label: 'درآمد، عملکرد و تسویه', icon: <Receipt className="size-5" />, section: SECTION_MORE },
+  { to: '/staff/performance', label: 'عملکرد من', icon: <BarChart3 className="size-5" />, section: SECTION_MORE },
 ];
 
 const accountantNav: NavItem[] = [
@@ -105,9 +107,28 @@ function groupNav(items: NavItem[]): { section: string; items: NavItem[] }[] {
   return groups;
 }
 
+/** Live clock + Jalali date pill in the staff/admin topbar (design mock). */
+function NowPill() {
+  const [now, setNow] = useState(() => new Date());
+  useEffect(() => {
+    const timer = setInterval(() => setNow(new Date()), 30_000);
+    return () => clearInterval(timer);
+  }, []);
+  const time = new Intl.DateTimeFormat('fa-IR', { hour: '2-digit', minute: '2-digit' }).format(now);
+  const date = new Intl.DateTimeFormat('fa-IR', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' }).format(now);
+  return (
+    <div className="hidden shrink-0 items-center gap-3 rounded-full border border-line bg-surface px-3.5 py-1.5 text-xs text-navy-600 shadow-xs xl:flex" aria-label="ساعت و تاریخ امروز">
+      <span className="flex items-center gap-1.5 font-bold text-navy-800"><Clock3 className="size-4 text-accent" /> {time}</span>
+      <span className="h-4 w-px bg-line" aria-hidden="true" />
+      <span className="flex items-center gap-1.5"><CalendarDays className="size-4 text-accent" /> {date}</span>
+    </div>
+  );
+}
+
 export function AppShell({ children, variant }: { children: ReactNode; variant: 'customer' | 'staff' | 'admin' }) {
   const { user, logout, can } = useAuth();
   const brand = useBrand();
+  const { site } = useSite();
   const [headerQuery, setHeaderQuery] = useState('');
   const { notify } = useToast();
   const navigate = useNavigate();
@@ -121,10 +142,15 @@ export function AppShell({ children, variant }: { children: ReactNode; variant: 
 
   const nav = useMemo(() => {
     const list = navFor(user?.kind === 'admin' ? 'admin' : variant === 'customer' ? 'customer' : 'staff');
-    return user?.roleCode === 'accountant'
+    const base = user?.roleCode === 'accountant'
       ? [...accountantNav, ...staffNav.filter((n) => !['/staff/custom-services', '/staff/queue'].includes(n.to))]
       : list;
-  }, [variant, user?.kind, user?.roleCode]);
+    // The money page is named by the server-decided contract: percentage
+    // employees get income wording, fixed-salary employees get salary wording.
+    return base.map((item) => item.to === '/staff/finance'
+      ? { ...item, label: user?.cooperationType === 'commission' ? 'درآمد و کمیسیون من' : 'اطلاعات مالی و حقوق' }
+      : item);
+  }, [variant, user?.kind, user?.roleCode, user?.cooperationType]);
   const visibleNav = nav.filter((item) => !item.permission || can(item.permission));
   const groups = useMemo(() => groupNav(visibleNav), [visibleNav]);
   const activeItem = useMemo(() => {
@@ -258,7 +284,7 @@ export function AppShell({ children, variant }: { children: ReactNode; variant: 
           ))}
         </nav>
 
-        {variant === 'customer' && (
+        {(
           <div className="relative px-3 pb-3">
             <div className="group relative overflow-hidden rounded-3xl border border-white/10 bg-white/5">
               <div className="perspective-1200">
@@ -271,18 +297,32 @@ export function AppShell({ children, variant }: { children: ReactNode; variant: 
               </div>
               <div aria-hidden="true" className="absolute inset-x-0 top-16 bottom-0 bg-gradient-to-t from-shell via-shell/72 to-transparent" />
               <div className="relative -mt-12 p-3.5">
-                <p className="text-sm font-black text-white">ربات پشتیبانی هوشمند</p>
-                <p className="mt-0.5 text-[11px] text-white/65">همیشه در کنار شما؛ سؤال دارید؟ همین حالا بپرسید.</p>
-                <button
-                  type="button"
-                  className="btn-primary btn-sm mt-3 w-full"
-                  onClick={() => {
-                    setOpen(false);
-                    window.setTimeout(() => window.dispatchEvent(new CustomEvent('pishkan:open-chat', { detail: {} })), 60);
-                  }}
-                >
-                  <BotMessageSquare className="size-4" /> شروع گفت‌وگو
-                </button>
+                <p className="text-sm font-black text-white">
+                  {variant === 'customer' ? 'ربات پشتیبانی هوشمند' : variant === 'admin' ? brand.name : 'پشتیبانی آنلاین'}
+                </p>
+                <p className="mt-0.5 text-[11px] text-white/65">
+                  {variant === 'customer'
+                    ? 'همیشه در کنار شما؛ سؤال دارید؟ همین حالا بپرسید.'
+                    : variant === 'admin'
+                      ? `سامانهٔ مدیریت یکپارچهٔ دفتر${site?.version ? ` • نسخهٔ ${faNum(site.version)}` : ''}`
+                      : 'پاسخگوی شما هستیم؛ برای راهنمایی همین حالا گفت‌وگو کنید.'}
+                </p>
+                {variant === 'admin' ? (
+                  <Link to="/admin/settings" className="btn-primary btn-sm mt-3 w-full">
+                    <Settings className="size-4" /> تنظیمات سامانه
+                  </Link>
+                ) : (
+                  <button
+                    type="button"
+                    className="btn-primary btn-sm mt-3 w-full"
+                    onClick={() => {
+                      setOpen(false);
+                      window.setTimeout(() => window.dispatchEvent(new CustomEvent('pishkan:open-chat', { detail: {} })), 60);
+                    }}
+                  >
+                    <BotMessageSquare className="size-4" /> شروع گفت‌وگو
+                  </button>
+                )}
               </div>
             </div>
           </div>
@@ -342,7 +382,7 @@ export function AppShell({ children, variant }: { children: ReactNode; variant: 
               </div>
             )}
 
-            {variant !== 'customer' && <div className="flex-1" />}
+            {variant !== 'customer' && <><NowPill /><div className="flex-1" /></>}
 
             <form
               className={clsx('hidden md:block', variant === 'customer' && 'order-3 min-w-0 flex-1 px-1')}
@@ -546,18 +586,21 @@ export function PageHeader({ title, description, actions, backTo, eyebrow }: {
   title: string; description?: string; actions?: ReactNode; backTo?: string; eyebrow?: string;
 }) {
   return (
-    <div className="mb-6 flex flex-wrap items-start justify-between gap-4">
-      <div className="min-w-0">
-        {backTo && (
-          <Link to={backTo} className="mb-2 inline-flex items-center gap-1 text-xs text-navy-500 transition hover:text-navy-800">
-            <ArrowLeft className="size-3.5 rotate-180" /> بازگشت
-          </Link>
-        )}
-        {eyebrow && <p className="mb-1 text-[11px] font-semibold tracking-wide text-accent">{eyebrow}</p>}
-        <h1 className="text-2xl font-bold tracking-tight text-navy-900">{title}</h1>
-        {description && <p className="mt-1.5 max-w-2xl text-sm leading-relaxed text-navy-500">{description}</p>}
+    <div className="relative mb-6 overflow-hidden rounded-[1.4rem] border border-navy-900/5 bg-gradient-to-l from-brand-50 via-surface to-surface p-5 shadow-soft sm:p-6">
+      <div aria-hidden="true" className="pointer-events-none absolute -left-14 -top-16 size-44 rounded-full bg-brand-200/25 blur-3xl" />
+      <div className="relative flex flex-wrap items-start justify-between gap-4">
+        <div className="min-w-0">
+          {backTo && (
+            <Link to={backTo} className="mb-2 inline-flex items-center gap-1 text-xs text-navy-500 transition hover:text-navy-800">
+              <ArrowLeft className="size-3.5 rotate-180" /> بازگشت
+            </Link>
+          )}
+          {eyebrow && <p className="mb-1 text-[11px] font-semibold tracking-wide text-accent">{eyebrow}</p>}
+          <h1 className="text-2xl font-black tracking-tight text-navy-900">{title}</h1>
+          {description && <p className="mt-1.5 max-w-2xl text-sm leading-relaxed text-navy-500">{description}</p>}
+        </div>
+        {actions && <div className="flex flex-wrap items-center gap-2">{actions}</div>}
       </div>
-      {actions && <div className="flex flex-wrap items-center gap-2">{actions}</div>}
     </div>
   );
 }

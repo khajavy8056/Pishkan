@@ -45,7 +45,7 @@ export async function contractHistory(userId: string) {
     id: row.id, kind: row.kind, monthlyAmount: Number(row.monthly_amount),
     commissionPercent: Number(row.commission_percent), startsOn: row.starts_on, endsOn: row.ends_on,
     settlementPeriod: row.settlement_period, settlementDays: Number(row.settlement_days),
-    minWithdrawal: Number(row.min_withdrawal), isActive: Boolean(row.is_active),
+    minWithdrawal: Number(row.min_withdrawal), monthlyTarget: row.monthly_target === null || row.monthly_target === undefined ? null : Number(row.monthly_target), isActive: Boolean(row.is_active),
     note: row.note ?? null, createdBy: row.created_by, createdAt: row.created_at,
   }));
 }
@@ -253,6 +253,7 @@ export interface ContractInput {
   settlementPeriod?: SettlementPeriod;
   settlementDays?: number;
   minWithdrawal?: number;
+  monthlyTarget?: number | null;
   note?: string;
 }
 
@@ -276,12 +277,13 @@ export async function createContract(input: ContractInput, actorId: string, acto
     await run(
       `INSERT INTO compensation_contracts
          (id,user_id,kind,monthly_amount,commission_percent,starts_on,ends_on,created_by,created_at,
-          settlement_period,settlement_days,min_withdrawal,rules,is_active,note,updated_at)
-       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+          settlement_period,settlement_days,min_withdrawal,monthly_target,rules,is_active,note,updated_at)
+       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
       [
         contractId, user.id, input.kind, input.monthlyAmount, input.commissionPercent,
         input.startsOn, input.endsOn ?? null, actorId, now,
         input.settlementPeriod ?? 'monthly', input.settlementDays ?? 0, input.minWithdrawal ?? 0,
+        input.kind === 'commission' && input.monthlyTarget ? Math.max(0, Math.round(input.monthlyTarget)) : null,
         '{}', 1, input.note ?? null, now,
       ],
     );

@@ -248,9 +248,9 @@ export function AdminStaff() {
   const [performance, setPerformance] = useState<any>(null);
   // The cooperation contract is part of defining an employee: main manager
   // picks fixed salary vs. percentage-of-office-revenue right here.
-  const [contractForm, setContractForm] = useState({ kind: 'monthly', monthlyAmount: 0, commissionPercent: 10 });
+  const [contractForm, setContractForm] = useState({ kind: 'monthly', monthlyAmount: 0, commissionPercent: 10, monthlyTarget: 0 });
   const [activeContractRow, setActiveContractRow] = useState<any>(undefined);
-  const [editContract, setEditContract] = useState<{ kind: string; monthlyAmount: number; commissionPercent: number } | null>(null);
+  const [editContract, setEditContract] = useState<{ kind: string; monthlyAmount: number; commissionPercent: number; monthlyTarget: number } | null>(null);
 
   const load = () => {
     setLoading(true);
@@ -275,10 +275,10 @@ export function AdminStaff() {
         const current = res.data.find((row) => row.isActive) ?? null;
         setActiveContractRow(current);
         setEditContract(current
-          ? { kind: current.kind, monthlyAmount: current.monthlyAmount, commissionPercent: current.commissionPercent }
-          : { kind: 'monthly', monthlyAmount: 0, commissionPercent: 10 });
+          ? { kind: current.kind, monthlyAmount: current.monthlyAmount, commissionPercent: current.commissionPercent, monthlyTarget: Number(current.monthlyTarget ?? 0) }
+          : { kind: 'monthly', monthlyAmount: 0, commissionPercent: 10, monthlyTarget: 0 });
       })
-      .catch(() => { if (active) { setActiveContractRow(null); setEditContract({ kind: 'monthly', monthlyAmount: 0, commissionPercent: 10 }); } });
+      .catch(() => { if (active) { setActiveContractRow(null); setEditContract({ kind: 'monthly', monthlyAmount: 0, commissionPercent: 10, monthlyTarget: 0 }); } });
     return () => { active = false; };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [editing?.id]);
@@ -303,6 +303,7 @@ export function AdminStaff() {
             kind: contractForm.kind,
             monthlyAmount: contractForm.kind === 'monthly' ? Number(contractForm.monthlyAmount) || 0 : 0,
             commissionPercent: contractForm.kind === 'commission' ? Number(contractForm.commissionPercent) || 0 : 0,
+            monthlyTarget: contractForm.kind === 'commission' ? Number(contractForm.monthlyTarget) || null : null,
             startsOn: new Date().toISOString().slice(0, 10),
             note: 'قرارداد ثبت‌شده هنگام تعریف کارمند',
           });
@@ -317,7 +318,7 @@ export function AdminStaff() {
       }
       setCreating(false);
       setForm({ fullName: '', mobile: '', username: '', email: '', password: '', roleCode: 'service_expert', employeeCode: '', position: '', specialties: '', maxActiveCases: 20, kind: 'staff' });
-      setContractForm({ kind: 'monthly', monthlyAmount: 0, commissionPercent: 10 });
+      setContractForm({ kind: 'monthly', monthlyAmount: 0, commissionPercent: 10, monthlyTarget: 0 });
       load();
     } catch (err) {
       notify(err instanceof ApiFailure ? err.message : 'خطا', 'error');
@@ -341,7 +342,8 @@ export function AdminStaff() {
         const changed = !activeContractRow
           || activeContractRow.kind !== editContract.kind
           || Number(activeContractRow.monthlyAmount) !== Number(editContract.monthlyAmount)
-          || Number(activeContractRow.commissionPercent) !== Number(editContract.commissionPercent);
+          || Number(activeContractRow.commissionPercent) !== Number(editContract.commissionPercent)
+          || Number(activeContractRow.monthlyTarget ?? 0) !== Number(editContract.monthlyTarget);
         if (changed) {
           try {
             const today = new Date();
@@ -357,6 +359,7 @@ export function AdminStaff() {
               kind: editContract.kind,
               monthlyAmount: editContract.kind === 'monthly' ? Number(editContract.monthlyAmount) || 0 : 0,
               commissionPercent: editContract.kind === 'commission' ? Number(editContract.commissionPercent) || 0 : 0,
+              monthlyTarget: editContract.kind === 'commission' ? Number(editContract.monthlyTarget) || null : null,
               startsOn: todayIso,
               note: 'تغییر قرارداد از صفحهٔ ویرایش کارمند',
             });
@@ -559,6 +562,12 @@ export function AdminStaff() {
                   )}
                 </div>
                 {contractForm.kind === 'commission' && (
+                  <Field label="هدف درآمد ماهانهٔ کارمند (ریال، اختیاری)" hint="در داشبورد درآمد کارمند، به‌صورت حلقهٔ پیشرفت هدف نمایش داده می‌شود؛ خالی یعنی بدون هدف.">
+                    <Input type="number" min={0} dir="ltr" className="text-left" value={contractForm.monthlyTarget || ''}
+                      onChange={(e) => setContractForm({ ...contractForm, monthlyTarget: Number(e.target.value) })} placeholder="مثلاً ۵۰٬۰۰۰٬۰۰۰" />
+                  </Field>
+                )}
+                {contractForm.kind === 'commission' && (
                   <p className="text-[11px] leading-6 text-navy-500">
                     پنل کارمند درصدی با بقیه فرق دارد: درآمد امروز/هفتهٔ جاری/ماه جاری، موجودی قابل برداشت و «درخواست برداشت» را می‌بیند
                     و روی کارت هر خدمت، سود خودش از آن کار برایش نمایش داده می‌شود. این درصد از امروز اعمال می‌شود و روی درآمدهای قطعی گذشته اثری ندارد.
@@ -619,10 +628,16 @@ export function AdminStaff() {
                           onChange={(e) => setEditContract({ ...editContract, monthlyAmount: Number(e.target.value) })} />
                       </Field>
                     ) : (
-                      <Field label="درصد سهم از درآمد دفتر (۰ تا ۱۰۰)">
-                        <Input type="number" min={0} max={100} dir="ltr" className="text-left" value={editContract.commissionPercent}
-                          onChange={(e) => setEditContract({ ...editContract, commissionPercent: Number(e.target.value) })} />
-                      </Field>
+                      <>
+                        <Field label="درصد سهم از درآمد دفتر (۰ تا ۱۰۰)">
+                          <Input type="number" min={0} max={100} dir="ltr" className="text-left" value={editContract.commissionPercent}
+                            onChange={(e) => setEditContract({ ...editContract, commissionPercent: Number(e.target.value) })} />
+                        </Field>
+                        <Field label="هدف درآمد ماهانه (ریال، اختیاری)">
+                          <Input type="number" min={0} dir="ltr" className="text-left" value={editContract.monthlyTarget || ''}
+                            onChange={(e) => setEditContract({ ...editContract, monthlyTarget: Number(e.target.value) })} />
+                        </Field>
+                      </>
                     )}
                     <p className="text-[10px] leading-5 text-navy-400 sm:col-span-2">
                       تغییر قرارداد به‌صورت «بستن قرارداد قبلی + شروع قرارداد جدید از امروز» ثبت می‌شود؛ درآمدهای قطعی گذشته دست‌نخورده می‌مانند.

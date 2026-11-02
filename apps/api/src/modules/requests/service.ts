@@ -1471,10 +1471,14 @@ export async function eligibleQueue(staffId: string) {
     `SELECT r.id, r.tracking_code, r.service_id, r.created_at, r.priority, r.status, r.total,
             r.estimated_completion_at, r.force_assign_at, s.title,
             (SELECT COALESCE(SUM(i.total - i.tax), 0) FROM invoices i WHERE i.request_id = r.id AND i.status <> 'void' AND i.purpose = 'service') AS net_total,
-            (SELECT COUNT(*) FROM request_documents d WHERE d.request_id = r.id) AS docs_attached
+            (SELECT COUNT(*) FROM request_documents d WHERE d.request_id = r.id) AS docs_attached,
+            cat.icon AS category_icon, cat.color AS category_color, cat.title AS category_title
      FROM requests r JOIN services s ON s.id = r.service_id
+     LEFT JOIN service_categories cat ON cat.id = s.category_id
      WHERE r.assigned_to IS NULL AND r.status IN ('new','under_review')
+       AND NOT EXISTS (SELECT 1 FROM request_declines dc WHERE dc.request_id = r.id AND dc.user_id = ?)
      ORDER BY CASE r.priority WHEN 'high' THEN 0 ELSE 1 END, r.created_at ASC LIMIT 200`,
+    [staffId],
   );
   const type = await cooperationType(staffId);
   const result: any[] = [];
@@ -1489,6 +1493,9 @@ export async function eligibleQueue(staffId: string) {
       id: r.id,
       trackingCode: r.tracking_code,
       serviceTitle: r.title,
+      categoryIcon: r.category_icon ?? null,
+      categoryColor: r.category_color ?? null,
+      categoryTitle: r.category_title ?? null,
       priority: r.priority,
       status: r.status,
       createdAt: r.created_at,
@@ -1535,6 +1542,22 @@ export async function eligibleQueue(staffId: string) {
  * and, for customer-waiting cases, gently remind the customer too. One
  * reminder per case per Tehran day via notification idempotency keys.
  */
+/** Decline a case in the open pool: it leaves only the decliner's queue.
+ * Colleagues still see it and automatic assignment may still pick it up,
+ * so declining can never starve a request of an owner. */
+export async function declineRequest(requestId: string, staffId: string) {
+  const row = await one<any>(
+    "SELECT id FROM requests WHERE id=? AND assigned_to IS NULL AND status IN ('new','under_review')",
+    [requestId],
+  );
+  if (!row) throw notFound('این درخواست دیگر در صف آزاد نیست.');
+  const existing = await one<any>('SELECT request_id FROM request_declines WHERE request_id=? AND user_id=?', [requestId, staffId]);
+  if (!existing) {
+    await run('INSERT INTO request_declines (request_id, user_id, created_at) VALUES (?,?,?)', [requestId, staffId, nowIso()]);
+  }
+  return { declined: true };
+}
+
 export async function followUpReminderSweep() {
   if (!(await getBool('workforce.followup_reminder_enabled'))) return { reminded: 0, checked: 0 };
   const hours = Math.max(1, await getNumber('workforce.followup_after_hours'));

@@ -9,6 +9,7 @@ import { fetchMock, setAuthUser } from './setup';
 import { AdminPayroll } from '../src/pages/admin/PayrollAdmin';
 import { StaffEarnings } from '../src/pages/staff/Earnings';
 import { EligibleQueue } from '../src/pages/staff/Queue';
+import { StaffWorkbench } from '../src/pages/staff/Workbench';
 
 /**
  * Employee-facing payroll screens.
@@ -28,12 +29,12 @@ const adminUser = {
 
 const commissionUser = {
   ...adminUser, id: 'usr_commission', kind: 'staff', fullName: 'کارشناس درصدی', roleCode: 'service_expert',
-  roleName: 'کارشناس خدمات', permissions: ['requests.view', 'requests.edit'],
+  roleName: 'کارشناس خدمات', permissions: ['requests.view', 'requests.edit'], cooperationType: 'commission',
 };
 
 const fixedUser = {
   ...adminUser, id: 'usr_fixed', kind: 'staff', fullName: 'کارمند حقوق ثابت', roleCode: 'operator',
-  roleName: 'کارشناس', permissions: ['requests.view', 'requests.edit'],
+  roleName: 'کارشناس', permissions: ['requests.view', 'requests.edit'], cooperationType: 'monthly',
 };
 
 const performance = {
@@ -54,6 +55,10 @@ const commissionSummary = {
   cooperationType: 'commission' as const,
   cooperationLabel: 'درصدی',
   performance,
+  profile: { employeeCode: 'EMP-10', position: 'کارشناس خدمات', hiredAt: '2026-01-01' },
+  contract: { commissionPercent: 10, monthlyTarget: 5000000, startsOn: '2026-01-01', endsOn: null },
+  goal: { target: 5000000, achieved: 2400000, percent: 48 },
+  rank: { position: 1, total: 3 },
   income: {
     today: 300000, week: 900000, month: 2400000, definite: 7500000, pendingEstimate: 450000,
     withdrawable: 5000000, requested: 2500000, withdrawn: 0, paidOut: 0,
@@ -73,6 +78,10 @@ const fixedSummary = {
   cooperationType: 'monthly' as const,
   cooperationLabel: 'حقوق ثابت',
   performance,
+  profile: { employeeCode: 'EMP-11', position: 'کارشناس', hiredAt: '2026-01-01' },
+  contract: null,
+  goal: null,
+  rank: null,
   income: null,
   balance: null,
   withdrawals: [],
@@ -173,6 +182,21 @@ function installApi(options: { summary?: unknown; claimFailure?: string; queue?:
     const path = url.replace(/^https?:\/\/[^/]+/, '');
 
     if (path.startsWith('/api/requests/queue/eligible')) return json(options.queue ?? [queueItem]);
+    if (path.match(/^\/api\/requests\/[^/]+\/decline$/)) return json({ declined: true });
+    if (path.startsWith('/api/dashboard/summary')) return json({
+      kind: 'staff', stats: { open: 2, total: 9 },
+      recentRequests: [{
+        id: 'req_1', trackingCode: 'PK-1001', status: 'new', statusLabel: 'جدید', serviceTitle: 'سابقه بیمه',
+        customerName: 'مشتری نمونه', categoryIcon: 'shield', categoryColor: '#1d4ed8', createdAt: '2026-10-30T09:00:00.000Z',
+      }],
+      notifications: [], unreadNotifications: 0,
+    });
+    if (path.startsWith('/api/staff/me/workload')) return json({
+      acceptsNewCases: true, activeRequests: [], pendingDocuments: [],
+      shift: { id: 'sh_1', startTime: '08:00', endTime: '16:00' },
+      attendance: { checkIn: '2026-10-31T04:30:00.000Z', checkOut: null },
+      completedLast30Days: 4, activeCount: 2,
+    });
     if (path.match(/^\/api\/requests\/[^/]+\/claim$/)) {
       if (options.claimFailure) return json({ code: 'conflict', message: options.claimFailure }, 409);
       return json({ id: queueItem.id, assignedTo: 'usr_commission' });
@@ -227,10 +251,11 @@ describe('free request queue', () => {
     renderAt(<EligibleQueue />, commissionUser);
 
     await waitFor(() => expect(screen.getByText('سابقه بیمه تأمین اجتماعی')).toBeTruthy());
-    expect(screen.getByText('سهم شما (۱۰٪)')).toBeTruthy();
+    expect(screen.getByText(/سهم درآمد شما از این خدمت/)).toBeTruthy();
+    expect(screen.getByText(/درصد از تعرفهٔ خدمت: ۱۰٪/)).toBeTruthy();
     expect(screen.getAllByText(/۱۲۰٬۰۰۰/).length).toBeGreaterThan(0);
-    expect(screen.getByText('برآوردی')).toBeTruthy();
-    expect(screen.getAllByText('فوری').length).toBeGreaterThan(0);
+    expect(screen.getByText(/برآوردی؛ پس از پرداخت مشتری قطعی می‌شود/)).toBeTruthy();
+    expect(screen.getByText('دریافت درخواست‌ها')).toBeTruthy();
   });
 
   it('never shows an income line to a fixed-salary employee', async () => {
@@ -251,8 +276,8 @@ describe('free request queue', () => {
     const calls = installApi();
     renderAt(<EligibleQueue />, commissionUser);
 
-    await waitFor(() => expect(screen.getByText('می‌پذیرم — این کار را انجام می‌دهم')).toBeTruthy());
-    fireEvent.click(screen.getByText('می‌پذیرم — این کار را انجام می‌دهم'));
+    await waitFor(() => expect(screen.getByText('تأیید و قبول انجام')).toBeTruthy());
+    fireEvent.click(screen.getByText('تأیید و قبول انجام'));
 
     await waitFor(() => expect(calls.filter((call) => call.method === 'POST' && call.url.endsWith('/claim')).length).toBe(1));
     await waitFor(() => expect(calls.filter((call) => call.url.includes('/queue/eligible')).length).toBeGreaterThan(1));
@@ -262,11 +287,47 @@ describe('free request queue', () => {
     installApi({ claimFailure: 'این درخواست هم‌اکنون توسط کارشناس دیگری پذیرفته شد.' });
     renderAt(<EligibleQueue />, commissionUser);
 
-    await waitFor(() => expect(screen.getByText('می‌پذیرم — این کار را انجام می‌دهم')).toBeTruthy());
-    fireEvent.click(screen.getByText('می‌پذیرم — این کار را انجام می‌دهم'));
+    await waitFor(() => expect(screen.getByText('تأیید و قبول انجام')).toBeTruthy());
+    fireEvent.click(screen.getByText('تأیید و قبول انجام'));
 
     await waitFor(() => expect(screen.getByText('پرونده پذیرفته نشد')).toBeTruthy());
     expect(screen.getByText('این درخواست هم‌اکنون توسط کارشناس دیگری پذیرفته شد.')).toBeTruthy();
+  });
+
+  it('declining removes the request from my queue through the real endpoint', async () => {
+    const calls = installApi();
+    renderAt(<EligibleQueue />, commissionUser);
+
+    await waitFor(() => expect(screen.getByText('سابقه بیمه تأمین اجتماعی')).toBeTruthy());
+    fireEvent.click(screen.getByText('رد کردن'));
+
+    await waitFor(() => expect(calls.filter((call) => call.method === 'POST' && call.url.endsWith('/decline')).length).toBe(1));
+    await waitFor(() => expect(screen.queryByText('سابقه بیمه تأمین اجتماعی')).toBeNull());
+  });
+});
+
+describe('staff workbench variants', () => {
+  it('percentage employees get the income dashboard with their goal ring and rank', async () => {
+    installApi();
+    renderAt(<StaffWorkbench />, commissionUser);
+
+    await waitFor(() => expect(screen.getByText('داشبورد درآمد و کمیسیون')).toBeTruthy());
+    expect(screen.getByText('جزئیات سهم و کمیسیون')).toBeTruthy();
+    expect(screen.getByText('وضعیت کمیسیون')).toBeTruthy();
+    expect(screen.getByText('رتبهٔ ۱')).toBeTruthy();
+    expect(screen.queryByText('حقوق ماه جاری')).toBeNull();
+  });
+
+  it('fixed-salary employees get the salary workbench without any income panel', async () => {
+    installApi({ summary: fixedSummary });
+    renderAt(<StaffWorkbench />, fixedUser);
+
+    await waitFor(() => expect(screen.getByText('حقوق ماه جاری')).toBeTruthy());
+    expect(screen.getByText('وضعیت حضور و غیاب')).toBeTruthy();
+    expect(screen.getByText('دسترسی‌های سریع')).toBeTruthy();
+    expect(screen.getByText('اطلاعات کاربری')).toBeTruthy();
+    expect(screen.queryByText('داشبورد درآمد و کمیسیون')).toBeNull();
+    expect(screen.queryByText(/درخواست برداشت درآمد/)).toBeNull();
   });
 });
 

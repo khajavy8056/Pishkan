@@ -14,6 +14,7 @@ import { run, nowIso, one } from '../db/index.js';
 import { getBool, getString } from '../modules/settings/service.js';
 import { writeAudit } from '../modules/audit/service.js';
 import { param } from '../http/params.js';
+import { cooperationType } from '../modules/payroll/compensation.js';
 import { ok } from '../http/respond.js';
 
 import { profileState, validNationalId } from '../modules/profiles/service.js';
@@ -41,6 +42,7 @@ async function sessionPayload(context: any, token: string, expiresAt: string) {
   return {
     user: {
       ...publicUser(user!),
+      cooperationType: user!.kind === 'customer' ? 'none' : await cooperationType(user!.id),
       kind: context.user.kind,
       roleCode: context.user.roleCode,
       roleName: context.user.roleName,
@@ -188,6 +190,7 @@ authRouter.get('/me', requireAuth, asyncRoute(async (req, res) => {
     ok: true,
     data: {
       ...publicUser(user),
+      cooperationType: user.kind === 'customer' ? 'none' : await cooperationType(user.id),
       kind: user.kind,
       roleCode: req.auth!.user.roleCode,
       roleName: req.auth!.user.roleName,

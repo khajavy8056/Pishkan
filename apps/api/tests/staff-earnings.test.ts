@@ -640,3 +640,96 @@ describe('management file and reports', () => {
     expect((await request(server).get('/api/payroll/overview').set('Cookie', cookieOf(session))).status).toBe(403);
   });
 });
+
+describe('staff/admin panel data (dashboards round)', () => {
+  it('declining removes a request from my queue only, and is idempotent', async () => {
+    const commissionSession = await sessionOf(commissionStaff.username, commissionStaff.password);
+    const fixedSession = await sessionOf(fixedStaff.username, fixedStaff.password);
+    const created = await createRequestAs(customer, serviceId);
+
+    const before = await request(server).get('/api/requests/queue/eligible').set('Cookie', cookieOf(commissionSession)).expect(200);
+    const item = before.body.data.find((row: any) => row.id === created.id);
+    expect(item).toBeTruthy();
+    // the redesigned cards render a category art chip from the same payload
+    expect('categoryIcon' in item).toBe(true);
+    expect('categoryColor' in item).toBe(true);
+
+    await request(server).post(`/api/requests/${created.id}/decline`).set('Cookie', cookieOf(commissionSession)).expect(200);
+    // declining again is a no-op success, not an error
+    await request(server).post(`/api/requests/${created.id}/decline`).set('Cookie', cookieOf(commissionSession)).expect(200);
+
+    const mineAfter = await request(server).get('/api/requests/queue/eligible').set('Cookie', cookieOf(commissionSession)).expect(200);
+    expect(mineAfter.body.data.some((row: any) => row.id === created.id)).toBe(false);
+
+    // colleagues are unaffected: a decline can never starve the request
+    const fixedAfter = await request(server).get('/api/requests/queue/eligible').set('Cookie', cookieOf(fixedSession)).expect(200);
+    expect(fixedAfter.body.data.some((row: any) => row.id === created.id)).toBe(true);
+
+    await run("UPDATE requests SET status='cancelled', cancelled_at=? WHERE id=?", [new Date().toISOString(), created.id]);
+    // and a request that left the pool cannot be declined anymore
+    const gone = await request(server).post(`/api/requests/${created.id}/decline`).set('Cookie', cookieOf(commissionSession));
+    expect(gone.status).toBe(404);
+  });
+
+  it('keeps the monthly income goal on the contract and reports rank + goal for percentage staff', async () => {
+    await createContract({
+      userId: otherExpertId, kind: 'commission', monthlyAmount: 0, commissionPercent: 12,
+      startsOn: '2026-01-01', settlementPeriod: 'daily', monthlyTarget: 5000000, note: 'قرارداد درصدی با هدف',
+    }, 'test-payroll', 'آزمون');
+
+    const session = await sessionOf(otherExpert.username, otherExpert.password);
+    const me = await request(server).get('/api/payroll/me/summary').set('Cookie', cookieOf(session)).expect(200);
+    expect(me.body.data.cooperationType).toBe('commission');
+    expect(me.body.data.contract.commissionPercent).toBe(12);
+    expect(me.body.data.contract.monthlyTarget).toBe(5000000);
+    expect(me.body.data.goal.target).toBe(5000000);
+    expect(me.body.data.goal.achieved).toBe(me.body.data.income.month);
+    expect(typeof me.body.data.goal.percent).toBe('number');
+    expect(me.body.data.rank.total).toBeGreaterThanOrEqual(2);
+    expect(me.body.data.profile).toBeTruthy();
+
+    const history = await request(server).get(`/api/payroll/contracts/${otherExpertId}/history`).set('Cookie', admin.cookie).expect(200);
+    expect(history.body.data[0].monthlyTarget).toBe(5000000);
+  });
+
+  it('never puts a goal, rank or income block into a fixed-salary summary', async () => {
+    const fixedSession = await sessionOf(fixedStaff.username, fixedStaff.password);
+    const res = await request(server).get('/api/payroll/me/summary').set('Cookie', cookieOf(fixedSession)).expect(200);
+    expect(res.body.data.income).toBeNull();
+    expect(res.body.data.balance).toBeNull();
+    expect(res.body.data.goal).toBeNull();
+    expect(res.body.data.rank).toBeNull();
+    expect(res.body.data.contract).toBeNull();
+    expect(res.body.data.salary).toBeTruthy();
+    // the server tells the shell which panel variant to render
+    const me = await request(server).get('/api/auth/me').set('Cookie', cookieOf(fixedSession)).expect(200);
+    expect(me.body.data.cooperationType).toBe('monthly');
+  });
+
+  it('serves the admin home panel extras from live data', async () => {
+    const res = await request(server).get('/api/dashboard/summary').set('Cookie', admin.cookie).expect(200);
+    expect(res.body.data.totals.users).toBeGreaterThan(0);
+    expect(typeof res.body.data.totals.openTickets).toBe('number');
+    expect(typeof res.body.data.deltas.revenue).toBe('number');
+    expect(typeof res.body.data.deltas.users).toBe('number');
+    expect(res.body.data.staffStatus.total).toBeGreaterThanOrEqual(3);
+    expect(Array.isArray(res.body.data.activity)).toBe(true);
+    expect(Array.isArray(res.body.data.pendingApprovals)).toBe(true);
+    expect(typeof res.body.data.pendingApprovalsCount).toBe('number');
+    expect(res.body.data.system.dbOk).toBe(true);
+    // daily chart now spans a month so the home tabs can slice week/month
+    expect(res.body.data.charts.daily.length).toBeGreaterThan(0);
+  });
+
+  it('serves staff home requests camel-cased with notifications', async () => {
+    const fixedSession = await sessionOf(fixedStaff.username, fixedStaff.password);
+    const res = await request(server).get('/api/dashboard/summary').set('Cookie', cookieOf(fixedSession)).expect(200);
+    expect(res.body.data.kind).toBe('staff');
+    expect(Array.isArray(res.body.data.notifications)).toBe(true);
+    for (const row of res.body.data.recentRequests) {
+      expect('trackingCode' in row).toBe(true);
+      expect('statusLabel' in row).toBe(true);
+      expect('serviceTitle' in row).toBe(true);
+    }
+  });
+});

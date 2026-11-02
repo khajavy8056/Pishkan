@@ -329,6 +329,7 @@ payrollRouter.post('/contracts', requirePermission('payroll.contracts.edit'), as
     settlementPeriod: z.enum(['daily', 'weekly', 'monthly', 'custom']).optional(),
     settlementDays: z.number().int().min(0).max(365).optional(),
     minWithdrawal: z.number().int().min(0).max(1e12).optional(),
+    monthlyTarget: z.number().int().min(0).max(1e13).nullable().optional(),
     note: z.string().max(500).optional(),
   }).parse(req.body);
   created(res, await createContract(body, req.auth!.user.id, req.auth!.user.fullName));

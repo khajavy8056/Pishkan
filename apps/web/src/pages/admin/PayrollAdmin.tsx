@@ -152,7 +152,7 @@ export function AdminPayroll() {
   const [contractForm, setContractForm] = useState({
     kind: 'commission' as 'monthly' | 'commission', monthlyAmount: 0, commissionPercent: 10,
     startsOn: new Date().toISOString().slice(0, 10), settlementPeriod: 'monthly' as 'daily' | 'weekly' | 'monthly' | 'custom',
-    settlementDays: 0, minWithdrawal: 0, note: '',
+    settlementDays: 0, minWithdrawal: 0, monthlyTarget: 0, note: '',
   });
 
   const loadOverview = () => {
@@ -706,9 +706,14 @@ export function AdminPayroll() {
             />
           </Field>
           {contractForm.kind === 'commission' ? (
-            <Field label="درصد همکاری" required hint="مثلاً ۱۰ یعنی ۱۰٪ از درآمد دفتر هر خدمت">
-              <Input type="number" min={0} max={100} value={contractForm.commissionPercent} onChange={(e) => setContractForm({ ...contractForm, commissionPercent: Number(e.target.value) })} />
-            </Field>
+            <>
+              <Field label="درصد همکاری" required hint="مثلاً ۱۰ یعنی ۱۰٪ از درآمد دفتر هر خدمت">
+                <Input type="number" min={0} max={100} value={contractForm.commissionPercent} onChange={(e) => setContractForm({ ...contractForm, commissionPercent: Number(e.target.value) })} />
+              </Field>
+              <Field label="هدف درآمد ماهانه (ریال، اختیاری)" hint="در داشبورد درآمد کارمند به‌صورت حلقهٔ پیشرفت هدف نشان داده می‌شود؛ صفر یعنی بدون هدف.">
+                <Input type="number" min={0} value={contractForm.monthlyTarget || ''} onChange={(e) => setContractForm({ ...contractForm, monthlyTarget: Number(e.target.value) })} />
+              </Field>
+            </>
           ) : (
             <Field label="حقوق ماهانه (ریال)" required>
               <Input type="number" min={0} value={contractForm.monthlyAmount} onChange={(e) => setContractForm({ ...contractForm, monthlyAmount: Number(e.target.value) })} />

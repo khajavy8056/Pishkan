@@ -8,7 +8,7 @@ import { hasPermission } from '../lib/permissions.js';
 import { officeScope } from '../lib/scope.js';
 import {
   nextStatuses,STATUSES, STATUS_LABELS, addNote, assignRequest, attachDocument, autoAssign, candidatesForService, createExternalCostInvoice, moveStep,
-  eligibleQueue,claimRequest,claimAttempts,forceAssignSweep,quoteRequest, changeStatus, createRequest, customerCancel, getRequest, listRequests, requestStats, reviewDocument, setRequestDeadline,
+  eligibleQueue,claimRequest,claimAttempts,declineRequest,forceAssignSweep,quoteRequest, changeStatus, createRequest, customerCancel, getRequest, listRequests, requestStats, reviewDocument, setRequestDeadline,
 } from '../modules/requests/service.js';
 import { getServiceById } from '../modules/catalog/service.js';
 import { one, q } from '../db/index.js';
@@ -77,6 +77,7 @@ requestsRouter.get('/', asyncRoute(async (req, res) => {
 
 requestsRouter.get('/queue/eligible',requirePermission('requests.view'),asyncRoute(async(req,res)=>{ok(res,await eligibleQueue(req.auth!.user.id))}));
 requestsRouter.post('/:id/claim',requirePermission('requests.edit'),asyncRoute(async(req,res)=>{ok(res,await claimRequest(param(req,'id'),req.auth!.user.id,req.auth!.user.fullName))}));
+requestsRouter.post('/:id/decline',requirePermission('requests.edit'),asyncRoute(async(req,res)=>{ok(res,await declineRequest(param(req,'id'),req.auth!.user.id))}));
 /** Evidence of who tried to accept a request first (manager view). */
 requestsRouter.get('/:id/claim-attempts',requirePermission('requests.view'),asyncRoute(async(req,res)=>{ok(res,await claimAttempts(param(req,'id')))}));
 /**
