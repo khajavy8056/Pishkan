@@ -1,3 +1,4 @@
+8ad20c26fd9bbc3284fe3fadfb3d008a85ee1217629d72f1aa3c711126d27a47  pishkan-demo-60-days.zip
 581341ce4a46eef85fcf61067928c33817b6838fbb2a9daf34956d16eab04643  pishkan-demo-60-days.sqlite
 b9fc9d94763cf8027235f3e8e88146e54e75919acb4b55a6cbf380f4801db20c  pishkan-demo-60-days-uploads.tar.gz
-ac5b71280118e9914a8891d7fb93ef5a0476f5c9b97bb538574fa89f45afca55  pishkan-demo-60-days-summary.json
+0420893f307ff0e313399388ffa41223bc2d924c86c4d35a88b894099f98debe  pishkan-demo-60-days-summary.json

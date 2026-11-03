@@ -2,8 +2,9 @@
   "generatedAt": "2026-11-02T23:07:23.655Z",
   "scenario": "Simulated ~60 days of office activity ending at generation time.",
   "restore": {
+    "inPanel": "PRIMARY: log in as admin, open «زیرساخت و پشتیبان‌گیری», use «بازیابی از فایل پشتیبان» and pick pishkan-demo-60-days.zip. The panel verifies the file, takes a safety backup of the current state, restores database + documents, and signs everyone out; then log in with the demo credentials.",
     "windowsManager": "1) Open the Pishkan Manager, press «بازیابی», and choose pishkan-demo-60-days.sqlite (the Manager keeps a safety copy of the current database and restarts the service). 2) Extract pishkan-demo-60-days-uploads.tar.gz into <install>/.data/uploads, merging the folders. 3) Start the service.",
-    "uploads": "Required: requests hold real uploaded document scans, so the database references files inside this archive. Without step 2 the document previews cannot be served."
+    "uploads": "Requests hold real uploaded document scans; the .zip package already contains them. The uploads archive is only needed for the Manager path."
   },
   "counts": {
     "migrations": 27,
@@ -173,6 +174,11 @@
     "migrations": 27
   },
   "files": {
+    "package": {
+      "name": "pishkan-demo-60-days.zip",
+      "bytes": 10727645,
+      "sha256": "8ad20c26fd9bbc3284fe3fadfb3d008a85ee1217629d72f1aa3c711126d27a47"
+    },
     "sqlite": {
       "name": "pishkan-demo-60-days.sqlite",
       "bytes": 5677056,

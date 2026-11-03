@@ -7,12 +7,19 @@
  *   node --experimental-sqlite scripts/generate-demo-backup.mjs [--out demo-backup]
  *
  * What it produces (in the output folder):
- *   pishkan-demo-60-days.sqlite        — the file to pick in the Windows
- *                                        Manager "restore" dialog (a clean
- *                                        VACUUM INTO snapshot, the same
- *                                        shape the Manager itself writes).
+ *   pishkan-demo-60-days.zip           — THE single file to restore: upload
+ *                                        it inside the web panel (admin ←
+ *                                        «زیرساخت و پشتیبان‌گیری» ←
+ *                                        «بازیابی از فایل پشتیبان»). Holds
+ *                                        database.sqlite + uploads/ + a
+ *                                        pishkan-manifest.json.
+ *   pishkan-demo-60-days.sqlite        — legacy secondary path: the file to
+ *                                        pick in the Windows Manager
+ *                                        "restore" dialog (a clean VACUUM
+ *                                        INTO snapshot).
  *   pishkan-demo-60-days-uploads.tar.gz— uploaded document images the
- *                                        database references (extract into
+ *                                        database references (only needed
+ *                                        for the Manager path: extract into
  *                                        <install>/.data/uploads on restore).
  *   pishkan-demo-60-days-summary.json  — counts, demo logins, checksums.
  *   SHA256SUMS.txt
@@ -1635,7 +1642,7 @@ async function checkIns() {
 
 /* --------------------------- final date rewrite -------------------------- */
 
-function finalize() {
+async function finalize() {
   const startAt = atDaysAgo(65, 8);
   const launch = iso(startAt);
   const colsCache = new Map();
@@ -2148,6 +2155,40 @@ function finalize() {
   const tar = spawnSync('tar', ['-czf', uploadsPath, '-C', UPLOAD_DIR, '.'], { encoding: 'utf8' });
   if (tar.status !== 0) throw new Error(`tar failed: ${tar.stderr || tar.stdout}`);
 
+  /* Single-file restore package for the in-panel restore (primary path). */
+  const zipPath = path.join(OUT_DIR, 'pishkan-demo-60-days.zip');
+  fs.rmSync(zipPath, { force: true });
+  {
+    let AdmZip;
+    try { AdmZip = (await import('adm-zip')).default; } catch {
+      const { createRequire } = await import('node:module');
+      AdmZip = createRequire(path.join(ROOT, 'apps/api/package.json'))('adm-zip');
+    }
+    const appVersion = JSON.parse(fs.readFileSync(path.join(ROOT, 'package.json'), 'utf8')).version;
+    const probe = new DatabaseSync(sqlitePath, { readOnly: true });
+    const users = Number(probe.prepare('SELECT COUNT(*) AS c FROM users').get().c);
+    probe.close();
+    const zip = new AdmZip();
+    zip.addFile('pishkan-manifest.json', Buffer.from(`${JSON.stringify({
+      format: 'pishkan-backup', version: 1, createdAt: new Date().toISOString(),
+      appVersion, driver: 'sqlite', migrations, users, includesUploads: true,
+    }, null, 2)}\n`, 'utf8'));
+    zip.addLocalFile(sqlitePath, '', 'database.sqlite');
+    zip.addFile('uploads/', Buffer.alloc(0));
+    const walk = (dir) => {
+      for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+        const full = path.join(dir, entry.name);
+        if (entry.isDirectory()) walk(full);
+        else if (entry.isFile()) {
+          const rel = path.relative(UPLOAD_DIR, full).split(path.sep).join('/');
+          zip.addLocalFile(full, `uploads/${path.posix.dirname(rel) === '.' ? '' : path.posix.dirname(rel)}`, path.posix.basename(rel));
+        }
+      }
+    };
+    if (fs.existsSync(UPLOAD_DIR)) walk(UPLOAD_DIR);
+    zip.writeZip(zipPath);
+  }
+
   const ro = new DatabaseSync(sqlitePath, { readOnly: true });
   const one = (sql, ...p) => ro.prepare(sql).get(...p);
   const group = (sql) => Object.fromEntries(ro.prepare(sql).all().map((r) => [r.k, Number(r.c)]));
@@ -2155,8 +2196,9 @@ function finalize() {
     generatedAt: new Date().toISOString(),
     scenario: 'Simulated ~60 days of office activity ending at generation time.',
     restore: {
-      windowsManager: '1) Open the Pishkan Manager, press «بازیابی», and choose pishkan-demo-60-days.sqlite (the Manager keeps a safety copy of the current database and restarts the service). 2) Extract pishkan-demo-60-days-uploads.tar.gz into <install>/.data/uploads, merging the folders. 3) Start the service.',
-      uploads: 'Required: requests hold real uploaded document scans, so the database references files inside this archive. Without step 2 the document previews cannot be served.',
+      inPanel: 'PRIMARY: log in as admin, open «زیرساخت و پشتیبان‌گیری», use «بازیابی از فایل پشتیبان» and pick pishkan-demo-60-days.zip. The panel verifies the file, takes a safety backup of the current state, restores database + documents, and signs everyone out; then log in with the demo credentials.',
+      windowsManager: 'Secondary: 1) Open the Pishkan Manager, press «بازیابی», and choose pishkan-demo-60-days.sqlite (the Manager keeps a safety copy of the current database and restarts the service). 2) Extract pishkan-demo-60-days-uploads.tar.gz into <install>/.data/uploads, merging the folders. 3) Start the service.',
+      uploads: 'Requests hold real uploaded document scans; the .zip package already contains them. The uploads archive is only needed for the Manager path.',
     },
     counts: {
       migrations,
@@ -2197,6 +2239,7 @@ function finalize() {
     },
     checks: { integrity, foreignKeyViolations: fk.length, migrations },
     files: {
+      package: { name: path.basename(zipPath), bytes: fs.statSync(zipPath).size, sha256: sha256File(zipPath) },
       sqlite: { name: path.basename(sqlitePath), bytes: fs.statSync(sqlitePath).size, sha256: sha256File(sqlitePath) },
       uploads: { name: path.basename(uploadsPath), bytes: fs.statSync(uploadsPath).size, sha256: sha256File(uploadsPath) },
     },
@@ -2204,7 +2247,7 @@ function finalize() {
   ro.close();
   const summaryPath = path.join(OUT_DIR, 'pishkan-demo-60-days-summary.json');
   fs.writeFileSync(summaryPath, `${JSON.stringify(summary, null, 2)}\n`, 'utf8');
-  const sums = [sqlitePath, uploadsPath, summaryPath]
+  const sums = [zipPath, sqlitePath, uploadsPath, summaryPath]
     .map((f) => `${sha256File(f)}  ${path.basename(f)}`).join('\n');
   fs.writeFileSync(path.join(OUT_DIR, 'SHA256SUMS.txt'), `${sums}\n`, 'utf8');
   return summary;
@@ -2253,7 +2296,7 @@ async function main() {
     await checkIns();
     await stopApi();
 
-    const summary = finalize();
+    const summary = await finalize();
     log('DONE — artifacts in', OUT_DIR);
     console.log(JSON.stringify(summary.counts, null, 2));
   } catch (e) {
