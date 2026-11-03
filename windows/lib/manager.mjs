@@ -684,13 +684,58 @@ async function restore() {
   if (migrations <= 0) return out({ ok: false, message: 'پشتیبان هیچ مهاجرتی ندارد؛ بازیابی انجام نشد.' });
 
   const wasRunning = (await health(800)).up;
-  if (wasRunning) await stop();
+  const previousPid = state()?.pid ?? null;
+  if (wasRunning) {
+    const stopped = await stop();
+    if (!stopped?.ok) {
+      return out({
+        ok: false,
+        message: 'سرویس در حال اجرا متوقف نشد و بازیابی انجام نشد تا به داده‌ها آسیبی نرسد. راه ساده‌تر: بازیابی را از داخل پنل وب انجام دهید (پنل مدیر ← زیرساخت و پشتیبان‌گیری ← «بازیابی از فایل پشتیبان»). در غیر این صورت سرویس را با دکمه توقف ببندید و دوباره تلاش کنید.',
+      });
+    }
+    // The health endpoint can go quiet a moment before Windows releases the
+    // database file handle; wait for the process to actually die so the copy
+    // below cannot race a still-closing server (EBUSY/EPERM).
+    if (previousPid) {
+      for (let attempt = 0; attempt < 20 && pidAlive(previousPid); attempt += 1) await sleep(400);
+    }
+  }
   const safety = `${DB}.before-restore-${Date.now()}`;
-  if (fs.existsSync(DB)) fs.copyFileSync(DB, safety);
-  fs.copyFileSync(file, DB);
-  fs.rmSync(`${DB}-wal`, { force: true });
-  fs.rmSync(`${DB}-shm`, { force: true });
-  if (wasRunning) await start();
+  // Copy with retries: antivirus/indexers on Windows can hold the file for a
+  // few seconds right after the server closes it.
+  const copyWithRetry = async (from, to) => {
+    let lastError = null;
+    for (let attempt = 0; attempt < 12; attempt += 1) {
+      try { fs.copyFileSync(from, to); return; } catch (error) {
+        lastError = error;
+        if (!['EBUSY', 'EPERM', 'EACCES'].includes(error?.code)) throw error;
+        await sleep(700);
+      }
+    }
+    throw lastError;
+  };
+  try {
+    if (fs.existsSync(DB)) await copyWithRetry(DB, safety);
+    await copyWithRetry(file, DB);
+    fs.rmSync(`${DB}-wal`, { force: true });
+    fs.rmSync(`${DB}-shm`, { force: true });
+  } catch (error) {
+    log(`restore copy failed: ${error?.stack ?? error}`);
+    if (wasRunning) { try { await start(); } catch { /* best effort */ } }
+    return out({
+      ok: false, code: error?.code ?? 'copy_failed',
+      message: `کپی فایل پایگاه داده ممکن نشد (${error?.code ?? 'خطای فایل'}): فایل احتمالاً توسط برنامه دیگری (آنتی‌ویروس یا یک سرویس پیشخوان بازمانده) قفل است. نسخه فعلی دست‌نخورده ماند. راه مطمئن‌تر: بازیابی از داخل پنل وب (پنل مدیر ← زیرساخت و پشتیبان‌گیری ← «بازیابی از فایل پشتیبان»).`,
+    });
+  }
+  if (wasRunning) {
+    const started = await start();
+    if (!started?.ok) {
+      return out({
+        ok: false, file, migrations, previousCopy: safety,
+        message: 'پایگاه داده جایگزین شد اما سرویس دوباره بالا نیامد؛ گزارش را بررسی کنید. نسخه قبلی برای برگشت نگه داشته شده است: ' + safety,
+      });
+    }
+  }
   return out({
     ok: true, file, migrations, previousCopy: safety, restarted: wasRunning,
     message: `پایگاه داده بازیابی شد (${migrations} مهاجرت). نسخه قبلی: ${safety}`,

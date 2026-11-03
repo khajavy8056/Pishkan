@@ -1,5 +1,8 @@
 import { Router } from 'express';
 import fs from 'node:fs';
+import path from 'node:path';
+import crypto from 'node:crypto';
+import multer from 'multer';
 import { z } from 'zod';
 import { asyncRoute, requireAuth, requirePermission } from '../http/middleware.js';
 import { badRequest } from '../http/errors.js';
@@ -11,6 +14,10 @@ import {
   backupStatus, createBackup, deleteBackup, listBackups, restoreBackup, verifyBackup,
   backupDto, backupFilePath,
 } from '../modules/system/backup.js';
+import {
+  PACKAGE_MAX_BYTES, stageRestoreUpload, executeRestore, getRestoreJob, discardRestoreJob,
+  restoreJobDto, createBackupPackage,
+} from '../modules/system/restore-package.js';
 import { invalidateSettingsCache } from '../modules/settings/service.js';
 import { writeAudit } from '../modules/audit/service.js';
 import { getBool, getNumber, getString } from '../modules/settings/service.js';
@@ -168,6 +175,91 @@ systemRouter.post('/backups/restore', requirePermission('backup.restore'), async
     entityType: 'backup', entityId: body.backupId, after: { safetyBackup: result.safetyBackup }, ip: req.ip,
   });
   ok(res, result);
+}));
+
+/* --------------------- one-file restore from an upload -------------------- */
+
+const restoreUploadStorage = multer.diskStorage({
+  destination: (_req, _file, cb) => {
+    const dir = path.join(env.backupDir, 'restore-staging');
+    fs.mkdirSync(dir, { recursive: true });
+    cb(null, dir);
+  },
+  filename: (_req, _file, cb) => cb(null, `incoming-${Date.now()}-${crypto.randomBytes(6).toString('hex')}.bin`),
+});
+const restoreUploadMiddleware = multer({
+  storage: restoreUploadStorage,
+  limits: { fileSize: PACKAGE_MAX_BYTES, files: 1 },
+  fileFilter: (_req, file, cb) => {
+    if (!/\.(zip|sqlite|db)$/i.test(file.originalname)) {
+      return cb(badRequest('فقط بسته پشتیبان (.zip) یا فایل پایگاه داده (.sqlite) پذیرفته می‌شود.'));
+    }
+    cb(null, true);
+  },
+}).single('file');
+
+/** Upload + inspect a backup package (non-destructive). */
+systemRouter.post('/backups/restore-upload', requirePermission('backup.restore'), asyncRoute(async (req, res, next) => {
+  restoreUploadMiddleware(req, res, (err: any) => {
+    if (err) return next(err);
+    (async () => {
+      const file = (req as any).file as Express.Multer.File | undefined;
+      if (!file) throw badRequest('فایلی انتخاب نشده است.');
+      try {
+        const staged = await stageRestoreUpload(file.path, { id: req.auth!.user.id, name: req.auth!.user.fullName });
+        await writeAudit({
+          actorId: req.auth!.user.id, actorName: req.auth!.user.fullName, action: 'backup.restore_package_upload',
+          entityType: 'backup', entityId: staged.jobId,
+          after: { filename: file.originalname, size: staged.inspection.size, migrations: staged.inspection.migrations },
+          ip: req.ip,
+        });
+        res.status(201).json({ ok: true, data: staged });
+      } catch (error) {
+        try { fs.rmSync(file.path, { force: true }); } catch { /* already moved into staging */ }
+        throw error;
+      }
+    })().catch(next);
+  });
+}));
+
+systemRouter.get('/backups/restore-upload/:jobId', requirePermission('backup.restore'), asyncRoute(async (req, res) => {
+  ok(res, restoreJobDto(getRestoreJob(param(req, 'jobId'))));
+}));
+
+systemRouter.delete('/backups/restore-upload/:jobId', requirePermission('backup.restore'), asyncRoute(async (req, res) => {
+  discardRestoreJob(param(req, 'jobId'));
+  ok(res, { message: 'فایل بارگذاری‌شده کنار گذاشته شد.' });
+}));
+
+/** Execute a staged restore (async; poll the job for progress). */
+systemRouter.post('/backups/restore-upload/:jobId/execute', requirePermission('backup.restore'), asyncRoute(async (req, res) => {
+  const body = z.object({
+    confirmation: z.string(),
+    password: z.string().min(1),
+  }).parse(req.body);
+  if (body.confirmation !== 'RESTORE') {
+    throw badRequest('برای بازیابی باید عبارت RESTORE را دقیقاً وارد کنید.');
+  }
+  const { findUserById } = await import('../modules/auth/service.js');
+  const { verifyPassword } = await import('../lib/crypto.js');
+  const user = await findUserById(req.auth!.user.id);
+  if (!user?.password_hash || !(await verifyPassword(body.password, user.password_hash))) {
+    throw badRequest('رمز عبور شما صحیح نیست.');
+  }
+  const job = executeRestore(param(req, 'jobId'));
+  res.status(202).json({ ok: true, data: restoreJobDto(job) });
+}));
+
+/** Create a fresh single-file package of the current state and download it. */
+systemRouter.post('/backups/package', requirePermission('backup.export'), asyncRoute(async (req, res) => {
+  const pkg = await createBackupPackage();
+  await writeAudit({
+    actorId: req.auth!.user.id, actorName: req.auth!.user.fullName, action: 'backup.package_create',
+    entityType: 'backup', entityId: pkg.filename, after: { size: pkg.size }, ip: req.ip,
+  });
+  res.download(pkg.path, pkg.filename, () => {
+    fs.rm(pkg.path, { force: true }, () => undefined);
+  });
 }));
 
 /* ---------------------------------- logs ---------------------------------- */
