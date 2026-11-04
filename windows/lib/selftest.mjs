@@ -254,21 +254,26 @@ test('شناسه‌های قانون فایروال به نصب محدود و پ
   assert.match(first, /^PishkanLAN_[a-f0-9]{16}$/);
 });
 
-test('اسکریپت فایروال فقط Private/LocalSubnet را مجاز و Public/Domain را مسدود می‌کند', () => {
+test('اسکریپت فایروال: یک قانون اجازهٔ محدود (همهٔ پروفایل‌ها + LocalSubnet)، بدون ردّ به‌خاطر قوانین دیگر', () => {
   const firewall = readFileSync(path.join(MODULE_DIR, 'lan-firewall.ps1'), 'utf8').replace(/^\uFEFF/, '');
-  assert.match(firewall, /-Profile Private -Protocol TCP -LocalPort \$port -RemoteAddress LocalSubnet/);
-  assert.match(firewall, /-Profile Public,Domain -Protocol TCP -LocalPort \$port -RemoteAddress Any/);
-  assert.match(firewall, /DefaultInboundAction -ne 'Block'/);
-  assert.match(firewall, /Find-BroadAllowRule/);
-  assert.match(firewall, /function Test-ExactProfileSet/);
-  assert.match(firewall, /Test-ExactProfileSet \$Rule\.Profile \$Profile/);
+  // The office Wi-Fi is often categorised Public; the narrow scope is the
+  // exact port + this install's program + LocalSubnet, not the profile name.
+  assert.match(firewall, /-Profile Domain,Private,Public/);
+  assert.match(firewall, /-RemoteAddress LocalSubnet/);
+  assert.match(firewall, /-LanAllow/);
+  assert.match(firewall, /Test-CoversAllProfiles/);
   assert.match(firewall, /function Test-ExactPort/);
   assert.match(firewall, /Test-ExactPort \$portFilter\.LocalPort \$Port/);
   assert.match(firewall, /function Test-ExactValueSet/);
-  assert.match(firewall, /Test-ExactValueSet \$addressFilter\.RemoteAddress \$RemoteAddress/);
+  assert.match(firewall, /Test-ExactValueSet \$addressFilter\.RemoteAddress 'LocalSubnet'/);
   assert.match(firewall, /Rule\.EdgeTraversalPolicy -ne 'Block'/);
-  assert.match(firewall, /Test-RuleShape \$block 'Block' 'Public,Domain'/);
   assert.match(firewall, /-EdgeTraversalPolicy Block/);
+  // The classic killer — Windows' own node.exe BLOCK rule — gets neutralised
+  // instead of vetoing the setup the way the old strict script did.
+  assert.match(firewall, /Find-BlockerRules/);
+  assert.match(firewall, /Disable-NetFirewallRule/);
+  // A pre-existing broad allow rule must never again abort the whole setup.
+  assert.doesNotMatch(firewall, /if \(\$conflict\) \{ throw/);
   assert.doesNotMatch(firewall, /Set-NetFirewallProfile/);
 });
 
@@ -277,7 +282,7 @@ test('ناظر LAN نحو JavaScript معتبر دارد', () => {
   assert.equal(guard.status, 0, guard.stderr || guard.stdout);
 });
 
-test('installer, manager و API فقط پس از opt-in و تأیید Firewall به LAN bind می‌کنند', () => {
+test('installer، manager و API: LAN با انتخاب نصاب فعال می‌شود؛ گیت سخت فایروال فقط در حالت سخت‌گیرانه', () => {
   const installer = readFileSync(path.join(MODULE_DIR, 'installer.mjs'), 'utf8');
   const manager = readFileSync(path.join(MODULE_DIR, 'manager.mjs'), 'utf8');
   const lanGuard = readFileSync(path.join(MODULE_DIR, 'lan-guard.mjs'), 'utf8');
@@ -288,6 +293,10 @@ test('installer, manager و API فقط پس از opt-in و تأیید Firewall �
   assert.match(installer, /ZARINPAL_CALLBACK_BASE_URL/);
   assert.match(installer, /runLanFirewall\('ensure'/);
   assert.match(manager, /runLanFirewall\('ensure'/);
+  // Simple-mode LAN bind must never again be held hostage by the firewall
+  // report: it follows the install opt-in, and only strict mode fail-closes.
+  assert.match(manager, /const LAN_STRICT =/);
+  assert.match(manager, /effectiveLan = true;\n\s+if \(!firewall\.ok\)/);
   assert.match(manager, /launchLanGuard/);
   assert.match(manager, /PISHKAN_LAN_FIREWALL_STATUS_FILE/);
   assert.match(manager, /PISHKAN_LAN_FIREWALL_TOKEN/);
@@ -421,14 +430,14 @@ test('شروع Manager هرگز به‌خاطر LAN قفل نمی‌شود و د
   assert.doesNotMatch(gui, /\$autoRefresh\.Checked -and \$status\.running/);
 });
 
-await testAsync('manager: خرابی LAN جلوی اجرای محلی را نمی‌گیرد (fallback به loopback)', async () => {
+await testAsync('manager: بایند LAN از انتخاب نصاب پیروی می‌کند و خرابی فایروال فقط هشدار می‌شود', async () => {
   if (process.platform === 'win32') {
-    skipped.push('manager LAN fallback: روی Windows واقعی فایروال ممکن است سالم باشد؛ مسیر fallback در Linux اثبات می‌شود.');
+    skipped.push('manager LAN bind: روی Windows واقعی فایروال ممکن است سالم باشد؛ مسیر bind در Linux اثبات می‌شود.');
     return;
   }
   const repoRoot = path.join(MODULE_DIR, '..', '..');
   if (!fs.existsSync(path.join(repoRoot, 'apps', 'api', 'dist', 'index.js'))) {
-    skipped.push('manager LAN fallback: خروجی ساخت API (apps/api/dist) در این محیط وجود ندارد.');
+    skipped.push('manager LAN bind: خروجی ساخت API (apps/api/dist) در این محیط وجود ندارد.');
     return;
   }
   const root = path.join(tmp, 'manager-fallback');
@@ -460,8 +469,11 @@ await testAsync('manager: خرابی LAN جلوی اجرای محلی را نم�
   try {
     const started = payload(runManager('start'));
     assert.equal(started.ok, true, started.message);
-    assert.equal(started.lanAccess, false, 'LAN باید در fallback خاموش باشد');
-    assert.ok(started.lanWarning, 'هشدار LAN باید در نتیجه باشد');
+    // The field bug this guards: a failed firewall rule used to silently pin
+    // the server to loopback, so phones could never connect. Simple mode now
+    // binds the LAN because the install opted in; the firewall is a warning.
+    assert.equal(started.lanAccess, true, 'بایند LAN باید از انتخاب نصاب پیروی کند، نه از نتیجهٔ فایروال');
+    assert.ok(started.lanWarning, 'هشدار فایروال باید در نتیجه باشد');
     const st = payload(runManager('status'));
     assert.equal(st.running, true, 'سرویس باید روی loopback پاسخ‌گو باشد');
   } finally {

@@ -46,6 +46,11 @@ const command = process.argv[2] && !process.argv[2].startsWith('--') ? process.a
 const env = readEnvFile(envFilePath(ROOT));
 const PORT = Number(env.PORT || 3000);
 const LAN_ACCESS = String(env.LAN_ACCESS ?? '').toLowerCase() === 'true';
+// Strict mode (opt-in): the LAN listener exists only while the firewall rule
+// is re-verified by the watchdog within a short lease (fail-closed). Simple
+// mode (the default the office always wanted): bind the LAN when the install
+// opted in, and treat the firewall rule as a reported best-effort helper.
+const LAN_STRICT = String(env.PISHKAN_LAN_STRICT ?? process.env.PISHKAN_LAN_STRICT ?? '').trim().toLowerCase() === 'true';
 const BIND_HOST = env.HOST || '127.0.0.1';
 const URL_BASE = `http://127.0.0.1:${PORT}`;
 
@@ -65,7 +70,7 @@ function lanAddresses() {
 
 function publicAccessDetails() {
   const urls = lanAddresses();
-  return urls.length ? ` · موبایل (Wi‑Fi خصوصی): ${urls.join('، ')}` : ' · LAN فعال است ولی آدرس IPv4 خصوصی پیدا نشد؛ به Wi‑Fi با نمایهٔ Private وصل شوید.';
+  return urls.length ? ` · موبایل (همان Wi‑Fi): ${urls.join('، ')}` : ' · LAN فعال است ولی آدرس IPv4 خصوصی پیدا نشد؛ این رایانه به شبکهٔ محلی خصوصی وصل نیست؛ آن را به Wi‑Fi دفتر وصل کنید.';
 }
 const PIPE = env.PISHKAN_CONTROL_PIPE || controlPipePath(ROOT);
 const DB = env.SQLITE_FILE || dbFile(ROOT);
@@ -206,14 +211,25 @@ async function start({ lanAllowed = true, lanWarning: inheritedWarning = '', rec
   // Effective network mode. LAN is an add-on: it must never brick the local
   // service. Whatever the firewall state, the office app always starts —
   // loopback-only with a clear warning beats «Manager می‌گوید متوقف است» forever.
+  // Simple mode: when the install opted into LAN, the server always listens on
+  // the LAN — the firewall rule is attempted and reported, but a world where
+  // rule creation failed silently pinned to loopback is exactly the «شبکه
+  // نمی‌شود» report from the field. Strict mode keeps the old fail-closed gate.
   let effectiveLan = false;
   let lanWarning = inheritedWarning;
   let firewall = null;
   const wantsLan = LAN_ACCESS && BIND_HOST.trim().toLowerCase() === '0.0.0.0';
   if (wantsLan && lanAllowed) {
     firewall = runLanFirewall('ensure', { root: ROOT, port: PORT, program: process.execPath });
-    if (firewall.ok) effectiveLan = true;
-    else lanWarning = lanWarning || `دسترسی LAN فعال نشد (${firewall.message})؛ سرویس فقط روی همین رایانه اجرا می‌شود.`;
+    if (LAN_STRICT) {
+      if (firewall.ok) effectiveLan = true;
+      else lanWarning = lanWarning || `دسترسی LAN در حالت سخت‌گیرانه فعال نشد (${firewall.message})؛ سرویس فقط روی همین رایانه اجرا می‌شود.`;
+    } else {
+      effectiveLan = true;
+      if (!firewall.ok) {
+        lanWarning = lanWarning || `سرویس روی شبکهٔ محلی در حال اجراست؛ اگر گوشی وصل نشد، قانون فایروال لازم است (${firewall.message}) — در Pishkan Manager دکمهٔ «📱 باز کردن فایروال برای موبایل» را بزنید.`;
+      }
+    }
   } else if (LAN_ACCESS || BIND_HOST.trim().toLowerCase() === '0.0.0.0') {
     lanWarning = lanWarning || 'تنظیم HOST/LAN_ACCESS در فایل تنظیمات ناسازگار است؛ سرویس فقط روی همین رایانه اجرا می‌شود.';
   }
@@ -221,7 +237,7 @@ async function start({ lanAllowed = true, lanWarning: inheritedWarning = '', rec
   const lanUrlsNow = () => (effectiveLan ? privateLanUrls(PORT) : []);
   const lanDetailsNow = () => {
     const urls = lanUrlsNow();
-    return urls.length ? ` · موبایل (Wi‑Fi خصوصی): ${urls.join('، ')}` : ' · LAN فعال است ولی آدرس IPv4 خصوصی پیدا نشد؛ به Wi‑Fi با نمایهٔ Private وصل شوید.';
+    return urls.length ? ` · موبایل (همان Wi‑Fi): ${urls.join('، ')}` : ' · LAN فعال است ولی آدرس IPv4 خصوصی پیدا نشد؛ این رایانه به شبکهٔ محلی خصوصی وصل نیست؛ آن را به Wi‑Fi دفتر وصل کنید.';
   };
   if (lanWarning) log(lanWarning);
   const withLan = (payload) => ({
@@ -350,7 +366,10 @@ async function start({ lanAllowed = true, lanWarning: inheritedWarning = '', rec
     firewallLeaseToken, lanGuardPid: null,
   };
   writeJson(stateFile(ROOT), nextState);
-  if (effectiveLan) {
+  // Simple mode has no watchdog at all: the LAN listener simply follows the
+  // install's LAN opt-in (a crashed guard process must never recycle the
+  // office server back to loopback).
+  if (effectiveLan && LAN_STRICT && firewallLeaseToken) {
     try {
       nextState.lanGuardPid = launchLanGuard(child.pid, firewallLeaseToken);
       writeJson(stateFile(ROOT), nextState);
@@ -546,11 +565,16 @@ async function status() {
     ? runLanFirewall('status', { root: ROOT, port: PORT, program: process.execPath })
     : null;
   const guardHealthy = LAN_ACCESS && lanGuardHealthy(current);
+  // The strict lease/watchdog gates the LAN claim only in strict mode; in
+  // simple mode the listener follows the install opt-in, so the phone
+  // addresses and QR must be shown regardless of the firewall rule report
+  // (which is still surfaced in the detail line).
+  const lanGateHealthy = LAN_STRICT ? (Boolean(firewall?.ok) && (!probe.up || guardHealthy)) : true;
   const lanService = LAN_ACCESS ? {
     id: 'lan',
     title: 'دسترسی موبایل در شبکه محلی',
-    ok: !configError && Boolean(firewall?.ok) && candidateMobileUrls.length > 0 && (!probe.up || guardHealthy),
-    detail: configError || (probe.up && !guardHealthy ? 'ناظر فایروال فعال نیست یا تأیید آن منقضی شده؛ سرویس باید متوقف شود.' : firewall?.message) || 'فایروال LAN بررسی نشد',
+    ok: !configError && candidateMobileUrls.length > 0 && lanGateHealthy,
+    detail: configError || (LAN_STRICT && probe.up && !guardHealthy ? 'ناظر فایروال فعال نیست یا تأیید آن منقضی شده؛ سرویس باید متوقف شود.' : firewall?.message) || 'فایروال LAN بررسی نشد',
   } : null;
 
   const services = [
@@ -603,11 +627,12 @@ async function status() {
       enabled: LAN_ACCESS,
       host: BIND_HOST,
       ready: LAN_ACCESS ? Boolean(lanService?.ok) : false,
-      mobileUrls: LAN_ACCESS && firewall?.ok && (!probe.up || guardHealthy) ? candidateMobileUrls : [],
+      mobileUrls: LAN_ACCESS && lanGateHealthy ? candidateMobileUrls : [],
       candidateUrls: candidateMobileUrls,
-      // The QR only ever encodes the private LAN URL (no credentials/tokens), and
+      // The QR only ever encodes the private LAN URL (no credentials/tokens).
+      // In simple mode it is shown whenever LAN was opted into; in strict mode
       // only while the firewall lease and watchdog are healthy.
-      qr: LAN_ACCESS && firewall?.ok && (!probe.up || guardHealthy)
+      qr: LAN_ACCESS && lanGateHealthy
         ? candidateMobileUrls.map((url) => ({ url, pngBase64: qrPngBase64(url) }))
         : [],
       firewall: firewall ?? null,
@@ -783,7 +808,7 @@ function fixLanFirewall() {
     qr,
     message: urls.length
       ? `فایروال برای اتصال گوشی باز شد. حالا در اپ پیشخوان یکی از این آدرس‌ها را وارد کنید یا QR را اسکن کنید: ${urls.join('، ')}`
-      : 'قانون فایروال ساخته شد، اما آدرس IPv4 خصوصی روی این رایانه پیدا نشد؛ به Wi‑Fi با نمایهٔ Private وصل شوید و دوباره تلاش کنید.',
+      : 'قانون فایروال ساخته شد، اما آدرس IPv4 خصوصی روی این رایانه پیدا نشد؛ این رایانه را به Wi‑Fi/شبکهٔ دفتر وصل کنید و دوباره تلاش کنید.',
   });
 }
 
@@ -794,9 +819,9 @@ function lanInfo() {
   const enabled = LAN_ACCESS && urls.length > 0;
   const qr = urls.map((url) => ({ url, pngBase64: qrPngBase64(url), ascii: qrAscii(url) }));
   const message = enabled
-    ? `آدرس دسترسی موبایل (فقط Wi‑Fi خصوصی): ${urls.join('، ')}`
+    ? `آدرس دسترسی موبایل (فقط روی همان Wi‑Fi): ${urls.join('، ')}`
     : LAN_ACCESS
-      ? 'LAN فعال است ولی آدرس IPv4 خصوصی پیدا نشد؛ به Wi‑Fi با نمایهٔ Private وصل شوید.'
+      ? 'LAN فعال است ولی آدرس IPv4 خصوصی پیدا نشد؛ این رایانه به شبکهٔ محلی خصوصی وصل نیست؛ آن را به Wi‑Fi دفتر وصل کنید.'
       : 'دسترسی LAN خاموش است؛ برنامه فقط روی همین رایانه در دسترس است.';
   if (!JSON_MODE && enabled) {
     for (const item of qr) {

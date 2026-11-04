@@ -17,13 +17,17 @@ function powershellPath() {
 }
 
 /**
- * Apply or inspect this install's narrowly scoped Windows Firewall rules.
+ * Apply or inspect this install's narrowly scoped Windows Firewall rule: one
+ * inbound ALLOW for this install's node.exe on its exact TCP port, limited to
+ * the local subnet but covering every firewall profile (office Wi-Fi is often
+ * categorised Public). The script also disables Windows' classic program
+ * BLOCK rule for node.exe, which would otherwise veto the allow rule.
  * `runLanFirewall` never triggers UAC implicitly: a new rule requires the
  * installer/manager to already be elevated; an existing valid rule can be
  * checked and used by a standard user. When the operator explicitly asks to
  * "open the firewall for phones", `ensureLanFirewallElevated` performs the
- * same narrow rule creation through one standard Windows UAC prompt, so LAN
- * access works without hunting through firewall settings by hand.
+ * same rule creation through one standard Windows UAC prompt, so LAN access
+ * works without hunting through firewall settings by hand.
  */
 export function runLanFirewall(action, { root, port, program = process.execPath, timeoutMs = 60_000 } = {}) {
   if (!['ensure', 'remove', 'status'].includes(action)) {
@@ -103,7 +107,8 @@ function psQuote(value) {
  * Manager's «باز کردن فایروال برای موبایل» button uses: the customer sees the
  * standard Windows prompt, clicks Yes, and phones on the office Wi-Fi can
  * reach Pishkan — whatever the firewall profile defaults were. The rule stays
- * narrow (Private profile, LocalSubnet, this install's program only).
+ * narrow (LocalSubnet only, this install's program and exact port, all
+ * profiles so a Public-categorised Wi-Fi still works).
  */
 export function ensureLanFirewallElevated({ root, port, program = process.execPath, timeoutMs = 120_000 } = {}) {
   // Cheap path first: already elevated, or a valid rule already exists.

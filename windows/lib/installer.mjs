@@ -829,7 +829,7 @@ async function stepStart(config) {
   serverStartedHere = true;
   if (config.lanAccess && Array.isArray(payload.mobileUrls)) config.mobileUrls = payload.mobileUrls;
   const mobileText = config.lanAccess
-    ? (payload.mobileUrls?.length ? ` · آدرس موبایل: ${payload.mobileUrls.join('، ')}` : ' · LAN فعال است؛ برای دیدن آدرس، به Wi‑Fi خصوصی وصل شوید و Manager را تازه‌سازی کنید.')
+    ? (payload.mobileUrls?.length ? ` · آدرس موبایل: ${payload.mobileUrls.join('، ')}` : ' · LAN فعال است؛ ابتدا این رایانه را به Wi‑Fi دفتر وصل کنید و Manager را تازه‌سازی کنید.')
     : ' · دسترسی شبکه خاموش و محدود به همین رایانه است.';
   stepEvent('start', 'راه‌اندازی سرویس‌ها', 'ok', {
     message: `سرور روی ${payload.url ?? `http://127.0.0.1:${config.port}`} پاسخ می‌دهد${mobileText}`,

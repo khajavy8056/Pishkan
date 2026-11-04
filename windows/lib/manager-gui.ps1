@@ -360,7 +360,7 @@ function Update-Status {
     if ($status.lanAccess.enabled) {
       $mobileUrls = @($status.lanAccess.mobileUrls | Where-Object { $_ })
       if ($mobileUrls.Count -gt 0) {
-        $lanText = "آدرس موبایل فقط در Wi‑Fi خصوصی:`n" + ($mobileUrls -join "`n")
+        $lanText = "آدرس موبایل (فقط روی همان Wi‑Fi):`n" + ($mobileUrls -join "`n")
       } else {
         $lanText = [string]$status.lanAccess.message
       }
