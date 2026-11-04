@@ -7,6 +7,7 @@ import '../core/api.dart';
 import '../core/biometric.dart';
 import '../core/theme.dart';
 import '../models/models.dart';
+import '../services/notifier.dart' show AppPrefs;
 import '../services/services.dart';
 import 'home_shell.dart';
 import 'login.dart';
