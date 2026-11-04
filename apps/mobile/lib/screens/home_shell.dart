@@ -38,6 +38,12 @@ class _HomeShellState extends State<HomeShell> with WidgetsBindingObserver {
   /// Tabs are addressed by the home shortcuts too (ثبت درخواست → خدمات…).
   void selectTab(int index) => setState(() => _index = index);
 
+  Future<void> _askNotificationsPermission() async {
+    try {
+      await NotifierService.requestPermission();
+    } catch (_) {}
+  }
+
   @override
   void initState() {
     super.initState();
@@ -46,7 +52,7 @@ class _HomeShellState extends State<HomeShell> with WidgetsBindingObserver {
     NotifierService.onTapLink = _openLink;
     // Ask for the notification permission once the customer is inside the
     // app (never on the splash, where it could stall first paint).
-    unawaited(NotifierService.requestPermission().catchError((_) {}));
+    unawaited(_askNotificationsPermission());
     // Opened by tapping a tray notification while the app was closed?
     final pending = NotifierService.takePendingLaunchPayload();
     if (pending != null && pending.isNotEmpty) {

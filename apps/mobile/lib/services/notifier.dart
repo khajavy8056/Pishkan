@@ -129,8 +129,9 @@ class NotifierService {
       // Cold start from a tray notification: remember where to deep-link once
       // the shell is mounted.
       final launch = await _plugin.getNotificationAppLaunchDetails();
-      if (launch?.didNotificationLaunchApp == true) {
-        _pendingLaunchPayload = launch!.notificationResponse?.payload;
+      final response = launch?.notificationResponse;
+      if (launch?.didNotificationLaunchApp == true && response != null) {
+        _pendingLaunchPayload = response.payload;
       }
       _ready = true;
     } catch (_) {
