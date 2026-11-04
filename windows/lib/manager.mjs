@@ -236,7 +236,7 @@ async function start({ lanAllowed = true, lanWarning: inheritedWarning = '', rec
   const existing = await health();
   if (existing.up && owned) {
     const previousHost = current?.bindHost || (current?.lanAccess ? '0.0.0.0' : '127.0.0.1');
-    const guardMissing = effectiveLan && !lanGuardHealthy(current);
+    const guardMissing = effectiveLan && LAN_STRICT && !lanGuardHealthy(current);
     if (previousHost !== bindHost || Boolean(current?.lanAccess) !== effectiveLan || guardMissing) {
       const stopped = await stop();
       if (!stopped.ok) return out(withLan({ ok: false, port: PORT, url: URL_BASE, message: 'پیکربندی شبکه تغییر کرده اما سرویس قبلی متوقف نشد؛ تنظیم جدید اعمال نشد.' }));
@@ -304,7 +304,9 @@ async function start({ lanAllowed = true, lanWarning: inheritedWarning = '', rec
     return out(withLan({ ok: false, message: 'فایل تنظیمات محلی پیدا نشد. ابتدا نصب‌کننده را اجرا کنید.' }));
   }
 
-  const firewallLeaseToken = effectiveLan ? crypto.randomBytes(24).toString('hex') : null;
+  // The live firewall lease only exists in strict mode; simple mode never
+  // depends on a watchdog file to keep the office service reachable.
+  const firewallLeaseToken = effectiveLan && LAN_STRICT ? crypto.randomBytes(24).toString('hex') : null;
   if (firewallLeaseToken) {
     try {
       writeJson(FIREWALL_LEASE_FILE, {
@@ -761,6 +763,28 @@ function removeLanFirewall() {
   const result = runLanFirewall('remove', { root: ROOT, port: PORT, program: process.execPath });
   log(`Firewall cleanup ${result.ok ? 'completed' : 'failed'}: ${result.message}`);
   return out(result);
+}
+
+/**
+ * One-click «باز کردن فایروال برای موبایل»: creates this install's narrow LAN
+ * firewall rule, elevating through a single Windows UAC prompt when needed,
+ * then confirms the phone-reachable addresses (with scannable QR payloads) so
+ * the GUI can show them right after the operator clicks Yes.
+ */
+function fixLanFirewall() {
+  const result = ensureLanFirewallElevated({ root: ROOT, port: PORT, program: process.execPath });
+  log(`Firewall fix ${result.ok ? 'completed' : 'failed'}: ${result.message}`);
+  if (!result.ok) return out(result);
+  const urls = privateLanUrls(PORT);
+  const qr = urls.map((url) => ({ url, pngBase64: qrPngBase64(url), ascii: qrAscii(url) }));
+  return out({
+    ...result,
+    urls,
+    qr,
+    message: urls.length
+      ? `فایروال برای اتصال گوشی باز شد. حالا در اپ پیشخوان یکی از این آدرس‌ها را وارد کنید یا QR را اسکن کنید: ${urls.join('، ')}`
+      : 'قانون فایروال ساخته شد، اما آدرس IPv4 خصوصی روی این رایانه پیدا نشد؛ به Wi‑Fi با نمایهٔ Private وصل شوید و دوباره تلاش کنید.',
+  });
 }
 
 /* ---------------------------------- main ---------------------------------- */

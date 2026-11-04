@@ -97,6 +97,62 @@ describe('android app backend', () => {
     await request(server).delete(`/api/app/admin/stories/${draft.body.data.id}`).set('Cookie', admin.cookie).expect(200);
   });
 
+  it('carries a story caption end-to-end and notifies customers when a story is published', async () => {
+    const server = await app();
+    const admin = await adminSession();
+    const customer = await customerSession();
+
+    const upload = await request(server).post('/api/files/upload?purpose=story')
+      .set('Cookie', admin.cookie).attach('file', await jpegFixture(), 'story-caption.jpg');
+    expect(upload.status).toBe(201);
+
+    const caption = 'اکنون می‌توانید درخواست صدور و تمدید کارت ملی را کاملاً غیرحضوری ثبت کنید.';
+    // Draft first: publishing must not notify yet.
+    const draft = await request(server).post('/api/app/admin/stories').set('Cookie', admin.cookie).send({
+      groupTitle: 'اطلاعیه‌ها', title: 'ثبت غیرحضوری کارت ملی', caption, mediaType: 'image',
+      fileId: upload.body.data.id, status: 'draft',
+    });
+    expect(draft.status).toBe(201);
+    expect(draft.body.data.caption).toBe(caption);
+
+    const before = await request(server).get('/api/customers/me/notifications?limit=50').set('Cookie', customer.cookie).expect(200);
+    const seenBefore = (before.body.data as any[]).some((n) => String(n.title).includes('کارت ملی'));
+    expect(seenBefore).toBe(false);
+
+    const published = await request(server).patch(`/api/app/admin/stories/${draft.body.data.id}`)
+      .set('Cookie', admin.cookie).send({ status: 'published' }).expect(200);
+    expect(published.body.data.caption).toBe(caption);
+
+    // The customer feed shows the caption for the full-screen viewer...
+    const feed = await request(server).get('/api/app/stories').set('Cookie', customer.cookie).expect(200);
+    const item = feed.body.data.groups.flatMap((g: any) => g.items).find((i: any) => i.id === draft.body.data.id);
+    expect(item).toBeTruthy();
+    expect(item.caption).toBe(caption);
+
+    // ...and a «new story» notification lands in the customer's centre
+    // (fan-out is intentionally fire-and-forget, so poll briefly).
+    let notified = false;
+    for (let attempt = 0; attempt < 20 && !notified; attempt += 1) {
+      const after = await request(server).get('/api/customers/me/notifications?limit=50').set('Cookie', customer.cookie).expect(200);
+      notified = (after.body.data as any[]).some((n) => String(n.title).includes('استوری تازه') && n.link === '/app/stories');
+      if (!notified) await new Promise((resolve) => setTimeout(resolve, 100));
+    }
+    expect(notified).toBe(true);
+  });
+
+  it('exposes LAN connection info for the admin QR card', async () => {
+    const server = await app();
+    const admin = await adminSession();
+    const res = await request(server).get('/api/app/admin/connection').set('Cookie', admin.cookie).expect(200);
+    expect(res.body.data).toHaveProperty('lanEnabled');
+    expect(Array.isArray(res.body.data.urls)).toBe(true);
+    expect(res.body.data).toHaveProperty('mode');
+    expect(String(res.body.data.note).length).toBeGreaterThan(0);
+    // Customers must not see the admin connection card.
+    const customer = await customerSession();
+    await request(server).get('/api/app/admin/connection').set('Cookie', customer.cookie).expect(403);
+  });
+
   it('registers customer devices and reports usage stats', async () => {
     const server = await app();
     const admin = await adminSession();

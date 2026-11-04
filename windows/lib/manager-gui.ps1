@@ -385,7 +385,7 @@ function Show-LanDialog {
   $dialog = New-Object System.Windows.Forms.Form
   $dialog.Text = 'دسترسی موبایل در شبکه محلی'
   $dialog.Width = 460
-  $dialog.Height = 520
+  $dialog.Height = 566
   $dialog.StartPosition = 'CenterParent'
   $dialog.RightToLeft = [System.Windows.Forms.RightToLeft]::Yes
   $dialog.RightToLeftLayout = $true

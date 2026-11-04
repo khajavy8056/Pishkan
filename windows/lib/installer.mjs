@@ -421,17 +421,16 @@ async function stepEnv(job) {
     } else {
       const firewall = runLanFirewall('ensure', { root: ROOT, port, program: process.execPath });
       if (!firewall.ok) {
-        // LAN is optional, so a firewall precondition (profiles off, default
-        // inbound not Block, or the installer not elevated) must never abort
-        // the whole installation. Fall back to the safe loopback default,
-        // keep the exact reason visible in the step log and the final report,
-        // and let the user re-run the installer with LAN ticked after fixing
-        // the firewall — their data and settings are preserved on re-run.
+        // LAN no longer dies with the firewall. The rule is best-effort: the
+        // firewall may be off entirely (then phones already connect) or the
+        // rule may just need one elevated confirmation later. Keep LAN enabled
+        // in the written config and point the operator to the Manager's
+        // one-click «باز کردن فایروال برای موبایل» instead of silently
+        // degrading the whole install to loopback-only.
         firewallWarning = firewall.message;
-        lan = resolveLanAccess(false, existing);
-        log(`دسترسی LAN فعال نشد؛ نصب فقط روی همین رایانه (loopback) ادامه می‌یابد. دلیل: ${firewall.message}`, 'warn');
+        log(`قانون فایروال LAN ساخته نشد؛ نصب با دسترسی LAN ادامه می‌یابد. دلیل: ${firewall.message}`, 'warn');
         stepEvent('lan', 'دسترسی شبکه محلی', 'warn', {
-          message: `LAN فعال نشد و برنامه فقط روی همین رایانه در دسترس خواهد بود. دلیل: ${firewall.message} برای فعال‌کردن آن: فایروال Windows را در هر سه پروفایل (Domain/Private/Public) روشن و «ورودی پیش‌فرض» را روی مسدود (Block) بگذارید، سپس نصب‌کننده را با «Run as administrator» و گزینهٔ LAN دوباره اجرا کنید.`,
+          message: `قانون فایروال ساخته نشد (${firewall.message}) اما نصب با دسترسی LAN ادامه می‌یابد. اگر گوشی به سامانه وصل نشد، بعد از نصب در «Pishkan Manager» دکمهٔ «📱 باز کردن فایروال برای موبایل» را بزنید (فقط یک تأیید Windows لازم دارد).`,
           stepProgress: 100,
         });
       } else {

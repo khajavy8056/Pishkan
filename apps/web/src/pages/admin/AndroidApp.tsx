@@ -8,6 +8,7 @@ import {
   Badge, Button, Card, EmptyState, ErrorState, Field, Input, Loading, Modal, Select,
   StatCard, Switch, Tabs, Textarea, useToast,
 } from '../../components/ui';
+import QRCode from 'qrcode';
 import { api, ApiFailure } from '../../lib/api';
 import { useAuth } from '../../lib/auth';
 import { faDateTime, faNum, relative } from '../../lib/format';
@@ -16,6 +17,7 @@ interface Story {
   id: string;
   groupTitle: string | null;
   title: string;
+  caption: string | null;
   mediaType: 'image' | 'video';
   fileId: string | null;
   mediaUrl: string | null;
@@ -31,7 +33,7 @@ interface Story {
 }
 
 const emptyStory = {
-  groupTitle: '', title: '', mediaType: 'image' as 'image' | 'video', fileId: '' as string,
+  groupTitle: '', title: '', caption: '', mediaType: 'image' as 'image' | 'video', fileId: '' as string,
   mediaUrl: '', linkUrl: '', linkLabel: '', durationSeconds: 6, startsAt: '', expiresAt: '',
   status: 'published' as 'draft' | 'published',
 };
@@ -51,6 +53,8 @@ export function AdminAndroidApp() {
   const [mediaPreview, setMediaPreview] = useState<string | null>(null);
   const [uploading, setUploading] = useState(false);
   const [savingStory, setSavingStory] = useState(false);
+  const [connection, setConnection] = useState<any>(null);
+  const [qrImages, setQrImages] = useState<Record<string, string>>({});
   const fileInputRef = useRef<HTMLInputElement | null>(null);
 
   const load = () => {
@@ -60,9 +64,19 @@ export function AdminAndroidApp() {
       api.get<{ data: Story[] }>('/api/app/admin/stories').catch(() => ({ data: [] as Story[] })),
       api.get<{ data: any }>('/api/app/admin/stats').catch(() => ({ data: null })),
       api.get<{ data: any }>('/api/settings/admin'),
-    ]).then(([st, stat, settings]) => {
+      api.get<{ data: any }>('/api/app/admin/connection').catch(() => ({ data: null })),
+    ]).then(async ([st, stat, settings, conn]) => {
       setStories(st.data ?? []);
       setStats(stat.data);
+      setConnection(conn.data);
+      // Pre-render one scannable QR per LAN address for the connection card;
+      // the payload is exactly the plain http URL the app's scanner expects.
+      const urls: string[] = conn.data?.urls ?? [];
+      const rendered: Record<string, string> = {};
+      for (const url of urls) {
+        try { rendered[url] = await QRCode.toDataURL(url, { width: 220, margin: 1 }); } catch { /* text stays usable */ }
+      }
+      setQrImages(rendered);
       const next: Record<string, any> = {};
       for (const item of (settings.data?.settings ?? [])) next[item.key] = item.isSecret ? '' : item.value;
       setValues(next);
@@ -78,7 +92,7 @@ export function AdminAndroidApp() {
     try {
       const keys = [
         'app.latest_version', 'app.min_version', 'app.update_url', 'app.force_update',
-        'app.stories_enabled', 'app.announcement', 'app.welcome_title',
+        'app.stories_enabled', 'app.stories_notify', 'app.announcement', 'app.welcome_title',
         'auth.customer_password_enabled', 'auth.customer_otp_enabled', 'auth.customer_registration_open',
       ];
       const picked: Record<string, any> = {};
@@ -99,6 +113,7 @@ export function AdminAndroidApp() {
       id: story.id,
       groupTitle: story.groupTitle ?? '',
       title: story.title,
+      caption: story.caption ?? '',
       mediaType: story.mediaType,
       fileId: story.fileId ?? '',
       mediaUrl: story.externalMediaUrl ?? '',
@@ -137,6 +152,7 @@ export function AdminAndroidApp() {
       const payload = {
         groupTitle: editing.groupTitle || null,
         title: editing.title,
+        caption: editing.caption || null,
         mediaType: editing.mediaType,
         fileId: editing.fileId || null,
         mediaUrl: editing.mediaUrl || null,
@@ -320,6 +336,7 @@ export function AdminAndroidApp() {
                 <div className="space-y-3">
                   <Field label="عنوان خوشامد اپ" hint="خالی یعنی نام سامانه."><Input value={values['app.welcome_title'] ?? ''} onChange={(e) => setValues({ ...values, 'app.welcome_title': e.target.value })} /></Field>
                   <Switch checked={Boolean(values['app.stories_enabled'])} onChange={(v) => setValues({ ...values, 'app.stories_enabled': v })} label="نمایش ردیف استوری‌ها در صفحه اصلی اپ" />
+                  <Switch checked={Boolean(values['app.stories_notify'])} onChange={(v) => setValues({ ...values, 'app.stories_notify': v })} label="اعلان «استوری تازه» برای مشتری‌ها هنگام انتشار" />
                   <Switch checked={Boolean(values['auth.customer_password_enabled'])} onChange={(v) => setValues({ ...values, 'auth.customer_password_enabled': v })} label="ورود مشتری با موبایل و رمز عبور" />
                   <Switch checked={Boolean(values['auth.customer_otp_enabled'])} onChange={(v) => setValues({ ...values, 'auth.customer_otp_enabled': v })} label="ورود مشتری با کد یکبارمصرف پیامکی (OTP)" />
                   <Switch checked={Boolean(values['auth.customer_registration_open'])} onChange={(v) => setValues({ ...values, 'auth.customer_registration_open': v })} label="ثبت‌نام مشتری جدید از داخل اپ" />
@@ -327,6 +344,33 @@ export function AdminAndroidApp() {
                     روش‌های ورود اپ و سایت یکی است و از همین کلیدها خوانده می‌شود؛ کاربر اپ اگر در سایت هم وارد شود، دقیقاً همان حساب، درخواست‌ها و کیف پول را می‌بیند.
                   </p>
                 </div>
+              </Card>
+              <Card className="lg:col-span-2">
+                <h3 className="mb-3 flex items-center gap-2 font-bold text-navy-900"><Link2 className="size-4 text-accent" /> اتصال اپ در شبکه دفتر (Wi‑Fi)</h3>
+                {connection?.lanEnabled ? (
+                  <div className="space-y-3">
+                    <p className="text-[12px] leading-6 text-navy-600">{connection.hint}</p>
+                    <div className="flex flex-wrap gap-4">
+                      {(connection.urls ?? []).map((url: string) => (
+                        <div key={url} className="flex flex-col items-center gap-2 rounded-2xl bg-slate-50 p-3 ring-1 ring-line">
+                          {qrImages[url]
+                            ? <img src={qrImages[url]} alt={`QR آدرس ${url}`} className="size-36 rounded-xl bg-white p-1 ring-1 ring-line" />
+                            : <div className="flex size-36 items-center justify-center rounded-xl bg-white text-[11px] text-navy-400 ring-1 ring-line">QR ساخته نشد</div>}
+                          <code dir="ltr" className="text-[12px] font-bold text-navy-800">{url}</code>
+                          <Button size="sm" variant="ghost" onClick={() => { void navigator.clipboard?.writeText(url).catch(() => undefined); notify('آدرس اتصال کپی شد.', 'success'); }}>کپی آدرس</Button>
+                        </div>
+                      ))}
+                    </div>
+                    <p className="text-[11px] leading-6 text-navy-500">{connection.note}</p>
+                  </div>
+                ) : (
+                  <div className="space-y-2">
+                    <p className="text-[12px] leading-6 text-navy-600">{connection?.hint ?? 'در حال بررسی وضعیت شبکه…'}</p>
+                    <p className="text-[11px] leading-6 text-navy-500">
+                      در نصب ویندوزی، از «Pishkan Manager» دکمهٔ «دسترسی موبایل / QR» و سپس «📱 باز کردن فایروال برای موبایل» را بزنید؛ با یک تأیید Windows قانون فایروال ساخته می‌شود و گوشی‌های روی همان Wi‑Fi وصل می‌شوند. روی سرور ابری، اپ را مستقیم به دامنهٔ HTTPS وصل کنید و این کارت لازم نیست.
+                    </p>
+                  </div>
+                )}
               </Card>
               <div className="lg:col-span-2"><Button loading={savingSettings} onClick={saveSettings}>ذخیره همه تنظیمات اپ</Button></div>
             </div>
@@ -342,6 +386,9 @@ export function AdminAndroidApp() {
               <Field label="عنوان" required><Input value={editing.title} onChange={(e) => setEditing({ ...editing, title: e.target.value })} /></Field>
               <Field label="عنوان گروه (حلقه)" hint="استوری‌های هم‌گروه پشت‌سرهم در یک حلقه می‌آیند."><Input value={editing.groupTitle} onChange={(e) => setEditing({ ...editing, groupTitle: e.target.value })} placeholder="مثلاً: پیشنهاد هفته" /></Field>
             </div>
+            <Field label="متن بدنه استوری" hint="در نمایش تمام‌صفحه، زیر عنوان و بالای دکمه می‌نشیند؛ کوتاه و شفاف بنویسید.">
+              <Textarea value={editing.caption ?? ''} onChange={(e) => setEditing({ ...editing, caption: e.target.value })} placeholder="مثلاً: اکنون می‌توانید درخواست صدور و تمدید کارت ملی را به صورت کاملاً غیرحضوری ثبت کنید." />
+            </Field>
 
             <Field label="رسانه (تصویر عمودی یا ویدئوی کوتاه — پیشنهاد ۹:۱۶)">
               <input ref={fileInputRef} type="file" accept="image/jpeg,image/png,image/webp,video/mp4,video/webm" className="hidden"

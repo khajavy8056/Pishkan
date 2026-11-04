@@ -344,6 +344,7 @@ export const SETTINGS: SettingDef[] = [
   { key: 'app.update_url', group: 'android_app', type: 'url', label: 'پیوند دریافت نسخه تازه', hint: 'لینک مستقیم APK یا صفحه فروشگاه؛ خالی یعنی از «پیوند دانلود اپلیکیشن اندروید» صفحه فرود استفاده شود.', default: '', public: true },
   { key: 'app.force_update', group: 'android_app', type: 'boolean', label: 'به‌روزرسانی اجباری', hint: 'وقتی روشن است، کاربر قدیمی بدون به‌روزرسانی نمی‌تواند وارد اپ شود.', default: bool(false), public: true },
   { key: 'app.stories_enabled', group: 'android_app', type: 'boolean', label: 'نمایش استوری‌ها در اپ', default: bool(true), public: true },
+  { key: 'app.stories_notify', group: 'android_app', type: 'boolean', label: 'اعلان استوری تازه به مشتری‌ها', hint: 'وقتی روشن است، انتشار استوری تازه برای همه مشتری‌ها اعلان می‌سازد تا اپ آن را مثل اعلان‌های پرونده نشان دهد.', default: bool(true), public: true },
   { key: 'app.announcement', group: 'android_app', type: 'textarea', label: 'اطلاعیه سراسری داخل اپ', hint: 'وقتی پر باشد، بالای صفحه اصلی اپ به همه مشتری‌ها نشان داده می‌شود.', default: '', public: true },
   { key: 'app.welcome_title', group: 'android_app', type: 'text', label: 'عنوان خوشامد اپ', hint: 'خالی یعنی نام سامانه.', default: '', public: true },
 ];
