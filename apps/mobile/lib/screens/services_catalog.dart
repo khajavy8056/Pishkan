@@ -1,16 +1,17 @@
-import 'dart:async';
-
 import 'package:flutter/material.dart';
 
 import '../core/format.dart';
+import '../core/service_icons.dart';
 import '../core/theme.dart';
 import '../models/models.dart';
 import '../services/services.dart';
 import '../widgets/widgets.dart';
 import 'service_detail.dart';
 
-/// Public catalog browser with search + category chips. Reads the same
-/// endpoints as the website and falls back to the local cache offline.
+/// «خدمات» tab (approved design): search pill, category chips, and a grid of
+/// circular per-service icons. Everything (titles, prices, order) comes
+/// from the backend catalog; the service layer keeps the last good copy
+/// cached for weak networks.
 class ServicesCatalogTab extends StatefulWidget {
   const ServicesCatalogTab({super.key});
 
@@ -19,148 +20,212 @@ class ServicesCatalogTab extends StatefulWidget {
 }
 
 class _ServicesCatalogTabState extends State<ServicesCatalogTab> {
-  final _search = TextEditingController();
-  Timer? _debounce;
-  List<ServiceCategory> _categories = const [];
-  List<CatalogService> _services = const [];
+  List<ServiceCategory> _categories = [];
+  List<CatalogService> _services = [];
   String _categorySlug = '';
   bool _loading = true;
 
   @override
   void initState() {
     super.initState();
-    _load();
+    _loadAll();
   }
 
-  @override
-  void dispose() {
-    _search.dispose();
-    _debounce?.cancel();
-    super.dispose();
-  }
-
-  Future<void> _load() async {
-    setState(() => _loading = true);
+  Future<void> _loadAll() async {
     final categories = await fetchCategories();
-    final services = await fetchServices(category: _categorySlug, search: _search.text.trim());
-    if (!mounted) return;
-    setState(() {
-      _categories = categories;
-      _services = services;
-      _loading = false;
-    });
+    if (mounted) setState(() => _categories = categories);
+    await _loadServices();
   }
 
-  void _onSearchChanged(String _) {
-    _debounce?.cancel();
-    _debounce = Timer(const Duration(milliseconds: 350), _load);
+  Future<void> _loadServices() async {
+    setState(() => _loading = true);
+    final services = await fetchServices(category: _categorySlug);
+    if (mounted) {
+      setState(() {
+        _services = services;
+        _loading = false;
+      });
+    }
   }
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: const Text('خدمات')),
-      body: Column(children: [
-        Padding(
-          padding: const EdgeInsets.fromLTRB(16, 4, 16, 8),
-          child: TextField(
-            controller: _search,
-            onChanged: _onSearchChanged,
-            decoration: InputDecoration(
-              hintText: 'جستجوی خدمت…',
-              prefixIcon: const Icon(Icons.search_rounded),
-              suffixIcon: _search.text.isEmpty
-                  ? null
-                  : IconButton(
-                      icon: const Icon(Icons.close_rounded),
-                      onPressed: () {
-                        _search.clear();
-                        _load();
-                      },
-                    ),
+      appBar: AppBar(title: const Text('همهٔ خدمات'), automaticallyImplyLeading: false),
+      body: RefreshIndicator(
+        onRefresh: _loadAll,
+        child: ListView(padding: const EdgeInsets.fromLTRB(16, 4, 16, 18), children: [
+          GestureDetector(
+            onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const ServiceSearchScreen())),
+            child: Container(
+              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 13),
+              decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(999), boxShadow: const [BoxShadow(color: Color(0x120B1F3A), blurRadius: 12, offset: Offset(0, 4))]),
+              child: const Row(children: [
+                Icon(Icons.search_rounded, color: PishkanColors.mutedText),
+                SizedBox(width: 8),
+                Text('جستجوی خدمت…', style: TextStyle(color: PishkanColors.mutedText, fontSize: 13)),
+              ]),
             ),
           ),
+          const SizedBox(height: 14),
+          _categoryChips(),
+          const SizedBox(height: 18),
+          if (_loading && _services.isEmpty)
+            const Padding(padding: EdgeInsets.symmetric(vertical: 60), child: Center(child: CircularProgressIndicator()))
+          else if (_services.isEmpty)
+            const Padding(
+              padding: EdgeInsets.symmetric(vertical: 40),
+              child: EmptyView(icon: Icons.grid_off_rounded, title: 'خدمتی در این دسته نیست', hint: 'دستهٔ دیگری را انتخاب کنید یا اتصال را بررسی و صفحه را به پایین بکشید.'),
+            )
+          else
+            _grid(),
+        ]),
+      ),
+    );
+  }
+
+  Widget _categoryChips() {
+    Widget chip(String slug, String label, String emoji) {
+      final active = _categorySlug == slug;
+      return Padding(
+        padding: const EdgeInsets.only(left: 8),
+        child: ChoiceChip(
+          selected: active,
+          label: Text('${emoji.isNotEmpty ? '$emoji ' : ''}$label', style: TextStyle(fontSize: 12, fontWeight: active ? FontWeight.w800 : FontWeight.w600, color: active ? Colors.white : PishkanColors.navy)),
+          selectedColor: PishkanColors.primary,
+          backgroundColor: Colors.white,
+          side: BorderSide(color: active ? PishkanColors.primary : const Color(0xFFE2E8F0)),
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(999)),
+          onSelected: (_) {
+            setState(() => _categorySlug = slug);
+            _loadServices();
+          },
         ),
-        SizedBox(
-          height: 44,
-          child: ListView(
-            scrollDirection: Axis.horizontal,
-            padding: const EdgeInsets.symmetric(horizontal: 16),
-            children: [
-              Padding(
-                padding: const EdgeInsetsDirectional.only(end: 8),
-                child: ChoiceChip(
-                  label: const Text('همه'),
-                  selected: _categorySlug.isEmpty,
-                  onSelected: (_) {
-                    setState(() => _categorySlug = '');
-                    _load();
-                  },
+      );
+    }
+
+    return SingleChildScrollView(
+      scrollDirection: Axis.horizontal,
+      child: Row(children: [
+        chip('', 'همه', '✨'),
+        for (final category in _categories) chip(category.slug, category.title, category.icon),
+      ]),
+    );
+  }
+
+  Widget _grid() {
+    return GridView.count(
+      crossAxisCount: 3,
+      shrinkWrap: true,
+      physics: const NeverScrollableScrollPhysics(),
+      mainAxisSpacing: 18,
+      crossAxisSpacing: 12,
+      childAspectRatio: 0.76,
+      children: [
+        for (final service in _services)
+          GestureDetector(
+            onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => ServiceDetailScreen(service: service))),
+            child: Column(children: [
+              Container(
+                padding: const EdgeInsets.all(16),
+                decoration: BoxDecoration(
+                  color: Colors.white,
+                  shape: BoxShape.circle,
+                  boxShadow: const [BoxShadow(color: Color(0x100B1F3A), blurRadius: 12, offset: Offset(0, 5))],
+                  border: Border.all(color: artworkForService(service).color.withOpacity(0.14)),
                 ),
+                child: Text(artworkForService(service).emoji, style: const TextStyle(fontSize: 28)),
               ),
-              for (final category in _categories)
-                Padding(
-                  padding: const EdgeInsetsDirectional.only(end: 8),
-                  child: ChoiceChip(
-                    label: Text('${category.icon} ${category.title}'.trim()),
-                    selected: _categorySlug == category.slug,
-                    onSelected: (_) {
-                      setState(() => _categorySlug = category.slug);
-                      _load();
-                    },
-                  ),
-                ),
-            ],
+              const SizedBox(height: 7),
+              Flexible(
+                child: Text(service.title, maxLines: 2, overflow: TextOverflow.ellipsis, textAlign: TextAlign.center, style: const TextStyle(fontSize: 11, fontWeight: FontWeight.w700, color: PishkanColors.navy, height: 1.45)),
+              ),
+              if (service.computedTotal > 0)
+                Text(faMoney(service.computedTotal), style: const TextStyle(fontSize: 10, color: PishkanColors.mutedText)),
+            ]),
+          ),
+      ],
+    );
+  }
+}
+
+/// Full-page service search over the same real catalog.
+class ServiceSearchScreen extends StatefulWidget {
+  const ServiceSearchScreen({super.key});
+
+  @override
+  State<ServiceSearchScreen> createState() => _ServiceSearchScreenState();
+}
+
+class _ServiceSearchScreenState extends State<ServiceSearchScreen> {
+  final _query = TextEditingController();
+  List<CatalogService> _all = [];
+  bool _loaded = false;
+
+  @override
+  void initState() {
+    super.initState();
+    fetchServices().then((services) {
+      if (mounted) {
+        setState(() {
+          _all = services;
+          _loaded = true;
+        });
+      }
+    });
+  }
+
+  @override
+  void dispose() {
+    _query.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final term = _query.text.trim();
+    final items = _all.where((service) => term.isEmpty || service.title.contains(term) || service.slug.contains(term) || service.description.contains(term) || service.subtitle.contains(term)).toList();
+    return Scaffold(
+      appBar: AppBar(title: const Text('جستجوی خدمت')),
+      body: Column(children: [
+        Padding(
+          padding: const EdgeInsets.fromLTRB(16, 8, 16, 10),
+          child: TextField(
+            controller: _query,
+            autofocus: true,
+            onChanged: (_) => setState(() {}),
+            decoration: const InputDecoration(hintText: 'مثلاً تعویض پلاک، گذرنامه…', prefixIcon: Icon(Icons.search_rounded)),
           ),
         ),
-        const SizedBox(height: 6),
         Expanded(
-          child: _loading
-              ? const LoadingView()
-              : _services.isEmpty
-                  ? const EmptyView(icon: Icons.search_off_rounded, title: 'خدمتی پیدا نشد', hint: 'واژهٔ دیگری را امتحان کنید یا دستهٔ «همه» را انتخاب کنید.')
-                  : RefreshIndicator(
-                      onRefresh: _load,
-                      child: ListView.separated(
-                        padding: const EdgeInsets.fromLTRB(16, 6, 16, 20),
-                        itemCount: _services.length,
-                        separatorBuilder: (_, _) => const SizedBox(height: 10),
-                        itemBuilder: (context, index) {
-                          final service = _services[index];
-                          return SoftCard(
-                            onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => ServiceDetailScreen(service: service))),
-                            child: Row(children: [
-                              IconMedallion(icon: service.icon),
-                              const SizedBox(width: 12),
-                              Expanded(
-                                child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                                  Text(service.title, maxLines: 2, overflow: TextOverflow.ellipsis, style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 14)),
-                                  const SizedBox(height: 3),
-                                  Text(
-                                    service.subtitle.isEmpty ? service.categoryTitle : service.subtitle,
-                                    maxLines: 1,
-                                    overflow: TextOverflow.ellipsis,
-                                    style: const TextStyle(fontSize: 11.5, color: PishkanColors.mutedText),
-                                  ),
-                                  const SizedBox(height: 6),
-                                  Row(children: [
-                                    Text(faMoney(service.computedTotal), style: const TextStyle(fontWeight: FontWeight.w800, color: PishkanColors.primary, fontSize: 12.5)),
-                                    if (service.discountPercent > 0) ...[
-                                      const SizedBox(width: 8),
-                                      StatusChip(label: '${faDigits(service.discountPercent)}٪ تخفیف', status: 'paid'),
-                                    ],
-                                    if (service.estimatedDays > 0) ...[
-                                      const Spacer(),
-                                      Text('حدود ${faDigits(service.estimatedDays)} روز', style: const TextStyle(fontSize: 11, color: PishkanColors.mutedText)),
-                                    ],
+          child: !_loaded
+              ? const Center(child: CircularProgressIndicator())
+              : items.isEmpty
+                  ? const EmptyView(icon: Icons.search_off_rounded, title: 'خدمتی پیدا نشد', hint: 'عبارت دیگری را امتحان کنید یا از کارشناس بپرسید.')
+                  : ListView(
+                      padding: const EdgeInsets.fromLTRB(16, 4, 16, 16),
+                      children: [
+                        for (final service in items)
+                          Padding(
+                            padding: const EdgeInsets.only(bottom: 10),
+                            child: SoftCard(
+                              onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => ServiceDetailScreen(service: service))),
+                              child: Row(children: [
+                                IconMedallion(artwork: artworkForService(service), size: 50),
+                                const SizedBox(width: 12),
+                                Expanded(
+                                  child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                                    Text(service.title, style: const TextStyle(fontWeight: FontWeight.w800, fontSize: 13.5, color: PishkanColors.navy)),
+                                    if (service.categoryTitle.isNotEmpty) Text(service.categoryTitle, style: const TextStyle(fontSize: 11, color: PishkanColors.mutedText)),
                                   ]),
-                                ]),
-                              ),
-                              const Icon(Icons.chevron_left_rounded, color: PishkanColors.mutedText),
-                            ]),
-                          );
-                        },
-                      ),
+                                ),
+                                if (service.computedTotal > 0) Text(faMoney(service.computedTotal), style: const TextStyle(fontSize: 11, fontWeight: FontWeight.w700, color: PishkanColors.primary)),
+                                const SizedBox(width: 4),
+                                const Icon(Icons.chevron_left_rounded, color: PishkanColors.mutedText),
+                              ]),
+                            ),
+                          ),
+                      ],
                     ),
         ),
       ]),

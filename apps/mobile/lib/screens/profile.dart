@@ -26,6 +26,9 @@ class ProfileTab extends StatefulWidget {
 
 class _ProfileTabState extends State<ProfileTab> {
   String _version = '';
+  bool _notificationsOn = true;
+  bool _biometricOn = false;
+  bool _biometricAvailable = false;
 
   @override
   void initState() {
@@ -34,6 +37,31 @@ class _ProfileTabState extends State<ProfileTab> {
       if (mounted) setState(() => _version = v);
     });
     fetchMe().catchError((_) => <String, dynamic>{});
+    _loadPrefs();
+  }
+
+  Future<void> _loadPrefs() async {
+    final notifications = await AppPrefs.notificationsEnabled();
+    final biometric = await AppPrefs.biometricEnabled();
+    final available = await BiometricAuth.isAvailable();
+    if (!mounted) return;
+    setState(() {
+      _notificationsOn = notifications;
+      _biometricOn = biometric;
+      _biometricAvailable = available;
+    });
+  }
+
+  Future<void> _toggleBiometric(bool value) async {
+    if (value) {
+      final ok = await BiometricAuth.authenticate();
+      if (!ok) {
+        if (mounted) showSnack(context, 'تأیید اثر انگشت انجام نشد.', error: true);
+        return;
+      }
+    }
+    await AppPrefs.setBiometricEnabled(value);
+    if (mounted) setState(() => _biometricOn = value);
   }
 
   @override
@@ -60,7 +88,7 @@ class _ProfileTabState extends State<ProfileTab> {
                 Expanded(
                   child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
                     Text(name, style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w800, fontSize: 16)),
-                    Text(faDigits(mobile), style: const TextStyle(color: Color(0xFFCFE0FF), fontSize: 12.5)),
+                    Text(faMobileSpaced(mobile), style: const TextStyle(color: Color(0xFFCFE0FF), fontSize: 12.5)),
                     if (asStr(user['nationalId']).isNotEmpty) Text('کد ملی ${faDigits(asStr(user['nationalId']))}', style: const TextStyle(color: Color(0xFFCFE0FF), fontSize: 11.5)),
                   ]),
                 ),
@@ -291,6 +319,91 @@ class _ChangePasswordScreenState extends State<ChangePasswordScreen> {
             PlushButton(label: 'ثبت رمز تازه', icon: Icons.check_circle_rounded, loading: _busy, onPressed: _save),
           ]),
         ),
+      ]),
+    );
+  }
+}
+
+/// «درباره ما»: brand, tagline and support contact from the server config,
+/// app version, and a plain-language promise of how the app and the web
+/// panel share one account and one database.
+class AboutScreen extends StatefulWidget {
+  const AboutScreen({super.key});
+
+  @override
+  State<AboutScreen> createState() => _AboutScreenState();
+}
+
+class _AboutScreenState extends State<AboutScreen> {
+  AppConfig? _config;
+  String _version = '';
+
+  @override
+  void initState() {
+    super.initState();
+    fetchAppConfig().then((config) {
+      if (mounted) setState(() => _config = config);
+    });
+    currentAppVersion().then((v) {
+      if (mounted) setState(() => _version = v);
+    });
+  }
+
+  Future<void> _call(String phone) async {
+    final uri = Uri.tryParse('tel:${enDigits(phone).replaceAll(RegExp(r'[^\d+]'), '')}');
+    if (uri != null) await launchUrl(uri);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final config = _config;
+    final brand = config?.brandName.isNotEmpty == true ? config!.brandName : 'پیشخوان آرنا';
+    final tagline = (config?.tagline.isNotEmpty == true) ? config!.tagline : 'سامانهٔ جامع خدمات دولت';
+    final phone = config?.supportPhone ?? '';
+    return Scaffold(
+      appBar: AppBar(title: const Text('دربارهٔ ما')),
+      body: ListView(padding: const EdgeInsets.fromLTRB(16, 14, 16, 24), children: [
+        Center(
+          child: Column(children: [
+            Container(
+              padding: const EdgeInsets.all(10),
+              decoration: const BoxDecoration(color: Colors.white, shape: BoxShape.circle, boxShadow: [BoxShadow(color: Color(0x1A1452D9), blurRadius: 18, offset: Offset(0, 7))]),
+              child: ClipOval(child: Image.asset('assets/icon.png', width: 64, height: 64)),
+            ),
+            const SizedBox(height: 12),
+            Text(brand, style: const TextStyle(fontWeight: FontWeight.w800, fontSize: 19, color: PishkanColors.navy)),
+            const SizedBox(height: 4),
+            Text(tagline, style: const TextStyle(color: PishkanColors.mutedText, fontSize: 12.5)),
+          ]),
+        ),
+        const SizedBox(height: 20),
+        const SoftCard(
+          child: Text(
+            'این اپ، دفتر پیشخوان شماست؛ بدون صف و معطّلی. درخواست ثبت می‌کنید، مدارک را از همین‌جا می‌فرستید، مرحله‌به‌مرحله با اعلان در جریان پیشرفت پرونده قرار می‌گیرید و نتیجه را همین‌جا تحویل می‌گیرید. حسابتان در اپ و نسخهٔ وب یکی است؛ هرچه این‌جا می‌بینید، در سایت دفتر هم همان است.',
+            style: TextStyle(height: 2, fontSize: 13),
+          ),
+        ),
+        const SizedBox(height: 14),
+        SoftCard(
+          padding: const EdgeInsets.symmetric(vertical: 6, horizontal: 8),
+          child: Column(children: [
+            if (phone.isNotEmpty)
+              ListTile(
+                leading: const Icon(Icons.call_rounded, color: PishkanColors.primary),
+                title: const Text('تلفن تماس دفتر', style: TextStyle(fontWeight: FontWeight.w700, fontSize: 13.5)),
+                subtitle: Text(faMobileSpaced(phone), style: const TextStyle(fontSize: 12, color: PishkanColors.mutedText)),
+                trailing: const Icon(Icons.chevron_left_rounded, color: PishkanColors.mutedText),
+                onTap: () => _call(phone),
+              ),
+            ListTile(
+              leading: const Icon(Icons.language_rounded, color: PishkanColors.primary),
+              title: const Text('نشانی سامانه', style: TextStyle(fontWeight: FontWeight.w700, fontSize: 13.5)),
+              subtitle: Text(session.serverUrl, textDirection: TextDirection.ltr, textAlign: TextAlign.right, style: const TextStyle(fontSize: 11.5, color: PishkanColors.mutedText), maxLines: 1, overflow: TextOverflow.ellipsis),
+            ),
+          ]),
+        ),
+        const SizedBox(height: 18),
+        Center(child: Text('اپلیکیشن مشتریان $brand · نسخهٔ ${faDigits(_version)}', style: const TextStyle(fontSize: 11, color: PishkanColors.mutedText))),
       ]),
     );
   }

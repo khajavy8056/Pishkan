@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:io';
 
 import 'package:flutter/material.dart';
@@ -184,18 +185,38 @@ class _ChatScreenState extends State<ChatScreen> {
   bool _loading = true;
   bool _sending = false;
   String? _error;
+  Timer? _pollTimer;
 
   @override
   void initState() {
     super.initState();
     _load();
+    // Replies land here while the conversation is open (the office also
+    // raises a notification, but the visible chat should update itself).
+    _pollTimer = Timer.periodic(const Duration(seconds: 15), (_) => _poll());
   }
 
   @override
   void dispose() {
+    _pollTimer?.cancel();
     _input.dispose();
     _scroll.dispose();
     super.dispose();
+  }
+
+  Future<void> _poll() async {
+    if (!mounted || _sending) return;
+    try {
+      final data = await fetchThread(widget.threadId);
+      if (!mounted) return;
+      final fresh = asMapList(data['messages']);
+      if (fresh.length != _messages.length) {
+        setState(() => _messages = fresh);
+        _jumpToEnd();
+      }
+    } catch (_) {
+      // Polling is silent; the visible list stays as-is on network hiccups.
+    }
   }
 
   Future<void> _load() async {

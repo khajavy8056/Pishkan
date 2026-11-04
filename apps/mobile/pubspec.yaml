@@ -1,7 +1,7 @@
 name: pishkan_app
 description: اپلیکیشن اندروید مشتریان پیشخوان — متصل به همان سامانه و پایگاه داده نسخه وب.
 publish_to: 'none'
-version: 1.0.0+1
+version: 1.1.0+2
 
 environment:
   sdk: '>=3.4.0 <4.0.0'
@@ -26,6 +26,13 @@ dependencies:
   mobile_scanner: ^5.2.3
   open_filex: ^4.5.0
   path_provider: ^2.1.4
+  # Rich system notifications (with stage-progress bars) + background polling
+  # so case progress reaches the customer like a ride-hailing app, even when
+  # the app is closed — without needing a Firebase project (LAN-friendly).
+  flutter_local_notifications: ^18.0.1
+  workmanager: ^0.9.0+3
+  # Optional fingerprint/face unlock, like the approved design's login.
+  local_auth: ^2.3.0
 
 dev_dependencies:
   flutter_test:
@@ -36,6 +43,7 @@ flutter:
   uses-material-design: true
   assets:
     - assets/icon.png
+    - assets/splash-office.jpg
   fonts:
     - family: Vazirmatn
       fonts:

@@ -3,19 +3,29 @@ import 'package:flutter/material.dart';
 /// Brand palette shared with the web panels: deep navy → vivid blue, on a
 /// calm grey background with white soft cards and generous radii.
 abstract final class PishkanColors {
-  static const primary = Color(0xFF2563EB);
+  static const primary = Color(0xFF1F6FEE);
   static const navy = Color(0xFF0B1F3A);
   static const accent = Color(0xFF06B6D4);
-  static const background = Color(0xFFF3F5F9);
+  static const background = Color(0xFFF4F8FF);
   static const success = Color(0xFF16A34A);
   static const warning = Color(0xFFD97706);
   static const danger = Color(0xFFDC2626);
   static const mutedText = Color(0xFF64748B);
   static const brandGradient = LinearGradient(
+    colors: [Color(0xFF2E8CFF), Color(0xFF1452D9)],
+    begin: Alignment.topLeft,
+    end: Alignment.bottomRight,
+  );
+  static const deepGradient = LinearGradient(
     colors: [Color(0xFF0B1F3A), Color(0xFF2563EB)],
     begin: Alignment.topRight,
     end: Alignment.bottomLeft,
   );
+  // Pastel tiles of the «دسترسی سریع» shortcut grid.
+  static const pastelGreen = Color(0xFFE4F6EC);
+  static const pastelViolet = Color(0xFFF0E9FF);
+  static const pastelBlue = Color(0xFFE5F0FF);
+  static const pastelOrange = Color(0xFFFFF1E4);
 }
 
 ThemeData buildPishkanTheme() {

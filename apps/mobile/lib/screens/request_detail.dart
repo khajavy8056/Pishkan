@@ -161,9 +161,12 @@ class _RequestDetailScreenState extends State<RequestDetailScreen> with WidgetsB
         ],
       ),
     );
+    // Read the typed reason before disposing the controller: earlier this
+    // always sent an empty string, so the customer's explanation was lost.
+    final reason = reasonController.text.trim();
     reasonController.dispose();
     if (confirmed == true) {
-      await _guard(() => cancelRequest(widget.requestId, ''), success: 'درخواست لغو شد.');
+      await _guard(() => cancelRequest(widget.requestId, reason), success: 'درخواست لغو شد.');
     }
   }
 
@@ -178,6 +181,12 @@ class _RequestDetailScreenState extends State<RequestDetailScreen> with WidgetsB
               onRefresh: _load,
               child: ListView(padding: const EdgeInsets.fromLTRB(16, 8, 16, 28), children: [
                 _headerCard(detail),
+                const SectionTitle(title: 'وضعیت درخواست'),
+                SoftCard(
+                  child: StageTimeline(
+                    progress: caseProgress(status: detail.status, workBucket: detail.workBucket, currentStepTitle: detail.currentStepTitle),
+                  ),
+                ),
                 if (detail.deliveredFiles.isNotEmpty) _deliveredSection(detail),
                 _invoicesSection(detail),
                 _documentsSection(detail),

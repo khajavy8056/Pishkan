@@ -2,15 +2,18 @@ import 'package:flutter/material.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 import '../core/api.dart';
+import '../core/biometric.dart';
 import '../core/theme.dart';
+import '../services/notifier.dart';
 import '../services/services.dart';
 import 'home_shell.dart';
 import 'login.dart';
 import 'server_setup.dart';
 
-/// Decides where the customer lands: server setup on first run (local
-/// installs), login when there is no session, otherwise the dashboard.
-/// Also enforces the admin-controlled minimum app version.
+/// First screen (approved design): brand over the office artwork while the
+/// app decides where the customer lands — server setup on first run, login
+/// without a session, otherwise the dashboard (behind the optional
+/// fingerprint lock). Also enforces the admin-controlled minimum version.
 class SplashScreen extends StatefulWidget {
   const SplashScreen({super.key});
 
@@ -20,6 +23,8 @@ class SplashScreen extends StatefulWidget {
 
 class _SplashScreenState extends State<SplashScreen> {
   String _message = 'در حال آماده‌سازی…';
+  String _brand = 'پیشخوان آرنا';
+  String _tagline = 'سامانهٔ جامع خدمات دولت';
 
   @override
   void initState() {
@@ -28,7 +33,8 @@ class _SplashScreenState extends State<SplashScreen> {
   }
 
   Future<void> _boot() async {
-    await Future<void>.delayed(const Duration(milliseconds: 500));
+    await NotifierService.requestPermission();
+    await Future<void>.delayed(const Duration(milliseconds: 700));
     if (!mounted) return;
 
     if (!session.hasServer) {
@@ -39,14 +45,21 @@ class _SplashScreenState extends State<SplashScreen> {
     setState(() => _message = 'در حال اتصال به سامانه…');
     final config = await fetchAppConfig();
     if (!mounted) return;
+    if (config != null) {
+      setState(() {
+        _brand = config.brandName.isEmpty ? _brand : config.brandName;
+        if (config.tagline.isNotEmpty) _tagline = config.tagline;
+      });
+    }
 
     if (config != null && config.minVersion.isNotEmpty) {
       final current = await currentAppVersion();
       final outdated = compareVersions(current, config.minVersion) < 0;
       final newerExists = config.latestVersion.isNotEmpty && compareVersions(current, config.latestVersion) < 0;
-      if ((outdated && config.forceUpdate) || (newerExists && config.forceUpdate)) {
-        await _showUpdateDialog(config.updateUrl, forced: outdated);
-        if (outdated && mounted) return; // forced: stay here
+      if (outdated || (newerExists && config.forceUpdate)) {
+        final hardBlock = outdated && config.forceUpdate;
+        await _showUpdateDialog(config.updateUrl, forced: hardBlock);
+        if (hardBlock && mounted) return;
       }
     }
 
@@ -55,7 +68,16 @@ class _SplashScreenState extends State<SplashScreen> {
       return;
     }
 
-    // Validate the stored session; a 401 clears it inside ApiClient.
+    // Optional fingerprint lock before showing any personal data.
+    if (await AppPrefs.biometricEnabled() && await BiometricAuth.isAvailable()) {
+      final unlocked = await BiometricAuth.authenticate();
+      if (!mounted) return;
+      if (!unlocked) {
+        _go(const LoginScreen(lockMessage: 'برای ادامه، اثر انگشت را تأیید کنید یا با رمز وارد شوید.'));
+        return;
+      }
+    }
+
     try {
       await fetchMe();
     } on ApiException {
@@ -63,7 +85,6 @@ class _SplashScreenState extends State<SplashScreen> {
         _go(const LoginScreen());
         return;
       }
-      // Network trouble: keep going with the cached profile.
     } catch (_) {}
     if (!mounted) return;
     await registerDevice();
@@ -104,26 +125,59 @@ class _SplashScreenState extends State<SplashScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final size = MediaQuery.of(context).size;
     return Scaffold(
-      body: Container(
-        decoration: const BoxDecoration(gradient: PishkanColors.brandGradient),
-        child: Center(
-          child: Column(mainAxisSize: MainAxisSize.min, children: [
-            ClipRRect(
-              borderRadius: BorderRadius.circular(26),
-              child: Image.asset('assets/icon.png', width: 96, height: 96),
+      body: Stack(children: [
+        // Office artwork (bundled so the very first screen works offline).
+        Positioned.fill(
+          child: Image.asset(
+            'assets/splash-office.jpg',
+            fit: BoxFit.cover,
+            errorBuilder: (_, _, _) => Container(decoration: const BoxDecoration(gradient: PishkanColors.brandGradient)),
+          ),
+        ),
+        Positioned.fill(
+          child: DecoratedBox(
+            decoration: BoxDecoration(
+              gradient: LinearGradient(
+                colors: [Colors.white.withOpacity(0.10), Colors.transparent, const Color(0xFF1452D9).withOpacity(0.88)],
+                stops: const [0, 0.42, 0.86],
+                begin: Alignment.topCenter,
+                end: Alignment.bottomCenter,
+              ),
             ),
+          ),
+        ),
+        SafeArea(
+          child: Column(children: [
+            SizedBox(height: size.height * 0.055),
+            Container(
+              padding: const EdgeInsets.all(14),
+              decoration: BoxDecoration(color: Colors.white.withOpacity(0.92), shape: BoxShape.circle, boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.14), blurRadius: 22, offset: const Offset(0, 8))]),
+              child: ClipOval(child: Image.asset('assets/icon.png', width: 72, height: 72)),
+            ),
+            const SizedBox(height: 16),
+            Text(_brand, style: const TextStyle(color: PishkanColors.navy, fontSize: 27, fontWeight: FontWeight.w800, shadows: [Shadow(color: Colors.white70, blurRadius: 12)])),
+            const SizedBox(height: 5),
+            Text(_tagline, style: const TextStyle(color: Color(0xFF274B73), fontSize: 13.5, fontWeight: FontWeight.w600)),
+            const Spacer(),
+            const Text('خدمات دولتی، ساده‌تر از همیشه', style: TextStyle(color: Colors.white, fontSize: 16.5, fontWeight: FontWeight.w800)),
+            const SizedBox(height: 6),
+            const Text('سریع • آسان • مطمئن', style: TextStyle(color: Color(0xFFD8E7FF), fontSize: 13, fontWeight: FontWeight.w600)),
             const SizedBox(height: 20),
-            const Text('پیشخوان', style: TextStyle(color: Colors.white, fontSize: 26, fontWeight: FontWeight.w800)),
-            const SizedBox(height: 8),
-            const Text('خدمات آنلاین دفتر پیشخوان شما', style: TextStyle(color: Color(0xFFCFE0FF), fontSize: 13)),
-            const SizedBox(height: 28),
-            const CircularProgressIndicator(color: Colors.white),
-            const SizedBox(height: 12),
-            Text(_message, style: const TextStyle(color: Color(0xFFE6EEFF), fontSize: 12.5)),
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 70),
+              child: ClipRRect(
+                borderRadius: BorderRadius.circular(999),
+                child: const LinearProgressIndicator(minHeight: 5, backgroundColor: Colors.white24, valueColor: AlwaysStoppedAnimation(Colors.white)),
+              ),
+            ),
+            const SizedBox(height: 10),
+            Text(_message, style: const TextStyle(color: Color(0xFFE6EEFF), fontSize: 12)),
+            const SizedBox(height: 26),
           ]),
         ),
-      ),
+      ]),
     );
   }
 }

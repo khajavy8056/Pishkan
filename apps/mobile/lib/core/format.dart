@@ -53,6 +53,22 @@ DateTime? parseServerDate(Object? value) {
   return parsed?.toLocal();
 }
 
+/// Numeric Jalali date like ۱۴۰۴/۰۸/۰۱ — the compact form used in lists.
+String faDateNumeric(Object? value) {
+  final date = value is DateTime ? value : parseServerDate(value);
+  if (date == null) return '—';
+  final jalali = Jalali.fromDateTime(date);
+  String two(int n) => n.toString().padLeft(2, '0');
+  return faDigits('${jalali.year}/${two(jalali.month)}/${two(jalali.day)}');
+}
+
+/// 09121234567 -> ۰۹۱۲ ۱۲۳ ۴۵۶۷ (profile header).
+String faMobileSpaced(String mobile) {
+  final digits = enDigits(mobile).replaceAll(RegExp(r'\D'), '');
+  if (digits.length != 11) return faDigits(mobile);
+  return faDigits('${digits.substring(0, 4)} ${digits.substring(4, 7)} ${digits.substring(7)}');
+}
+
 String faDate(Object? value, {bool withTime = false}) {
   final date = value is DateTime ? value : parseServerDate(value);
   if (date == null) return '—';

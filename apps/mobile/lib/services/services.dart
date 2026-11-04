@@ -86,18 +86,36 @@ Future<void> requestOtp(String mobile, {String purpose = 'login'}) async {
 }
 
 Future<Map<String, dynamic>> verifyOtp(String mobile, String code, {String purpose = 'login', String newPassword = ''}) async {
+  // Password reset has its own endpoint on the server; the OTP verify
+  // endpoint only signs the customer in.
+  if (purpose == 'reset') {
+    final data = await api.postData('/api/auth/password/reset', body: {
+      'mobile': mobile,
+      'code': code,
+      'newPassword': newPassword,
+    });
+    return _finishAuth(data);
+  }
   final data = await api.postData('/api/auth/otp/verify', body: {
     'mobile': mobile,
     'code': code,
     'kind': 'customer',
     'purpose': purpose,
-    if (newPassword.isNotEmpty) 'newPassword': newPassword,
   });
   return _finishAuth(data);
 }
 
 Future<Map<String, dynamic>> registerCustomer(Map<String, dynamic> body) async {
   final data = await api.postData('/api/auth/register', body: body);
+  final map = asMap(data);
+  if (asStr(map['token']).isEmpty) {
+    // The account was created but needs verification/office approval first.
+    throw ApiException(
+      asBool(map['requiresApproval'])
+          ? 'حساب شما ساخته شد و در انتظار تأیید دفتر است؛ پس از تأیید با همین رمز وارد شوید.'
+          : 'حساب شما ساخته شد؛ برای فعال‌سازی، یک‌بار با کد پیامکی وارد شوید.',
+    );
+  }
   return _finishAuth(data);
 }
 
@@ -262,17 +280,22 @@ Future<String> topupWallet(num amountRials) async {
 
 /// ---------- Notifications / support / chat ----------
 
-Future<Map<String, dynamic>> fetchNotifications() async {
-  final envelope = await api.getEnvelope('/api/notifications/mine', query: {'pageSize': 50});
-  return asMap(envelope['data']);
+/// The customer notification centre lives under /customers/me (same feed
+/// the web bell reads): data = items[], meta.unread = unread count.
+Future<Map<String, dynamic>> fetchNotifications({int limit = 50}) async {
+  final envelope = await api.getEnvelope('/api/customers/me/notifications', query: {'limit': limit});
+  return {
+    'items': asMapList(envelope['data']),
+    'unreadCount': asNum(asMap(envelope['meta'])['unread']).toInt(),
+  };
 }
 
 Future<void> markNotificationRead(String id) async {
-  await api.postData('/api/notifications/mine/$id/read');
+  await api.postData('/api/customers/me/notifications/read', body: {'id': id});
 }
 
 Future<void> markAllNotificationsRead() async {
-  await api.postData('/api/notifications/mine/read-all');
+  await api.postData('/api/customers/me/notifications/read', body: {});
 }
 
 Future<List<Map<String, dynamic>>> fetchTickets() async {

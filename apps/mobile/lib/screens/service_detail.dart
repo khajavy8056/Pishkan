@@ -1,14 +1,21 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 
+import '../core/api.dart';
 import '../core/format.dart';
+import '../core/service_icons.dart';
 import '../core/theme.dart';
 import '../models/models.dart';
 import '../services/services.dart';
 import '../widgets/widgets.dart';
 import 'request_form.dart';
+import 'support.dart';
 
-/// Service detail: price, description and the required-document list, all
-/// straight from the backend so office edits appear immediately.
+/// Service detail (approved design): banner + floating info card,
+/// backend-driven tabs (توضیحات / مدارک موردنیاز / پرسش‌وپاسخ) and the
+/// sticky price + «ثبت درخواست» action bar. The rich record (form,
+/// documents) is refreshed from the server so the wizard always gets the
+/// latest admin configuration.
 class ServiceDetailScreen extends StatefulWidget {
   const ServiceDetailScreen({super.key, required this.service});
 
@@ -19,160 +26,308 @@ class ServiceDetailScreen extends StatefulWidget {
 }
 
 class _ServiceDetailScreenState extends State<ServiceDetailScreen> {
+  int _tab = 0;
   late CatalogService _service;
-  bool _loading = true;
 
   @override
   void initState() {
     super.initState();
     _service = widget.service;
-    _loadDetail();
-  }
-
-  Future<void> _loadDetail() async {
-    try {
-      final detail = await fetchServiceDetail(widget.service.slug.isEmpty ? widget.service.id : widget.service.slug);
-      if (mounted) setState(() => _service = detail);
-    } catch (_) {
-      // Keep the list DTO when offline and nothing was cached for the detail.
-    } finally {
-      if (mounted) setState(() => _loading = false);
+    if (_service.slug.isNotEmpty) {
+      fetchServiceDetail(_service.slug).then((fresh) {
+        if (mounted) setState(() => _service = fresh);
+      }).catchError((_) => _service);
     }
   }
 
+  CatalogService get service => _service;
+
   @override
   Widget build(BuildContext context) {
-    final service = _service;
-    final image = asStr(service.raw['imageUrl']).isEmpty ? asStr(service.raw['coverUrl']) : asStr(service.raw['imageUrl']);
+    final art = artworkForService(service);
     return Scaffold(
-      appBar: AppBar(title: Text(service.title, overflow: TextOverflow.ellipsis)),
-      body: ListView(padding: const EdgeInsets.fromLTRB(16, 6, 16, 110), children: [
-        if (image.isNotEmpty) ...[
-          ClipRRect(borderRadius: BorderRadius.circular(22), child: AuthImage(url: image, height: 190)),
-          const SizedBox(height: 14),
-        ],
-        SoftCard(
-          child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-            Row(children: [
-              IconMedallion(icon: service.icon, size: 58),
-              const SizedBox(width: 12),
-              Expanded(
-                child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                  Text(service.title, style: const TextStyle(fontWeight: FontWeight.w800, fontSize: 17, color: PishkanColors.navy, height: 1.4)),
-                  if (service.subtitle.isNotEmpty) Text(service.subtitle, style: const TextStyle(fontSize: 12, color: PishkanColors.mutedText)),
-                  const SizedBox(height: 4),
-                  Text(service.categoryTitle, style: const TextStyle(fontSize: 11.5, color: PishkanColors.primary, fontWeight: FontWeight.w600)),
-                ]),
-              ),
-            ]),
-            if (service.displayDescription.isNotEmpty) ...[
+      body: CustomScrollView(slivers: [
+        SliverToBoxAdapter(child: _banner(art)),
+        SliverPadding(
+          padding: const EdgeInsets.fromLTRB(16, 0, 16, 120),
+          sliver: SliverList(
+            delegate: SliverChildListDelegate([
+              _tabBar(),
               const SizedBox(height: 14),
-              Text(service.displayDescription, style: const TextStyle(fontSize: 13.5, height: 2, color: Color(0xFF334155))),
-            ],
-            const Divider(height: 28),
-            _priceRow('کارمزد خدمت', faMoney(service.baseFee)),
-            if (service.discountPercent > 0) _priceRow('تخفیف (${faDigits(service.discountPercent)}٪)', '−${faMoney(service.baseFee * service.discountPercent / 100)}'),
-            if (service.taxPercent > 0) _priceRow('مالیات بر ارزش افزوده (${faDigits(service.taxPercent)}٪)', faMoney((service.baseFee - service.baseFee * service.discountPercent / 100) * service.taxPercent / 100)),
-            const SizedBox(height: 6),
-            Row(children: [
-              const Text('مبلغ قابل پرداخت', style: TextStyle(fontWeight: FontWeight.w800, fontSize: 14)),
-              const Spacer(),
-              Text(faMoney(service.computedTotal), style: const TextStyle(fontWeight: FontWeight.w800, fontSize: 17, color: PishkanColors.primary)),
-            ]),
-            if (service.estimatedDays > 0) ...[
-              const SizedBox(height: 8),
-              Row(children: [
-                const Icon(Icons.schedule_rounded, size: 17, color: PishkanColors.mutedText),
-                const SizedBox(width: 6),
-                Text('زمان تقریبی انجام: حدود ${faDigits(service.estimatedDays)} روز کاری', style: const TextStyle(fontSize: 12, color: PishkanColors.mutedText)),
-              ]),
-            ],
-            if (service.urgentAvailable) ...[
-              const SizedBox(height: 8),
-              Row(children: [
-                const Icon(Icons.bolt_rounded, size: 17, color: PishkanColors.warning),
-                const SizedBox(width: 6),
-                Text('انجام فوری هم ممکن است (در مرحلهٔ ثبت انتخاب می‌شود).', style: const TextStyle(fontSize: 12, color: PishkanColors.mutedText)),
-              ]),
-            ],
-          ]),
-        ),
-        if (_loading) const Padding(padding: EdgeInsets.all(24), child: LoadingView()),
-        if (service.requirements.isNotEmpty) ...[
-          const SectionTitle(title: 'مدارک موردنیاز'),
-          SoftCard(
-            child: Column(children: [
-              for (var i = 0; i < service.requirements.length; i++) ...[
-                Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                  Icon(service.requirements[i].required ? Icons.description_rounded : Icons.description_outlined, color: PishkanColors.primary, size: 21),
-                  const SizedBox(width: 10),
-                  Expanded(
-                    child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                      Row(children: [
-                        Expanded(child: Text(service.requirements[i].title, style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 13))),
-                        StatusChip(label: service.requirements[i].required ? 'الزامی' : 'اختیاری', status: service.requirements[i].required ? 'unpaid' : 'paid'),
-                      ]),
-                      if (service.requirements[i].description.isNotEmpty)
-                        Text(service.requirements[i].description, style: const TextStyle(fontSize: 11.5, color: PishkanColors.mutedText, height: 1.8)),
-                    ]),
-                  ),
-                ]),
-                if (i < service.requirements.length - 1) const Divider(height: 22),
-              ],
+              switch (_tab) {
+                0 => _description(),
+                1 => _documents(),
+                _ => _qa(),
+              },
             ]),
           ),
-        ],
-        const SectionTitle(title: 'مراحل کار'),
-        const SoftCard(
-          child: Column(children: [
-            _StepRow(number: '۱', text: 'فرم خدمت را تکمیل و مدارک را بارگذاری می‌کنید.'),
-            Divider(height: 20),
-            _StepRow(number: '۲', text: 'کارشناس دفتر مدارک را بررسی می‌کند؛ اگر چیزی لازم بود همین‌جا به شما اطلاع می‌دهد.'),
-            Divider(height: 20),
-            _StepRow(number: '۳', text: 'نتیجهٔ نهایی داخل همین پرونده تحویل شما می‌شود و می‌توانید آن را دانلود کنید.'),
-          ]),
         ),
       ]),
-      bottomNavigationBar: SafeArea(
-        child: Padding(
-          padding: const EdgeInsets.fromLTRB(16, 6, 16, 12),
-          child: PlushButton(
-            label: 'ثبت درخواست این خدمت',
-            icon: Icons.assignment_add,
-            onPressed: () => Navigator.push(context, MaterialPageRoute(builder: (_) => RequestFormScreen(service: service))),
+      bottomSheet: _actionBar(),
+    );
+  }
+
+  Widget _banner(ServiceArtwork art) {
+    final hasBanner = service.bannerUrl.isNotEmpty;
+    return SizedBox(
+      height: 300,
+      child: Stack(children: [
+        Positioned.fill(
+          child: hasBanner
+              ? AuthImage(url: service.bannerUrl, fit: BoxFit.cover)
+              : _bannerArt(art),
+        ),
+        SafeArea(
+          child: Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+            child: Row(children: [
+              _roundButton(Icons.arrow_forward_ios_rounded, () => Navigator.pop(context), iconSize: 18),
+              const Spacer(),
+              _roundButton(Icons.link_rounded, () async {
+                await Clipboard.setData(ClipboardData(text: api.absolute('/services/${service.slug}')));
+                if (mounted) showSnack(context, 'پیوند این خدمت کپی شد.');
+              }),
+            ]),
           ),
         ),
+        Positioned(
+          left: 16,
+          right: 16,
+          bottom: 14,
+          child: Container(
+            padding: const EdgeInsets.fromLTRB(16, 14, 16, 14),
+            decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(22), boxShadow: const [BoxShadow(color: Color(0x1A0B1F3A), blurRadius: 18, offset: Offset(0, 8))]),
+            child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+              Row(children: [
+                IconMedallion(artwork: art, size: 46),
+                const SizedBox(width: 10),
+                Expanded(child: Text(service.title, maxLines: 2, style: const TextStyle(fontWeight: FontWeight.w800, fontSize: 16, color: PishkanColors.navy))),
+              ]),
+              if (service.subtitle.isNotEmpty) ...[
+                const SizedBox(height: 6),
+                Text(service.subtitle, maxLines: 2, overflow: TextOverflow.ellipsis, style: const TextStyle(fontSize: 12, color: PishkanColors.mutedText, height: 1.7)),
+              ],
+              const SizedBox(height: 10),
+              Wrap(spacing: 8, runSpacing: 6, children: [
+                if (service.durationText.isNotEmpty) _metaChip(Icons.timer_outlined, PishkanColors.primary, faDigits(service.durationText)),
+                if (service.categoryTitle.isNotEmpty) _metaChip(Icons.grid_view_rounded, const Color(0xFF7C3AED), service.categoryTitle),
+                if (service.urgentAvailable) _metaChip(Icons.bolt_rounded, const Color(0xFFF59E0B), 'انجام فوری دارد'),
+                if (service.popular) _metaChip(Icons.local_fire_department_rounded, PishkanColors.danger, 'محبوب'),
+                if (service.hasExternalCosts) _metaChip(Icons.account_balance_outlined, PishkanColors.warning, 'هزینهٔ سازمانی دارد'),
+              ]),
+            ]),
+          ),
+        ),
+      ]),
+    );
+  }
+
+  Widget _bannerArt(ServiceArtwork art) {
+    return DecoratedBox(
+      decoration: BoxDecoration(
+        gradient: LinearGradient(
+          colors: [art.color.withOpacity(0.85), art.color.withOpacity(0.55), const Color(0xFF1452D9)],
+          begin: Alignment.topRight,
+          end: Alignment.bottomLeft,
+        ),
+      ),
+      child: Center(child: Text(art.emoji, style: const TextStyle(fontSize: 84))),
+    );
+  }
+
+  Widget _roundButton(IconData icon, VoidCallback onTap, {double iconSize = 22}) {
+    return GestureDetector(
+      onTap: onTap,
+      child: Container(
+        padding: const EdgeInsets.all(10),
+        decoration: BoxDecoration(color: Colors.white.withOpacity(0.94), shape: BoxShape.circle, boxShadow: const [BoxShadow(color: Color(0x22000000), blurRadius: 10, offset: Offset(0, 4))]),
+        child: Icon(icon, color: PishkanColors.navy, size: iconSize),
       ),
     );
   }
 
-  Widget _priceRow(String label, String value) => Padding(
-        padding: const EdgeInsets.symmetric(vertical: 3),
-        child: Row(children: [
-          Text(label, style: const TextStyle(fontSize: 12.5, color: PishkanColors.mutedText)),
-          const Spacer(),
-          Text(value, style: const TextStyle(fontSize: 12.5, fontWeight: FontWeight.w600)),
-        ]),
+  Widget _metaChip(IconData icon, Color color, String label) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 5),
+      decoration: BoxDecoration(color: color.withOpacity(0.11), borderRadius: BorderRadius.circular(999)),
+      child: Row(mainAxisSize: MainAxisSize.min, children: [
+        Icon(icon, size: 15, color: color),
+        const SizedBox(width: 4),
+        Text(label, style: TextStyle(fontSize: 11.5, fontWeight: FontWeight.w700, color: color)),
+      ]),
+    );
+  }
+
+  Widget _tabBar() {
+    Widget tab(int index, String label) {
+      final active = _tab == index;
+      return Expanded(
+        child: GestureDetector(
+          onTap: () => setState(() => _tab = index),
+          child: AnimatedContainer(
+            duration: const Duration(milliseconds: 160),
+            padding: const EdgeInsets.symmetric(vertical: 10),
+            decoration: BoxDecoration(
+              color: active ? PishkanColors.primary : Colors.transparent,
+              borderRadius: BorderRadius.circular(999),
+              boxShadow: active ? [BoxShadow(color: PishkanColors.primary.withOpacity(0.3), blurRadius: 8, offset: const Offset(0, 3))] : null,
+            ),
+            child: Text(label, textAlign: TextAlign.center, style: TextStyle(fontSize: 12, fontWeight: FontWeight.w800, color: active ? Colors.white : PishkanColors.navy)),
+          ),
+        ),
       );
-}
+    }
 
-class _StepRow extends StatelessWidget {
-  const _StepRow({required this.number, required this.text});
-  final String number;
-  final String text;
+    return Container(
+      padding: const EdgeInsets.all(5),
+      decoration: BoxDecoration(color: const Color(0xFFEAF1FE), borderRadius: BorderRadius.circular(999)),
+      child: Row(children: [
+        tab(0, 'توضیحات'),
+        tab(1, 'مدارک موردنیاز'),
+        tab(2, 'پرسش و پاسخ'),
+      ]),
+    );
+  }
 
-  @override
-  Widget build(BuildContext context) {
-    return Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
-      Container(
-        width: 28,
-        height: 28,
-        alignment: Alignment.center,
-        decoration: BoxDecoration(color: PishkanColors.primary.withOpacity(0.12), shape: BoxShape.circle),
-        child: Text(number, style: const TextStyle(fontWeight: FontWeight.w800, color: PishkanColors.primary, fontSize: 13)),
+  Widget _description() {
+    return Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+      Text(
+        service.displayDescription.isNotEmpty ? service.displayDescription : 'توضیحات تکمیلی این خدمت را می‌توانید از کارشناسان دفتر بپرسید.',
+        style: const TextStyle(height: 2, fontSize: 13.5, color: Color(0xFF31445E)),
       ),
-      const SizedBox(width: 10),
-      Expanded(child: Text(text, style: const TextStyle(fontSize: 12.5, height: 1.9))),
+      const SizedBox(height: 16),
+      SoftCard(
+        child: Column(children: [
+          _priceRow('هزینهٔ خدمات دفتر', faMoney(service.baseFee)),
+          if (service.discountPercent > 0) ...[
+            const Divider(),
+            _priceRow('تخفیف (${faDigits(service.discountPercent.round())}٪)', '−${faMoney(service.baseFee * service.discountPercent / 100)}'),
+          ],
+          const Divider(),
+          _priceRow('قابل پرداخت', faMoney(service.computedTotal), bold: true),
+          if (service.hasExternalCosts && service.externalCostsNote.isNotEmpty) ...[
+            const SizedBox(height: 8),
+            Container(
+              padding: const EdgeInsets.all(10),
+              decoration: BoxDecoration(color: const Color(0xFFFFF7E6), borderRadius: BorderRadius.circular(12)),
+              child: Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                const Icon(Icons.info_outline_rounded, size: 17, color: Color(0xFF92400E)),
+                const SizedBox(width: 6),
+                Expanded(child: Text(service.externalCostsNote, style: const TextStyle(fontSize: 11.5, color: Color(0xFF92400E), height: 1.8))),
+              ]),
+            ),
+          ],
+          if (service.contactNotice.isNotEmpty) ...[
+            const SizedBox(height: 8),
+            Text(service.contactNotice, style: const TextStyle(fontSize: 11.5, color: PishkanColors.mutedText, height: 1.8)),
+          ],
+        ]),
+      ),
     ]);
+  }
+
+  Widget _priceRow(String label, String value, {bool bold = false}) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 5),
+      child: Row(children: [
+        Text(label, style: TextStyle(fontWeight: bold ? FontWeight.w800 : FontWeight.w500, color: bold ? PishkanColors.navy : PishkanColors.mutedText, fontSize: 13)),
+        const Spacer(),
+        Text(value, style: TextStyle(fontWeight: FontWeight.w800, fontSize: bold ? 15 : 13, color: bold ? PishkanColors.primary : PishkanColors.navy)),
+      ]),
+    );
+  }
+
+  Widget _documents() {
+    final docs = service.requirements;
+    if (docs.isEmpty) {
+      return const SoftCard(
+        child: Text('این خدمت مدرک از پیش‌تعریف‌شده‌ای ندارد؛ هر مدرکی لازم شود، کارشناس در پرونده راهنمایی‌تان می‌کند.', style: TextStyle(height: 1.9, fontSize: 13, color: PishkanColors.mutedText)),
+      );
+    }
+    return Column(children: [
+      for (var i = 0; i < docs.length; i++)
+        Padding(
+          padding: const EdgeInsets.only(bottom: 10),
+          child: SoftCard(
+            child: Row(children: [
+              Container(
+                width: 30,
+                height: 30,
+                alignment: Alignment.center,
+                decoration: const BoxDecoration(color: PishkanColors.primary, shape: BoxShape.circle),
+                child: Text(faDigits('${i + 1}'), style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w800, fontSize: 13)),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                  Text(docs[i].title, style: const TextStyle(fontWeight: FontWeight.w800, fontSize: 13, color: PishkanColors.navy)),
+                  if (docs[i].description.isNotEmpty) Text(docs[i].description, style: const TextStyle(fontSize: 11.5, color: PishkanColors.mutedText, height: 1.7)),
+                ]),
+              ),
+              if (docs[i].required)
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                  decoration: BoxDecoration(color: PishkanColors.danger.withOpacity(0.1), borderRadius: BorderRadius.circular(999)),
+                  child: const Text('الزامی', style: TextStyle(fontSize: 10.5, fontWeight: FontWeight.w700, color: PishkanColors.danger)),
+                )
+              else
+                const Text('اختیاری', style: TextStyle(fontSize: 11, color: PishkanColors.mutedText)),
+            ]),
+          ),
+        ),
+    ]);
+  }
+
+  Widget _qa() {
+    return SoftCard(
+      child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+        const Row(children: [
+          Icon(Icons.support_agent_rounded, color: PishkanColors.primary),
+          SizedBox(width: 8),
+          Text('سوالی دربارهٔ این خدمت دارید؟', style: TextStyle(fontWeight: FontWeight.w800, color: PishkanColors.navy)),
+        ]),
+        const SizedBox(height: 8),
+        const Text('کارشناسان دفتر در ساعات کاری پاسخ‌گوی شما هستند. سؤال‌تان را بپرسید تا پیش از ثبت درخواست، با اطمینان اقدام کنید.', style: TextStyle(height: 1.9, fontSize: 13, color: PishkanColors.mutedText)),
+        const SizedBox(height: 12),
+        OutlinedButton.icon(
+          onPressed: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const SupportTab())),
+          icon: const Icon(Icons.chat_bubble_outline_rounded),
+          label: const Text('گفت‌وگو با پشتیبانی'),
+        ),
+      ]),
+    );
+  }
+
+  Widget _actionBar() {
+    final open = service.acceptingRequests;
+    return Container(
+      padding: const EdgeInsets.fromLTRB(16, 10, 16, 16),
+      decoration: const BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+        boxShadow: [BoxShadow(color: Color(0x140B1F3A), blurRadius: 18, offset: Offset(0, -5))],
+      ),
+      child: SafeArea(
+        top: false,
+        child: Row(children: [
+          Expanded(
+            flex: 4,
+            child: Column(crossAxisAlignment: CrossAxisAlignment.start, mainAxisSize: MainAxisSize.min, children: [
+              const Text('قیمت نهایی', style: TextStyle(fontSize: 11, color: PishkanColors.mutedText)),
+              Text(service.computedTotal > 0 ? faMoney(service.computedTotal) : 'توافقی', style: const TextStyle(fontWeight: FontWeight.w800, fontSize: 15, color: PishkanColors.navy)),
+            ]),
+          ),
+          const SizedBox(width: 10),
+          Expanded(
+            flex: 6,
+            child: PlushButton(
+              label: open ? 'ثبت درخواست' : 'پذیرش موقتاً بسته است',
+              arrow: open,
+              onPressed: open ? () => Navigator.push(context, MaterialPageRoute(builder: (_) => RequestFormScreen(service: service))) : null,
+            ),
+          ),
+        ]),
+      ),
+    );
   }
 }

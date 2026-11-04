@@ -5,6 +5,8 @@ import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
 
+import '../core/service_icons.dart';
+import '../core/stages.dart';
 import '../core/theme.dart';
 import '../services/services.dart';
 
@@ -44,6 +46,7 @@ class PlushButton extends StatefulWidget {
     required this.label,
     required this.onPressed,
     this.icon,
+    this.arrow = false,
     this.loading = false,
     this.color,
     this.expand = true,
@@ -52,6 +55,9 @@ class PlushButton extends StatefulWidget {
   final String label;
   final VoidCallback? onPressed;
   final IconData? icon;
+
+  /// Trailing white arrow disc, like the design's primary CTAs («ورود ←»).
+  final bool arrow;
   final bool loading;
   final Color? color;
   final bool expand;
@@ -93,7 +99,15 @@ class _PlushButtonState extends State<PlushButton> {
           else if (widget.icon != null)
             Icon(widget.icon, color: Colors.white, size: 20),
           if (widget.loading || widget.icon != null) const SizedBox(width: 9),
-          Text(widget.label, style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w700, fontSize: 15)),
+          Flexible(child: Text(widget.label, overflow: TextOverflow.ellipsis, style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w700, fontSize: 15))),
+          if (widget.arrow && !widget.loading) ...[
+            const SizedBox(width: 10),
+            Container(
+              padding: const EdgeInsets.all(5),
+              decoration: BoxDecoration(color: Colors.white, shape: BoxShape.circle, boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.18), blurRadius: 6, offset: const Offset(0, 2))]),
+              child: Icon(Icons.arrow_back_rounded, color: base, size: 17),
+            ),
+          ],
         ],
       ),
     );
@@ -237,27 +251,31 @@ class ErrorView extends StatelessWidget {
 }
 
 /// An emoji/icon medallion for services & categories (icons come from the
-/// backend as emoji, exactly like the web panels).
+/// backend as emoji, exactly like the web panels). Pass [artwork] for the
+/// smart per-service art (admin emoji honoured, keyword fallback).
 class IconMedallion extends StatelessWidget {
-  const IconMedallion({super.key, required this.icon, this.size = 52, this.color});
+  const IconMedallion({super.key, this.icon = '', this.artwork, this.size = 52, this.color});
   final String icon;
+  final ServiceArtwork? artwork;
   final double size;
   final Color? color;
 
   @override
   Widget build(BuildContext context) {
-    final tint = color ?? PishkanColors.primary;
-    final isEmoji = icon.isNotEmpty && !icon.startsWith('http');
+    final emoji = artwork?.emoji ?? icon;
+    final tint = color ?? artwork?.color ?? PishkanColors.primary;
+    final isEmoji = emoji.isNotEmpty && !emoji.startsWith('http');
     return Container(
       width: size,
       height: size,
       decoration: BoxDecoration(
-        gradient: LinearGradient(colors: [tint.withOpacity(0.16), tint.withOpacity(0.05)], begin: Alignment.topRight, end: Alignment.bottomLeft),
-        borderRadius: BorderRadius.circular(size * 0.32),
+        gradient: LinearGradient(colors: [tint.withOpacity(0.18), tint.withOpacity(0.06)], begin: Alignment.topRight, end: Alignment.bottomLeft),
+        borderRadius: BorderRadius.circular(size * 0.34),
+        border: Border.all(color: tint.withOpacity(0.10)),
       ),
       alignment: Alignment.center,
       child: isEmoji
-          ? Text(icon, style: TextStyle(fontSize: size * 0.44))
+          ? Text(emoji, style: TextStyle(fontSize: size * 0.46))
           : Icon(Icons.grid_view_rounded, color: tint, size: size * 0.5),
     );
   }
@@ -354,6 +372,152 @@ class SectionTitle extends StatelessWidget {
       child: Row(children: [
         Expanded(child: Text(title, style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w800, color: PishkanColors.navy))),
         if (trailing != null) trailing!,
+      ]),
+    );
+  }
+}
+
+/// Deterministic rounded progress track (shared by cards, wizard, banners).
+class TrackProgressIndicator extends StatelessWidget {
+  const TrackProgressIndicator(this.value, this.color, this.height, {super.key});
+  final double value;
+  final Color color;
+  final double height;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      height: height,
+      color: const Color(0xFFE8EEF7),
+      alignment: AlignmentDirectional.centerStart,
+      child: FractionallySizedBox(
+        widthFactor: value.clamp(0.02, 1),
+        child: Container(
+          decoration: BoxDecoration(
+            gradient: LinearGradient(colors: [color.withOpacity(0.75), color]),
+            borderRadius: BorderRadius.circular(999),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+/// Mini stage-progress shown on request cards: rounded track + stage label.
+class StageProgressBar extends StatelessWidget {
+  const StageProgressBar({super.key, required this.progress, this.height = 7});
+
+  final CaseProgress progress;
+  final double height;
+
+  Color get _color {
+    if (progress.failed) return PishkanColors.danger;
+    if (progress.completed) return PishkanColors.success;
+    if (progress.waitingForCustomer) return PishkanColors.warning;
+    return PishkanColors.primary;
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(children: [
+      Expanded(
+        child: ClipRRect(
+          borderRadius: BorderRadius.circular(999),
+          child: TrackProgressIndicator(progress.fraction, _color, height),
+        ),
+      ),
+      const SizedBox(width: 8),
+      Text(progress.currentLabel, style: TextStyle(fontSize: 10.5, fontWeight: FontWeight.w700, color: _color)),
+    ]);
+  }
+}
+
+/// Vertical case timeline (the approved design's tracker): completed stages
+/// are green checks, the current stage is a glowing blue node, upcoming
+/// stages stay grey, and a failed/cancelled case ends in a red node.
+class StageTimeline extends StatelessWidget {
+  const StageTimeline({super.key, required this.progress});
+
+  final CaseProgress progress;
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(children: [
+      for (var i = 0; i < caseStageLabels.length; i++) _row(i, i == caseStageLabels.length - 1),
+    ]);
+  }
+
+  Widget _row(int index, bool last) {
+    final done = progress.completed || index < progress.doneCount;
+    final current = !progress.completed && !progress.failed && index == progress.currentIndex;
+    final failedHere = progress.failed && index == progress.doneCount;
+    final stage = caseStageLabels[index];
+
+    final nodeColor = failedHere
+        ? PishkanColors.danger
+        : done
+            ? PishkanColors.success
+            : current
+                ? PishkanColors.primary
+                : const Color(0xFFD7DEE9);
+    final node = Container(
+      width: 30,
+      height: 30,
+      decoration: BoxDecoration(
+        color: done || failedHere ? nodeColor : Colors.white,
+        shape: BoxShape.circle,
+        border: Border.all(color: nodeColor, width: 2),
+        boxShadow: current ? [BoxShadow(color: PishkanColors.primary.withOpacity(0.30), blurRadius: 10, spreadRadius: 2)] : null,
+      ),
+      child: Icon(
+        done ? Icons.check_rounded : failedHere ? Icons.close_rounded : Icons.circle,
+        size: done || failedHere ? 17 : 10,
+        color: done || failedHere ? Colors.white : nodeColor,
+      ),
+    );
+    final isCurrent = current || failedHere;
+    return IntrinsicHeight(
+      child: Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
+        Column(children: [
+          node,
+          if (!last)
+            Expanded(
+              child: Container(
+                width: 2.5,
+                margin: const EdgeInsets.symmetric(vertical: 3),
+                color: index < progress.doneCount ? PishkanColors.success.withOpacity(0.55) : const Color(0xFFE2E8F0),
+              ),
+            ),
+        ]),
+        const SizedBox(width: 12),
+        Expanded(
+          child: Padding(
+            padding: EdgeInsets.only(bottom: last ? 2 : 18, top: 3),
+            child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+              Text(
+                stage.label,
+                style: TextStyle(
+                  fontWeight: isCurrent || done ? FontWeight.w800 : FontWeight.w600,
+                  fontSize: 13.5,
+                  color: done || isCurrent ? PishkanColors.navy : PishkanColors.mutedText,
+                ),
+              ),
+              const SizedBox(height: 2),
+              Text(
+                isCurrent ? progress.currentLabel : stage.hint,
+                style: TextStyle(
+                  fontSize: 11.5,
+                  height: 1.7,
+                  color: failedHere
+                      ? PishkanColors.danger
+                      : progress.waitingForCustomer && isCurrent
+                          ? PishkanColors.warning
+                          : PishkanColors.mutedText,
+                ),
+              ),
+            ]),
+          ),
+        ),
       ]),
     );
   }

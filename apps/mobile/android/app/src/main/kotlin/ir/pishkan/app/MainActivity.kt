@@ -1,5 +1,6 @@
 package ir.pishkan.app
 
-import io.flutter.embedding.android.FlutterActivity
+import io.flutter.embedding.android.FlutterFragmentActivity
 
-class MainActivity : FlutterActivity()
+// FragmentActivity host so biometric prompts (local_auth) can attach.
+class MainActivity : FlutterFragmentActivity()

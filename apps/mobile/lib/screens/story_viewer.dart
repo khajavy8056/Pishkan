@@ -189,13 +189,22 @@ class _StoryViewerScreenState extends State<StoryViewerScreen> {
               ]),
             ]),
           ),
-          if (item.linkUrl.isNotEmpty)
-            Positioned(
-              bottom: 22,
-              left: 20,
-              right: 20,
-              child: PlushButton(label: item.linkLabel, icon: Icons.open_in_new_rounded, onPressed: () => _openLink(item.linkUrl)),
-            ),
+          Positioned(
+            bottom: 22,
+            left: 20,
+            right: 20,
+            child: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+              if (item.caption.isNotEmpty) ...[
+                Container(
+                  padding: const EdgeInsets.all(13),
+                  decoration: BoxDecoration(color: Colors.black.withOpacity(0.45), borderRadius: BorderRadius.circular(16)),
+                  child: Text(item.caption, style: const TextStyle(color: Colors.white, fontSize: 13, height: 1.9)),
+                ),
+                const SizedBox(height: 12),
+              ],
+              if (item.linkUrl.isNotEmpty) PlushButton(label: item.linkLabel, icon: Icons.open_in_new_rounded, onPressed: () => _openLink(item.linkUrl)),
+            ]),
+          ),
         ]),
       ),
     );

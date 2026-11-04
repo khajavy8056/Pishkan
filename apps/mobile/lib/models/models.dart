@@ -50,16 +50,19 @@ class StoryItem {
   StoryItem.fromJson(Map<String, dynamic> json)
       : id = _str(json['id']),
         title = _str(json['title']),
+        caption = _str(json['caption']),
         groupTitle = _str(json['groupTitle']),
         mediaType = _str(json['mediaType']).isEmpty ? 'image' : _str(json['mediaType']),
         mediaUrl = _str(json['mediaUrl']),
         externalMediaUrl = _str(json['externalMediaUrl']),
         linkUrl = _str(json['linkUrl']),
         linkLabel = _str(json['linkLabel']).isEmpty ? 'مشاهده' : _str(json['linkLabel']),
-        durationSeconds = _num(json['durationSeconds']).toInt().clamp(3, 30).toInt();
+        durationSeconds = _num(json['durationSeconds']).toInt().clamp(3, 30).toInt(),
+        createdAt = _str(json['createdAt']);
 
   final String id;
   final String title;
+  final String caption;
   final String groupTitle;
   final String mediaType;
   final String mediaUrl;
@@ -67,6 +70,7 @@ class StoryItem {
   final String linkUrl;
   final String linkLabel;
   final int durationSeconds;
+  final String createdAt;
 
   String get effectiveMediaUrl => mediaUrl.isNotEmpty ? mediaUrl : externalMediaUrl;
   bool get isVideo => mediaType == 'video';
@@ -124,8 +128,10 @@ class DocumentRequirement {
       : key = _str(json['key']),
         title = _str(json['title']).isEmpty ? _str(json['key']) : _str(json['title']),
         required = _bool(json['required']),
-        description = _str(json['description']),
-        documentType = _str(json['documentType']);
+        // The catalog DTO spells the guidance text `note`; request
+        // snapshots may spell it `description`. Accept both.
+        description = _str(json['note']).isEmpty ? _str(json['description']) : _str(json['note']),
+        documentType = _str(json['documentType']).isEmpty ? _str(json['type']) : _str(json['documentType']);
 
   final String key;
   final String title;
@@ -139,21 +145,30 @@ class CatalogService {
       : id = _str(raw['id']),
         slug = _str(raw['slug']),
         title = _str(raw['title']),
-        subtitle = _str(raw['subtitle']),
+        subtitle = _str(raw['summary']).isEmpty ? _str(raw['subtitle']) : _str(raw['summary']),
         description = _str(raw['description']),
         fullDescription = _str(raw['fullDescription']),
         icon = _str(raw['icon']),
+        bannerUrl = _str(raw['image']).isEmpty ? _str(raw['bannerUrl']) : _str(raw['image']),
         baseFee = _num(raw['baseFee']),
         discountPercent = _num(raw['discountPercent']),
+        finalFee = _num(raw['finalFee']),
         taxPercent = _num(raw['taxPercent']),
         estimatedDays = _num(raw['estimatedDays']),
-        urgentAvailable = _bool(raw['urgentAvailable']),
+        urgentAvailable = _bool(raw['urgentEnabled']) || _bool(raw['urgentAvailable']),
         urgentFee = _num(raw['urgentFee']),
         featured = _bool(raw['featured']),
+        acceptingRequests = raw['acceptingRequests'] != false,
+        hasExternalCosts = _bool(raw['hasExternalCosts']),
+        externalCostsNote = _str(raw['externalCostsNote']),
+        contactNotice = _str(raw['contactNotice']),
+        categoryId = _str(raw['categoryId']).isEmpty ? _str(_map(raw['category'])['id']) : _str(raw['categoryId']),
         categoryTitle = _str(raw['categoryTitle']).isEmpty ? _str(_map(raw['category'])['title']) : _str(raw['categoryTitle']),
         categorySlug = _str(raw['categorySlug']).isEmpty ? _str(_map(raw['category'])['slug']) : _str(raw['categorySlug']),
-        formFields = _list(raw['formFields']).map(FormFieldDef.fromJson).toList(),
-        requirements = _list(raw['documentRequirements']).map(DocumentRequirement.fromJson).toList(),
+        // The catalog DTO spells these `form` and `documents`; older cached
+        // payloads used `formFields`/`documentRequirements`. Accept both.
+        formFields = _list(raw['form'] ?? raw['formFields']).map(FormFieldDef.fromJson).toList(),
+        requirements = _list(raw['documents'] ?? raw['documentRequirements']).map(DocumentRequirement.fromJson).toList(),
         requiresAuthentication = _bool(raw['requiresAuthentication']);
 
   final Map<String, dynamic> raw;
@@ -164,23 +179,55 @@ class CatalogService {
   final String description;
   final String fullDescription;
   final String icon;
+  final String bannerUrl;
   final num baseFee;
   final num discountPercent;
+  final num finalFee;
   final num taxPercent;
   final num estimatedDays;
   final bool urgentAvailable;
   final num urgentFee;
   final bool featured;
+  final bool acceptingRequests;
+  final bool hasExternalCosts;
+  final String externalCostsNote;
+  final String contactNotice;
+  final String categoryId;
   final String categoryTitle;
   final String categorySlug;
   final List<FormFieldDef> formFields;
   final List<DocumentRequirement> requirements;
   final bool requiresAuthentication;
 
-  String get displayDescription => fullDescription.isNotEmpty ? fullDescription : description;
+  String get displayDescription {
+    if (fullDescription.isNotEmpty) return fullDescription;
+    if (description.isNotEmpty) return description;
+    return subtitle;
+  }
 
-  /// Mirrors the web checkout math (server quote remains authoritative).
+  /// A service is "popular" when the office flags it in the web admin
+  /// (featured flag or a popular tag); the home grid falls back to catalog
+  /// order when nothing is flagged.
+  bool get popular {
+    if (featured) return true;
+    final tags = raw['tags'];
+    if (tags is List) {
+      final joined = tags.map((t) => t.toString().toLowerCase()).join(' ');
+      return joined.contains('popular') || joined.contains('محبوب') || joined.contains('پردرخواست');
+    }
+    return false;
+  }
+
+  String get durationText {
+    if (estimatedDays <= 0) return '';
+    if (estimatedDays < 1) return 'کمتر از یک روز کاری';
+    final days = estimatedDays.round();
+    return 'حدود $days روز کاری';
+  }
+
+  /// Local estimate for display only; the server quote is authoritative.
   num get computedTotal {
+    if (finalFee > 0) return finalFee;
     final discount = baseFee * discountPercent / 100;
     final after = baseFee - discount;
     return after + after * taxPercent / 100;
@@ -256,6 +303,7 @@ class RequestDetail {
         trackingCode = _str(raw['trackingCode']),
         status = _str(raw['status']),
         statusLabel = _str(raw['statusLabel']).isEmpty ? _str(raw['status']) : _str(raw['statusLabel']),
+        workBucket = _str(raw['workBucket']),
         serviceTitle = _str(raw['serviceTitle']),
         currentStepTitle = _str(raw['currentStepTitle']),
         nextStepTitle = _str(raw['nextStepTitle']),
@@ -279,6 +327,7 @@ class RequestDetail {
   final String trackingCode;
   final String status;
   final String statusLabel;
+  final String workBucket;
   final String serviceTitle;
   final String currentStepTitle;
   final String nextStepTitle;

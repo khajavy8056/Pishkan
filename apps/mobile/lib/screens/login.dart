@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../core/api.dart';
+import '../core/biometric.dart';
 import '../core/format.dart';
 import '../core/theme.dart';
 import '../models/models.dart';
@@ -11,10 +12,15 @@ import 'server_setup.dart';
 
 enum _Mode { password, otp, register, reset }
 
-/// Customer door only — exactly like the public web login. Staff/admins are
-/// rejected with a clear message and keep using the staff web panel.
+/// Customer door only — exactly like the public web login (approved design):
+/// pill ورود/ثبت‌نام switch, password, SMS code, or fingerprint when this
+/// device already holds a session. Staff/admins are rejected with a clear
+/// message and keep using the staff web panel.
 class LoginScreen extends StatefulWidget {
-  const LoginScreen({super.key});
+  const LoginScreen({super.key, this.lockMessage = ''});
+
+  /// Shown when arriving here because the biometric lock was not passed.
+  final String lockMessage;
 
   @override
   State<LoginScreen> createState() => _LoginScreenState();
@@ -26,6 +32,7 @@ class _LoginScreenState extends State<LoginScreen> {
   bool _busy = false;
   bool _otpSent = false;
   bool _obscure = true;
+  bool _canBiometric = false;
 
   final _identifier = TextEditingController();
   final _password = TextEditingController();
@@ -41,6 +48,12 @@ class _LoginScreenState extends State<LoginScreen> {
     fetchAppConfig().then((config) {
       if (mounted) setState(() => _config = config);
     });
+    // Fingerprint unlock only makes sense with a stored session on device.
+    if (session.isSignedIn) {
+      BiometricAuth.isAvailable().then((ok) {
+        if (mounted) setState(() => _canBiometric = ok);
+      });
+    }
   }
 
   @override
@@ -76,6 +89,16 @@ class _LoginScreenState extends State<LoginScreen> {
     }
     await _run(() async {
       await loginWithPassword(id, _password.text);
+      if (mounted) _goHome();
+    });
+  }
+
+  Future<void> _biometricUnlock() async {
+    final ok = await BiometricAuth.authenticate();
+    if (!ok || !mounted) return;
+    await _run(() async {
+      await fetchMe();
+      await registerDevice();
       if (mounted) _goHome();
     });
   }
@@ -151,95 +174,98 @@ class _LoginScreenState extends State<LoginScreen> {
     });
   }
 
+  bool get _isLoginSide => _mode == _Mode.password || _mode == _Mode.otp;
+
   @override
   Widget build(BuildContext context) {
     final config = _config;
-    final brand = config?.brandName ?? 'پیشخوان';
+    final brand = config?.brandName ?? 'پیشخوان آرنا';
+    final tagline = (config?.tagline.isNotEmpty == true) ? config!.tagline : 'سامانهٔ جامع خدمات دولت';
     return Scaffold(
       body: SafeArea(
-        child: ListView(padding: const EdgeInsets.fromLTRB(22, 18, 22, 24), children: [
+        child: ListView(padding: const EdgeInsets.fromLTRB(24, 14, 24, 24), children: [
           Row(children: [
             const Spacer(),
             IconButton(
               tooltip: 'تغییر آدرس سرور',
               onPressed: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const ServerSetupScreen(fromProfile: true))),
-              icon: const Icon(Icons.dns_outlined),
+              icon: const Icon(Icons.dns_outlined, color: PishkanColors.mutedText),
             ),
           ]),
-          Center(child: ClipRRect(borderRadius: BorderRadius.circular(22), child: Image.asset('assets/icon.png', width: 72, height: 72))),
-          const SizedBox(height: 14),
-          Center(child: Text('ورود به $brand', style: const TextStyle(fontSize: 20, fontWeight: FontWeight.w800, color: PishkanColors.navy))),
-          const SizedBox(height: 6),
-          const Center(child: Text('با همان شماره موبایل و رمز نسخهٔ وب وارد شوید.', style: TextStyle(color: PishkanColors.mutedText, fontSize: 12.5))),
-          const SizedBox(height: 20),
-          _modeSwitcher(config),
-          const SizedBox(height: 16),
-          SoftCard(child: _form(config)),
-          const SizedBox(height: 16),
-          if (_mode == _Mode.password && config?.passwordReset != false)
-            Center(
-              child: TextButton(
-                onPressed: () => setState(() {
-                  _mode = _Mode.reset;
-                  _otpSent = false;
-                }),
-                child: const Text('رمز عبور را فراموش کرده‌ام'),
-              ),
+          Center(
+            child: Container(
+              padding: const EdgeInsets.all(10),
+              decoration: const BoxDecoration(color: Colors.white, shape: BoxShape.circle, boxShadow: [BoxShadow(color: Color(0x1A1452D9), blurRadius: 20, offset: Offset(0, 8))]),
+              child: ClipOval(child: Image.asset('assets/icon.png', width: 62, height: 62)),
             ),
-          const Padding(
-            padding: EdgeInsets.only(top: 8),
-            child: Text('این اپ ویژهٔ مشتریان است؛ همکاران دفتر از پنل وب وارد شوند.', textAlign: TextAlign.center, style: TextStyle(fontSize: 11.5, color: PishkanColors.mutedText)),
           ),
+          const SizedBox(height: 12),
+          Center(child: Text(brand, style: const TextStyle(fontSize: 22, fontWeight: FontWeight.w800, color: PishkanColors.navy))),
+          const SizedBox(height: 4),
+          Center(child: Text(tagline, style: const TextStyle(color: PishkanColors.mutedText, fontSize: 12.5))),
+          if (widget.lockMessage.isNotEmpty) ...[
+            const SizedBox(height: 12),
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 9),
+              decoration: BoxDecoration(color: const Color(0xFFFFF7E6), borderRadius: BorderRadius.circular(12)),
+              child: Text(widget.lockMessage, textAlign: TextAlign.center, style: const TextStyle(fontSize: 12, color: Color(0xFF92400E))),
+            ),
+          ],
+          const SizedBox(height: 20),
+          if (_mode != _Mode.reset) _modeSwitcher(config),
+          const SizedBox(height: 18),
+          _form(config),
+          const SizedBox(height: 14),
+          const Text('این اپ ویژهٔ مشتریان است؛ همکاران دفتر از پنل وب وارد شوند.', textAlign: TextAlign.center, style: TextStyle(fontSize: 11.5, color: PishkanColors.mutedText)),
         ]),
       ),
     );
   }
 
   Widget _modeSwitcher(AppConfig? config) {
-    final modes = <(_Mode, String)>[
-      if (config?.passwordLogin != false) (_Mode.password, 'با رمز عبور'),
-      if (config == null || config.otpLogin) (_Mode.otp, 'کد پیامکی'),
-      if (config == null || config.registrationOpen) (_Mode.register, 'ثبت‌نام'),
-    ];
-    if (!modes.any((m) => m.$1 == _mode) && _mode != _Mode.reset && modes.isNotEmpty) {
-      _mode = modes.first.$1;
-    }
+    final showRegister = config == null || config.registrationOpen;
+    if (!showRegister && _mode == _Mode.register) _mode = _Mode.password;
     return Container(
       padding: const EdgeInsets.all(5),
-      decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(999), border: Border.all(color: const Color(0xFFE2E8F0))),
+      decoration: BoxDecoration(color: const Color(0xFFEAF1FE), borderRadius: BorderRadius.circular(999)),
       child: Row(children: [
-        for (final (mode, label) in modes)
-          Expanded(
-            child: GestureDetector(
-              onTap: () => setState(() {
-                _mode = mode;
+        _switchPill('ورود', _isLoginSide, () => setState(() {
+              _mode = _Mode.password;
+              _otpSent = false;
+            })),
+        if (showRegister)
+          _switchPill('ثبت نام', _mode == _Mode.register, () => setState(() {
+                _mode = _Mode.register;
                 _otpSent = false;
-              }),
-              child: AnimatedContainer(
-                duration: const Duration(milliseconds: 160),
-                padding: const EdgeInsets.symmetric(vertical: 10),
-                decoration: BoxDecoration(
-                  gradient: _mode == mode ? PishkanColors.brandGradient : null,
-                  borderRadius: BorderRadius.circular(999),
-                ),
-                child: Text(
-                  label,
-                  textAlign: TextAlign.center,
-                  style: TextStyle(fontWeight: FontWeight.w700, fontSize: 13, color: _mode == mode ? Colors.white : PishkanColors.navy),
-                ),
-              ),
-            ),
-          ),
+              })),
       ]),
     );
   }
 
-  Widget _passwordField(TextEditingController controller, String label) {
+  Widget _switchPill(String label, bool active, VoidCallback onTap) {
+    return Expanded(
+      child: GestureDetector(
+        onTap: onTap,
+        child: AnimatedContainer(
+          duration: const Duration(milliseconds: 180),
+          padding: const EdgeInsets.symmetric(vertical: 11),
+          decoration: BoxDecoration(
+            gradient: active ? PishkanColors.brandGradient : null,
+            borderRadius: BorderRadius.circular(999),
+            boxShadow: active ? [BoxShadow(color: PishkanColors.primary.withOpacity(0.35), blurRadius: 10, offset: const Offset(0, 4))] : null,
+          ),
+          child: Text(label, textAlign: TextAlign.center, style: TextStyle(fontWeight: FontWeight.w800, fontSize: 14, color: active ? Colors.white : PishkanColors.navy)),
+        ),
+      ),
+    );
+  }
+
+  Widget _passwordField(TextEditingController controller, String hint) {
     return TextField(
       controller: controller,
       obscureText: _obscure,
       decoration: InputDecoration(
-        labelText: label,
+        hintText: hint,
         prefixIcon: const Icon(Icons.lock_outline_rounded),
         suffixIcon: IconButton(
           onPressed: () => setState(() => _obscure = !_obscure),
@@ -249,6 +275,15 @@ class _LoginScreenState extends State<LoginScreen> {
     );
   }
 
+  Widget _orDivider() => const Padding(
+        padding: EdgeInsets.symmetric(vertical: 14),
+        child: Row(children: [
+          Expanded(child: Divider()),
+          Padding(padding: EdgeInsets.symmetric(horizontal: 10), child: Text('یا', style: TextStyle(color: PishkanColors.mutedText, fontSize: 12))),
+          Expanded(child: Divider()),
+        ]),
+      );
+
   Widget _form(AppConfig? config) {
     switch (_mode) {
       case _Mode.password:
@@ -256,72 +291,93 @@ class _LoginScreenState extends State<LoginScreen> {
           TextField(
             controller: _identifier,
             keyboardType: TextInputType.phone,
-            decoration: const InputDecoration(labelText: 'شماره موبایل', prefixIcon: Icon(Icons.phone_android_rounded)),
+            decoration: const InputDecoration(hintText: 'شماره موبایل', prefixIcon: Icon(Icons.smartphone_rounded)),
           ),
           const SizedBox(height: 12),
           _passwordField(_password, 'رمز عبور'),
-          const SizedBox(height: 18),
-          PlushButton(label: 'ورود', icon: Icons.login_rounded, loading: _busy, onPressed: _submitPassword),
+          if (config?.passwordReset != false)
+            Align(
+              alignment: Alignment.centerLeft,
+              child: TextButton(
+                onPressed: () => setState(() {
+                  _mode = _Mode.reset;
+                  _otpSent = false;
+                }),
+                child: const Text('فراموشی رمز عبور؟'),
+              ),
+            )
+          else
+            const SizedBox(height: 16),
+          PlushButton(label: 'ورود', arrow: true, loading: _busy, onPressed: _submitPassword),
+          _orDivider(),
+          if (config == null || config.otpLogin)
+            OutlinedButton.icon(
+              onPressed: _busy ? null : () => setState(() => _mode = _Mode.otp),
+              icon: const Icon(Icons.sms_rounded),
+              label: const Text('ورود با کد پیامکی'),
+            ),
+          if (_canBiometric) ...[
+            const SizedBox(height: 10),
+            OutlinedButton.icon(
+              onPressed: _busy ? null : _biometricUnlock,
+              icon: const Icon(Icons.fingerprint_rounded, size: 26),
+              label: const Text('ورود با اثر انگشت'),
+            ),
+          ],
+          if (config == null || config.registrationOpen) ...[
+            const SizedBox(height: 16),
+            Row(mainAxisAlignment: MainAxisAlignment.center, children: [
+              const Text('حساب کاربری ندارید؟', style: TextStyle(fontSize: 12.5, color: PishkanColors.mutedText)),
+              TextButton(onPressed: () => setState(() => _mode = _Mode.register), child: const Text('ثبت نام کنید')),
+            ]),
+          ],
         ]);
       case _Mode.otp:
         return Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
           TextField(
             controller: _mobile,
             keyboardType: TextInputType.phone,
-            decoration: const InputDecoration(labelText: 'شماره موبایل', prefixIcon: Icon(Icons.phone_android_rounded)),
+            decoration: const InputDecoration(hintText: 'شماره موبایل', prefixIcon: Icon(Icons.smartphone_rounded)),
           ),
           if (_otpSent) ...[
             const SizedBox(height: 12),
             TextField(
               controller: _code,
               keyboardType: TextInputType.number,
-              decoration: const InputDecoration(labelText: 'کد پیامک‌شده', prefixIcon: Icon(Icons.sms_outlined)),
+              decoration: const InputDecoration(hintText: 'کد پیامک‌شده', prefixIcon: Icon(Icons.sms_outlined)),
             ),
           ],
           const SizedBox(height: 18),
-          PlushButton(
-            label: _otpSent ? 'تأیید و ورود' : 'ارسال کد پیامکی',
-            icon: _otpSent ? Icons.check_circle_rounded : Icons.sms_rounded,
-            loading: _busy,
-            onPressed: _otpSent ? _submitOtp : () => _sendOtp('login'),
-          ),
-          if (_otpSent)
-            TextButton(onPressed: _busy ? null : () => _sendOtp('login'), child: const Text('ارسال دوبارهٔ کد')),
+          PlushButton(label: _otpSent ? 'تأیید و ورود' : 'ارسال کد پیامکی', arrow: true, loading: _busy, onPressed: _otpSent ? _submitOtp : () => _sendOtp('login')),
+          if (_otpSent) TextButton(onPressed: _busy ? null : () => _sendOtp('login'), child: const Text('ارسال دوبارهٔ کد')),
+          TextButton(onPressed: () => setState(() => _mode = _Mode.password), child: const Text('ورود با رمز عبور')),
         ]);
       case _Mode.register:
         return Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
-          TextField(controller: _fullName, decoration: const InputDecoration(labelText: 'نام و نام خانوادگی', prefixIcon: Icon(Icons.person_outline_rounded))),
+          TextField(controller: _fullName, decoration: const InputDecoration(hintText: 'نام و نام خانوادگی', prefixIcon: Icon(Icons.person_outline_rounded))),
           const SizedBox(height: 12),
-          TextField(controller: _mobile, keyboardType: TextInputType.phone, decoration: const InputDecoration(labelText: 'شماره موبایل', prefixIcon: Icon(Icons.phone_android_rounded))),
+          TextField(controller: _mobile, keyboardType: TextInputType.phone, decoration: const InputDecoration(hintText: 'شماره موبایل', prefixIcon: Icon(Icons.smartphone_rounded))),
           const SizedBox(height: 12),
-          TextField(controller: _nationalId, keyboardType: TextInputType.number, decoration: const InputDecoration(labelText: 'کد ملی (اختیاری)', prefixIcon: Icon(Icons.badge_outlined))),
+          TextField(controller: _nationalId, keyboardType: TextInputType.number, decoration: const InputDecoration(hintText: 'کد ملی (اختیاری)', prefixIcon: Icon(Icons.badge_outlined))),
           const SizedBox(height: 12),
           _passwordField(_password, 'رمز عبور (حداقل ۸ نویسه)'),
           const SizedBox(height: 18),
-          PlushButton(label: 'ساخت حساب و ورود', icon: Icons.person_add_alt_rounded, loading: _busy, onPressed: _submitRegister),
+          PlushButton(label: 'ثبت نام و ورود', arrow: true, loading: _busy, onPressed: _submitRegister),
         ]);
       case _Mode.reset:
         return Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
-          const Text('بازیابی رمز عبور', style: TextStyle(fontWeight: FontWeight.w700, fontSize: 15)),
-          const SizedBox(height: 10),
-          TextField(controller: _mobile, keyboardType: TextInputType.phone, decoration: const InputDecoration(labelText: 'شماره موبایل', prefixIcon: Icon(Icons.phone_android_rounded))),
+          const Text('بازیابی رمز عبور', style: TextStyle(fontWeight: FontWeight.w800, fontSize: 16, color: PishkanColors.navy)),
+          const SizedBox(height: 12),
+          TextField(controller: _mobile, keyboardType: TextInputType.phone, decoration: const InputDecoration(hintText: 'شماره موبایل', prefixIcon: Icon(Icons.smartphone_rounded))),
           if (_otpSent) ...[
             const SizedBox(height: 12),
-            TextField(controller: _code, keyboardType: TextInputType.number, decoration: const InputDecoration(labelText: 'کد پیامک‌شده', prefixIcon: Icon(Icons.sms_outlined))),
+            TextField(controller: _code, keyboardType: TextInputType.number, decoration: const InputDecoration(hintText: 'کد پیامک‌شده', prefixIcon: Icon(Icons.sms_outlined))),
             const SizedBox(height: 12),
             _passwordField(_newPassword, 'رمز عبور جدید'),
           ],
           const SizedBox(height: 18),
-          PlushButton(
-            label: _otpSent ? 'ثبت رمز جدید و ورود' : 'ارسال کد بازیابی',
-            icon: Icons.lock_reset_rounded,
-            loading: _busy,
-            onPressed: _otpSent ? _submitReset : () => _sendOtp('reset_password'),
-          ),
-          TextButton(
-            onPressed: () => setState(() => _mode = _Mode.password),
-            child: const Text('بازگشت به ورود'),
-          ),
+          PlushButton(label: _otpSent ? 'ثبت رمز جدید و ورود' : 'ارسال کد بازیابی', arrow: true, loading: _busy, onPressed: _otpSent ? _submitReset : () => _sendOtp('reset')),
+          TextButton(onPressed: () => setState(() => _mode = _Mode.password), child: const Text('بازگشت به ورود')),
         ]);
     }
   }
