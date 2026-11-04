@@ -125,6 +125,7 @@ function ServicePercentsEditor({ staffId }: { staffId: string }) {
 }
 
 export function AdminPayroll() {
+  const { can } = useAuth();
   const { notify } = useToast();
   const [tab, setTab] = useState('withdrawals');
   const [overview, setOverview] = useState<Overview | null>(null);
@@ -171,6 +172,21 @@ export function AdminPayroll() {
   };
   const loadReports = () => {
     api.get<{ data: any }>('/api/payroll/reports').then((res) => setReports(res.data)).catch(() => undefined);
+  };
+
+  /** Safety net: accrue any confirmed payment whose commission was missed. */
+  const reconcileCommissions = async () => {
+    setBusy('reconcile');
+    try {
+      const res = await api.post<{ data: { checkedRequests: number; accruedPayments: number } }>('/api/payroll/commissions/reconcile', {});
+      notify(res.data.accruedPayments > 0
+        ? `بازبینی انجام شد: کمیسیون ${faNum(res.data.accruedPayments)} پرداختِ جاافتاده ثبت و به موجودی کارشناس‌های درصدی اضافه شد.`
+        : 'بازبینی انجام شد؛ کمیسیون جاافتاده‌ای پیدا نشد.', 'success');
+      loadOverview();
+      loadStaff();
+    } catch (err) {
+      notify(err instanceof ApiFailure ? err.message : 'خطا در بازبینی کمیسیون‌ها', 'error');
+    } finally { setBusy(''); }
   };
 
   useEffect(() => { setError(''); loadOverview(); loadStaff(); }, []);
@@ -277,7 +293,17 @@ export function AdminPayroll() {
       <PageHeader
         title="حقوق و تسویه کارکنان"
         description="درآمد کارکنان درصدی، درخواست‌های برداشت، حقوق کارکنان ثابت و پروندهٔ مالی هر کارمند — همه بر پایهٔ اسناد واقعی سامانه."
-        actions={<Button variant="ghost" onClick={() => { loadOverview(); loadWithdrawals(); loadStaff(); }}><RefreshCw className="size-4" /> به‌روزرسانی</Button>}
+        actions={(
+          <>
+            {can('payroll.accrue') && (
+              <Button variant="ghost" loading={busy === 'reconcile'} onClick={reconcileCommissions}
+                title="پرداخت‌های تأییدشده‌ای که کمیسیونشان ثبت نشده (مثلاً پرداخت پیش از تخصیص مجری) پیدا و در درآمد کارشناس ثبت می‌شود">
+                <Coins className="size-4" /> بازبینی کمیسیون‌های جاافتاده
+              </Button>
+            )}
+            <Button variant="ghost" onClick={() => { loadOverview(); loadWithdrawals(); loadStaff(); }}><RefreshCw className="size-4" /> به‌روزرسانی</Button>
+          </>
+        )}
       />
 
       {error && <ErrorState message={error} onRetry={loadOverview} />}

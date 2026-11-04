@@ -230,7 +230,7 @@ const ROLE_OPTIONS_DEFAULT = [
 ];
 
 export function AdminStaff() {
-  const { can } = useAuth();
+  const { can, user } = useAuth();
   const { notify } = useToast();
   const [tab, setTab] = useState<'staff' | 'roles'>('staff');
   const [staff, setStaff] = useState<any[]>([]);
@@ -333,6 +333,7 @@ export function AdminStaff() {
         roleCode: editing.roleCode, maxActiveCases: Number(editing.maxActiveCases),
         acceptsNewCases: editing.acceptsNewCases, status: editing.status,
         specialties: Array.isArray(editing.specialties) ? editing.specialties : String(editing.specialties ?? '').split(',').map((s) => s.trim()).filter(Boolean),
+        ...(editing.newPassword ? { newPassword: editing.newPassword } : {}),
       });
       // A changed cooperation contract is never an in-place edit: the old
       // contract closes and a new one starts today, so finalized earnings of
@@ -371,7 +372,7 @@ export function AdminStaff() {
           }
         }
       }
-      notify(`تغییرات ذخیره شد.${contractNote}`, 'success');
+      notify(`تغییرات ذخیره شد.${contractNote}${editing.newPassword ? ' رمز عبور این کارمند بازنشانی شد و همه نشست‌هایش بسته شد؛ رمز جدید را به او بدهید.' : ''}`, 'success');
       setEditing(null);
       load();
     } catch (err) {
@@ -601,6 +602,28 @@ export function AdminStaff() {
                 options={[{ value: 'active', label: 'فعال' }, { value: 'suspended', label: 'مسدود' }]} />
             </Field>
             <Switch checked={Boolean(editing.acceptsNewCases)} onChange={(v) => setEditing({ ...editing, acceptsNewCases: v })} label="پرونده جدید می‌پذیرد" />
+            {(user?.roleCode === 'super_admin' || user?.permissions === '*') && (
+              <div className="space-y-2 rounded-2xl border border-rose-100 bg-rose-50/40 p-4">
+                <p className="flex items-center gap-2 text-sm font-bold text-navy-900"><KeyRound className="size-4 text-rose-600" /> بازنشانی رمز عبور — فقط مدیر کل</p>
+                <p className="text-[11px] leading-6 text-navy-600">
+                  برای شرایط خاص (فراموشی رمز و مانند آن). اگر این قسمت را پر کنید، هنگام ذخیره رمز این کارمند عوض می‌شود
+                  و همه نشست‌های فعالش بسته خواهد شد. رمز را همان موقع، امن به خود کارمند برسانید؛ از او بخواهید بعد از ورود، از پروفایلش آن را تغییر دهد.
+                </p>
+                <div className="flex flex-wrap items-end gap-2">
+                  <Field label="رمز جدید (خالی یعنی بدون تغییر)" className="min-w-56 flex-1">
+                    <Input value={editing.newPassword ?? ''} onChange={(e) => setEditing({ ...editing, newPassword: e.target.value })}
+                      dir="ltr" className="text-left" autoComplete="new-password" placeholder="NewPassword#1405" />
+                  </Field>
+                  <Button type="button" variant="ghost" onClick={() => {
+                    const alphabet = 'ABCDEFGHJKMNPQRSTUVWXYZabcdefghjkmnpqrstuvwxyz23456789';
+                    const bytes = new Uint32Array(10);
+                    window.crypto.getRandomValues(bytes);
+                    const core = Array.from(bytes, (n) => alphabet[n % alphabet.length]).join('');
+                    setEditing({ ...editing, newPassword: `${core}@${bytes[0] % 90 + 10}` });
+                  }}>ساخت رمز تصادفی قوی</Button>
+                </div>
+              </div>
+            )}
             {can('payroll.view') && (
               <div className="space-y-3 rounded-2xl border border-brand-100 bg-brand-50/40 p-4">
                 <p className="text-sm font-bold text-navy-900">قرارداد همکاری</p>

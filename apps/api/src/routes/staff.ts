@@ -211,7 +211,14 @@ staffRouter.patch('/:id', requirePermission('staff.edit'), asyncRoute(async (req
     roleId = role.id;
   }
 
-  if (body.newPassword) await validatePasswordAgainstPolicy(body.newPassword);
+  if (body.newPassword) {
+    // Resetting a colleague's password is a break-glass action: only the
+    // super admin may do it, never every holder of staff.edit.
+    if (req.auth!.user.roleCode !== 'super_admin' && req.auth!.permissions !== '*') {
+      throw forbidden('بازنشانی رمز عبور همکاران فقط توسط مدیر کل انجام می‌شود.');
+    }
+    await validatePasswordAgainstPolicy(body.newPassword);
+  }
 
   await run(
     `UPDATE users SET full_name = ?, email = ?, role_id = ?, status = ?, password_hash = ?, mfa_enabled = ?, updated_at = ? WHERE id = ?`,
@@ -245,7 +252,8 @@ staffRouter.patch('/:id', requirePermission('staff.edit'), asyncRoute(async (req
 
   await writeAudit({
     actorId: req.auth!.user.id, actorName: req.auth!.user.fullName, action: 'staff.update',
-    entityType: 'user', entityId: user.id, after: { status: body.status, roleCode: body.roleCode }, ip: req.ip,
+    entityType: 'user', entityId: user.id,
+    after: { status: body.status, roleCode: body.roleCode, passwordReset: Boolean(body.newPassword) }, ip: req.ip,
   });
   const row = await one<any>(`${STAFF_SELECT} WHERE u.id = ?`, [user.id]);
   ok(res, mapStaff(row));

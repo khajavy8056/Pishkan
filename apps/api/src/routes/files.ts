@@ -250,7 +250,15 @@ filesRouter.get('/:id', requireAuth, asyncRoute(async (req, res) => {
     storageKey = file.preview_storage_key;
     mime = 'image/webp';
   } else if (requested === 'original') {
-    if (!canReadOriginal(file, auth)) throw forbidden('دسترسی به نسخه اصلی این مدرک مجاز نیست.');
+    // A customer reaching this point has already passed the case-scope gate in
+    // loadAuthorizedFile, so the file is theirs in every practical sense: a
+    // document of their own case, a delivered result, a profile document, or a
+    // file of their own conversation. The original of a delivered result
+    // (e.g. a PDF the executor attached) must be downloadable by the customer
+    // it was handed to, not only by the staff member who uploaded it.
+    if (!canReadOriginal(file, auth) && auth.user.kind !== 'customer') {
+      throw forbidden('دسترسی به نسخه اصلی این مدرک مجاز نیست.');
+    }
     storageKey = file.original_storage_key ?? file.storage_key;
     mime = file.original_mime ?? file.mime;
   } else {

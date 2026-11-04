@@ -6,6 +6,15 @@ import { officeScope } from '../../lib/scope.js';
 import { addEvent,attachDocument,reviewDocument,reconcileAfterDocumentReview,snapshotSteps,refreshWorkBucket } from '../requests/service.js';
 import { notifyRole,notifyUser } from '../notifications/service.js';
 import { writeAudit } from '../audit/service.js';
+import { accrueCommissionsForRequest } from '../payroll/service.js';
+import { logEvent } from '../logging/service.js';
+
+/** Best-effort commission sweep after a delivery milestone; never blocks it. */
+async function sweepCommissions(requestId:string){
+ await accrueCommissionsForRequest(requestId).catch((error)=>{
+  logEvent({level:'WARNING',category:'payment',action:'commission.sweep_failed',result:'failure',entityType:'request',entityId:requestId,message:String((error as Error)?.message??error)}).catch(()=>undefined);
+ });
+}
 
 type Auth = {user:{id:string;kind:string;fullName:string;roleCode:string|null};permissions:string[]|'*'};
 function canDecide(auth:Auth,department:string){
@@ -33,7 +42,7 @@ export async function handoff(requestId:string,department:'management'|'accounti
  });
 }
 export async function deliver(requestId:string,files:{fileId:string;title:string;replacesDocumentId?:string|null}[],summary:string,auth:Auth){
- return tx(async()=>{
+ const outcome=await tx(async()=>{
   await run('UPDATE requests SET updated_at=updated_at WHERE id=?',[requestId]);
   const row=await caseAccess(requestId,auth);
   if(!hasPermission(auth.permissions,'requests.edit'))throw forbidden();
@@ -99,9 +108,13 @@ export async function deliver(requestId:string,files:{fileId:string;title:string
   await writeAudit({actorId:auth.user.id,actorName:auth.user.fullName,action:'request.deliver',entityType:'request',entityId:requestId,before:{status:row.status},after:{status:'completed',mode:'direct',files:preparedFiles.length}});
   return {status:'completed',mode:'direct'};
  });
+ // Delivery is the last safety net: any confirmed payment that predates the
+ // assignment becomes the executor's recorded income now.
+ if(outcome.status==='completed')await sweepCommissions(requestId);
+ return outcome;
 }
 export async function decide(handoffId:string,decision:'approved'|'returned',note:string,auth:Auth){
- return tx(async()=>{
+ const outcome=await tx(async()=>{
   const current=await one<any>('SELECT * FROM request_handoffs WHERE id=?',[handoffId]);
   if(!current)throw notFound('ارجاع یافت نشد.');
   if(!canDecide(auth,current.department))throw forbidden('دسترسی تصمیم‌گیری این واحد را ندارید.');
@@ -138,8 +151,10 @@ export async function decide(handoffId:string,decision:'approved'|'returned',not
   if(row.assigned_to)await notifyUser(row.assigned_to,{title:decision==='approved'?'ارجاع شما تأیید شد':'ارجاع برای اصلاح برگشت خورد',body:note,link:`/staff/requests/${row.id}`});
   await writeAudit({actorId:auth.user.id,actorName:auth.user.fullName,action:'request.handoff_decide',entityType:'request',entityId:row.id,after:{handoffId,decision,note}});
   await refreshWorkBucket(row.id);
-  return {id:handoffId,status:decision};
+  return {id:handoffId,status:decision,requestId:row.id,department:current.department};
  });
+ if(outcome.department==='management'&&outcome.status==='approved')await sweepCommissions(outcome.requestId);
+ return {id:outcome.id,status:outcome.status};
 }
 export async function handoffsForCase(requestId:string,auth:Auth){
  await caseAccess(requestId,auth);

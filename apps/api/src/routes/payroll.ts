@@ -4,6 +4,7 @@ import { asyncRoute, requireAuth, requirePermission } from '../http/middleware.j
 import { badRequest, forbidden } from '../http/errors.js';
 import {
   accrueMonth, closeContract, compensation, contractHistory, createContract, settle,
+  reconcileCommissions,
 } from '../modules/payroll/service.js';
 import {
   advanceWithdrawal, createWithdrawal, incomeEntries, incomeSummary, listWithdrawals, payWithdrawal,
@@ -343,6 +344,15 @@ payrollRouter.post('/contracts/:id/close', requirePermission('payroll.contracts.
 payrollRouter.post('/accrue', requirePermission('payroll.accrue'), asyncRoute(async (req, res) => {
   const body = z.object({ month: z.string().regex(/^20\d{2}-(0[1-9]|1[0-2])$/) }).parse(req.body);
   ok(res, await accrueMonth(body.month, req.auth!.user.id));
+}));
+
+/**
+ * Backfill sweep: find confirmed payments whose commission never landed
+ * (paid before an executor took the case) and accrue them now. Idempotent,
+ * so it is safe to run whenever an income looks missing.
+ */
+payrollRouter.post('/commissions/reconcile', requirePermission('payroll.accrue'), asyncRoute(async (req, res) => {
+  ok(res, await reconcileCommissions({ id: req.auth!.user.id, name: req.auth!.user.fullName }));
 }));
 
 payrollRouter.post('/settlements', requirePermission('payroll.settle'), asyncRoute(async (req, res) => {

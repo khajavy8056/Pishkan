@@ -14,6 +14,7 @@ import { toPersianDigits } from '../../lib/text.js';
 
 import { requireCompleteProfile, requireCoverage, validNationalId } from '../profiles/service.js';
 import { commissionAmount, commissionPercentFor, cooperationType, earningsByRequest } from '../payroll/compensation.js';
+import { accrueCommissionsForRequest } from '../payroll/service.js';
 import { notifyUser, notifyRole } from '../notifications/service.js';
 import { normalizeCode, previewDiscount, redeemDiscount } from '../discounts/service.js';
 
@@ -350,7 +351,7 @@ export async function candidatesForService(
 }
 
 export async function autoAssign(requestId: string): Promise<string | null> {
- return tx(async () => {
+ const chosenId = await tx(async () => {
   if (!(await getBool('services.auto_assign'))) return null;
   const request = await one<RequestRow>('SELECT * FROM requests WHERE id = ?', [requestId]);
   if (!request || request.assigned_to) return null;
@@ -386,6 +387,15 @@ export async function autoAssign(requestId: string): Promise<string | null> {
   await refreshWorkBucket(requestId);
   return chosen.id;
  });
+ if (chosenId) {
+   await accrueCommissionsForRequest(requestId).catch((error) => {
+     logEvent({
+       level: 'WARNING', category: 'payment', action: 'commission.sweep_failed', result: 'failure',
+       entityType: 'request', entityId: requestId, message: String((error as Error)?.message ?? error),
+     }).catch(() => undefined);
+   });
+ }
+ return chosenId;
 }
 
 /* --------------------------------- events ---------------------------------- */
@@ -1158,7 +1168,7 @@ export async function setRequestDeadline(requestId: string, deadlineAt: string |
 }
 
 export async function assignRequest(requestId: string, staffId: string | null, actor: { id: string; name: string; ip?: string }) {
-  return tx(async () => {
+  const result = await tx(async () => {
     await run('UPDATE requests SET updated_at=updated_at WHERE id=?', [requestId]);
     const request = await one<RequestRow>('SELECT * FROM requests WHERE id = ?', [requestId]);
     if (!request) throw notFound('درخواست یافت نشد.');
@@ -1186,6 +1196,18 @@ export async function assignRequest(requestId: string, staffId: string | null, a
     await refreshWorkBucket(requestId);
     return getRequest(requestId);
   });
+  // A case can already hold confirmed payments (the customer paid before an
+  // executor took it, or the previous executor was fixed-salary): sweep them
+  // now so a percentage executor's income appears the moment they take over.
+  if (staffId) {
+    await accrueCommissionsForRequest(requestId).catch((error) => {
+      logEvent({
+        level: 'WARNING', category: 'payment', action: 'commission.sweep_failed', result: 'failure',
+        entityType: 'request', entityId: requestId, message: String((error as Error)?.message ?? error),
+      }).catch(() => undefined);
+    });
+  }
+  return result;
 }
 
 export async function addNote(requestId: string, message: string, actor: { id: string; name: string }, visibleToCustomer = true) {
@@ -1740,6 +1762,14 @@ export async function claimRequest(requestId: string, staffId: string, name: str
          VALUES (?,?,?,?,?,?,?)`,
         [id('clm'), requestId, staffId, name, 'won', null, nowIso()],
       ).catch(() => undefined);
+      // The customer may have paid before anyone took the case: turn those
+      // confirmed payments into this executor's income right away.
+      await accrueCommissionsForRequest(requestId).catch((error) => {
+        logEvent({
+          level: 'WARNING', category: 'payment', action: 'commission.sweep_failed', result: 'failure',
+          entityType: 'request', entityId: requestId, message: String((error as Error)?.message ?? error),
+        }).catch(() => undefined);
+      });
     }
   }
 }

@@ -144,6 +144,70 @@ export async function accrueCommission(paymentId: string, reverse = false) {
 }
 
 /**
+ * Accrue commissions for every confirmed payment of one request.
+ *
+ * accrueCommission runs at payment time, but a customer often pays before any
+ * executor has taken the case (or while a fixed-salary colleague holds it).
+ * Without this sweep that money would never become anyone's income. It is
+ * called whenever an executor takes over a case (claim / assign / auto-assign
+ * / delivery) and it is idempotent: operation keys make every re-run a no-op
+ * for payments already accrued, and the contract/percent are still those in
+ * force on the payment date, so re-running never re-prices history.
+ */
+export async function accrueCommissionsForRequest(requestId: string): Promise<{ checked: number; accrued: number }> {
+  const rows = await q<{ id: string }>(
+    "SELECT id FROM payments WHERE request_id = ? AND status = 'confirmed' ORDER BY paid_at IS NULL, paid_at, id",
+    [requestId],
+  );
+  let accrued = 0;
+  for (const row of rows) {
+    const before = await one<{ c: number }>(
+      "SELECT COUNT(*) AS c FROM compensation_entries WHERE payment_id = ? AND kind = 'commission'", [row.id],
+    );
+    await accrueCommission(row.id);
+    const after = await one<{ c: number }>(
+      "SELECT COUNT(*) AS c FROM compensation_entries WHERE payment_id = ? AND kind = 'commission'", [row.id],
+    );
+    if (Number(after?.c ?? 0) > Number(before?.c ?? 0)) accrued += 1;
+  }
+  return { checked: rows.length, accrued };
+}
+
+/**
+ * Office-wide reconciliation for commissions missed before the sweep existed
+ * (or missed by any future payment path). Only requests that currently have
+ * an executor and at least one confirmed payment without a commission entry
+ * are visited; everything stays idempotent, so the manager can re-run it any
+ * time and it will only ever fill real gaps.
+ */
+export async function reconcileCommissions(actor: { id: string; name: string }) {
+  const rows = await q<{ request_id: string }>(
+    `SELECT DISTINCT p.request_id FROM payments p
+     JOIN requests r ON r.id = p.request_id
+     WHERE p.status = 'confirmed' AND p.request_id IS NOT NULL AND r.assigned_to IS NOT NULL
+       AND NOT EXISTS (
+         SELECT 1 FROM compensation_entries ce WHERE ce.payment_id = p.id AND ce.kind = 'commission'
+       )`,
+  );
+  let accruedPayments = 0;
+  for (const row of rows) {
+    const result = await accrueCommissionsForRequest(row.request_id);
+    accruedPayments += result.accrued;
+  }
+  const summary = { checkedRequests: rows.length, accruedPayments };
+  await writeAudit({
+    actorId: actor.id, actorName: actor.name, action: 'payroll.commissions_reconcile',
+    entityType: 'compensation', after: summary,
+  });
+  await logEvent({
+    level: 'INFO', category: 'payment', action: 'payroll.commissions_reconcile', result: 'success',
+    actorId: actor.id, actorName: actor.name, message: `بازبینی کمیسیون‌ها: ${rows.length} پرونده، ${accruedPayments} پرداخت ثبت شد.`,
+    details: summary,
+  });
+  return summary;
+}
+
+/**
  * Split a commission pool by integer percents (summing to 100) without ever
  * losing or inventing a rial: floor everyone, then give the remainder to the
  * largest share.
