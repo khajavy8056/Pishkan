@@ -1,0 +1,297 @@
+import 'package:flutter/material.dart';
+import 'package:url_launcher/url_launcher.dart';
+
+import '../core/api.dart';
+import '../core/format.dart';
+import '../core/theme.dart';
+import '../models/models.dart';
+import '../services/services.dart';
+import '../widgets/widgets.dart';
+import 'documents.dart';
+import 'login.dart';
+import 'notifications.dart';
+import 'offers.dart';
+import 'payments.dart';
+import 'server_setup.dart';
+import 'wallet.dart';
+
+/// Profile tab: identity card, quick links, connection settings and
+/// edit-profile / change-password / sign-out actions.
+class ProfileTab extends StatefulWidget {
+  const ProfileTab({super.key});
+
+  @override
+  State<ProfileTab> createState() => _ProfileTabState();
+}
+
+class _ProfileTabState extends State<ProfileTab> {
+  String _version = '';
+
+  @override
+  void initState() {
+    super.initState();
+    currentAppVersion().then((v) {
+      if (mounted) setState(() => _version = v);
+    });
+    fetchMe().catchError((_) => <String, dynamic>{});
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return ListenableBuilder(
+      listenable: session,
+      builder: (context, _) {
+        final user = session.user ?? const {};
+        final name = asStr(user['fullName']).isEmpty ? 'کاربر پیشخوان' : asStr(user['fullName']);
+        final mobile = asStr(user['mobile']);
+        return Scaffold(
+          appBar: AppBar(title: const Text('پروفایل')),
+          body: ListView(padding: const EdgeInsets.fromLTRB(16, 10, 16, 28), children: [
+            Container(
+              padding: const EdgeInsets.all(18),
+              decoration: BoxDecoration(gradient: PishkanColors.brandGradient, borderRadius: BorderRadius.circular(24)),
+              child: Row(children: [
+                CircleAvatar(
+                  radius: 30,
+                  backgroundColor: Colors.white.withOpacity(0.18),
+                  child: Text(name.isEmpty ? 'پ' : name.substring(0, 1), style: const TextStyle(color: Colors.white, fontSize: 22, fontWeight: FontWeight.w800)),
+                ),
+                const SizedBox(width: 13),
+                Expanded(
+                  child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                    Text(name, style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w800, fontSize: 16)),
+                    Text(faDigits(mobile), style: const TextStyle(color: Color(0xFFCFE0FF), fontSize: 12.5)),
+                    if (asStr(user['nationalId']).isNotEmpty) Text('کد ملی ${faDigits(asStr(user['nationalId']))}', style: const TextStyle(color: Color(0xFFCFE0FF), fontSize: 11.5)),
+                  ]),
+                ),
+                IconButton(
+                  onPressed: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const EditProfileScreen())),
+                  icon: const Icon(Icons.edit_rounded, color: Colors.white),
+                ),
+              ]),
+            ),
+            const SectionTitle(title: 'خدمات مالی'),
+            SoftCard(
+              padding: const EdgeInsets.symmetric(vertical: 6, horizontal: 8),
+              child: Column(children: [
+                _link(Icons.account_balance_wallet_rounded, 'کیف پول', 'موجودی، شارژ و گردش', () => Navigator.push(context, MaterialPageRoute(builder: (_) => const WalletScreen()))),
+                const Divider(height: 1),
+                _link(Icons.receipt_long_rounded, 'فاکتورها و پرداخت‌ها', 'پرداخت آنلاین یا از کیف پول', () => Navigator.push(context, MaterialPageRoute(builder: (_) => const PaymentsScreen()))),
+                const Divider(height: 1),
+                _link(Icons.local_offer_rounded, 'پیشنهادهای اختصاصی', 'خدمت‌های ویژه‌ای که دفتر برایتان تعریف کرده', () => Navigator.push(context, MaterialPageRoute(builder: (_) => const OffersScreen()))),
+              ]),
+            ),
+            const SectionTitle(title: 'حساب و مدارک'),
+            SoftCard(
+              padding: const EdgeInsets.symmetric(vertical: 6, horizontal: 8),
+              child: Column(children: [
+                _link(Icons.folder_shared_rounded, 'مدارک پروفایل', 'مدرک‌های تأییدشده برای استفادهٔ دوباره', () => Navigator.push(context, MaterialPageRoute(builder: (_) => const DocumentsScreen()))),
+                const Divider(height: 1),
+                _link(Icons.notifications_rounded, 'اعلان‌ها', 'تغییر وضعیت پرونده‌ها و پاسخ‌ها', () => Navigator.push(context, MaterialPageRoute(builder: (_) => const NotificationsScreen()))),
+                const Divider(height: 1),
+                _link(Icons.lock_reset_rounded, 'تغییر رمز عبور', 'رمز فعلی و رمز تازه', () => Navigator.push(context, MaterialPageRoute(builder: (_) => const ChangePasswordScreen()))),
+              ]),
+            ),
+            const SectionTitle(title: 'تنظیمات اتصال'),
+            SoftCard(
+              padding: const EdgeInsets.symmetric(vertical: 6, horizontal: 8),
+              child: Column(children: [
+                _link(Icons.dns_rounded, 'آدرس سرور سامانه', session.serverUrl.isEmpty ? 'تنظیم نشده' : session.serverUrl, () => Navigator.push(context, MaterialPageRoute(builder: (_) => const ServerSetupScreen(fromProfile: true))), ltr: true),
+                const Divider(height: 1),
+                _link(Icons.language_rounded, 'باز کردن نسخهٔ وب', 'همان حساب و همان پرونده‌ها در مرورگر', () async {
+                  final uri = Uri.tryParse(session.serverUrl);
+                  if (uri != null) await launchUrl(uri, mode: LaunchMode.externalApplication);
+                }),
+              ]),
+            ),
+            const SizedBox(height: 18),
+            OutlinedButton.icon(
+              onPressed: () async {
+                final confirmed = await confirmDialog(context, 'خروج از حساب؟', 'برای ورود دوباره، شماره موبایل و رمزتان را لازم دارید.', confirmLabel: 'خروج', danger: true);
+                if (!confirmed) return;
+                await logoutServer();
+                if (context.mounted) {
+                  Navigator.pushAndRemoveUntil(context, MaterialPageRoute(builder: (_) => const LoginScreen()), (_) => false);
+                }
+              },
+              style: OutlinedButton.styleFrom(foregroundColor: PishkanColors.danger, side: const BorderSide(color: Color(0xFFFECACA))),
+              icon: const Icon(Icons.logout_rounded),
+              label: const Text('خروج از حساب کاربری'),
+            ),
+            const SizedBox(height: 14),
+            Center(child: Text('اپلیکیشن مشتریان پیشخوان · نسخهٔ ${faDigits(_version)}', style: const TextStyle(fontSize: 11, color: PishkanColors.mutedText))),
+          ]),
+        );
+      },
+    );
+  }
+
+  Widget _link(IconData icon, String title, String subtitle, VoidCallback onTap, {bool ltr = false}) {
+    return ListTile(
+      leading: Container(
+        padding: const EdgeInsets.all(9),
+        decoration: BoxDecoration(color: PishkanColors.primary.withOpacity(0.1), borderRadius: BorderRadius.circular(12)),
+        child: Icon(icon, color: PishkanColors.primary, size: 20),
+      ),
+      title: Text(title, style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 13.5)),
+      subtitle: Text(subtitle, textDirection: ltr ? TextDirection.ltr : null, textAlign: ltr ? TextAlign.right : null, style: const TextStyle(fontSize: 11.5, color: PishkanColors.mutedText), maxLines: 1, overflow: TextOverflow.ellipsis),
+      trailing: const Icon(Icons.chevron_left_rounded, color: PishkanColors.mutedText),
+      onTap: onTap,
+    );
+  }
+}
+
+class EditProfileScreen extends StatefulWidget {
+  const EditProfileScreen({super.key});
+
+  @override
+  State<EditProfileScreen> createState() => _EditProfileScreenState();
+}
+
+class _EditProfileScreenState extends State<EditProfileScreen> {
+  final Map<String, TextEditingController> _fields = {};
+  bool _busy = false;
+
+  static const _defs = <(String, String, IconData)>[
+    ('fullName', 'نام و نام خانوادگی', Icons.person_outline_rounded),
+    ('nationalId', 'کد ملی', Icons.badge_outlined),
+    ('email', 'ایمیل', Icons.email_outlined),
+    ('fatherName', 'نام پدر', Icons.family_restroom_rounded),
+    ('province', 'استان', Icons.map_outlined),
+    ('city', 'شهر', Icons.location_city_outlined),
+    ('postalCode', 'کد پستی', Icons.markunread_mailbox_outlined),
+    ('address', 'نشانی', Icons.home_outlined),
+  ];
+
+  @override
+  void initState() {
+    super.initState();
+    final user = session.user ?? const {};
+    for (final (key, _, _) in _defs) {
+      _fields[key] = TextEditingController(text: asStr(user[key]));
+    }
+  }
+
+  @override
+  void dispose() {
+    for (final c in _fields.values) {
+      c.dispose();
+    }
+    super.dispose();
+  }
+
+  Future<void> _save() async {
+    final nationalId = enDigits(_fields['nationalId']!.text).trim();
+    if (nationalId.isNotEmpty && !validNationalId(nationalId)) {
+      showSnack(context, 'کد ملی معتبر نیست.', error: true);
+      return;
+    }
+    setState(() => _busy = true);
+    try {
+      final body = <String, dynamic>{
+        for (final (key, _, _) in _defs) key: enDigits(_fields[key]!.text).trim(),
+      };
+      final data = await api.patchData('/api/auth/profile', body: body);
+      final user = asMap(data);
+      if (user.isNotEmpty) await session.updateUser(user);
+      if (mounted) {
+        showSnack(context, 'مشخصات شما به‌روزرسانی شد.');
+        Navigator.pop(context);
+      }
+    } on ApiException catch (error) {
+      if (mounted) showSnack(context, error.message, error: true);
+    } finally {
+      if (mounted) setState(() => _busy = false);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      appBar: AppBar(title: const Text('ویرایش مشخصات')),
+      body: ListView(padding: const EdgeInsets.fromLTRB(16, 10, 16, 24), children: [
+        SoftCard(
+          child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+            for (var i = 0; i < _defs.length; i++) ...[
+              TextField(
+                controller: _fields[_defs[i].$1],
+                maxLines: _defs[i].$1 == 'address' ? 2 : 1,
+                decoration: InputDecoration(labelText: _defs[i].$2, prefixIcon: Icon(_defs[i].$3)),
+              ),
+              if (i < _defs.length - 1) const SizedBox(height: 12),
+            ],
+            const SizedBox(height: 18),
+            PlushButton(label: 'ذخیرهٔ تغییرات', icon: Icons.save_rounded, loading: _busy, onPressed: _save),
+            const SizedBox(height: 6),
+            const Text('شماره موبایل شناسهٔ ورود شماست و از اینجا تغییر نمی‌کند؛ برای تغییرش با دفتر در تماس باشید.', style: TextStyle(fontSize: 11, color: PishkanColors.mutedText, height: 1.8)),
+          ]),
+        ),
+      ]),
+    );
+  }
+}
+
+class ChangePasswordScreen extends StatefulWidget {
+  const ChangePasswordScreen({super.key});
+
+  @override
+  State<ChangePasswordScreen> createState() => _ChangePasswordScreenState();
+}
+
+class _ChangePasswordScreenState extends State<ChangePasswordScreen> {
+  final _current = TextEditingController();
+  final _next = TextEditingController();
+  final _confirm = TextEditingController();
+  bool _busy = false;
+
+  @override
+  void dispose() {
+    _current.dispose();
+    _next.dispose();
+    _confirm.dispose();
+    super.dispose();
+  }
+
+  Future<void> _save() async {
+    if (_current.text.isEmpty || _next.text.length < 8) {
+      showSnack(context, 'رمز فعلی و رمز تازه (حداقل ۸ نویسه) را وارد کنید.', error: true);
+      return;
+    }
+    if (_next.text != _confirm.text) {
+      showSnack(context, 'تکرار رمز تازه درست نیست.', error: true);
+      return;
+    }
+    setState(() => _busy = true);
+    try {
+      await api.patchData('/api/auth/profile', body: {'currentPassword': _current.text, 'newPassword': _next.text});
+      if (mounted) {
+        showSnack(context, 'رمز عبور تغییر کرد؛ از این پس در وب و اپ با رمز تازه وارد شوید.');
+        Navigator.pop(context);
+      }
+    } on ApiException catch (error) {
+      if (mounted) showSnack(context, error.message, error: true);
+    } finally {
+      if (mounted) setState(() => _busy = false);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      appBar: AppBar(title: const Text('تغییر رمز عبور')),
+      body: ListView(padding: const EdgeInsets.fromLTRB(16, 10, 16, 24), children: [
+        SoftCard(
+          child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+            TextField(controller: _current, obscureText: true, decoration: const InputDecoration(labelText: 'رمز عبور فعلی', prefixIcon: Icon(Icons.lock_outline_rounded))),
+            const SizedBox(height: 12),
+            TextField(controller: _next, obscureText: true, decoration: const InputDecoration(labelText: 'رمز عبور تازه', prefixIcon: Icon(Icons.lock_reset_rounded))),
+            const SizedBox(height: 12),
+            TextField(controller: _confirm, obscureText: true, decoration: const InputDecoration(labelText: 'تکرار رمز تازه', prefixIcon: Icon(Icons.lock_clock_rounded))),
+            const SizedBox(height: 18),
+            PlushButton(label: 'ثبت رمز تازه', icon: Icons.check_circle_rounded, loading: _busy, onPressed: _save),
+          ]),
+        ),
+      ]),
+    );
+  }
+}

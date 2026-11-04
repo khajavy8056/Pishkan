@@ -1,0 +1,203 @@
+import 'dart:async';
+
+import 'package:flutter/material.dart';
+import 'package:url_launcher/url_launcher.dart';
+import 'package:video_player/video_player.dart';
+
+import '../models/models.dart';
+import '../services/services.dart';
+import '../widgets/widgets.dart';
+
+/// Full-screen story player for the office announcements published from the
+/// web admin («تنظیمات اپ اندروید»). Tap edges to move, auto-advance on
+/// timer/video end, optional action link per story.
+class StoryViewerScreen extends StatefulWidget {
+  const StoryViewerScreen({super.key, required this.groups, this.initialGroup = 0});
+
+  final List<StoryGroup> groups;
+  final int initialGroup;
+
+  @override
+  State<StoryViewerScreen> createState() => _StoryViewerScreenState();
+}
+
+class _StoryViewerScreenState extends State<StoryViewerScreen> {
+  late int _groupIndex;
+  int _itemIndex = 0;
+  Timer? _timer;
+  double _progress = 0;
+  VideoPlayerController? _video;
+  bool _videoReady = false;
+
+  StoryGroup get _group => widget.groups[_groupIndex];
+  StoryItem get _item => _group.items[_itemIndex];
+
+  @override
+  void initState() {
+    super.initState();
+    _groupIndex = widget.initialGroup.clamp(0, widget.groups.length - 1).toInt();
+    _playCurrent();
+  }
+
+  @override
+  void dispose() {
+    _timer?.cancel();
+    _video?.dispose();
+    super.dispose();
+  }
+
+  Future<void> _playCurrent() async {
+    _timer?.cancel();
+    await _video?.dispose();
+    _video = null;
+    _videoReady = false;
+    _progress = 0;
+    if (!mounted) return;
+    setState(() {});
+
+    final item = _item;
+    if (item.isVideo) {
+      final controller = VideoPlayerController.networkUrl(
+        Uri.parse(api.absolute(item.effectiveMediaUrl)),
+        httpHeaders: api.authHeaders(),
+      );
+      _video = controller;
+      try {
+        await controller.initialize();
+        if (!mounted || _video != controller) return;
+        setState(() => _videoReady = true);
+        await controller.play();
+        controller.addListener(_onVideoTick);
+      } catch (_) {
+        _startTimer(item.durationSeconds);
+      }
+    } else {
+      _startTimer(item.durationSeconds);
+    }
+  }
+
+  void _onVideoTick() {
+    final controller = _video;
+    if (controller == null || !controller.value.isInitialized) return;
+    final duration = controller.value.duration.inMilliseconds;
+    if (duration > 0) {
+      final next = controller.value.position.inMilliseconds / duration;
+      if (mounted) setState(() => _progress = next.clamp(0, 1));
+      if (next >= 1) _next();
+    }
+  }
+
+  void _startTimer(int seconds) {
+    final totalMs = seconds * 1000;
+    var elapsed = 0;
+    _timer = Timer.periodic(const Duration(milliseconds: 50), (timer) {
+      elapsed += 50;
+      if (!mounted) {
+        timer.cancel();
+        return;
+      }
+      setState(() => _progress = (elapsed / totalMs).clamp(0, 1));
+      if (elapsed >= totalMs) _next();
+    });
+  }
+
+  void _next() {
+    if (_itemIndex < _group.items.length - 1) {
+      _itemIndex++;
+    } else if (_groupIndex < widget.groups.length - 1) {
+      _groupIndex++;
+      _itemIndex = 0;
+    } else {
+      Navigator.pop(context);
+      return;
+    }
+    _playCurrent();
+  }
+
+  void _previous() {
+    if (_itemIndex > 0) {
+      _itemIndex--;
+    } else if (_groupIndex > 0) {
+      _groupIndex--;
+      _itemIndex = _group.items.length - 1;
+    }
+    _playCurrent();
+  }
+
+  Future<void> _openLink(String link) async {
+    final uri = Uri.tryParse(api.absolute(link));
+    if (uri == null) return;
+    await launchUrl(uri, mode: LaunchMode.externalApplication);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    if (widget.groups.isEmpty || _group.items.isEmpty) {
+      return const Scaffold(backgroundColor: Colors.black, body: Center(child: Text('استوری‌ای برای نمایش نیست.', style: TextStyle(color: Colors.white))));
+    }
+    final item = _item;
+    return Scaffold(
+      backgroundColor: Colors.black,
+      body: SafeArea(
+        child: Stack(children: [
+          Positioned.fill(
+            child: item.isVideo
+                ? (_videoReady && _video != null
+                    ? Center(child: AspectRatio(aspectRatio: _video!.value.aspectRatio, child: VideoPlayer(_video!)))
+                    : const Center(child: CircularProgressIndicator(color: Colors.white)))
+                : AuthImage(url: item.effectiveMediaUrl, fit: BoxFit.contain),
+          ),
+          // Tap zones: in RTL, tapping the start side goes back.
+          Row(children: [
+            Expanded(child: GestureDetector(onTap: _next, behavior: HitTestBehavior.translucent, child: const SizedBox.expand())),
+            Expanded(child: GestureDetector(onTap: _previous, behavior: HitTestBehavior.translucent, child: const SizedBox.expand())),
+          ]),
+          Positioned(
+            top: 8,
+            left: 12,
+            right: 12,
+            child: Column(children: [
+              Row(children: [
+                for (var i = 0; i < _group.items.length; i++) ...[
+                  Expanded(
+                    child: ClipRRect(
+                      borderRadius: BorderRadius.circular(4),
+                      child: LinearProgressIndicator(
+                        value: i < _itemIndex ? 1 : i == _itemIndex ? _progress : 0,
+                        minHeight: 3.5,
+                        backgroundColor: Colors.white30,
+                        valueColor: const AlwaysStoppedAnimation(Colors.white),
+                      ),
+                    ),
+                  ),
+                  if (i < _group.items.length - 1) const SizedBox(width: 5),
+                ],
+              ]),
+              const SizedBox(height: 10),
+              Row(children: [
+                const CircleAvatar(backgroundColor: Colors.white24, child: Icon(Icons.campaign_rounded, color: Colors.white, size: 19)),
+                const SizedBox(width: 9),
+                Expanded(
+                  child: Text(
+                    item.title.isEmpty ? _group.title : item.title,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w700, fontSize: 13.5),
+                  ),
+                ),
+                IconButton(onPressed: () => Navigator.pop(context), icon: const Icon(Icons.close_rounded, color: Colors.white)),
+              ]),
+            ]),
+          ),
+          if (item.linkUrl.isNotEmpty)
+            Positioned(
+              bottom: 22,
+              left: 20,
+              right: 20,
+              child: PlushButton(label: item.linkLabel, icon: Icons.open_in_new_rounded, onPressed: () => _openLink(item.linkUrl)),
+            ),
+        ]),
+      ),
+    );
+  }
+}
