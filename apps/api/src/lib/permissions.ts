@@ -58,6 +58,9 @@ export const PAYROLL_PERMISSIONS = [
 /** Restoring a backup is destructive, so it is its own grantable permission. */
 export const BACKUP_PERMISSIONS = ['backup.restore'] as const;
 
+/** Customer Android app: stories, announcements and app-wide settings. */
+export const APP_PERMISSIONS = ['app.manage'] as const;
+
 /**
  * Blog workflow grants beyond plain CRUD: publishing a post, moderating its
  * comments, managing categories and editing other authors' posts (editor).
@@ -75,6 +78,7 @@ export const EXTRA_PERMISSION_LABELS: Record<string, string> = {
   'wallet.credit': 'شارژ کیف پول مشتری',
   'wallet.adjust': 'اصلاح موجودی کیف پول مشتری',
   'backup.restore': 'بازیابی نسخهٔ پشتیبان',
+  'app.manage': 'مدیریت اپ اندروید مشتریان (استوری و تنظیمات)',
   'blog.publish': 'انتشار و لغو انتشار مطالب بلاگ',
   'blog.comments': 'مدیریت و تأیید نظرات بلاگ',
   'blog.categories': 'مدیریت دسته‌بندی‌های بلاگ',
@@ -86,7 +90,8 @@ export type Permission =
   | (typeof PAYROLL_PERMISSIONS)[number]
   | (typeof WALLET_PERMISSIONS)[number]
   | (typeof BACKUP_PERMISSIONS)[number]
-  | (typeof BLOG_PERMISSIONS)[number];
+  | (typeof BLOG_PERMISSIONS)[number]
+  | (typeof APP_PERMISSIONS)[number];
 
 export function allPermissions(): Permission[] {
   return [
@@ -95,6 +100,7 @@ export function allPermissions(): Permission[] {
     ...WALLET_PERMISSIONS,
     ...BACKUP_PERMISSIONS,
     ...BLOG_PERMISSIONS,
+    ...APP_PERMISSIONS,
   ];
 }
 

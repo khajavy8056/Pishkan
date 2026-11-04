@@ -45,10 +45,14 @@ async function multerMiddleware() {
   return multer({
     storage: incomingStorage,
     limits: { fileSize: cfg.maxBytes, files: 1, fields: 8 },
-    fileFilter: (_req, file, cb) => {
+    fileFilter: (req, file, cb) => {
       const ext = (file.originalname.split('.').pop() ?? '').toLowerCase();
-      if (!cfg.allowedTypes.includes(ext)) {
-        return cb(badRequest(`پسوند .${ext || '—'} مجاز نیست. فرمت‌های مجاز: ${cfg.allowedTypes.join(', ')}`));
+      // App-story media may be a short video even where office documents are
+      // restricted to images/PDF; the signature check still decides below.
+      const isStory = (req as any)?.query?.purpose === 'story';
+      const allowed = isStory ? [...cfg.allowedTypes, 'mp4', 'webm'] : cfg.allowedTypes;
+      if (!allowed.includes(ext)) {
+        return cb(badRequest(`پسوند .${ext || '—'} مجاز نیست. فرمت‌های مجاز: ${allowed.join(', ')}`));
       }
       cb(null, true);
     },
@@ -71,7 +75,7 @@ filesRouter.post('/upload', requireAuth, asyncRoute(async (req, res, next) => {
           filePath: file.path,
           originalName: file.originalname,
           size: file.size,
-          allowedTypes: cfg.allowedTypes,
+          allowedTypes: purpose === 'story' ? [...cfg.allowedTypes, 'mp4', 'webm'] : cfg.allowedTypes,
           imagePolicy: cfg.policy,
         });
 

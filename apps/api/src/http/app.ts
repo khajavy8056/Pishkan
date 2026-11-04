@@ -33,6 +33,7 @@ import { monitoringRouter } from '../routes/monitoring.js';
 import { discountsRouter } from '../routes/discounts.js';
 import { supportRouter } from '../routes/support.js';
 import { pushRouter } from '../routes/push.js';
+import { mobileRouter } from '../routes/mobile.js';
 import { blogRouter, blogSeoRouter, publicBlogRouter } from '../routes/blog.js';
 import { recordRequest } from '../modules/monitoring/metrics.js';
 import { logEvent, setMinimumLevel } from '../modules/logging/service.js';
@@ -209,6 +210,7 @@ export async function createApp(): Promise<Express> {
   app.use(['/api/discount-codes','/api/v1/discount-codes'],discountsRouter);
   app.use(['/api/support','/api/v1/support'],supportRouter);
   app.use(['/api/push','/api/v1/push'],pushRouter);
+  app.use(['/api/app','/api/v1/app'],mobileRouter);
   app.use(['/api/blog','/api/v1/blog'],blogRouter);
   app.use(['/api/public/blog','/api/v1/public/blog'],publicBlogRouter);
   app.use(blogSeoRouter);

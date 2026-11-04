@@ -32,7 +32,7 @@ export interface SettingDef {
 export type SettingGroupCode =
   | 'general' | 'landing' | 'domain' | 'auth' | 'sms' | 'email' | 'security' | 'services'
   | 'accounting' | 'wallet' | 'workforce' | 'payroll' | 'assistant' | 'files' | 'backup'
-  | 'maintenance' | 'monitoring' | 'multibranch' | 'support';
+  | 'maintenance' | 'monitoring' | 'multibranch' | 'support' | 'android_app';
 
 export const SETTING_GROUPS: {
   code: SettingGroupCode;
@@ -60,6 +60,7 @@ export const SETTING_GROUPS: {
   { code: 'payroll', title: 'درآمد و تسویه کارکنان', description: 'مبنای محاسبه سهم درصدی، دوره تسویه، حداقل برداشت و اجازه ثبت درخواست برداشت', icon: 'wallet', order: 17 },
   { code: 'multibranch', title: 'چنددفتره', description: 'آماده‌سازی برای مدیریت چند دفتر مستقل (آزمایشی)', icon: 'building', order: 16 },
   { code: 'support', title: 'پشتیبانی و تیکت‌ها', description: 'فعال‌سازی میز پشتیبانی مشتریان و متن راهنمای آن', icon: 'life-buoy', order: 18 },
+  { code: 'android_app', title: 'اپ اندروید مشتریان', description: 'نسخه‌بندی و سیاست به‌روزرسانی اپ، نوار اطلاعیه و فعال‌بودن استوری‌ها — مدیریت کامل در بخش «اپ اندروید» پنل مدیر کل است', icon: 'smartphone', order: 19 },
 ];
 
 const bool = (v: boolean) => v;
@@ -336,6 +337,15 @@ export const SETTINGS: SettingDef[] = [
   { key: 'multibranch.enabled', group: 'multibranch', type: 'boolean', label: 'فعال‌سازی ساختار چنددفتره', hint: 'رزرو برای توسعه آینده؛ در نسخه فعلی جداسازی داده بین دفاتر پیاده‌سازی نشده است. برای هر دفتر نصب و پایگاه داده مستقل استفاده کنید.', default: bool(false) },
   { key: 'multibranch.default_branch_name', group: 'multibranch', type: 'text', label: 'نام دفتر پیش‌فرض', default: 'دفتر مرکزی' },
   { key: 'multibranch.allow_cross_branch_reports', group: 'multibranch', type: 'boolean', label: 'گزارش تلفیقی بین دفاتر', default: bool(false) },
+
+  /* --------------------------- Android customer app --------------------------- */
+  { key: 'app.latest_version', group: 'android_app', type: 'text', label: 'آخرین نسخه منتشرشده اپ', hint: 'مثلاً 1.0.0 — اپ اگر قدیمی‌تر باشد پیام به‌روزرسانی نشان می‌دهد.', default: '1.0.0', public: true },
+  { key: 'app.min_version', group: 'android_app', type: 'text', label: 'حداقل نسخه مجاز', hint: 'نسخه‌های قدیمی‌تر از این نمی‌توانند ادامه دهند و باید به‌روزرسانی شوند.', default: '1.0.0', public: true },
+  { key: 'app.update_url', group: 'android_app', type: 'url', label: 'پیوند دریافت نسخه تازه', hint: 'لینک مستقیم APK یا صفحه فروشگاه؛ خالی یعنی از «پیوند دانلود اپلیکیشن اندروید» صفحه فرود استفاده شود.', default: '', public: true },
+  { key: 'app.force_update', group: 'android_app', type: 'boolean', label: 'به‌روزرسانی اجباری', hint: 'وقتی روشن است، کاربر قدیمی بدون به‌روزرسانی نمی‌تواند وارد اپ شود.', default: bool(false), public: true },
+  { key: 'app.stories_enabled', group: 'android_app', type: 'boolean', label: 'نمایش استوری‌ها در اپ', default: bool(true), public: true },
+  { key: 'app.announcement', group: 'android_app', type: 'textarea', label: 'اطلاعیه سراسری داخل اپ', hint: 'وقتی پر باشد، بالای صفحه اصلی اپ به همه مشتری‌ها نشان داده می‌شود.', default: '', public: true },
+  { key: 'app.welcome_title', group: 'android_app', type: 'text', label: 'عنوان خوشامد اپ', hint: 'خالی یعنی نام سامانه.', default: '', public: true },
 ];
 
 export const SETTINGS_BY_KEY = new Map(SETTINGS.map((s) => [s.key, s]));
