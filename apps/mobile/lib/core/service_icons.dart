@@ -25,11 +25,14 @@ const _fallbackPalette = <Color>[
 ];
 
 /// (keywords, emoji, color) — first match in title/slug/category wins.
+/// Specific "card" rules come before the generic car rule: slugs like
+/// `fuel-card` / `national-card` contain the substring `car` and must not
+/// be mistaken for vehicle services.
 const _rules = <(List<String>, String, Color)>[
-  (['پلاک', 'خودرو', 'ماشین', 'نقل و انتقال وسیله', 'plate', 'car', 'vehicle'], '🚗', Color(0xFF2563EB)),
   (['کارت سوخت', 'سوخت', 'بنزین', 'fuel'], '⛽', Color(0xFFEA580C)),
-  (['فک رهن', 'رهن'], '🔓', Color(0xFF0891B2)),
   (['کارت ملی', 'شناسنامه', 'هوشمند', 'احوال', 'identity', 'melli'], '🪪', Color(0xFF4F46E5)),
+  (['پلاک', 'خودرو', 'ماشین', 'نقل و انتقال وسیله', 'plate', 'car', 'vehicle'], '🚗', Color(0xFF2563EB)),
+  (['فک رهن', 'رهن'], '🔓', Color(0xFF0891B2)),
   (['گذرنامه', 'پاسپورت', 'passport'], '🛂', Color(0xFF0F766E)),
   (['وام ازدواج', 'ازدواج', 'marriage'], '💍', Color(0xFFDB2777)),
   (['وام', 'تسهیلات', 'بانک', 'حساب', 'مالی', 'loan', 'bank'], '🏦', Color(0xFF1D4ED8)),
