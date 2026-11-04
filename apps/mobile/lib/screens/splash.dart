@@ -7,7 +7,6 @@ import '../core/api.dart';
 import '../core/biometric.dart';
 import '../core/theme.dart';
 import '../models/models.dart';
-import '../services/notifier.dart';
 import '../services/services.dart';
 import 'home_shell.dart';
 import 'login.dart';
@@ -63,20 +62,21 @@ class _SplashScreenState extends State<SplashScreen> {
       config = null; // Offline on a slow LAN must not gate the login screen.
     }
     if (!mounted) return;
-    if (config != null) {
+    final cfg = config;
+    if (cfg != null) {
       setState(() {
-        _brand = config.brandName.isEmpty ? _brand : config.brandName;
-        if (config.tagline.isNotEmpty) _tagline = config.tagline;
+        _brand = cfg.brandName.isEmpty ? _brand : cfg.brandName;
+        if (cfg.tagline.isNotEmpty) _tagline = cfg.tagline;
       });
     }
 
-    if (config != null && config.minVersion.isNotEmpty) {
+    if (cfg != null && cfg.minVersion.isNotEmpty) {
       final current = await currentAppVersion();
-      final outdated = compareVersions(current, config.minVersion) < 0;
-      final newerExists = config.latestVersion.isNotEmpty && compareVersions(current, config.latestVersion) < 0;
-      if (outdated || (newerExists && config.forceUpdate)) {
-        final hardBlock = outdated && config.forceUpdate;
-        await _showUpdateDialog(config.updateUrl, forced: hardBlock);
+      final outdated = compareVersions(current, cfg.minVersion) < 0;
+      final newerExists = cfg.latestVersion.isNotEmpty && compareVersions(current, cfg.latestVersion) < 0;
+      if (outdated || (newerExists && cfg.forceUpdate)) {
+        final hardBlock = outdated && cfg.forceUpdate;
+        await _showUpdateDialog(cfg.updateUrl, forced: hardBlock);
         if (hardBlock && mounted) return;
       }
     }
