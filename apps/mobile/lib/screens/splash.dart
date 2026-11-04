@@ -1,9 +1,12 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 import '../core/api.dart';
 import '../core/biometric.dart';
 import '../core/theme.dart';
+import '../models/models.dart';
 import '../services/notifier.dart';
 import '../services/services.dart';
 import 'home_shell.dart';
@@ -33,8 +36,18 @@ class _SplashScreenState extends State<SplashScreen> {
   }
 
   Future<void> _boot() async {
-    await NotifierService.requestPermission();
-    await Future<void>.delayed(const Duration(milliseconds: 700));
+    // Short brand beat only — never wait for permissions or a slow network
+    // here. Notification permission is asked later, inside the shell.
+    try {
+      await _bootSteps();
+    } catch (_) {
+      // Whatever went wrong, the customer must land on a real screen.
+      if (mounted) _go(session.hasServer ? const LoginScreen() : const ServerSetupScreen());
+    }
+  }
+
+  Future<void> _bootSteps() async {
+    await Future<void>.delayed(const Duration(milliseconds: 350));
     if (!mounted) return;
 
     if (!session.hasServer) {
@@ -43,7 +56,12 @@ class _SplashScreenState extends State<SplashScreen> {
     }
 
     setState(() => _message = 'در حال اتصال به سامانه…');
-    final config = await fetchAppConfig();
+    AppConfig? config;
+    try {
+      config = await fetchAppConfig().timeout(const Duration(seconds: 6));
+    } catch (_) {
+      config = null; // Offline on a slow LAN must not gate the login screen.
+    }
     if (!mounted) return;
     if (config != null) {
       setState(() {
@@ -79,7 +97,7 @@ class _SplashScreenState extends State<SplashScreen> {
     }
 
     try {
-      await fetchMe();
+      await fetchMe().timeout(const Duration(seconds: 6));
     } on ApiException {
       if (!session.isSignedIn && mounted) {
         _go(const LoginScreen());
@@ -87,7 +105,7 @@ class _SplashScreenState extends State<SplashScreen> {
       }
     } catch (_) {}
     if (!mounted) return;
-    await registerDevice();
+    unawaited(registerDevice());
     _go(const HomeShell());
   }
 

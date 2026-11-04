@@ -40,7 +40,17 @@ class SessionStore extends ChangeNotifier {
   Future<void> load() async {
     final prefs = await SharedPreferences.getInstance();
     _serverUrl = (prefs.getString(_serverKey) ?? '').trim();
-    _token = await _secure.read(key: _tokenKey);
+    try {
+      _token = await _secure.read(key: _tokenKey);
+    } catch (_) {
+      // A corrupt/rotated Android KeyStore can make the first read throw on
+      // some devices. Never let that keep the app on the native splash:
+      // drop the unreadable entry and start signed-out instead.
+      _token = null;
+      try {
+        await _secure.delete(key: _tokenKey);
+      } catch (_) {}
+    }
     final userJson = prefs.getString(_userKey);
     if (userJson != null && userJson.isNotEmpty) {
       try {

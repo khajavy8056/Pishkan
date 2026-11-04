@@ -44,6 +44,9 @@ class _HomeShellState extends State<HomeShell> with WidgetsBindingObserver {
     WidgetsBinding.instance.addObserver(this);
     session.addListener(_sessionChanged);
     NotifierService.onTapLink = _openLink;
+    // Ask for the notification permission once the customer is inside the
+    // app (never on the splash, where it could stall first paint).
+    unawaited(NotifierService.requestPermission().catchError((_) {}));
     // Opened by tapping a tray notification while the app was closed?
     final pending = NotifierService.takePendingLaunchPayload();
     if (pending != null && pending.isNotEmpty) {

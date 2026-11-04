@@ -130,6 +130,15 @@ Future<void> logoutServer() async {
   try {
     await api.postData('/api/auth/logout');
   } catch (_) {}
+  // The next person on this phone must never see this customer's cached
+  // requests/notifications, even for a split second.
+  final uid = session.userId;
+  if (uid.isNotEmpty) {
+    try {
+      await JsonCache.removeByPrefix('my-requests:$uid');
+      await JsonCache.removeByPrefix('notifications:$uid');
+    } catch (_) {}
+  }
   await session.signOut();
 }
 
@@ -183,11 +192,33 @@ Future<Map<String, dynamic>> fetchQuote(String serviceId, {String priority = 'no
 
 /// ---------- Requests ----------
 
+/// Instant-display cache for the first page of the customer's own requests:
+/// tabs paint immediately (even offline) and silently refresh after. Only
+/// lists are cached — every action (pay, upload, cancel) still hits the API.
+String _myRequestsCacheKey(String workBucket) => 'my-requests:${session.userId}:${workBucket.isEmpty ? '-' : workBucket}';
+
 Future<ParsedList<ServiceRequestSummary>> fetchMyRequests({int page = 1, String workBucket = ''}) async {
   final query = <String, dynamic>{'page': page, 'pageSize': 20};
   if (workBucket.isNotEmpty) query['workBucket'] = workBucket;
   final data = await api.getData('/api/requests/mine', query: query);
+  if (page == 1 && session.isSignedIn) {
+    try {
+      await JsonCache.put(_myRequestsCacheKey(workBucket), data);
+    } catch (_) {}
+  }
   return parseList(data, ServiceRequestSummary.fromJson);
+}
+
+/// Last good first page of my requests (this device, this user) or null.
+Future<ParsedList<ServiceRequestSummary>?> cachedMyRequests({String workBucket = ''}) async {
+  if (!session.isSignedIn) return null;
+  try {
+    final cached = await JsonCache.get(_myRequestsCacheKey(workBucket));
+    if (cached == null) return null;
+    return parseList(cached.value, ServiceRequestSummary.fromJson);
+  } catch (_) {
+    return null;
+  }
 }
 
 Future<RequestDetail> fetchRequestDetail(String id) async {
@@ -282,12 +313,32 @@ Future<String> topupWallet(num amountRials) async {
 
 /// The customer notification centre lives under /customers/me (same feed
 /// the web bell reads): data = items[], meta.unread = unread count.
+String _notificationsCacheKey() => 'notifications:${session.userId}';
+
 Future<Map<String, dynamic>> fetchNotifications({int limit = 50}) async {
   final envelope = await api.getEnvelope('/api/customers/me/notifications', query: {'limit': limit});
-  return {
+  final result = {
     'items': asMapList(envelope['data']),
     'unreadCount': asNum(asMap(envelope['meta'])['unread']).toInt(),
   };
+  if (limit >= 50 && session.isSignedIn) {
+    try {
+      await JsonCache.put(_notificationsCacheKey(), result);
+    } catch (_) {}
+  }
+  return result;
+}
+
+/// Last good notification feed on this device (instant paint), or null.
+Future<Map<String, dynamic>?> cachedNotifications() async {
+  if (!session.isSignedIn) return null;
+  try {
+    final cached = await JsonCache.get(_notificationsCacheKey());
+    if (cached == null) return null;
+    return asMap(cached.value);
+  } catch (_) {
+    return null;
+  }
 }
 
 Future<void> markNotificationRead(String id) async {

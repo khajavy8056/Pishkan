@@ -12,6 +12,29 @@ class PishkanApp extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    // Never a blank screen: any unexpected build error shows a calm Persian
+    // message instead of the framework's empty error surface.
+    ErrorWidget.builder = (details) => const Material(
+          color: PishkanColors.background,
+          child: SafeArea(
+            child: Center(
+              child: Padding(
+                padding: EdgeInsets.all(28),
+                child: Column(mainAxisSize: MainAxisSize.min, children: [
+                  Icon(Icons.cloud_off_rounded, size: 44, color: PishkanColors.primary),
+                  SizedBox(height: 14),
+                  Text('خطایی رخ داد', style: TextStyle(fontFamily: 'Vazirmatn', fontWeight: FontWeight.w800, fontSize: 16, color: PishkanColors.navy)),
+                  SizedBox(height: 6),
+                  Text(
+                    'لطفاً اپ را ببندید و دوباره باز کنید. اگر مشکل ماند، با دفتر تماس بگیرید.',
+                    textAlign: TextAlign.center,
+                    style: TextStyle(fontFamily: 'Vazirmatn', fontSize: 12.5, color: PishkanColors.mutedText, height: 1.9),
+                  ),
+                ]),
+              ),
+            ),
+          ),
+        );
     return MaterialApp(
       title: 'پیشخوان',
       debugShowCheckedModeBanner: false,

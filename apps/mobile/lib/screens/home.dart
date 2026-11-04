@@ -58,13 +58,21 @@ class _HomeTabState extends State<HomeTab> {
     if (mounted) {
       setState(() => _seenGroups = (prefs.getStringList(_seenStoriesKey) ?? const []).toSet());
     }
+    // Paint the last good requests immediately, even before the network
+    // answers — the dashboard should never feel stuck.
+    final cachedRecent = await cachedMyRequests();
+    if (mounted && cachedRecent != null && cachedRecent.items.isNotEmpty) {
+      setState(() => _recent = cachedRecent.items);
+    }
     final config = await fetchAppConfig();
     final stories = await fetchStories();
     final services = await fetchServices();
     var recent = <ServiceRequestSummary>[];
     try {
       recent = (await fetchMyRequests()).items;
-    } catch (_) {}
+    } catch (_) {
+      recent = _recent; // Keep the cached list when offline.
+    }
     if (!mounted) return;
     setState(() {
       _config = config;

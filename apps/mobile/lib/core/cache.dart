@@ -14,6 +14,21 @@ class JsonCache {
     );
   }
 
+  static Future<void> remove(String key) async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.remove('pishkan.cache.$key');
+  }
+
+  /// Drop every cached value whose key starts with [prefix] — used on
+  /// sign-out so one customer's instant-display cache never leaks to the next.
+  static Future<void> removeByPrefix(String prefix) async {
+    final prefs = await SharedPreferences.getInstance();
+    final full = 'pishkan.cache.$prefix';
+    for (final key in prefs.getKeys().where((k) => k.startsWith(full)).toList()) {
+      await prefs.remove(key);
+    }
+  }
+
   static Future<CachedValue?> get(String key) async {
     final prefs = await SharedPreferences.getInstance();
     final raw = prefs.getString('pishkan.cache.$key');

@@ -116,23 +116,26 @@ class NotifierService {
 
   static Future<void> init() async {
     if (_ready) return;
-    const androidInit = AndroidInitializationSettings('ic_stat_pishkan');
-    await _plugin.initialize(
-      const InitializationSettings(android: androidInit),
-      onDidReceiveNotificationResponse: (response) {
-        final payload = response.payload ?? '';
-        if (payload.isNotEmpty) onTapLink?.call(payload);
-      },
-    );
-    // Cold start from a tray notification: remember where to deep-link once
-    // the shell is mounted.
+    // Best-effort only: notifications must never block or crash app start.
     try {
+      const androidInit = AndroidInitializationSettings('ic_stat_pishkan');
+      await _plugin.initialize(
+        const InitializationSettings(android: androidInit),
+        onDidReceiveNotificationResponse: (response) {
+          final payload = response.payload ?? '';
+          if (payload.isNotEmpty) onTapLink?.call(payload);
+        },
+      );
+      // Cold start from a tray notification: remember where to deep-link once
+      // the shell is mounted.
       final launch = await _plugin.getNotificationAppLaunchDetails();
       if (launch?.didNotificationLaunchApp == true) {
         _pendingLaunchPayload = launch!.notificationResponse?.payload;
       }
-    } catch (_) {}
-    _ready = true;
+      _ready = true;
+    } catch (_) {
+      // Leave _ready=false so a later call can retry.
+    }
   }
 
   /// The deep-link of the notification that cold-started the app, once.

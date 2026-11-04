@@ -38,28 +38,42 @@ class _RequestsTabState extends State<RequestsTab> {
   }
 
   Future<void> _load() async {
-    setState(() {
-      _loading = true;
-      _error = null;
-    });
+    // Paint the last good list instantly (works offline), then refresh.
+    if (_items.isEmpty) {
+      final cached = await cachedMyRequests(workBucket: _bucket);
+      if (mounted && cached != null && cached.items.isNotEmpty) {
+        setState(() {
+          _items = cached.items;
+          _loading = false;
+        });
+      }
+    }
+    if (_items.isEmpty) {
+      setState(() {
+        _loading = true;
+        _error = null;
+      });
+    }
     try {
       final result = await fetchMyRequests(workBucket: _bucket);
       if (!mounted) return;
       setState(() {
         _items = result.items;
         _loading = false;
+        _error = null;
       });
     } on ApiException catch (error) {
       if (!mounted) return;
       setState(() {
         _loading = false;
-        _error = error.message;
+        // With a cached list on screen, stay silent instead of erroring out.
+        if (_items.isEmpty) _error = error.message;
       });
     } catch (_) {
       if (!mounted) return;
       setState(() {
         _loading = false;
-        _error = 'دریافت فهرست درخواست‌ها انجام نشد.';
+        if (_items.isEmpty) _error = 'دریافت فهرست درخواست‌ها انجام نشد.';
       });
     }
   }

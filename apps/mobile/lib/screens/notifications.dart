@@ -39,6 +39,19 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
   }
 
   Future<void> _load() async {
+    // Paint the last good feed instantly (works offline), then refresh.
+    if (_items.isEmpty) {
+      final cached = await cachedNotifications();
+      if (mounted && cached != null) {
+        final list = asMapList(cached['items']);
+        if (list.isNotEmpty) {
+          setState(() {
+            _items = list;
+            _loading = false;
+          });
+        }
+      }
+    }
     try {
       final data = await fetchNotifications(limit: 80);
       final list = asMapList(data['items']);
@@ -59,7 +72,8 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
       if (mounted) {
         setState(() {
           _loading = false;
-          _error = error.message;
+          // Keep the cached feed on screen instead of an error page.
+          if (_items.isEmpty) _error = error.message;
         });
       }
     }
