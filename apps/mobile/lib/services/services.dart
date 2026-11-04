@@ -68,7 +68,11 @@ Future<Map<String, dynamic>> _finishAuth(dynamic data) async {
   if (token.isEmpty || user.isEmpty) {
     throw ApiException('پاسخ ورود ناقص بود. دوباره تلاش کنید.');
   }
-  if (asStr(user['role']) != 'customer') {
+  // The API identifies the account type with `kind` ('customer' vs staff
+  // kinds); the auth payload has no `role` field. Reading the missing field
+  // once made this guard reject every real customer.
+  final accountKind = asStr(user['kind']).isNotEmpty ? asStr(user['kind']) : asStr(user['role']);
+  if (accountKind != 'customer') {
     throw ApiException('این اپ برای مشتریان است. همکاران و مدیران لطفاً از پنل وب استفاده کنند.');
   }
   await session.signIn(token: token, user: user);
