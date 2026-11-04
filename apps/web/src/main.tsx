@@ -41,6 +41,7 @@ import { SettingsCenter } from './pages/admin/SettingsCenter';
 import { AdminWallet } from './pages/admin/WalletAdmin';
 import { AdminMonitoring } from './pages/admin/Monitoring';
 import { AdminDiscountsPage } from './pages/admin/Discounts';
+import { AdminAndroidApp } from './pages/admin/AndroidApp';
 import { AdminSupportPage, CustomerSupportPage, StaffSupportPage } from './pages/support/Support';
 
 import './styles.css';
@@ -146,6 +147,7 @@ function App() {
               <Route path="/admin/reports" element={adminOnly(<AdminReports />,'reports.view')} />
               <Route path="/admin/wallet" element={adminOnly(<AdminWallet />,'wallet.view')} />
               <Route path="/admin/monitoring" element={adminOnly(<AdminMonitoring />,'monitoring.view')} />
+              <Route path="/admin/android-app" element={adminOnly(<AdminAndroidApp />,'app.manage')} />
               <Route path="/admin/settings" element={adminOnly(<SettingsCenter />,'settings.view')} />
               <Route path="/admin/system" element={adminOnly(<AdminSystem />,'system.view')} />
               <Route path="/admin/audit" element={adminOnly(<AdminAudit />,'audit.view')} />

@@ -3,7 +3,7 @@ import { Link, NavLink, useLocation, useNavigate } from 'react-router-dom';
 import {
   LayoutDashboard, ClipboardList, Wallet, MessageSquare, User, Bell, LogOut, Menu, X, Search, Activity,
   Building2, Users, CalendarClock, FileText, Receipt, BarChart3, Settings, Database, ShieldCheck,
-  LifeBuoy, Shapes, Sparkles, ChevronDown, Plus, BadgeCheck, ServerCog, ClipboardCheck, ArrowLeft,
+  LifeBuoy, Shapes, Sparkles, ChevronDown, Plus, BadgeCheck, ServerCog, ClipboardCheck, ArrowLeft, Smartphone,
   Moon, Sun, Monitor, Headset, TicketPercent, ListChecks, BotMessageSquare, CirclePlus, Clock3, CalendarDays, Newspaper,
 } from 'lucide-react';
 import clsx from 'clsx';
@@ -91,6 +91,7 @@ const adminNav: NavItem[] = [
   { to: '/admin/monitoring', label: 'مرکز پایش', short: 'پایش', icon: <Activity className="size-5" />, permission: 'monitoring.view', section: SECTION_SYSTEM },
   { to: '/admin/payroll', label: 'حقوق و تسویه کارکنان', short: 'حقوق', icon: <Users className="size-5" />, permission: 'payroll.view', section: SECTION_SYSTEM },
   { to: '/admin/reports', label: 'گزارش‌ها', icon: <BarChart3 className="size-5" />, permission: 'reports.view', section: SECTION_SYSTEM },
+  { to: '/admin/android-app', label: 'اپ اندروید', short: 'اپ', icon: <Smartphone className="size-5" />, permission: 'app.manage', section: SECTION_SYSTEM },
   { to: '/admin/settings', label: 'تنظیمات سامانه', short: 'تنظیمات', icon: <Settings className="size-5" />, permission: 'settings.view', section: SECTION_SYSTEM },
   { to: '/admin/system', label: 'زیرساخت', icon: <ServerCog className="size-5" />, permission: 'system.view', section: SECTION_SYSTEM },
   { to: '/admin/audit', label: 'تاریخچه عملیات', short: 'تاریخچه', icon: <ShieldCheck className="size-5" />, permission: 'audit.view', section: SECTION_SYSTEM },
