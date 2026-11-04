@@ -2,9 +2,11 @@ import 'package:flutter/material.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 import '../core/api.dart';
+import '../core/biometric.dart';
 import '../core/format.dart';
 import '../core/theme.dart';
 import '../models/models.dart';
+import '../services/notifier.dart';
 import '../services/services.dart';
 import '../widgets/widgets.dart';
 import 'documents.dart';
@@ -118,6 +120,40 @@ class _ProfileTabState extends State<ProfileTab> {
                 _link(Icons.notifications_rounded, 'اعلان‌ها', 'تغییر وضعیت پرونده‌ها و پاسخ‌ها', () => Navigator.push(context, MaterialPageRoute(builder: (_) => const NotificationsScreen()))),
                 const Divider(height: 1),
                 _link(Icons.lock_reset_rounded, 'تغییر رمز عبور', 'رمز فعلی و رمز تازه', () => Navigator.push(context, MaterialPageRoute(builder: (_) => const ChangePasswordScreen()))),
+              ]),
+            ),
+            const SectionTitle(title: 'تنظیمات اپلیکیشن'),
+            SoftCard(
+              padding: const EdgeInsets.symmetric(vertical: 4, horizontal: 8),
+              child: Column(children: [
+                SwitchListTile(
+                  secondary: Container(
+                    padding: const EdgeInsets.all(9),
+                    decoration: BoxDecoration(color: PishkanColors.primary.withOpacity(0.1), borderRadius: BorderRadius.circular(12)),
+                    child: const Icon(Icons.notifications_active_outlined, color: PishkanColors.primary, size: 20),
+                  ),
+                  title: const Text('اعلان‌های پرونده و پیام‌ها', style: TextStyle(fontWeight: FontWeight.w700, fontSize: 13.5)),
+                  subtitle: const Text('با هر مرحلهٔ تازه و پاسخ کارشناس خبردار شوید', style: TextStyle(fontSize: 11.5, color: PishkanColors.mutedText)),
+                  value: _notificationsOn,
+                  onChanged: (value) async {
+                    await AppPrefs.setNotificationsEnabled(value);
+                    if (mounted) setState(() => _notificationsOn = value);
+                  },
+                ),
+                const Divider(height: 1),
+                SwitchListTile(
+                  secondary: Container(
+                    padding: const EdgeInsets.all(9),
+                    decoration: BoxDecoration(color: PishkanColors.primary.withOpacity(0.1), borderRadius: BorderRadius.circular(12)),
+                    child: const Icon(Icons.fingerprint_rounded, color: PishkanColors.primary, size: 20),
+                  ),
+                  title: const Text('ورود با اثر انگشت', style: TextStyle(fontWeight: FontWeight.w700, fontSize: 13.5)),
+                  subtitle: Text(_biometricAvailable ? 'قفل اپ با اثر انگشت یا چهرهٔ همین گوشی' : 'این گوشی حسگر اثر انگشت فعال ندارد', style: const TextStyle(fontSize: 11.5, color: PishkanColors.mutedText)),
+                  value: _biometricOn,
+                  onChanged: _biometricAvailable ? _toggleBiometric : null,
+                ),
+                const Divider(height: 1),
+                _link(Icons.info_outline_rounded, 'دربارهٔ پیشخوان', 'معرفی، تماس با دفتر و نسخهٔ اپ', () => Navigator.push(context, MaterialPageRoute(builder: (_) => const AboutScreen()))),
               ]),
             ),
             const SectionTitle(title: 'تنظیمات اتصال'),

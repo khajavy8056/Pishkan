@@ -134,6 +134,8 @@ class _RequestsTabState extends State<RequestsTab> {
           const Spacer(),
           Text(faMoney(request.total), style: const TextStyle(fontWeight: FontWeight.w800, fontSize: 12.5, color: PishkanColors.primary)),
         ]),
+        const SizedBox(height: 10),
+        StageProgressBar(progress: caseProgress(status: request.status, workBucket: request.workBucket)),
         if (request.needsAction) ...[
           const SizedBox(height: 10),
           Container(

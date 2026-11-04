@@ -178,12 +178,20 @@ class _StoryViewerScreenState extends State<StoryViewerScreen> {
                 const CircleAvatar(backgroundColor: Colors.white24, child: Icon(Icons.campaign_rounded, color: Colors.white, size: 19)),
                 const SizedBox(width: 9),
                 Expanded(
-                  child: Text(
-                    item.title.isEmpty ? _group.title : item.title,
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w700, fontSize: 13.5),
-                  ),
+                  child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                    Text(
+                      item.title.isEmpty ? _group.title : item.title,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w700, fontSize: 13.5),
+                    ),
+                    Text(
+                      '${_group.title} • استوری ${_itemIndex + 1} از ${_group.items.length}',
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: const TextStyle(color: Colors.white70, fontSize: 10.5),
+                    ),
+                  ]),
                 ),
                 IconButton(onPressed: () => Navigator.pop(context), icon: const Icon(Icons.close_rounded, color: Colors.white)),
               ]),

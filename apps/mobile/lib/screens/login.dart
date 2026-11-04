@@ -139,7 +139,7 @@ class _LoginScreenState extends State<LoginScreen> {
       return;
     }
     await _run(() async {
-      await verifyOtp(mobile, code, purpose: 'reset_password', newPassword: _newPassword.text);
+      await verifyOtp(mobile, code, purpose: 'reset', newPassword: _newPassword.text);
       if (mounted) _goHome();
     });
   }

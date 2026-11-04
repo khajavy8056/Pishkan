@@ -1,7 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
-import '../core/api.dart';
 import '../core/format.dart';
 import '../core/service_icons.dart';
 import '../core/theme.dart';
@@ -36,7 +35,7 @@ class _ServiceDetailScreenState extends State<ServiceDetailScreen> {
     if (_service.slug.isNotEmpty) {
       fetchServiceDetail(_service.slug).then((fresh) {
         if (mounted) setState(() => _service = fresh);
-      }).catchError((_) => _service);
+      }).catchError((_) {});
     }
   }
 
