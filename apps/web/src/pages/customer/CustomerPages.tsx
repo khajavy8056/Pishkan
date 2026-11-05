@@ -516,8 +516,10 @@ export function CustomerRequestDetail() {
   const upload = async (file: File) => {
     setUploading(true);
     try {
+      const requirement = requestDocumentRequirements(request).find((item) => item.key === requirementKey);
+      const documentQuality = Boolean(requirement && !requirement.key.startsWith('field:') && !/عکس (پرسنلی|شخصی)/.test(requirement.title));
       const uploaded = await api.upload<{ data: { id: string; name: string; processing: { status: string }; savingsPercent: number; notes?: string[] } }>(
-        '/api/files/upload', file, { purpose: 'document' },
+        '/api/files/upload', file, { purpose: 'document', documentQuality: String(documentQuality) },
       );
       await api.post(`/api/requests/${id}/documents`, {
         fileId: uploaded.data.id,
