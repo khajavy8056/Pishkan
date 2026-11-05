@@ -102,7 +102,10 @@ describe('public pages render', () => {
       const fileInput = container.querySelector('input[type="file"]');
       if (!(fileInput instanceof HTMLInputElement)) throw new Error('service-document input was not rendered');
       fireEvent.change(fileInput, { target: { files: [new File(['image'], 'card.png', { type: 'image/png' })] } });
-      await screen.findByText('بارگذاری شد: card.png');
+      await screen.findByText('دریافت شد؛ در انتظار بررسی: card.png');
+      expect(screen.getByRole('dialog', { name: 'ذخیره در مدارک پروفایل؟' })).toBeTruthy();
+      fireEvent.click(screen.getByRole('button', { name: 'خیر، فقط در درخواست' }));
+      expect(fetchMock.mock.calls.some(([input, init]) => String(input).includes('/api/documents/mine') && init?.method === 'POST')).toBe(false);
       fireEvent.click(screen.getByRole('button', { name: 'ثبت نهایی درخواست' }));
       expect((await screen.findAllByText('«کد ملی» الزامی است.')).length).toBeGreaterThan(0);
       expect(createCalls).toBe(0); // client validation should explain missing input before sending
@@ -111,6 +114,40 @@ describe('public pages render', () => {
       fireEvent.click(screen.getByRole('button', { name: 'ثبت نهایی درخواست' }));
       expect((await screen.findAllByText('کد ملی الزامی است.')).length).toBeGreaterThan(0);
       expect(createCalls).toBe(1); // server field errors are normalized from `field` to `path`
+    } finally {
+      fetchMock.mockImplementation(originalFetch!);
+      setAuthUser(null);
+    }
+  });
+
+  it('saves an uploaded service document only after explicit type selection and consent', async () => {
+    const originalFetch = fetchMock.getMockImplementation();
+    let archiveCalls = 0;
+    let archiveBody = '';
+    setAuthUser({ id: 'usr_archive_test', kind: 'customer', roleCode: 'customer', fullName: 'مشتری آزمون', permissions: [] });
+    fetchMock.mockImplementation(async (input, init) => {
+      const url = typeof input === 'string' ? input : input instanceof URL ? input.toString() : String(input.url);
+      const respond = (data: unknown) => ({ ok: true, status: 200, headers: new Headers({ 'content-type': 'application/json' }), json: async () => ({ ok: true, data }), blob: async () => new Blob(), text: async () => '' } as unknown as Response);
+      if (url.includes('/api/files/upload')) return respond({ id: 'file_archive_test', name: 'card.png', processing: { status: 'ready' } });
+      if (url === '/api/documents/types') return respond([{ code: 'national_card', label: 'کارت ملی' }]);
+      if (url === '/api/documents/mine' && init?.method === 'POST') { archiveCalls++; archiveBody = String(init.body); return respond({ id: 'profile_doc' }); }
+      return originalFetch!(input, init);
+    });
+    try {
+      const { container } = renderAt('/app/services/insurance-history', <ServiceDetailPage variant="app" />);
+      await screen.findByText('کد ملی');
+      const fileInput = container.querySelector('input[type="file"]');
+      if (!(fileInput instanceof HTMLInputElement)) throw new Error('service-document input was not rendered');
+      fireEvent.change(fileInput, { target: { files: [new File(['image'], 'card.png', { type: 'image/png' })] } });
+      const dialog = await screen.findByRole('dialog', { name: 'ذخیره در مدارک پروفایل؟' });
+      expect(archiveCalls).toBe(0);
+      await waitFor(() => expect(dialog.querySelector('option[value="national_card"]')).toBeTruthy());
+      const select = dialog.querySelector('select');
+      if (!select) throw new Error('archive type selection was not rendered');
+      fireEvent.change(select, { target: { value: 'national_card' } });
+      fireEvent.click(screen.getByRole('button', { name: 'ذخیره در پروفایل' }));
+      await waitFor(() => expect(archiveCalls).toBe(1));
+      expect(JSON.parse(archiveBody)).toMatchObject({ fileId: 'file_archive_test', docType: 'national_card' });
     } finally {
       fetchMock.mockImplementation(originalFetch!);
       setAuthUser(null);

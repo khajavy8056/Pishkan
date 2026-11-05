@@ -173,6 +173,10 @@ export function ServiceDetailPage({ variant = 'public' }: { variant?: 'public' |
   const [values, setValues] = useState<Record<string, any>>({});
   const [documentUploads, setDocumentUploads] = useState<Record<string, { fileId: string; name: string }>>({});
   const [formFileNames, setFormFileNames] = useState<Record<string, string>>({});
+  const [saveCandidate, setSaveCandidate] = useState<{ fileId: string; title: string } | null>(null);
+  const [archiveTypes, setArchiveTypes] = useState<{ code: string; label: string }[]>([]);
+  const [archiveType, setArchiveType] = useState('');
+  const [archiveBusy, setArchiveBusy] = useState(false);
   const [uploadingFiles, setUploadingFiles] = useState<Record<string, boolean>>({});
   const [priority,setPriority]=useState('normal');
   const [quote,setQuote]=useState<any>(null);
@@ -331,11 +335,29 @@ export function ServiceDetailPage({ variant = 'public' }: { variant?: 'public' |
       setDocumentUploads((current) => ({ ...current, [requirement.key]: { fileId: uploaded.data.id, name: uploaded.data.name } }));
       setFieldErrors((current) => current.filter((error) => error.path !== `documents.${requirement.key}`));
       notify(`مدرک «${requirement.title}» دریافت شد؛ تأیید نهایی با کارشناس است.`, 'info');
+      setArchiveType('');
+      setArchiveTypes([]);
+      setSaveCandidate({ fileId: uploaded.data.id, title: requirement.title });
+      api.get<{ data: { code: string; label: string }[] }>('/api/documents/types')
+        .then((response) => setArchiveTypes(response.data))
+        .catch(() => notify('دریافت نوع مدارک ممکن نشد؛ فایل درخواست همچنان موجود است.', 'error'));
     } catch (err) {
       notify(err instanceof ApiFailure ? err.message : 'بارگذاری مدرک ناموفق بود.', 'error');
     } finally {
       setUploadingFiles((current) => ({ ...current, [requirement.key]: false }));
     }
+  };
+
+  const saveUploadedToProfile = async () => {
+    if (!saveCandidate || !archiveType) return;
+    setArchiveBusy(true);
+    try {
+      await api.post('/api/documents/mine', { fileId: saveCandidate.fileId, docType: archiveType, title: saveCandidate.title });
+      setSaveCandidate(null);
+      notify('مدرک در پروفایل ذخیره شد و در انتظار بررسی است.', 'info');
+    } catch (err) {
+      notify(err instanceof ApiFailure ? err.message : 'ذخیره در پروفایل انجام نشد؛ فایل درخواست همچنان موجود است.', 'error');
+    } finally { setArchiveBusy(false); }
   };
 
   const submit = async (event: React.FormEvent) => {
@@ -760,6 +782,12 @@ export function ServiceDetailPage({ variant = 'public' }: { variant?: 'public' |
           </div>
         </div>
       </div>
+      <Modal open={saveCandidate !== null} onClose={() => { if (!archiveBusy) setSaveCandidate(null); }} title="ذخیره در مدارک پروفایل؟"
+        footer={<><Button type="button" variant="ghost" disabled={archiveBusy} onClick={() => setSaveCandidate(null)}>خیر، فقط در درخواست</Button>
+          <Button type="button" disabled={!archiveType} loading={archiveBusy} onClick={saveUploadedToProfile}>ذخیره در پروفایل</Button></>}>
+        <p className="text-sm leading-7 text-navy-600">اگر مایلید این مدرک برای استفادهٔ بعدی در پروفایل شما ذخیره شود، نوع آن را انتخاب کنید. ذخیره به معنی تأیید نیست و مدرک باید بررسی شود.</p>
+        <Field label="نوع مدرک"><Select value={archiveType} placeholder="انتخاب کنید" options={archiveTypes.map((type) => ({ value: type.code, label: type.label }))} onChange={(event) => setArchiveType(event.target.value)} /></Field>
+      </Modal>
       {inApp && (
       <Modal open={autofillOpen} onClose={() => setAutofillOpen(false)} title="استفاده از اطلاعات پروفایل من"
         footer={(
