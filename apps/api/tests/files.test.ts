@@ -100,9 +100,11 @@ describe('private file authorization and upload validation', () => {
     const good = await request(server).post('/api/files/upload?purpose=document&documentQuality=true')
       .set('Cookie', customer.cookie).attach('file', readable, 'document.png');
     expect(good.status).toBe(201);
+    expect(good.body.data.documentQuality).toBe('passed');
     const unrelated = await request(server).post('/api/files/upload?purpose=chat')
       .set('Cookie', customer.cookie).attach('file', blank, 'attachment.png');
     expect(unrelated.status).toBe(201);
+    expect(unrelated.body.data.documentQuality).toBe('not_checked');
   });
 
 });

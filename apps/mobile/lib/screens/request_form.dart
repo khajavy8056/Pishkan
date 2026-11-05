@@ -31,7 +31,8 @@ class _RequestFormScreenState extends State<RequestFormScreen> {
 
   final _formKey = GlobalKey<DynamicFormState>();
   final Map<String, dynamic> _values = {};
-  final Map<String, ({String fileId, String name})> _requirementFiles = {};
+  final Map<String, ({String fileId, String name, bool checked})> _requirementFiles = {};
+  final Map<String, String> _requirementErrors = {};
   final Set<String> _uploading = {};
   final _discountCode = TextEditingController();
   final String _idempotencyKey = 'app-${DateTime.now().microsecondsSinceEpoch.toRadixString(16)}';
@@ -91,16 +92,23 @@ class _RequestFormScreenState extends State<RequestFormScreen> {
   Future<void> _pickRequirementFile(DocumentRequirement requirement) async {
     final file = await pickDocumentFile(context);
     if (file == null) return;
-    setState(() => _uploading.add(requirement.key));
+    setState(() { _uploading.add(requirement.key); _requirementFiles.remove(requirement.key); _requirementErrors.remove(requirement.key); });
     try {
-      final fileId = await uploadOne(file, documentQuality: shouldScreenDocumentPhoto(requirement.title, type: requirement.documentType));
+      final screenPhoto = shouldScreenDocumentPhoto(requirement.title, type: requirement.documentType);
+      final uploaded = await api.uploadFile(file, documentQuality: screenPhoto);
+      final fileId = asStr(uploaded['id']);
       final name = file.path.split(Platform.pathSeparator).last;
+      final isPhoto = asStr(uploaded['mime']).startsWith('image/');
+      final checked = screenPhoto && isPhoto && uploaded['documentQuality'] == 'passed';
+      if (screenPhoto && isPhoto && !checked) throw ApiException('سرور هنوز بررسی کیفیت تصویر را پشتیبانی نمی‌کند؛ از دفتر بخواهید سرور را به‌روزرسانی کند.');
       if (mounted) {
-        setState(() => _requirementFiles[requirement.key] = (fileId: fileId, name: name));
+        setState(() => _requirementFiles[requirement.key] = (fileId: fileId, name: name, checked: checked));
         await offerSaveProfileDocument(context, fileId, requirement.title);
       }
     } on ApiException catch (error) {
-      if (mounted) showSnack(context, error.message, error: true);
+      if (mounted) setState(() => _requirementErrors[requirement.key] = error.message);
+    } catch (_) {
+      if (mounted) setState(() => _requirementErrors[requirement.key] = 'بررسی یا بارگذاری انجام نشد. اتصال را بررسی و دوباره تلاش کنید.');
     } finally {
       if (mounted) setState(() => _uploading.remove(requirement.key));
     }
@@ -129,6 +137,7 @@ class _RequestFormScreenState extends State<RequestFormScreen> {
       }
     }
     if (_step == 1) {
+      if (_uploading.isNotEmpty) { showSnack(context, 'تا پایان بررسی مدارک صبر کنید.', error: true); return; }
       for (final requirement in widget.service.requirements) {
         if (requirement.required && !_requirementFiles.containsKey(requirement.key)) {
           showSnack(context, 'مدرک «${requirement.title}» الزامی است.', error: true);
@@ -311,18 +320,21 @@ class _RequestFormScreenState extends State<RequestFormScreen> {
   Widget _requirementRow(DocumentRequirement requirement) {
     final uploaded = _requirementFiles[requirement.key];
     final busy = _uploading.contains(requirement.key);
+    final error = _requirementErrors[requirement.key];
+    final color = error != null ? PishkanColors.danger : uploaded?.checked == true ? PishkanColors.success : PishkanColors.primary;
     return Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
       Container(
         padding: const EdgeInsets.all(9),
-        decoration: BoxDecoration(color: PishkanColors.primary.withOpacity(0.12), shape: BoxShape.circle),
-        child: Icon(uploaded != null ? Icons.hourglass_top_rounded : Icons.cloud_upload_outlined, color: PishkanColors.primary, size: 21),
+        decoration: BoxDecoration(color: color.withOpacity(0.12), shape: BoxShape.circle),
+        child: Icon(error != null ? Icons.error_outline : uploaded?.checked == true ? Icons.check_circle_rounded : uploaded != null ? Icons.hourglass_top_rounded : Icons.cloud_upload_outlined, color: color, size: 21),
       ),
       const SizedBox(width: 10),
       Expanded(
         child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
           Text('${requirement.title}${requirement.required ? ' *' : ''}', style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 13)),
           if (requirement.description.isNotEmpty) Text(requirement.description, style: const TextStyle(fontSize: 11.5, color: PishkanColors.mutedText, height: 1.8)),
-          if (uploaded != null) Text('${uploaded.name} — در انتظار بررسی کارشناس', style: const TextStyle(fontSize: 11, color: PishkanColors.primary), overflow: TextOverflow.ellipsis),
+          if (uploaded != null) Text(uploaded.checked ? '${uploaded.name} — بررسی اولیه تصویر گذشت؛ در انتظار بررسی کارشناس' : '${uploaded.name} — خوانایی خودکار بررسی نشد؛ در انتظار کارشناس', style: TextStyle(fontSize: 11, color: color)),
+          if (error != null) Text(error, style: const TextStyle(fontSize: 11.5, color: PishkanColors.danger, height: 1.7)),
         ]),
       ),
       busy

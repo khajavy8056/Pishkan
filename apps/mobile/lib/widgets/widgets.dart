@@ -11,6 +11,7 @@ import '../core/service_icons.dart';
 import '../core/stages.dart';
 import '../core/theme.dart';
 import '../models/models.dart';
+import '../screens/document_camera.dart';
 import '../services/services.dart';
 
 Future<void> playAppSound(String kind) async {
@@ -322,7 +323,7 @@ class AuthImage extends StatelessWidget {
 
 /// Ask the customer for one document file: photo from camera/gallery or any
 /// allowed file (PDF/images). Returns null when cancelled.
-Future<File?> pickDocumentFile(BuildContext context) async {
+Future<File?> pickDocumentFile(BuildContext context, {bool documentScanner = true}) async {
   final choice = await showModalBottomSheet<String>(
     context: context,
     builder: (ctx) => SafeArea(
@@ -340,6 +341,10 @@ Future<File?> pickDocumentFile(BuildContext context) async {
     final result = await FilePicker.platform.pickFiles(type: FileType.custom, allowedExtensions: ['pdf', 'jpg', 'jpeg', 'png', 'webp', 'gif']);
     final path = result?.files.single.path;
     return path == null ? null : File(path);
+  }
+  if (choice == 'camera' && documentScanner) {
+    if (!context.mounted) return null;
+    return Navigator.push<File>(context, MaterialPageRoute(builder: (_) => const DocumentCameraScreen()));
   }
   final picker = ImagePicker();
   final picked = await picker.pickImage(source: choice == 'camera' ? ImageSource.camera : ImageSource.gallery);

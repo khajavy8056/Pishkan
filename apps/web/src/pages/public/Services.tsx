@@ -171,7 +171,8 @@ export function ServiceDetailPage({ variant = 'public' }: { variant?: 'public' |
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [values, setValues] = useState<Record<string, any>>({});
-  const [documentUploads, setDocumentUploads] = useState<Record<string, { fileId: string; name: string }>>({});
+  const [documentUploads, setDocumentUploads] = useState<Record<string, { fileId: string; name: string; checked: boolean }>>({});
+  const [documentUploadErrors, setDocumentUploadErrors] = useState<Record<string, string>>({});
   const [formFileNames, setFormFileNames] = useState<Record<string, string>>({});
   const [saveCandidate, setSaveCandidate] = useState<{ fileId: string; title: string } | null>(null);
   const [archiveTypes, setArchiveTypes] = useState<{ code: string; label: string }[]>([]);
@@ -205,6 +206,7 @@ export function ServiceDetailPage({ variant = 'public' }: { variant?: 'public' |
         for (const field of res.data.form) initial[field.key] = emptyValue(field);
         setValues(initial);
         setDocumentUploads({});
+        setDocumentUploadErrors({});
         setFormFileNames({});
         setUploadingFiles({});
         setPaymentMethod(res.data.paymentMethods[0] ?? 'online');
@@ -328,11 +330,17 @@ export function ServiceDetailPage({ variant = 'public' }: { variant?: 'public' |
 
   const uploadServiceDocument = async (requirement: Service['documents'][number], file: File) => {
     setUploadingFiles((current) => ({ ...current, [requirement.key]: true }));
+    setDocumentUploads((current) => { const next = { ...current }; delete next[requirement.key]; return next; });
+    setDocumentUploadErrors((current) => { const next = { ...current }; delete next[requirement.key]; return next; });
     try {
-      const uploaded = await api.upload<{ data: { id: string; name: string; processing: { status: string }; savingsPercent: number } }>(
-        '/api/files/upload', file, { purpose: 'document', documentQuality: /عکس (پرسنلی|شخصی)/.test(requirement.title) ? 'false' : 'true' },
+      const screenPhoto = !/عکس (پرسنلی|شخصی)/.test(requirement.title);
+      const uploaded = await api.upload<{ data: { id: string; name: string; mime: string; documentQuality?: string } }>(
+        '/api/files/upload', file, { purpose: 'document', documentQuality: String(screenPhoto) },
       );
-      setDocumentUploads((current) => ({ ...current, [requirement.key]: { fileId: uploaded.data.id, name: uploaded.data.name } }));
+      const isPhoto = (uploaded.data.mime || file.type).startsWith('image/');
+      const checked = screenPhoto && isPhoto && uploaded.data.documentQuality === 'passed';
+      if (screenPhoto && isPhoto && !checked) throw new Error('سرور هنوز بررسی کیفیت تصویر را پشتیبانی نمی‌کند؛ از دفتر بخواهید سرور را به‌روزرسانی کند.');
+      setDocumentUploads((current) => ({ ...current, [requirement.key]: { fileId: uploaded.data.id, name: uploaded.data.name, checked } }));
       setFieldErrors((current) => current.filter((error) => error.path !== `documents.${requirement.key}`));
       notify(`مدرک «${requirement.title}» دریافت شد؛ تأیید نهایی با کارشناس است.`, 'info');
       setArchiveType('');
@@ -342,7 +350,8 @@ export function ServiceDetailPage({ variant = 'public' }: { variant?: 'public' |
         .then((response) => setArchiveTypes(response.data))
         .catch(() => notify('دریافت نوع مدارک ممکن نشد؛ فایل درخواست همچنان موجود است.', 'error'));
     } catch (err) {
-      notify(err instanceof ApiFailure ? err.message : 'بارگذاری مدرک ناموفق بود.', 'error');
+      const message = err instanceof Error ? err.message : 'بررسی یا بارگذاری انجام نشد. دوباره تلاش کنید.';
+      setDocumentUploadErrors((current) => ({ ...current, [requirement.key]: message }));
     } finally {
       setUploadingFiles((current) => ({ ...current, [requirement.key]: false }));
     }
@@ -688,7 +697,8 @@ export function ServiceDetailPage({ variant = 'public' }: { variant?: 'public' |
                       <Input type="file" accept=".jpg,.jpeg,.png,.webp,.pdf" disabled={Boolean(uploadingFiles[document.key])}
                         onChange={(event) => event.target.files?.[0] && void uploadServiceDocument(document, event.target.files[0])} />
                       {uploadingFiles[document.key] && <p className="mt-1 text-[11px] text-navy-500">در حال بارگذاری…</p>}
-                      {documentUploads[document.key] && <p className="mt-1 text-[11px] text-navy-600">دریافت شد؛ در انتظار بررسی: {documentUploads[document.key].name}</p>}
+                      {documentUploadErrors[document.key] && <p role="alert" className="mt-1 text-xs font-bold text-rose-700">{documentUploadErrors[document.key]}</p>}
+                      {documentUploads[document.key] && <p className={clsx('mt-1 text-[11px]', documentUploads[document.key].checked ? 'text-emerald-700' : 'text-navy-600')}>{documentUploads[document.key].checked ? 'بررسی اولیه تصویر گذشت؛ در انتظار کارشناس' : 'خوانایی خودکار بررسی نشد؛ در انتظار کارشناس'}: {documentUploads[document.key].name}</p>}
                     </Field>
                   ))}
                 </div>

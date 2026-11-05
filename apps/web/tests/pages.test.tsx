@@ -81,7 +81,7 @@ describe('public pages render', () => {
     fetchMock.mockImplementation(async (input) => {
       const url = typeof input === 'string' ? input : input instanceof URL ? input.toString() : String(input.url);
       if (url.includes('/api/files/upload')) {
-        const data = { id: 'file_submit_test', name: 'card.png', processing: { status: 'ready' }, savingsPercent: 0 };
+        const data = { id: 'file_submit_test', name: 'card.png', mime: 'image/png', documentQuality: 'passed', processing: { status: 'ready' }, savingsPercent: 0 };
         return { ok: true, status: 200, headers: new Headers({ 'content-type': 'application/json' }), json: async () => ({ ok: true, data }), blob: async () => new Blob(), text: async () => '' } as unknown as Response;
       }
       if (url === '/api/requests') {
@@ -102,7 +102,7 @@ describe('public pages render', () => {
       const fileInput = container.querySelector('input[type="file"]');
       if (!(fileInput instanceof HTMLInputElement)) throw new Error('service-document input was not rendered');
       fireEvent.change(fileInput, { target: { files: [new File(['image'], 'card.png', { type: 'image/png' })] } });
-      await screen.findByText('دریافت شد؛ در انتظار بررسی: card.png');
+      await screen.findByText('بررسی اولیه تصویر گذشت؛ در انتظار کارشناس: card.png');
       expect(screen.getByRole('dialog', { name: 'ذخیره در مدارک پروفایل؟' })).toBeTruthy();
       fireEvent.click(screen.getByRole('button', { name: 'خیر، فقط در درخواست' }));
       expect(fetchMock.mock.calls.some(([input, init]) => String(input).includes('/api/documents/mine') && init?.method === 'POST')).toBe(false);
@@ -128,7 +128,7 @@ describe('public pages render', () => {
     fetchMock.mockImplementation(async (input, init) => {
       const url = typeof input === 'string' ? input : input instanceof URL ? input.toString() : String(input.url);
       const respond = (data: unknown) => ({ ok: true, status: 200, headers: new Headers({ 'content-type': 'application/json' }), json: async () => ({ ok: true, data }), blob: async () => new Blob(), text: async () => '' } as unknown as Response);
-      if (url.includes('/api/files/upload')) return respond({ id: 'file_archive_test', name: 'card.png', processing: { status: 'ready' } });
+      if (url.includes('/api/files/upload')) return respond({ id: 'file_archive_test', name: 'card.png', mime: 'image/png', documentQuality: 'passed', processing: { status: 'ready' } });
       if (url === '/api/documents/types') return respond([{ code: 'national_card', label: 'کارت ملی' }]);
       if (url === '/api/documents/mine' && init?.method === 'POST') { archiveCalls++; archiveBody = String(init.body); return respond({ id: 'profile_doc' }); }
       return originalFetch!(input, init);

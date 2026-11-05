@@ -261,7 +261,7 @@ class _ChatScreenState extends State<ChatScreen> {
   }
 
   Future<void> _sendAttachment() async {
-    final file = await pickDocumentFile(context);
+    final file = await pickDocumentFile(context, documentScanner: false);
     if (file == null) return;
     setState(() => _sending = true);
     try {

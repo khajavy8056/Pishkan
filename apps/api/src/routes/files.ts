@@ -81,7 +81,8 @@ filesRouter.post('/upload', requireAuth, asyncRoute(async (req, res, next) => {
           imagePolicy: cfg.policy,
         });
 
-        if (['document', 'profile_document'].includes(purpose) && req.query.documentQuality === 'true' && validated.mime.startsWith('image/')) {
+        const screenedDocumentPhoto = ['document', 'profile_document'].includes(purpose) && req.query.documentQuality === 'true' && validated.mime.startsWith('image/');
+        if (screenedDocumentPhoto) {
           const quality = await checkDocumentPhoto(file.path);
           if (!quality.ok) throw badRequest(quality.reason ?? 'تصویر مدرک خوانا نیست.');
         }
@@ -103,6 +104,7 @@ filesRouter.post('/upload', requireAuth, asyncRoute(async (req, res, next) => {
           ok: true,
           data: {
             ...fileShape(result.file),
+            documentQuality: screenedDocumentPhoto ? 'passed' : 'not_checked',
             notes: result.notes,
             // Back-compat aliases used by older clients.
             id: result.file.id,
