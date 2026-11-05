@@ -143,6 +143,7 @@ Future<void> logoutServer() async {
     try {
       await JsonCache.removeByPrefix('my-requests:$uid');
       await JsonCache.removeByPrefix('notifications:$uid');
+      await JsonCache.removeByPrefix('services:');
     } catch (_) {}
   }
   await session.signOut();
@@ -163,7 +164,9 @@ Future<List<ServiceCategory>> fetchCategories() async {
 }
 
 Future<List<CatalogService>> fetchServices({String category = '', String search = ''}) async {
-  final cacheKey = 'services:$category:-';
+  // Catalog responses can include a customer's private custom services.
+  // Never reuse one customer's cached list for another account.
+  final cacheKey = 'services:${session.userId}:$category:-';
   try {
     // The server caps each page at 100. Load every page rather than silently
     // hiding services beyond the first page; cache only a complete response.
