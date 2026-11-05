@@ -340,15 +340,16 @@ export async function eligibleForFirstPurchase(customerId: string): Promise<bool
 
 export async function myDiscountCodes(customerId: string) {
   const firstEligible = await eligibleForFirstPurchase(customerId);
-  const rows = await q<DiscountCodeRow & { my_uses: number }>(`SELECT d.*,
+  const rows = await q<DiscountCodeRow & { my_uses: number }>(`SELECT d.*, s.title AS service_title, c.title AS category_title,
     (SELECT COUNT(*) FROM discount_code_usages u WHERE u.code_id = d.id AND u.customer_id = ?) AS my_uses
-    FROM discount_codes d WHERE d.audience = 'all' OR d.audience = 'first_purchase'
+    FROM discount_codes d LEFT JOIN services s ON s.id = d.service_id LEFT JOIN service_categories c ON c.id = d.category_id
+    WHERE d.audience = 'all' OR d.audience = 'first_purchase'
       OR (d.audience = 'assigned' AND EXISTS (SELECT 1 FROM discount_assignments a WHERE a.code_id = d.id AND a.customer_id = ?))
     ORDER BY d.created_at DESC`, [customerId, customerId]);
   return rows.map((row) => {
     const dto = discountDto(row);
     const used = Number(row.my_uses);
-    return { ...dto, usedCount: undefined, myUses: used, firstPurchaseEligible: row.audience !== 'first_purchase' || firstEligible,
+    return { ...dto, usedCount: undefined, createdBy: undefined, myUses: used, firstPurchaseEligible: row.audience !== 'first_purchase' || firstEligible,
       usable: dto.usable && used < Number(row.per_customer_limit) && (row.audience !== 'first_purchase' || firstEligible) };
   });
 }

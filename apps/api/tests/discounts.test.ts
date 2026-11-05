@@ -198,7 +198,7 @@ describe('discount codes', () => {
     const assigned = await createCode({ code: 'PERSONALX', audience: 'assigned', value: 10 });
     expect(assigned.status).toBe(201);
     await createCode({ code: 'SECRETXX', audience: 'code', value: 10 }).expect(201);
-    await createCode({ code: 'EVERYONEX', audience: 'all', value: 10 }).expect(201);
+    await createCode({ code: 'EVERYONEX', audience: 'all', value: 10, serviceId: service.id }).expect(201);
     const denied = await request(server).post('/api/discount-codes/preview').set('Cookie', bob.session.cookie).send({ code: 'PERSONALX', serviceId: service.id });
     expect(denied.status).toBe(400);
     await request(server).post(`/api/discount-codes/${assigned.body.data.id}/assignments`).set('Cookie', alice.session.cookie).send({ customerId: alice.id }).expect(403);
@@ -207,6 +207,7 @@ describe('discount codes', () => {
     const b = await request(server).get('/api/discount-codes/mine').set('Cookie', bob.session.cookie).expect(200);
     expect(a.body.data.map((x: any) => x.code)).toContain('PERSONALX');
     expect(a.body.data.map((x: any) => x.code)).toContain('EVERYONEX');
+    expect(a.body.data.find((x: any) => x.code === 'EVERYONEX').serviceTitle).toBe(service.title);
     expect(a.body.data.map((x: any) => x.code)).not.toContain('SECRETXX');
     expect(b.body.data.map((x: any) => x.code)).not.toContain('PERSONALX');
     await request(server).post('/api/discount-codes/preview').set('Cookie', alice.session.cookie).send({ code: 'PERSONALX', serviceId: service.id }).expect(200);
