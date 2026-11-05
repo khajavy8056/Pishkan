@@ -314,8 +314,7 @@ export function ServiceDetailPage({ variant = 'public' }: { variant?: 'public' |
       setValues((current) => ({ ...current, [field.key]: uploaded.data.id }));
       setFormFileNames((current) => ({ ...current, [field.key]: uploaded.data.name }));
       setFieldErrors((current) => current.filter((error) => error.path !== field.key));
-      notify(uploaded.data.processing.status === 'ready'
-        ? `فایل «${field.label}» بارگذاری و بهینه شد.` : `فایل «${field.label}» بارگذاری شد؛ نسخه اصلی حفظ شده است.`, 'success');
+      notify(`فایل «${field.label}» دریافت شد.`, 'success');
     } catch (err) {
       notify(err instanceof ApiFailure ? err.message : 'بارگذاری فایل ناموفق بود.', 'error');
     } finally {
@@ -327,7 +326,7 @@ export function ServiceDetailPage({ variant = 'public' }: { variant?: 'public' |
     setUploadingFiles((current) => ({ ...current, [requirement.key]: true }));
     try {
       const uploaded = await api.upload<{ data: { id: string; name: string; processing: { status: string }; savingsPercent: number } }>(
-        '/api/files/upload', file, { purpose: 'document', documentQuality: 'true' },
+        '/api/files/upload', file, { purpose: 'document', documentQuality: /عکس (پرسنلی|شخصی)/.test(requirement.title) ? 'false' : 'true' },
       );
       setDocumentUploads((current) => ({ ...current, [requirement.key]: { fileId: uploaded.data.id, name: uploaded.data.name } }));
       setFieldErrors((current) => current.filter((error) => error.path !== `documents.${requirement.key}`));

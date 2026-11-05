@@ -93,7 +93,7 @@ class _RequestDetailScreenState extends State<RequestDetailScreen> with WidgetsB
     final file = await pickDocumentFile(context);
     if (file == null) return;
     await _guard(() async {
-      final fileId = await uploadOne(file, documentQuality: true);
+      final fileId = await uploadOne(file, documentQuality: shouldScreenDocumentPhoto(title));
       await addRequestDocument(widget.requestId, fileId: fileId, title: title, requirementKey: requirementKey);
       if (mounted) await offerSaveProfileDocument(context, fileId, title);
     }, success: 'مدرک ارسال شد.');

@@ -110,7 +110,7 @@ class _DocumentsScreenState extends State<DocumentsScreen> {
     );
     if (type == null) return;
     try {
-      final fileId = await uploadOne(file, documentQuality: true);
+      final fileId = await uploadOne(file, documentQuality: type != 'personal_photo');
       await api.postData('/api/documents/mine', body: {'fileId': fileId, 'docType': type});
       if (mounted) showSnack(context, 'مدرک به پروفایل افزوده شد.');
       _load();

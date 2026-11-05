@@ -10,6 +10,7 @@ import 'package:image_picker/image_picker.dart';
 import '../core/service_icons.dart';
 import '../core/stages.dart';
 import '../core/theme.dart';
+import '../models/models.dart';
 import '../services/services.dart';
 
 Future<void> playAppSound(String kind) async {
@@ -341,7 +342,7 @@ Future<File?> pickDocumentFile(BuildContext context) async {
     return path == null ? null : File(path);
   }
   final picker = ImagePicker();
-  final picked = await picker.pickImage(source: choice == 'camera' ? ImageSource.camera : ImageSource.gallery, imageQuality: 88);
+  final picked = await picker.pickImage(source: choice == 'camera' ? ImageSource.camera : ImageSource.gallery);
   return picked == null ? null : File(picked.path);
 }
 
@@ -528,6 +529,10 @@ class StageTimeline extends StatelessWidget {
     );
   }
 }
+
+/// Portraits are legitimate attachments but are not document-text photos.
+bool shouldScreenDocumentPhoto(String title, {String type = ''}) =>
+    type != 'personal_photo' && !title.contains('عکس پرسنلی') && !title.contains('عکس شخصی');
 
 /// Explicit consent and a user-selected type; storing the file does not imply
 /// approval. A failure here must not undo the already uploaded request file.

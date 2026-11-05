@@ -93,7 +93,7 @@ class _RequestFormScreenState extends State<RequestFormScreen> {
     if (file == null) return;
     setState(() => _uploading.add(requirement.key));
     try {
-      final fileId = await uploadOne(file, documentQuality: true);
+      final fileId = await uploadOne(file, documentQuality: shouldScreenDocumentPhoto(requirement.title, type: requirement.documentType));
       final name = file.path.split(Platform.pathSeparator).last;
       if (mounted) {
         setState(() => _requirementFiles[requirement.key] = (fileId: fileId, name: name));
