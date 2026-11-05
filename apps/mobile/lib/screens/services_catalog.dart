@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+import '../core/api.dart';
 import '../core/format.dart';
 import '../core/service_icons.dart';
 import '../core/theme.dart';
@@ -24,6 +25,8 @@ class _ServicesCatalogTabState extends State<ServicesCatalogTab> {
   List<CatalogService> _services = [];
   String _categorySlug = '';
   bool _loading = true;
+  String? _error;
+  int _loadGeneration = 0;
 
   @override
   void initState() {
@@ -32,19 +35,32 @@ class _ServicesCatalogTabState extends State<ServicesCatalogTab> {
   }
 
   Future<void> _loadAll() async {
-    final categories = await fetchCategories();
-    if (mounted) setState(() => _categories = categories);
-    await _loadServices();
+    try {
+      final categories = await fetchCategories();
+      if (mounted) setState(() => _categories = categories);
+    } catch (_) {
+      // The list can still load; category retrieval may be retried on refresh.
+    }
+    if (mounted) await _loadServices();
   }
 
   Future<void> _loadServices() async {
-    setState(() => _loading = true);
-    final services = await fetchServices(category: _categorySlug);
-    if (mounted) {
-      setState(() {
-        _services = services;
-        _loading = false;
-      });
+    final generation = ++_loadGeneration;
+    final category = _categorySlug;
+    setState(() { _loading = true; _error = null; });
+    try {
+      final services = await fetchServices(category: category);
+      if (mounted && generation == _loadGeneration) {
+        setState(() { _services = services; _loading = false; });
+      }
+    } on ApiException catch (error) {
+      if (mounted && generation == _loadGeneration) {
+        setState(() { _error = error.message; _loading = false; });
+      }
+    } catch (_) {
+      if (mounted && generation == _loadGeneration) {
+        setState(() { _error = 'دریافت خدمات انجام نشد.'; _loading = false; });
+      }
     }
   }
 
@@ -72,6 +88,8 @@ class _ServicesCatalogTabState extends State<ServicesCatalogTab> {
           const SizedBox(height: 18),
           if (_loading && _services.isEmpty)
             const Padding(padding: EdgeInsets.symmetric(vertical: 60), child: Center(child: CircularProgressIndicator()))
+          else if (_error != null && _services.isEmpty)
+            Padding(padding: const EdgeInsets.symmetric(vertical: 40), child: ErrorView(message: _error!, onRetry: _loadAll))
           else if (_services.isEmpty)
             const Padding(
               padding: EdgeInsets.symmetric(vertical: 40),
@@ -97,7 +115,7 @@ class _ServicesCatalogTabState extends State<ServicesCatalogTab> {
           side: BorderSide(color: active ? PishkanColors.primary : const Color(0xFFE2E8F0)),
           shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(999)),
           onSelected: (_) {
-            setState(() => _categorySlug = slug);
+            setState(() { _categorySlug = slug; _services = []; });
             _loadServices();
           },
         ),
@@ -108,7 +126,7 @@ class _ServicesCatalogTabState extends State<ServicesCatalogTab> {
       scrollDirection: Axis.horizontal,
       child: Row(children: [
         chip('', 'همه', '✨'),
-        for (final category in _categories) chip(category.slug, category.title, category.icon),
+        for (final category in _categories) chip(category.slug, category.title, artworkFor(explicitIcon: category.icon, title: category.title, slug: category.slug).emoji),
       ]),
     );
   }
@@ -161,18 +179,24 @@ class _ServiceSearchScreenState extends State<ServiceSearchScreen> {
   final _query = TextEditingController();
   List<CatalogService> _all = [];
   bool _loaded = false;
+  String? _error;
 
   @override
   void initState() {
     super.initState();
-    fetchServices().then((services) {
-      if (mounted) {
-        setState(() {
-          _all = services;
-          _loaded = true;
-        });
-      }
-    });
+    _load();
+  }
+
+  Future<void> _load() async {
+    setState(() { _loaded = false; _error = null; });
+    try {
+      final services = await fetchServices();
+      if (mounted) setState(() { _all = services; _loaded = true; });
+    } on ApiException catch (error) {
+      if (mounted) setState(() { _error = error.message; _loaded = true; });
+    } catch (_) {
+      if (mounted) setState(() { _error = 'دریافت خدمات انجام نشد.'; _loaded = true; });
+    }
   }
 
   @override
@@ -200,6 +224,8 @@ class _ServiceSearchScreenState extends State<ServiceSearchScreen> {
         Expanded(
           child: !_loaded
               ? const Center(child: CircularProgressIndicator())
+              : _error != null
+                  ? ErrorView(message: _error!, onRetry: _load)
               : items.isEmpty
                   ? const EmptyView(icon: Icons.search_off_rounded, title: 'خدمتی پیدا نشد', hint: 'عبارت دیگری را امتحان کنید یا از کارشناس بپرسید.')
                   : ListView(

@@ -47,7 +47,7 @@ CaseProgress caseProgress({required String status, required String workBucket, S
   if (status == 'completed' || status == 'delivered') {
     return CaseProgress(currentIndex: 3, completed: true, failed: false, waitingForCustomer: false, currentLabel: 'تکمیل‌شده');
   }
-  if (status == 'canceled') {
+  if (status == 'cancelled' || status == 'canceled') {
     return CaseProgress(currentIndex: 0, completed: false, failed: true, waitingForCustomer: false, currentLabel: 'لغوشده');
   }
   if (status == 'rejected') {
@@ -65,6 +65,9 @@ CaseProgress caseProgress({required String status, required String workBucket, S
   }
   switch (workBucket) {
     case 'active':
+    case 'in_progress':
+    case 'waiting_organization':
+    case 'followup':
       return CaseProgress(
         currentIndex: 2,
         completed: false,

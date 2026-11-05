@@ -264,10 +264,10 @@ class ServiceRequestSummary {
   final String updatedAt;
   final String estimatedCompletionAt;
 
-  bool get isActive => workBucket == 'queue' || workBucket == 'active';
+  bool get isActive => ['queue', 'active', 'action', 'in_progress', 'waiting_organization', 'followup'].contains(workBucket);
   bool get needsAction => workBucket == 'waiting_customer';
   bool get isDone => status == 'completed' || status == 'delivered';
-  bool get isCanceled => status == 'canceled';
+  bool get isCanceled => status == 'cancelled' || status == 'canceled';
 }
 
 class RequestDocument {
@@ -361,7 +361,7 @@ class RequestDetail {
   }
   List<RequestDocument> get deliveredFiles => documents.where((doc) => doc.isDelivered).toList();
   List<Map<String, dynamic>> get unpaidInvoices => invoices.where((inv) => _num(inv['paidAmount']) < _num(inv['total']) && _str(inv['status']) != 'void').toList();
-  bool get canCancel => !['completed', 'delivered', 'canceled'].contains(status);
+  bool get canCancel => !['completed', 'delivered', 'cancelled', 'canceled', 'rejected'].contains(status);
 }
 
 class ParsedList<T> {

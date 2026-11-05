@@ -29,3 +29,13 @@ String normalizeBaseUrl(String raw) {
   }
   return value;
 }
+
+/// Credentials must only be sent to the configured server, never a third-party
+/// image, story, or payment host (including another port on the same host).
+bool sameServerOrigin(String baseUrl, String targetUrl) {
+  final base = Uri.tryParse(baseUrl);
+  final target = Uri.tryParse(targetUrl);
+  if (base == null || target == null || !base.hasAuthority || !target.hasAuthority) return false;
+  if (!['http', 'https'].contains(base.scheme) || !['http', 'https'].contains(target.scheme)) return false;
+  return base.origin == target.origin;
+}

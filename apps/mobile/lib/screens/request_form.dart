@@ -41,6 +41,8 @@ class _RequestFormScreenState extends State<RequestFormScreen> {
   String _paymentMethod = 'online';
   Map<String, dynamic>? _quote;
   bool _quoting = false;
+  int _quoteGeneration = 0;
+  String? _quoteError;
   bool _submitting = false;
   String _createdRequestId = '';
   String _createdTrackingCode = '';
@@ -65,16 +67,21 @@ class _RequestFormScreenState extends State<RequestFormScreen> {
   }
 
   Future<void> _refreshQuote() async {
-    setState(() => _quoting = true);
+    final generation = ++_quoteGeneration;
+    setState(() {
+      _quoting = true;
+      _quote = null;
+      _quoteError = null;
+    });
     try {
       final quote = await fetchQuote(widget.service.id, priority: _priority, discountCode: _discountCode.text.trim());
-      if (mounted) setState(() => _quote = quote);
+      if (mounted && generation == _quoteGeneration) setState(() => _quote = quote);
     } on ApiException catch (error) {
-      if (mounted && _discountCode.text.trim().isNotEmpty) showSnack(context, error.message, error: true);
+      if (mounted && generation == _quoteGeneration) setState(() => _quoteError = error.message);
     } catch (_) {
-      // Fall back to the local estimate; the server re-validates on submit.
+      if (mounted && generation == _quoteGeneration) setState(() => _quoteError = 'استعلام مبلغ از سرور انجام نشد.');
     } finally {
-      if (mounted) setState(() => _quoting = false);
+      if (mounted && generation == _quoteGeneration) setState(() => _quoting = false);
     }
   }
 
@@ -115,6 +122,10 @@ class _RequestFormScreenState extends State<RequestFormScreen> {
   }
 
   Future<void> _submit() async {
+    if (_quoting || _quote == null) {
+      showSnack(context, 'ابتدا مبلغ را از سرور استعلام کنید.', error: true);
+      return;
+    }
     final formError = _formKey.currentState?.validate();
     if (formError != null) {
       setState(() => _step = 0);
@@ -358,6 +369,10 @@ class _RequestFormScreenState extends State<RequestFormScreen> {
           ],
           TextField(
             controller: _discountCode,
+            onChanged: (_) {
+              _quoteGeneration++;
+              setState(() { _quote = null; _quoting = false; _quoteError = null; });
+            },
             decoration: InputDecoration(
               labelText: 'کد تخفیف (اختیاری)',
               prefixIcon: const Icon(Icons.local_offer_outlined),
@@ -381,9 +396,15 @@ class _RequestFormScreenState extends State<RequestFormScreen> {
                 onSelected: (_) => setState(() => _paymentMethod = 'wallet'),
               ),
           ]),
+          if (_quoteError != null) ...[
+            const SizedBox(height: 8),
+            Text(_quoteError!, style: const TextStyle(color: PishkanColors.danger, fontSize: 12)),
+          ],
+          if (_quote == null && !_quoting)
+            TextButton(onPressed: _refreshQuote, child: const Text('استعلام مبلغ از سرور')),
           const Divider(height: 26),
           Row(children: [
-            const Text('مبلغ قابل پرداخت', style: TextStyle(fontWeight: FontWeight.w800)),
+            Text(_quote == null ? 'مبلغ تخمینی' : 'مبلغ قابل پرداخت', style: TextStyle(fontWeight: FontWeight.w800)),
             const Spacer(),
             if (_quoting) const SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2)),
             const SizedBox(width: 6),

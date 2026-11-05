@@ -63,12 +63,17 @@ class _OffersScreenState extends State<OffersScreen> {
 
   Future<void> _accept(Map<String, dynamic> offer) async {
     // Collect the custom service's form first (it has no public page).
-    CatalogService? service;
+    late CatalogService service;
     try {
-      final data = await api.getData('/api/catalog/services/${asStr(offer['serviceId'])}');
-      service = CatalogService.fromJson(asMap(data));
+      final slug = asStr(offer['serviceSlug']);
+      if (slug.isEmpty) throw ApiException('برای دریافت فرم پیشنهاد، سامانهٔ دفتر باید به‌روزرسانی شود.');
+      service = await fetchServiceDetail(slug);
+    } on ApiException catch (error) {
+      if (mounted) showSnack(context, error.message, error: true);
+      return;
     } catch (_) {
-      service = null;
+      if (mounted) showSnack(context, 'دریافت فرم پیشنهاد انجام نشد. دوباره تلاش کنید.', error: true);
+      return;
     }
     if (!mounted) return;
     final requestId = await Navigator.push<String>(

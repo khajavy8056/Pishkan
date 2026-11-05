@@ -215,14 +215,17 @@ class EditProfileScreen extends StatefulWidget {
 class _EditProfileScreenState extends State<EditProfileScreen> {
   final Map<String, TextEditingController> _fields = {};
   bool _busy = false;
+  bool _loading = true;
+  String? _loadError;
+  String? _cityId;
+  List<Map<String, dynamic>> _cities = const [];
 
   static const _defs = <(String, String, IconData)>[
-    ('fullName', 'نام و نام خانوادگی', Icons.person_outline_rounded),
+    ('firstName', 'نام', Icons.person_outline_rounded),
+    ('lastName', 'نام خانوادگی', Icons.person_outline_rounded),
     ('nationalId', 'کد ملی', Icons.badge_outlined),
     ('email', 'ایمیل', Icons.email_outlined),
     ('fatherName', 'نام پدر', Icons.family_restroom_rounded),
-    ('province', 'استان', Icons.map_outlined),
-    ('city', 'شهر', Icons.location_city_outlined),
     ('postalCode', 'کد پستی', Icons.markunread_mailbox_outlined),
     ('address', 'نشانی', Icons.home_outlined),
   ];
@@ -230,9 +233,38 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
   @override
   void initState() {
     super.initState();
-    final user = session.user ?? const {};
     for (final (key, _, _) in _defs) {
-      _fields[key] = TextEditingController(text: asStr(user[key]));
+      _fields[key] = TextEditingController();
+    }
+    _load();
+  }
+
+  Future<void> _load() async {
+    if (mounted) setState(() { _loading = true; _loadError = null; });
+    try {
+      final user = await fetchMe();
+      final cities = asMapList(await api.getData('/api/public/cities'));
+      final profile = asMap(asMap(user['profileState'])['profile']);
+      if (!mounted) return;
+      const profileKeys = {
+        'firstName': 'first_name', 'lastName': 'last_name',
+        'fatherName': 'father_name', 'postalCode': 'postal_code',
+        'address': 'address',
+      };
+      for (final (key, _, _) in _defs) {
+        _fields[key]!.text = asStr(user[key] ?? profile[profileKeys[key]]);
+      }
+      final cityId = asStr(profile['city_id']);
+      if (!mounted) return;
+      setState(() {
+        _cities = cities;
+        _cityId = cities.any((city) => asStr(city['id']) == cityId) ? cityId : null;
+        _loading = false;
+      });
+    } on ApiException catch (error) {
+      if (mounted) setState(() { _loadError = error.message; _loading = false; });
+    } catch (_) {
+      if (mounted) setState(() { _loadError = 'دریافت اطلاعات پروفایل انجام نشد.'; _loading = false; });
     }
   }
 
@@ -245,8 +277,12 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
   }
 
   Future<void> _save() async {
+    if (_fields['firstName']!.text.trim().isEmpty || _fields['lastName']!.text.trim().isEmpty || _cityId == null) {
+      showSnack(context, 'نام، نام خانوادگی و شهر را کامل کنید.', error: true);
+      return;
+    }
     final nationalId = enDigits(_fields['nationalId']!.text).trim();
-    if (nationalId.isNotEmpty && !validNationalId(nationalId)) {
+    if (!validNationalId(nationalId)) {
       showSnack(context, 'کد ملی معتبر نیست.', error: true);
       return;
     }
@@ -254,10 +290,10 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
     try {
       final body = <String, dynamic>{
         for (final (key, _, _) in _defs) key: enDigits(_fields[key]!.text).trim(),
+        'cityId': _cityId,
       };
-      final data = await api.patchData('/api/auth/profile', body: body);
-      final user = asMap(data);
-      if (user.isNotEmpty) await session.updateUser(user);
+      await api.patchData('/api/auth/profile', body: body);
+      await fetchMe();
       if (mounted) {
         showSnack(context, 'مشخصات شما به‌روزرسانی شد.');
         Navigator.pop(context);
@@ -273,7 +309,7 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(title: const Text('ویرایش مشخصات')),
-      body: ListView(padding: const EdgeInsets.fromLTRB(16, 10, 16, 24), children: [
+      body: _loading ? const LoadingView() : _loadError != null ? ErrorView(message: _loadError!, onRetry: _load) : ListView(padding: const EdgeInsets.fromLTRB(16, 10, 16, 24), children: [
         SoftCard(
           child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
             for (var i = 0; i < _defs.length; i++) ...[
@@ -284,6 +320,14 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
               ),
               if (i < _defs.length - 1) const SizedBox(height: 12),
             ],
+            const SizedBox(height: 12),
+            DropdownButtonFormField<String>(
+              value: _cityId,
+              isExpanded: true,
+              decoration: const InputDecoration(labelText: 'شهر محل سکونت', prefixIcon: Icon(Icons.location_city_outlined)),
+              items: [for (final city in _cities) DropdownMenuItem(value: asStr(city['id']), child: Text('${asStr(city['province'])} · ${asStr(city['name'])}', overflow: TextOverflow.ellipsis))],
+              onChanged: (value) => setState(() => _cityId = value),
+            ),
             const SizedBox(height: 18),
             PlushButton(label: 'ذخیرهٔ تغییرات', icon: Icons.save_rounded, loading: _busy, onPressed: _save),
             const SizedBox(height: 6),
@@ -327,10 +371,11 @@ class _ChangePasswordScreenState extends State<ChangePasswordScreen> {
     }
     setState(() => _busy = true);
     try {
-      await api.patchData('/api/auth/profile', body: {'currentPassword': _current.text, 'newPassword': _next.text});
+      await api.postData('/api/auth/password/change', body: {'currentPassword': _current.text, 'newPassword': _next.text});
+      await logoutServer();
       if (mounted) {
-        showSnack(context, 'رمز عبور تغییر کرد؛ از این پس در وب و اپ با رمز تازه وارد شوید.');
-        Navigator.pop(context);
+        showSnack(context, 'رمز عبور تغییر کرد؛ لطفاً با رمز تازه دوباره وارد شوید.');
+        Navigator.pushAndRemoveUntil(context, MaterialPageRoute(builder: (_) => const LoginScreen()), (_) => false);
       }
     } on ApiException catch (error) {
       if (mounted) showSnack(context, error.message, error: true);

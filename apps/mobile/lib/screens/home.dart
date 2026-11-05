@@ -10,6 +10,7 @@ import '../services/services.dart';
 import '../widgets/widgets.dart';
 import 'documents.dart';
 import 'notifications.dart';
+import 'profile.dart';
 import 'request_detail.dart';
 import 'service_detail.dart';
 import 'services_catalog.dart';
@@ -45,7 +46,7 @@ class _HomeTabState extends State<HomeTab> {
   void initState() {
     super.initState();
     _load();
-    fetchMe().catchError((_) => <String, dynamic>{});
+    fetchMe().then((_) { if (mounted) setState(() {}); }).catchError((_) {});
   }
 
   String _groupFingerprint(StoryGroup group) =>
@@ -64,23 +65,22 @@ class _HomeTabState extends State<HomeTab> {
     if (mounted && cachedRecent != null && cachedRecent.items.isNotEmpty) {
       setState(() => _recent = cachedRecent.items);
     }
-    final config = await fetchAppConfig();
-    final stories = await fetchStories();
-    final services = await fetchServices();
-    var recent = <ServiceRequestSummary>[];
-    try {
-      recent = (await fetchMyRequests()).items;
-    } catch (_) {
-      recent = _recent; // Keep the cached list when offline.
-    }
-    if (!mounted) return;
-    setState(() {
-      _config = config;
-      _groups = (config == null || config.storiesEnabled) ? stories : const [];
-      _services = services;
-      _recent = recent;
-      _loadingServices = false;
-    });
+    // Independent requests update their own sections as soon as they finish.
+    await Future.wait([
+      fetchAppConfig().then((config) {
+        if (mounted) setState(() => _config = config);
+      }),
+      fetchStories().then((stories) {
+        if (mounted) setState(() => _groups = stories);
+      }),
+      fetchServices().then((services) {
+        if (mounted) setState(() { _services = services; _loadingServices = false; });
+      }).catchError((_) { if (mounted) setState(() => _loadingServices = false); }),
+      fetchMyRequests().then((result) {
+        if (mounted) setState(() => _recent = result.items);
+      }).catchError((_) { /* Preserve the cached requests. */ }),
+    ]);
+
   }
 
   Future<void> _markGroupSeen(int fromIndex) async {
@@ -110,9 +110,24 @@ class _HomeTabState extends State<HomeTab> {
           onRefresh: _load,
           child: ListView(padding: const EdgeInsets.fromLTRB(16, 10, 16, 20), children: [
             _header(brand),
+            if (asMap((session.user ?? const {})['profileState'])['complete'] == false) ...[
+              const SizedBox(height: 14),
+              SoftCard(
+                onTap: () async {
+                  await Navigator.push(context, MaterialPageRoute(builder: (_) => const EditProfileScreen()));
+                  if (mounted) setState(() {});
+                },
+                child: const Row(children: [
+                  Icon(Icons.person_pin_circle_outlined, color: PishkanColors.warning),
+                  SizedBox(width: 10),
+                  Expanded(child: Text('برای ثبت درخواست، مشخصات و شهر خود را تکمیل کنید.', style: TextStyle(fontSize: 12, color: PishkanColors.navy))),
+                  Icon(Icons.chevron_left_rounded),
+                ]),
+              ),
+            ],
             const SizedBox(height: 14),
             _searchBar(),
-            if (_groups.isNotEmpty) ...[
+            if (_groups.isNotEmpty && (_config == null || _config!.storiesEnabled)) ...[
               const SizedBox(height: 20),
               _sectionTitle('استوری‌ها و اطلاعیه‌ها', action: 'مشاهده همه', onAction: () async {
                 await Navigator.push(context, MaterialPageRoute(builder: (_) => const StoriesArchiveScreen()));

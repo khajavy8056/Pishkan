@@ -20,8 +20,8 @@ class RequestsTab extends StatefulWidget {
 class _RequestsTabState extends State<RequestsTab> {
   static const _filters = <(String, String)>[
     ('', 'همه'),
-    ('queue', 'در صف بررسی'),
-    ('active', 'در حال انجام'),
+    ('action', 'در صف بررسی'),
+    ('in_progress', 'در حال انجام'),
     ('waiting_customer', 'نیازمند اقدام شما'),
     ('completed', 'پایان‌یافته'),
   ];
@@ -30,6 +30,10 @@ class _RequestsTabState extends State<RequestsTab> {
   List<ServiceRequestSummary> _items = const [];
   bool _loading = true;
   String? _error;
+  int _generation = 0;
+  int _page = 1;
+  int _total = 0;
+  bool _loadingMore = false;
 
   @override
   void initState() {
@@ -38,16 +42,20 @@ class _RequestsTabState extends State<RequestsTab> {
   }
 
   Future<void> _load() async {
+    final generation = ++_generation;
+    final bucket = _bucket;
+    _loadingMore = false;
     // Paint the last good list instantly (works offline), then refresh.
     if (_items.isEmpty) {
-      final cached = await cachedMyRequests(workBucket: _bucket);
-      if (mounted && cached != null && cached.items.isNotEmpty) {
+      final cached = await cachedMyRequests(workBucket: bucket);
+      if (mounted && generation == _generation && cached != null && cached.items.isNotEmpty) {
         setState(() {
           _items = cached.items;
           _loading = false;
         });
       }
     }
+    if (!mounted || generation != _generation) return;
     if (_items.isEmpty) {
       setState(() {
         _loading = true;
@@ -55,26 +63,49 @@ class _RequestsTabState extends State<RequestsTab> {
       });
     }
     try {
-      final result = await fetchMyRequests(workBucket: _bucket);
-      if (!mounted) return;
+      final result = await fetchMyRequests(workBucket: bucket);
+      if (!mounted || generation != _generation) return;
       setState(() {
         _items = result.items;
+        _page = 1;
+        _total = result.total;
+        _loadingMore = false;
         _loading = false;
         _error = null;
       });
     } on ApiException catch (error) {
-      if (!mounted) return;
+      if (!mounted || generation != _generation) return;
       setState(() {
         _loading = false;
         // With a cached list on screen, stay silent instead of erroring out.
         if (_items.isEmpty) _error = error.message;
       });
     } catch (_) {
-      if (!mounted) return;
+      if (!mounted || generation != _generation) return;
       setState(() {
         _loading = false;
         if (_items.isEmpty) _error = 'دریافت فهرست درخواست‌ها انجام نشد.';
       });
+    }
+  }
+
+  Future<void> _loadMore() async {
+    if (_loadingMore || _items.length >= _total) return;
+    final generation = _generation;
+    final bucket = _bucket;
+    setState(() => _loadingMore = true);
+    try {
+      final result = await fetchMyRequests(page: _page + 1, workBucket: bucket);
+      if (!mounted || generation != _generation) return;
+      setState(() {
+        _items = [..._items, ...result.items];
+        _page++;
+        _total = result.total;
+      });
+    } on ApiException catch (error) {
+      if (mounted && generation == _generation) showSnack(context, error.message, error: true);
+    } finally {
+      if (mounted && generation == _generation) setState(() => _loadingMore = false);
     }
   }
 
@@ -93,10 +124,10 @@ class _RequestsTabState extends State<RequestsTab> {
                 Padding(
                   padding: const EdgeInsetsDirectional.only(end: 8),
                   child: ChoiceChip(
-                    label: Text(label),
+                    label: Text(label, style: const TextStyle(color: PishkanColors.navy, fontWeight: FontWeight.w600)),
                     selected: _bucket == value,
                     onSelected: (_) {
-                      setState(() => _bucket = value);
+                      setState(() { _bucket = value; _items = const []; _total = 0; _loadingMore = false; });
                       _load();
                     },
                   ),
@@ -115,9 +146,11 @@ class _RequestsTabState extends State<RequestsTab> {
                           onRefresh: _load,
                           child: ListView.separated(
                             padding: const EdgeInsets.fromLTRB(16, 8, 16, 20),
-                            itemCount: _items.length,
+                            itemCount: _items.length + (_items.length < _total ? 1 : 0),
                             separatorBuilder: (_, _) => const SizedBox(height: 10),
-                            itemBuilder: (context, index) => _card(_items[index]),
+                            itemBuilder: (context, index) => index < _items.length
+                                ? _card(_items[index])
+                                : Center(child: TextButton(onPressed: _loadingMore ? null : _loadMore, child: Text(_loadingMore ? 'در حال دریافت…' : 'نمایش درخواست‌های بیشتر'))),
                           ),
                         ),
         ),

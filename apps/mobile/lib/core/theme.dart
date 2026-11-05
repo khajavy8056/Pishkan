@@ -105,7 +105,8 @@ ThemeData buildPishkanTheme() {
       selectedColor: PishkanColors.primary.withOpacity(0.14),
       side: const BorderSide(color: Color(0xFFE2E8F0)),
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(999)),
-      labelStyle: const TextStyle(fontFamily: 'Vazirmatn', fontSize: 12.5),
+      labelStyle: const TextStyle(fontFamily: 'Vazirmatn', fontSize: 12.5, color: PishkanColors.navy),
+      secondaryLabelStyle: const TextStyle(fontFamily: 'Vazirmatn', fontSize: 12.5, color: PishkanColors.navy),
     ),
     dialogTheme: DialogThemeData(
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(24)),

@@ -242,8 +242,8 @@ class ErrorView extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return EmptyView(
-      icon: Icons.wifi_off_rounded,
-      title: 'ارتباط برقرار نشد',
+      icon: Icons.error_outline_rounded,
+      title: 'دریافت اطلاعات انجام نشد',
       hint: message,
       action: PlushButton(label: 'تلاش دوباره', icon: Icons.refresh_rounded, onPressed: onRetry, expand: false),
     );
@@ -295,7 +295,7 @@ class AuthImage extends StatelessWidget {
     if (url.isEmpty) return _placeholder();
     return CachedNetworkImage(
       imageUrl: api.absolute(url),
-      httpHeaders: api.authHeaders(),
+      httpHeaders: api.authHeaders(url),
       fit: fit,
       width: width,
       height: height,

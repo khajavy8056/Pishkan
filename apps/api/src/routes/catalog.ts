@@ -300,6 +300,7 @@ catalogRouter.get('/offers', asyncRoute(async (req, res) => {
   ok(res, rows.map((r) => ({
     id: r.id,
     serviceId: r.service_id,
+    serviceSlug: r.slug,
     title: r.title,
     description: r.description,
     customerName: r.customer_name,

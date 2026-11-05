@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:mobile_scanner/mobile_scanner.dart';
 
 import '../core/env.dart';
+import '../core/cache.dart';
 import '../core/theme.dart';
 import '../services/services.dart';
 import '../widgets/widgets.dart';
@@ -59,10 +60,19 @@ class _ServerSetupScreenState extends State<ServerSetupScreen> {
       );
       if (!keep) return;
     }
+    final changed = url != session.serverUrl;
+    if (changed) {
+      // Never send an old server's bearer token to a newly chosen server,
+      // or display the old office's cached data under the new connection.
+      if (session.isSignedIn) await logoutServer();
+      await JsonCache.removeByPrefix('');
+    }
     await session.setServerUrl(url);
     if (!mounted) return;
-    if (widget.fromProfile) {
-      showSnack(context, 'آدرس سرور به‌روزرسانی شد.');
+    if (widget.fromProfile && changed) {
+      showSnack(context, 'سرور تغییر کرد؛ لطفاً دوباره وارد شوید.');
+      Navigator.pushAndRemoveUntil(context, MaterialPageRoute(builder: (_) => const LoginScreen()), (_) => false);
+    } else if (widget.fromProfile) {
       Navigator.pop(context);
     } else {
       Navigator.pushReplacement(context, MaterialPageRoute(builder: (_) => const LoginScreen()));

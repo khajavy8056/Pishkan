@@ -102,7 +102,7 @@ class _RequestDetailScreenState extends State<RequestDetailScreen> with WidgetsB
       final matching = items.where((doc) {
         final type = asStr(doc['docType']).isEmpty ? asStr(doc['type']) : asStr(doc['docType']);
         final statusOk = ['approved', 'verified', ''].contains(asStr(doc['status']));
-        return requirement.documentType.isEmpty || type == requirement.documentType && statusOk;
+        return (requirement.documentType.isEmpty || type == requirement.documentType) && statusOk;
       }).toList();
       if (!mounted) return;
       if (matching.isEmpty) {

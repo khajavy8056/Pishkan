@@ -1,0 +1,105 @@
+import { describe, expect, it } from 'vitest';
+import request from 'supertest';
+import sharp from 'sharp';
+import { ADMIN, adminSession, app, newCustomer } from './helpers.js';
+
+describe('Android customer API contract (real HTTP and SQLite)', () => {
+  it('supports the full customer request flow and protects customer data', async () => {
+    const server = await app();
+    const customer = await newCustomer('مشتری آزمایش اندروید');
+    const login = await request(server).post('/api/auth/customer/login').send({ identifier: customer.mobile, password: 'Customer#12345' }).expect(200);
+    expect(login.body.data.user.kind).toBe('customer');
+    const bearer = `Bearer ${login.body.data.token}`;
+    await request(server).post('/api/auth/customer/login').send({ identifier: ADMIN.username, password: ADMIN.password }).expect(401);
+
+    const catalog1 = await request(server).get('/api/public/services?page=1&pageSize=100').set('Authorization', bearer).expect(200);
+    const catalog2 = await request(server).get('/api/public/services?page=2&pageSize=100').set('Authorization', bearer).expect(200);
+    expect(catalog1.body.meta.total).toBeGreaterThan(100);
+    expect(catalog1.body.data.length + catalog2.body.data.length).toBe(catalog1.body.meta.total);
+
+    const service = (await request(server).get('/api/public/services/insurance-history').set('Authorization', bearer).expect(200)).body.data;
+    const quote = await request(server).post('/api/requests/quote').set('Authorization', bearer).send({ serviceId: service.id, priority: 'normal' }).expect(200);
+    expect(quote.body.data.total).toBeGreaterThanOrEqual(0);
+    const formData: Record<string, any> = {};
+    let sequence = 0;
+    const upload = async () => {
+      const n = sequence++;
+      const image = await sharp({ create: { width: 40 + n, height: 35 + n, channels: 3, background: { r: n, g: 100, b: 200 } } }).png().toBuffer();
+      return (await request(server).post('/api/files/upload?purpose=document').set('Authorization', bearer).attach('file', image, `fixture-${n}.png`).expect(201)).body.data.id;
+    };
+    for (const field of service.form) {
+      if (!field.required) continue;
+      switch (field.type) {
+        case 'national_id': formData[field.key] = '0013546295'; break;
+        case 'tel': formData[field.key] = '09121234567'; break;
+        case 'iban': formData[field.key] = 'IR062960000000100324200001'; break;
+        case 'postal_code': formData[field.key] = '1234567890'; break;
+        case 'number': case 'money': formData[field.key] = 1000000; break;
+        case 'select': case 'radio': formData[field.key] = field.options?.[0] ?? 'سایر'; break;
+        case 'checkbox': formData[field.key] = true; break;
+        case 'file': formData[field.key] = await upload(); break;
+        default: formData[field.key] = 'اطلاعات آزمایشی';
+      }
+    }
+    const documents = [];
+    for (const doc of service.documents.filter((d: any) => d.required)) {
+      documents.push({ fileId: await upload(), title: doc.title, requirementKey: doc.key });
+    }
+    const created = await request(server).post('/api/requests').set('Authorization', bearer).set('Idempotency-Key', 'android-contract-test-001')
+      .send({ serviceId: service.id, priority: 'normal', formData, documentIds: documents }).expect(201);
+    const id = created.body.data.id;
+    expect(created.body.data.total).toBe(quote.body.data.total);
+    const list = await request(server).get('/api/requests?page=1&pageSize=20').set('Authorization', bearer).expect(200);
+    expect(Array.isArray(list.body.data)).toBe(true);
+    expect(list.body.data.some((item: any) => item.id === id)).toBe(true);
+    expect(list.body.meta.total).toBeGreaterThanOrEqual(1);
+    const bucket = list.body.data.find((item: any) => item.id === id).workBucket;
+    const filtered = await request(server).get(`/api/requests?bucket=${bucket}`).set('Authorization', bearer).expect(200);
+    expect(filtered.body.data.some((item: any) => item.id === id)).toBe(true);
+    await request(server).get(`/api/requests/${id}`).set('Authorization', bearer).expect(200);
+    const other = await newCustomer('مشتری دیگر آزمون اندروید');
+    await request(server).get(`/api/requests/${id}`).set('Cookie', other.session.cookie).expect(404);
+    for (const path of ['/api/accounting/my/invoices', '/api/accounting/my/payments', '/api/wallet/my/transactions']) {
+      const response = await request(server).get(path).set('Authorization', bearer).expect(200);
+      expect(Array.isArray(response.body.data)).toBe(true);
+      expect(response.body.meta.total).toBeGreaterThanOrEqual(0);
+    }
+    expect((await request(server).get('/api/accounting/my/invoices').set('Authorization', bearer).expect(200)).body.data.some((invoice: any) => invoice.requestId === id)).toBe(true);
+  });
+
+  it('accepts app profile completion and changes the actual password', async () => {
+    const server = await app();
+    const mobile = '09129997766';
+    const password = 'Password#12345';
+    const registered = await request(server).post('/api/auth/register').send({ mobile, password, fullName: 'مشتری جدید اندروید' }).expect(201);
+    expect(registered.body.data.user.kind).toBe('customer');
+    const bearer = `Bearer ${registered.body.data.token}`;
+    expect((await request(server).get('/api/auth/me').set('Authorization', bearer).expect(200)).body.data.profileState.complete).toBe(false);
+    const cities = await request(server).get('/api/public/cities').expect(200);
+    expect(cities.body.data.length).toBeGreaterThan(0);
+    await request(server).patch('/api/auth/profile').set('Authorization', bearer).send({
+      firstName: 'مشتری', lastName: 'اندروید', nationalId: '0013546295', cityId: cities.body.data[0].id,
+    }).expect(200);
+    expect((await request(server).get('/api/auth/me').set('Authorization', bearer).expect(200)).body.data.profileState.complete).toBe(true);
+    await request(server).post('/api/auth/password/change').set('Authorization', bearer).send({ currentPassword: password, newPassword: 'NewPassword#12345' }).expect(200);
+    await request(server).post('/api/auth/customer/login').send({ identifier: mobile, password }).expect(401);
+    await request(server).post('/api/auth/customer/login').send({ identifier: mobile, password: 'NewPassword#12345' }).expect(200);
+  });
+
+  it('returns the private offer slug so its owner can retrieve the real form', async () => {
+    const server = await app();
+    const admin = await adminSession();
+    const customer = await newCustomer('مشتری پیشنهاد آزمایشی');
+    const created = await request(server).post('/api/catalog/custom-services').set('Cookie', admin.cookie).send({
+      customerId: customer.id, title: 'خدمت ویژه آزمایشی', description: 'توضیحات کافی برای خدمت ویژه آزمون', baseFee: 500000,
+      form: [{ key: 'detail', label: 'توضیح', type: 'text', required: true }],
+    }).expect(201);
+    const offers = await request(server).get('/api/catalog/offers').set('Cookie', customer.session.cookie).expect(200);
+    const offer = offers.body.data.find((item: any) => item.id === created.body.data.offerId);
+    expect(offer.serviceSlug).toBeTruthy();
+    const detail = await request(server).get(`/api/public/services/${offer.serviceSlug}`).set('Cookie', customer.session.cookie).expect(200);
+    expect(detail.body.data.form[0].key).toBe('detail');
+    const other = await newCustomer('مشتری غیرمجاز آزمایشی');
+    await request(server).get(`/api/public/services/${offer.serviceSlug}`).set('Cookie', other.session.cookie).expect(404);
+  });
+});

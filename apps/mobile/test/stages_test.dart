@@ -79,6 +79,18 @@ void main() {
       expect(artworkFor(title: 'پروانه کسب').emoji, '🏪');
     });
 
+    test('web Lucide icon names are never rendered as text', () {
+      expect(artworkFor(explicitIcon: 'file-warning', title: 'صدور کارت ملی هوشمند').emoji, '🪪');
+      expect(artworkFor(explicitIcon: 'receipt-text', title: 'خدمت ناشناخته').emoji, '🧩');
+    });
+
+    test('real server buckets and cancelled spelling drive progress', () {
+      expect(caseProgress(status: 'in_progress', workBucket: 'in_progress').currentIndex, 2);
+      expect(caseProgress(status: 'cancelled', workBucket: 'cancelled').failed, isTrue);
+      expect(ServiceRequestSummary.fromJson({'status': 'cancelled'}).isCanceled, isTrue);
+      expect(RequestDetail.fromJson({'status': 'cancelled'}).canCancel, isFalse);
+    });
+
     test('fallback is stable for the same slug', () {
       final a = artworkFor(title: 'خدمت نامشخص', slug: 'unknown-1');
       final b = artworkFor(title: 'خدمت نامشخص', slug: 'unknown-1');

@@ -333,9 +333,9 @@ class _NewTicketScreenState extends State<NewTicketScreen> {
       if (mounted) {
         setState(() {
           _departments = const [
-            {'value': 'support', 'label': 'پشتیبانی عمومی'},
+            {'value': 'general', 'label': 'پشتیبانی عمومی'},
           ];
-          _department = 'support';
+          _department = 'general';
         });
       }
     }
@@ -349,7 +349,7 @@ class _NewTicketScreenState extends State<NewTicketScreen> {
     setState(() => _busy = true);
     try {
       await api.postData('/api/support/tickets', body: {
-        'department': _department.isEmpty ? 'support' : _department,
+        'department': _department.isEmpty ? 'general' : _department,
         'subject': _subject.text.trim(),
         'body': _body.text.trim(),
         'priority': _priority,

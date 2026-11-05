@@ -3,6 +3,7 @@ import 'dart:io';
 import 'package:dio/dio.dart';
 import 'package:flutter/foundation.dart';
 
+import 'env.dart';
 import 'session.dart';
 
 class ApiException implements Exception {
@@ -38,7 +39,7 @@ class ApiClient {
       ));
       _dio!.interceptors.add(InterceptorsWrapper(onRequest: (options, handler) {
         final token = SessionStore.instance.token;
-        if (token != null && token.isNotEmpty) {
+        if (token != null && token.isNotEmpty && sameServerOrigin(SessionStore.instance.serverUrl, options.uri.toString())) {
           options.headers['Authorization'] = 'Bearer $token';
         }
         options.headers['X-Pishkan-Client'] = 'android-app';
@@ -48,9 +49,10 @@ class ApiClient {
     return _dio!;
   }
 
-  Map<String, String> authHeaders() {
+  Map<String, String> authHeaders(String url) {
     final token = SessionStore.instance.token;
-    return token == null || token.isEmpty ? const {} : {'Authorization': 'Bearer $token'};
+    if (token == null || token.isEmpty || !sameServerOrigin(SessionStore.instance.serverUrl, absolute(url))) return const {};
+    return {'Authorization': 'Bearer $token'};
   }
 
   /// Resolve a server-relative path (`/api/files/x?v=preview`) to a URL.
@@ -117,7 +119,8 @@ class ApiClient {
     try {
       final dio = Dio(BaseOptions(connectTimeout: const Duration(seconds: 8), receiveTimeout: const Duration(seconds: 8)));
       final response = await dio.get('$baseUrl/api/health');
-      return (response.statusCode ?? 500) < 400;
+      final data = response.data;
+      return response.statusCode == 200 && data is Map && data['ok'] == true && data['status'] == 'ok' && data['database'] is Map;
     } catch (_) {
       return false;
     }

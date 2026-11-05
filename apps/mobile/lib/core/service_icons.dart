@@ -66,7 +66,9 @@ ServiceArtwork artworkFor({String explicitIcon = '', String title = '', String s
     }
   }
   final explicit = explicitIcon.trim();
-  final validExplicit = explicit.isNotEmpty && !explicit.startsWith('http');
+  // Web catalog stores Lucide names (e.g. file-warning), not emoji. Never
+  // render those names as large text in the native UI.
+  final validExplicit = explicit.runes.any((r) => r >= 0x1F000 || (r >= 0x2600 && r <= 0x27BF));
   final color = matchedColor ?? _fallbackPalette[_stableHash(slug.isEmpty ? title : slug) % _fallbackPalette.length];
   return ServiceArtwork(validExplicit ? explicit : (matchedEmoji ?? '🧩'), color);
 }

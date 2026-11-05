@@ -56,6 +56,13 @@ void main() {
       expect(normalizeBaseUrl(''), '');
     });
 
+    test('credentials stay on the configured origin', () {
+      expect(sameServerOrigin('http://192.168.1.10:3001', 'http://192.168.1.10:3001/api/files/1'), isTrue);
+      expect(sameServerOrigin('http://192.168.1.10:3001', 'http://192.168.1.10:3000/api/files/1'), isFalse);
+      expect(sameServerOrigin('https://office.test', 'https://other.test/story.jpg'), isFalse);
+      expect(sameServerOrigin('https://office.test', 'http://office.test/story.jpg'), isFalse);
+    });
+
     test('semver-ish comparison', () {
       expect(compareVersions('1.0.0', '1.0.0'), 0);
       expect(compareVersions('1.2.0', '1.0.9'), greaterThan(0));

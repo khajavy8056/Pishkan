@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:io';
 
 import 'package:device_info_plus/device_info_plus.dart';
@@ -71,12 +72,13 @@ Future<Map<String, dynamic>> _finishAuth(dynamic data) async {
   // The API identifies the account type with `kind` ('customer' vs staff
   // kinds); the auth payload has no `role` field. Reading the missing field
   // once made this guard reject every real customer.
-  final accountKind = asStr(user['kind']).isNotEmpty ? asStr(user['kind']) : asStr(user['role']);
+  final accountKind = asStr(user['kind']);
   if (accountKind != 'customer') {
     throw ApiException('این اپ برای مشتریان است. همکاران و مدیران لطفاً از پنل وب استفاده کنند.');
   }
   await session.signIn(token: token, user: user);
-  await registerDevice();
+  // Device statistics are nonessential and must not delay sign-in.
+  unawaited(registerDevice());
   return user;
 }
 
@@ -155,31 +157,49 @@ Future<List<ServiceCategory>> fetchCategories() async {
     return asMapList(data).map(ServiceCategory.fromJson).toList();
   } catch (_) {
     final cached = await JsonCache.get('categories');
-    return cached == null ? const [] : asMapList(cached.value).map(ServiceCategory.fromJson).toList();
+    if (cached == null) rethrow;
+    return asMapList(cached.value).map(ServiceCategory.fromJson).toList();
   }
 }
 
 Future<List<CatalogService>> fetchServices({String category = '', String search = ''}) async {
-  final cacheKey = 'services:$category:${search.isEmpty ? '-' : 'q'}';
+  final cacheKey = 'services:$category:-';
   try {
-    final query = <String, dynamic>{'pageSize': 100};
-    if (category.isNotEmpty) query['category'] = category;
-    if (search.isNotEmpty) query['q'] = search;
-    final data = await api.getData('/api/public/services', query: query);
-    if (search.isEmpty) await JsonCache.put(cacheKey, data);
-    return parseList(data, CatalogService.fromJson).items;
+    // The server caps each page at 100. Load every page rather than silently
+    // hiding services beyond the first page; cache only a complete response.
+    final all = <Map<String, dynamic>>[];
+    var page = 1;
+    while (true) {
+      final query = <String, dynamic>{'page': page, 'pageSize': 100};
+      if (category.isNotEmpty) query['category'] = category;
+      if (search.isNotEmpty) query['q'] = search;
+      final envelope = await api.getEnvelope('/api/public/services', query: query);
+      final items = asMapList(envelope['data']);
+      all.addAll(items);
+      final total = asNum(asMap(envelope['meta'])['total']).toInt();
+      if (items.isEmpty || all.length >= total || items.length < 100) break;
+      page++;
+    }
+    if (search.isEmpty) await JsonCache.put(cacheKey, all);
+    return all.map(CatalogService.fromJson).toList();
   } catch (_) {
+    if (search.isNotEmpty) rethrow;
     final cached = await JsonCache.get(cacheKey);
-    return cached == null ? const [] : parseList(cached.value, CatalogService.fromJson).items;
+    if (cached == null) rethrow;
+    return parseList(cached.value, CatalogService.fromJson).items;
   }
 }
 
 Future<CatalogService> fetchServiceDetail(String slug) async {
   try {
     final data = await api.getData('/api/public/services/$slug');
-    await JsonCache.put('service:$slug', data);
-    return CatalogService.fromJson(asMap(data));
-  } catch (_) {
+    final record = asMap(data);
+    // Private custom offers must never survive sign-out in the public cache.
+    if (!asBool(record['isCustom'])) await JsonCache.put('service:$slug', data);
+    return CatalogService.fromJson(record);
+  } on ApiException catch (error) {
+    // Never resurrect a deleted or unauthorized service from stale cache.
+    if (error.statusCode == 401 || error.statusCode == 403 || error.statusCode == 404) rethrow;
     final cached = await JsonCache.get('service:$slug');
     if (cached == null) rethrow;
     return CatalogService.fromJson(asMap(cached.value));
@@ -188,9 +208,11 @@ Future<CatalogService> fetchServiceDetail(String slug) async {
 
 /// Server is the source of truth for the final payable amount.
 Future<Map<String, dynamic>> fetchQuote(String serviceId, {String priority = 'normal', String discountCode = ''}) async {
-  final query = <String, dynamic>{'priority': priority};
-  if (discountCode.isNotEmpty) query['discountCode'] = discountCode;
-  final data = await api.getData('/api/catalog/services/$serviceId/quote', query: query);
+  final data = await api.postData('/api/requests/quote', body: {
+    'serviceId': serviceId,
+    'priority': priority,
+    if (discountCode.isNotEmpty) 'discountCode': discountCode,
+  });
   return asMap(data);
 }
 
@@ -203,14 +225,17 @@ String _myRequestsCacheKey(String workBucket) => 'my-requests:${session.userId}:
 
 Future<ParsedList<ServiceRequestSummary>> fetchMyRequests({int page = 1, String workBucket = ''}) async {
   final query = <String, dynamic>{'page': page, 'pageSize': 20};
-  if (workBucket.isNotEmpty) query['workBucket'] = workBucket;
-  final data = await api.getData('/api/requests/mine', query: query);
+  if (workBucket.isNotEmpty) query['bucket'] = workBucket;
+  final envelope = await api.getEnvelope('/api/requests', query: query);
+  final data = envelope['data'];
   if (page == 1 && session.isSignedIn) {
     try {
       await JsonCache.put(_myRequestsCacheKey(workBucket), data);
     } catch (_) {}
   }
-  return parseList(data, ServiceRequestSummary.fromJson);
+  final parsed = parseList(data, ServiceRequestSummary.fromJson);
+  final total = asNum(asMap(envelope['meta'])['total']).toInt();
+  return ParsedList(parsed.items, total);
 }
 
 /// Last good first page of my requests (this device, this user) or null.
@@ -281,12 +306,12 @@ Future<String> uploadOne(File file) async {
 
 Future<List<Map<String, dynamic>>> fetchMyInvoices() async {
   final envelope = await api.getEnvelope('/api/accounting/my/invoices', query: {'pageSize': 50});
-  return asMapList(asMap(envelope['data'])['items']);
+  return asMapList(envelope['data']);
 }
 
 Future<List<Map<String, dynamic>>> fetchMyPayments() async {
   final envelope = await api.getEnvelope('/api/accounting/my/payments', query: {'pageSize': 50});
-  return asMapList(asMap(envelope['data'])['items']);
+  return asMapList(envelope['data']);
 }
 
 /// Returns the payment URL the caller opens in the system browser.
@@ -305,7 +330,7 @@ Future<Map<String, dynamic>> fetchWallet() async {
 
 Future<List<Map<String, dynamic>>> fetchWalletTransactions({int page = 1}) async {
   final data = await api.getData('/api/wallet/my/transactions', query: {'page': page, 'pageSize': 30});
-  return asMapList(asMap(data)['items']);
+  return asMapList(data);
 }
 
 Future<String> topupWallet(num amountRials) async {

@@ -59,7 +59,7 @@ class _StoryViewerScreenState extends State<StoryViewerScreen> {
     if (item.isVideo) {
       final controller = VideoPlayerController.networkUrl(
         Uri.parse(api.absolute(item.effectiveMediaUrl)),
-        httpHeaders: api.authHeaders(),
+        httpHeaders: api.authHeaders(item.effectiveMediaUrl),
       );
       _video = controller;
       try {
