@@ -129,6 +129,10 @@ describe('discount codes', () => {
 
     const after = (await request(server).get('/api/wallet/my').set('Cookie', session.cookie)).body.data.balance;
     expect(before - after).toBe(created.body.data.total);
+    await createCode({ code: 'FIRSTPAID', audience: 'first_purchase' }).expect(201);
+    const noFirstPurchase = await request(server).post('/api/discount-codes/preview').set('Cookie', session.cookie)
+      .send({ code: 'FIRSTPAID', serviceId: service.id });
+    expect(noFirstPurchase.status).toBe(400);
   });
 
   it('enforces per-customer and total usage limits atomically', async () => {
