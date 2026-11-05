@@ -1454,7 +1454,8 @@ export function CustomerProfile() {
             <Field label="ایمیل"><Input type="email" value={form.email} onChange={(e) => setForm({ ...form, email: e.target.value })} dir="ltr" className="text-left" /></Field>
             <Field label="نشانی"><Textarea value={form.address} onChange={(e) => setForm({ ...form, address: e.target.value })} /></Field>
             <div className="grid gap-4 sm:grid-cols-3">
-              <Field label="شهر محل سکونت" required hint="اگر شهر شما در فهرست نیست، از مدیر دفتر بخواهید آن را به مرجع شهرها اضافه کند."><Select value={form.cityId} onChange={e=>setForm({...form,cityId:e.target.value})} options={[{value:'',label:'انتخاب استان و شهر'},...cities.map(c=>({value:c.id,label:`${c.province} · ${c.name}`}))]} /></Field>
+              <Field label="استان محل سکونت" required><Select value={form.province} onChange={e=>setForm({...form,province:e.target.value,city:'',cityId:''})} options={[{value:'',label:'انتخاب استان'},...Array.from(new Set<string>(cities.map(c=>String(c.province)))).sort((a,b)=>a.localeCompare(b,'fa')).map(province=>({value:province,label:province}))]} /></Field>
+              <Field label="شهر محل سکونت" required hint="ابتدا استان را انتخاب کنید؛ در صورت نبود شهر با دفتر تماس بگیرید."><Select value={form.cityId} onChange={e=>{const city=cities.find(c=>c.id===e.target.value);setForm({...form,cityId:e.target.value,city:city?.name ?? ''})}} options={[{value:'',label:form.province?'انتخاب شهر':'ابتدا استان را انتخاب کنید'},...cities.filter(c=>c.province===form.province).map(c=>({value:c.id,label:c.name}))]} disabled={!form.province} /></Field>
               <Field label="کد پستی"><Input value={form.postalCode} onChange={(e) => setForm({ ...form, postalCode: e.target.value })} dir="ltr" className="text-left" maxLength={10} /></Field>
             </div>
             <Button loading={saving} onClick={save}>ذخیره پروفایل</Button>

@@ -86,6 +86,8 @@ const CATEGORY_ICONS: Record<string, typeof LayoutGrid> = {
 
 /** Maps the catalogue's Lucide icon names to components (safe fallback). */
 export function CategoryIcon({ name, className }: { name?: string | null; className?: string }) {
+  if (name && (/^\/uploads\/public\//.test(name) || /^https?:\/\//.test(name))) return <img src={name} alt="" className={clsx(className ?? 'size-6', 'rounded object-cover')} />;
+  if (name && /[\p{Extended_Pictographic}]/u.test(name)) return <span className={clsx(className ?? 'size-6', 'inline-flex items-center justify-center leading-none')} aria-hidden="true">{name}</span>;
   const Icon = (name && CATEGORY_ICONS[name]) || LayoutGrid;
   return <Icon className={className ?? 'size-6'} aria-hidden="true" />;
 }

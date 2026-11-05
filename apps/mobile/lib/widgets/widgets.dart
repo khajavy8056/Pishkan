@@ -274,9 +274,11 @@ class IconMedallion extends StatelessWidget {
         border: Border.all(color: tint.withOpacity(0.10)),
       ),
       alignment: Alignment.center,
-      child: isEmoji
-          ? Text(emoji, style: TextStyle(fontSize: size * 0.46))
-          : Icon(Icons.grid_view_rounded, color: tint, size: size * 0.5),
+      child: artwork != null && artwork!.imageUrl.isNotEmpty
+          ? ClipRRect(borderRadius: BorderRadius.circular(size * 0.30), child: AuthImage(url: artwork!.imageUrl, width: size, height: size))
+          : isEmoji
+              ? Text(emoji, style: TextStyle(fontSize: size * 0.46))
+              : Icon(Icons.grid_view_rounded, color: tint, size: size * 0.5),
     );
   }
 }

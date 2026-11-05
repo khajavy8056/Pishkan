@@ -145,14 +145,14 @@ class _ServicesCatalogTabState extends State<ServicesCatalogTab> {
             onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => ServiceDetailScreen(service: service))),
             child: Column(children: [
               Container(
-                padding: const EdgeInsets.all(16),
+                padding: const EdgeInsets.all(9),
                 decoration: BoxDecoration(
                   color: Colors.white,
                   shape: BoxShape.circle,
                   boxShadow: const [BoxShadow(color: Color(0x100B1F3A), blurRadius: 12, offset: Offset(0, 5))],
                   border: Border.all(color: artworkForService(service).color.withOpacity(0.14)),
                 ),
-                child: Text(artworkForService(service).emoji, style: const TextStyle(fontSize: 28)),
+                child: IconMedallion(artwork: artworkForService(service), size: 44),
               ),
               const SizedBox(height: 7),
               Flexible(

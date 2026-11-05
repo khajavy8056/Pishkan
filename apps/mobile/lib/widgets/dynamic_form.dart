@@ -50,6 +50,22 @@ class DynamicFormState extends State<DynamicForm> {
 
   bool _isTextual(String type) => ['text', 'tel', 'number', 'national_id', 'textarea', 'money', 'iban', 'postal_code'].contains(type);
 
+  /// Fill only empty text fields with exactly matching profile keys. Never
+  /// infer that another person's national ID belongs to the account owner.
+  int fillEmptyFromProfile(Map<String, dynamic> values) {
+    var count = 0;
+    for (final field in widget.fields) {
+      final controller = _controllers[field.key];
+      final value = values[field.key]?.toString().trim() ?? '';
+      if (controller == null || controller.text.trim().isNotEmpty || value.isEmpty) continue;
+      controller.text = value;
+      widget.values[field.key] = value;
+      count++;
+    }
+    if (count > 0) setState(() {});
+    return count;
+  }
+
   /// Returns the first validation error (Persian) or null when valid.
   /// Also commits text-controller values into the values map.
   String? validate() {

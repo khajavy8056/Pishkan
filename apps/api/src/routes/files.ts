@@ -69,7 +69,8 @@ filesRouter.post('/upload', requireAuth, asyncRoute(async (req, res, next) => {
       const cleanup = () => { try { fs.rmSync(file.path, { force: true }); } catch { /* ignore */ } };
       try {
         const purpose = typeof req.query.purpose === 'string' ? req.query.purpose.slice(0, 40) : 'document';
-        const isPublic = req.query.public === 'true' && hasPermission(req.auth!.permissions, 'settings.edit');
+        const isPublic = req.query.public === 'true' && (hasPermission(req.auth!.permissions, 'settings.edit') || (purpose === 'service' && (hasPermission(req.auth!.permissions, 'services.edit') || hasPermission(req.auth!.permissions, 'services.create'))));
+        if (purpose === 'service' && req.query.public === 'true' && !isPublic) throw forbidden('اجازهٔ بارگذاری تصویر عمومی خدمت را ندارید.');
         const cfg = await loadMediaConfig();
         const validated = await validateUploadContent({
           filePath: file.path,
@@ -78,6 +79,8 @@ filesRouter.post('/upload', requireAuth, asyncRoute(async (req, res, next) => {
           allowedTypes: purpose === 'story' ? [...cfg.allowedTypes, 'mp4', 'webm'] : cfg.allowedTypes,
           imagePolicy: cfg.policy,
         });
+
+        if (purpose === 'service' && !validated.mime.startsWith('image/')) throw badRequest('تصویر خدمت باید فایل تصویری باشد.');
 
         const result = await ingestUpload({
           tempPath: file.path,

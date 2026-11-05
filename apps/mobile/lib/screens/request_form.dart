@@ -44,6 +44,7 @@ class _RequestFormScreenState extends State<RequestFormScreen> {
   int _quoteGeneration = 0;
   String? _quoteError;
   bool _submitting = false;
+  bool _loadingAutofill = false;
   String _createdRequestId = '';
   String _createdTrackingCode = '';
 
@@ -99,6 +100,20 @@ class _RequestFormScreenState extends State<RequestFormScreen> {
       if (mounted) showSnack(context, error.message, error: true);
     } finally {
       if (mounted) setState(() => _uploading.remove(requirement.key));
+    }
+  }
+
+  Future<void> _fillFromProfile() async {
+    setState(() => _loadingAutofill = true);
+    try {
+      final data = asMap(await api.getData('/api/auth/profile/autofill'));
+      if (!mounted) return;
+      final count = _formKey.currentState?.fillEmptyFromProfile(asMap(data['values'])) ?? 0;
+      showSnack(context, count > 0 ? '$count مورد از اطلاعات پروفایل در فیلدهای خالی قرار گرفت.' : 'فیلد خالی منطبق با اطلاعات پروفایل پیدا نشد.');
+    } on ApiException catch (error) {
+      if (mounted) showSnack(context, error.message, error: true);
+    } finally {
+      if (mounted) setState(() => _loadingAutofill = false);
     }
   }
 
@@ -261,6 +276,7 @@ class _RequestFormScreenState extends State<RequestFormScreen> {
     return Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
       _serviceChip(),
       const SectionTitle(title: 'اطّلاعات درخواست'),
+      if (service.formFields.isNotEmpty) Align(alignment: Alignment.centerRight, child: TextButton.icon(onPressed: _loadingAutofill ? null : _fillFromProfile, icon: const Icon(Icons.person_outline_rounded), label: Text(_loadingAutofill ? 'در حال دریافت…' : 'استفاده از اطلاعات پروفایل خودم'))),
       if (service.formFields.isEmpty)
         const SoftCard(child: Text('این خدمت فرم اطلاعاتی ندارد؛ مستقیم به مرحلهٔ مدارک بروید.', style: TextStyle(color: PishkanColors.mutedText, fontSize: 13, height: 1.9)))
       else

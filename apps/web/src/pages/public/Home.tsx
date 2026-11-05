@@ -164,7 +164,7 @@ export function HomePage() {
                     >
                       <span className="flex items-center gap-2">
                         <span className="grid size-8 place-items-center rounded-xl text-white" style={{ background: categoryBySlug.get(item.categorySlug ?? '')?.color ?? '#1d4ed8' }}>
-                          <CategoryIcon name={categoryBySlug.get(item.categorySlug ?? '')?.icon ?? item.icon} className="size-4" />
+                          <CategoryIcon name={item.icon || categoryBySlug.get(item.categorySlug ?? '')?.icon} className="size-4" />
                         </span>
                         {item.title}
                       </span>
@@ -327,7 +327,7 @@ export function HomePage() {
                     className="grid size-12 place-items-center rounded-2xl text-white shadow-md transition duration-300 group-hover:scale-110 group-hover:rotate-3"
                     style={{ background: `linear-gradient(150deg, color-mix(in oklab, ${color} 78%, #fff) 0%, ${color} 100%)` }}
                   >
-                    <CategoryIcon name={category?.icon ?? service.icon} className="size-6" />
+                    <CategoryIcon name={service.icon || category?.icon} className="size-6" />
                   </span>
                   {service.categoryTitle && <span className="badge bg-surface-3 text-navy-600">{service.categoryTitle}</span>}
                 </div>

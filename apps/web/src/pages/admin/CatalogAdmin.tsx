@@ -238,6 +238,7 @@ export function AdminServiceEditor() {
   const [cities,setCities]=useState<any[]>([]);
   const [loading, setLoading] = useState(!isNew);
   const [saving, setSaving] = useState(false);
+  const [uploadingArtwork, setUploadingArtwork] = useState(false);
   const [error, setError] = useState('');
   const [tab, setTab] = useState<'general' | 'form' | 'documents' | 'workflow' | 'pricing'>('general');
 
@@ -258,6 +259,18 @@ export function AdminServiceEditor() {
   }, [id]);
 
   const set = (patch: Record<string, any>) => setService((prev: any) => ({ ...prev, ...patch }));
+
+  const uploadArtwork = async (file: File, field: 'icon' | 'image') => {
+    setUploadingArtwork(true);
+    try {
+      const result = await api.upload<{data:{url:string;isPublic:boolean}}>('/api/files/upload', file, {purpose:'service', public:true});
+      if (!result.data.isPublic || !result.data.url) throw new Error('تصویر عمومی ذخیره نشد.');
+      if (field === 'icon' && result.data.url.length > 60) throw new Error('نشانی آیکون بیش از حد مجاز طولانی است.');
+      set({[field]: result.data.url});
+      notify('تصویر بارگذاری شد؛ برای ثبت نهایی خدمت را ذخیره کنید.', 'success');
+    } catch (err) { notify(err instanceof Error ? err.message : 'بارگذاری تصویر ناموفق بود.', 'error'); }
+    finally { setUploadingArtwork(false); }
+  };
 
   const save = async () => {
     setSaving(true);
@@ -374,6 +387,17 @@ export function AdminServiceEditor() {
                 <Field label="توضیحات کامل">
                   <Textarea value={service.description} onChange={(e) => set({ description: e.target.value })} className="min-h-32" />
                 </Field>
+                <div className="grid gap-4 sm:grid-cols-2">
+                  <Field label="آیکون خدمت" hint="یک ایموجی بنویسید یا تصویر آیکون بارگذاری کنید؛ در اپ و سایت نمایش داده می‌شود.">
+                    <Input value={service.icon ?? ''} maxLength={60} onChange={e=>set({icon:e.target.value})} placeholder="مثلاً 🪪" />
+                    <input type="file" accept="image/*" disabled={uploadingArtwork} onChange={e=>{const file=e.target.files?.[0];if(file) void uploadArtwork(file,'icon');e.target.value='';}} className="mt-2 block w-full text-xs" aria-label="بارگذاری آیکون خدمت" />
+                    {service.icon?.startsWith('/uploads/') && <img src={service.icon} alt="پیش‌نمایش آیکون" className="mt-2 size-16 rounded-xl object-cover" />}
+                  </Field>
+                  <Field label="تصویر خدمت" hint="تصویر صفحهٔ جزئیات خدمت در سایت و اپ.">
+                    <input type="file" accept="image/*" disabled={uploadingArtwork} onChange={e=>{const file=e.target.files?.[0];if(file) void uploadArtwork(file,'image');e.target.value='';}} className="block w-full text-xs" aria-label="بارگذاری تصویر خدمت" />
+                    {service.image && <div className="mt-2"><img src={service.image} alt="پیش‌نمایش تصویر خدمت" className="h-28 max-w-full rounded-xl object-cover" /><Button variant="ghost" size="sm" onClick={()=>set({image:null})}>حذف تصویر</Button></div>}
+                  </Field>
+                </div>
                 <Field label="هشدار تماس / توضیح تکمیلی" hint="در صفحه خدمت با رنگ هشدار نمایش داده می‌شود.">
                   <Input value={service.contactNotice ?? ''} onChange={(e) => set({ contactNotice: e.target.value })} />
                 </Field>

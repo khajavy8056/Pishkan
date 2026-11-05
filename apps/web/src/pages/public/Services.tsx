@@ -7,6 +7,7 @@ import {
 } from 'lucide-react';
 import clsx from 'clsx';
 import { PublicLayout } from '../../components/public-layout';
+import { CategoryIcon } from '../../components/visual';
 import { AppShell } from '../../components/shell';
 import { formatDuration, useSite, type FormField, type Service } from '../../lib/site';
 import { useAuth, homeFor } from '../../lib/auth';
@@ -120,7 +121,7 @@ export function ServicesPage() {
           {services.map((service) => (
             <Link key={service.id} to={`/services/${service.slug}`} className="card group flex flex-col p-5 transition hover:-translate-y-0.5 hover:shadow-lg">
               <div className="flex items-start justify-between gap-2">
-                <span className="badge bg-brand-50 text-accent">{service.categoryTitle ?? 'خدمت'}</span>
+                <span className="flex items-center gap-2"><CategoryIcon name={service.icon} className="size-7" /><span className="badge bg-brand-50 text-accent">{service.categoryTitle ?? 'خدمت'}</span></span>
                 {!service.acceptingRequests && <span className="badge bg-amber-50 text-amber-800">موقتاً غیرفعال</span>}
               </div>
               <h3 className="mt-3 font-semibold leading-6 text-navy-900">{service.title}</h3>
@@ -457,8 +458,9 @@ export function ServiceDetailPage({ variant = 'public' }: { variant?: 'public' |
         <div className="grid gap-6 lg:grid-cols-3">
           <div className="lg:col-span-2">
             <div className="card card-pad">
+              {service.image && <img src={service.image} alt="" className="mb-4 h-44 w-full rounded-2xl object-cover sm:h-56" />}
               <div className="flex flex-wrap items-center gap-2">
-                <span className="badge bg-brand-50 text-accent">{service.categoryTitle ?? 'خدمت'}</span>
+                <span className="flex items-center gap-2"><CategoryIcon name={service.icon} className="size-7" /><span className="badge bg-brand-50 text-accent">{service.categoryTitle ?? 'خدمت'}</span></span>
                 {service.needsReview && (
                   <span className="badge bg-amber-50 text-amber-800">
                     <AlertTriangle className="size-3.5" /> هزینه و شرایط نمونه است

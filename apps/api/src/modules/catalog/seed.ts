@@ -3,6 +3,7 @@ import { id, hashPassword, verifyPassword } from '../../lib/crypto.js';
 import { DEFAULT_ROLES, allPermissions } from '../../lib/permissions.js';
 import { ensureSettingDefaults } from '../settings/service.js';
 import { SEED_CATEGORIES, SEED_SERVICES, SEED_EXPENSE_CATEGORIES } from './seed-data.js';
+import { DEFAULT_SERVICE_ICONS } from './default-icons.js';
 
 export interface SeedOptions {
   withDemo?: boolean;
@@ -72,12 +73,13 @@ export async function seedCatalog(log: (m: string) => void = () => undefined) {
     const externalCostKeywords = ['بیمه', 'مالیات', 'عوارض', 'خلافی', 'پلاک', 'گذرنامه', 'ویزا'];
     const hasExternalCosts = externalCostKeywords.some((word) => svc.title.includes(word)) ? 1 : 0;
     await run(
-      `INSERT INTO services (id, category_id, slug, title, summary, description, icon, form_schema, documents,
+      `INSERT INTO services (id, category_id, slug, title, summary, description, icon, image, form_schema, documents,
         workflow_steps, base_fee, discount_percent, estimated_days, estimated_minutes, payment_methods, tags, search_text,
         contact_notice, is_published, accepting_requests, is_custom, sort_order, needs_review, created_at, updated_at, has_external_costs)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?, ?, ?, ?, ?, 1, 1, 0, ?, 1, ?, ?, ?)`,
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?, ?, ?, ?, ?, 1, 1, 0, ?, 1, ?, ?, ?)`,
       [
-        id('svc'), categoryId, svc.slug, svc.title, svc.summary, svc.description, svc.icon,
+        id('svc'), categoryId, svc.slug, svc.title, svc.summary, svc.description, DEFAULT_SERVICE_ICONS[svc.slug] ?? svc.icon,
+        SEED_CATEGORIES.find((category) => category.slug === svc.category)?.image?.replace('/images/categories/', '/images/services/').replace(/\.svg$/, '.png') ?? null,
         jsonStringify(svc.form), jsonStringify(svc.documents), jsonStringify(svc.workflow),
         svc.baseFee, svc.estimatedDays, svc.estimatedDays * 1440, jsonStringify(svc.paymentMethods ?? ['online', 'wallet']),
         jsonStringify(svc.tags), searchText,

@@ -8,9 +8,10 @@ import '../models/models.dart';
 /// services, shield for insurance…) so the storefront always looks curated,
 /// like the approved design.
 class ServiceArtwork {
-  const ServiceArtwork(this.emoji, this.color);
+  const ServiceArtwork(this.emoji, this.color, {this.imageUrl = ''});
   final String emoji;
   final Color color;
+  final String imageUrl;
 }
 
 const _fallbackPalette = <Color>[
@@ -70,7 +71,8 @@ ServiceArtwork artworkFor({String explicitIcon = '', String title = '', String s
   // render those names as large text in the native UI.
   final validExplicit = explicit.runes.any((r) => r >= 0x1F000 || (r >= 0x2600 && r <= 0x27BF));
   final color = matchedColor ?? _fallbackPalette[_stableHash(slug.isEmpty ? title : slug) % _fallbackPalette.length];
-  return ServiceArtwork(validExplicit ? explicit : (matchedEmoji ?? '🧩'), color);
+  final imageUrl = explicit.startsWith('/uploads/public/') || explicit.startsWith('https://') || explicit.startsWith('http://') ? explicit : '';
+  return ServiceArtwork(validExplicit && imageUrl.isEmpty ? explicit : (matchedEmoji ?? '🧩'), color, imageUrl: imageUrl);
 }
 
 int _stableHash(String value) {

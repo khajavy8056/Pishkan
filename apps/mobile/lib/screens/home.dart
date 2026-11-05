@@ -370,9 +370,9 @@ class _HomeTabState extends State<HomeTab> {
             onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => ServiceDetailScreen(service: service))),
             child: Column(children: [
               Container(
-                padding: const EdgeInsets.all(13),
+                padding: const EdgeInsets.all(7),
                 decoration: const BoxDecoration(color: Colors.white, shape: BoxShape.circle, boxShadow: [BoxShadow(color: Color(0x100B1F3A), blurRadius: 10, offset: Offset(0, 4))]),
-                child: Text(artworkForService(service).emoji, style: const TextStyle(fontSize: 24)),
+                child: IconMedallion(artwork: artworkForService(service), size: 40),
               ),
               const SizedBox(height: 6),
               Flexible(

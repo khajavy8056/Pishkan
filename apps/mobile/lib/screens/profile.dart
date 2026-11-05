@@ -218,6 +218,7 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
   bool _loading = true;
   String? _loadError;
   String? _cityId;
+  String? _province;
   List<Map<String, dynamic>> _cities = const [];
 
   static const _defs = <(String, String, IconData)>[
@@ -259,6 +260,8 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
       setState(() {
         _cities = cities;
         _cityId = cities.any((city) => asStr(city['id']) == cityId) ? cityId : null;
+        final matching = cities.where((city) => asStr(city['id']) == _cityId);
+        _province = matching.isEmpty ? null : asStr(matching.first['province']);
         _loading = false;
       });
     } on ApiException catch (error) {
@@ -322,12 +325,22 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
             ],
             const SizedBox(height: 12),
             DropdownButtonFormField<String>(
+              value: _province,
+              isExpanded: true,
+              decoration: const InputDecoration(labelText: 'استان محل سکونت', prefixIcon: Icon(Icons.map_outlined)),
+              items: [for (final province in (_cities.map((city) => asStr(city['province'])).where((name) => name.isNotEmpty).toSet().toList()..sort())) DropdownMenuItem(value: province, child: Text(province, overflow: TextOverflow.ellipsis))],
+              onChanged: _cities.isEmpty ? null : (value) => setState(() { _province = value; _cityId = null; }),
+            ),
+            const SizedBox(height: 12),
+            DropdownButtonFormField<String>(
+              key: ValueKey('city-$_province'),
               value: _cityId,
               isExpanded: true,
               decoration: const InputDecoration(labelText: 'شهر محل سکونت', prefixIcon: Icon(Icons.location_city_outlined)),
-              items: [for (final city in _cities) DropdownMenuItem(value: asStr(city['id']), child: Text('${asStr(city['province'])} · ${asStr(city['name'])}', overflow: TextOverflow.ellipsis))],
-              onChanged: (value) => setState(() => _cityId = value),
+              items: [for (final city in _cities.where((city) => asStr(city['province']) == _province)) DropdownMenuItem(value: asStr(city['id']), child: Text(asStr(city['name']), overflow: TextOverflow.ellipsis))],
+              onChanged: _province == null ? null : (value) => setState(() => _cityId = value),
             ),
+            if (_cities.isEmpty) TextButton(onPressed: _load, child: const Text('فهرست شهرها خالی است؛ دریافت دوباره')),
             const SizedBox(height: 18),
             PlushButton(label: 'ذخیرهٔ تغییرات', icon: Icons.save_rounded, loading: _busy, onPressed: _save),
             const SizedBox(height: 6),

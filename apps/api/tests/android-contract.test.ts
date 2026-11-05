@@ -16,6 +16,10 @@ describe('Android customer API contract (real HTTP and SQLite)', () => {
     const catalog2 = await request(server).get('/api/public/services?page=2&pageSize=100').set('Authorization', bearer).expect(200);
     expect(catalog1.body.meta.total).toBeGreaterThan(100);
     expect(catalog1.body.data.length + catalog2.body.data.length).toBe(catalog1.body.meta.total);
+    for (const item of [...catalog1.body.data, ...catalog2.body.data]) {
+      expect(item.image).toMatch(/^\/images\/services\/.*\.png$/);
+      expect(item.icon).toMatch(/\p{Extended_Pictographic}/u);
+    }
 
     const service = (await request(server).get('/api/public/services/insurance-history').set('Authorization', bearer).expect(200)).body.data;
     const quote = await request(server).post('/api/requests/quote').set('Authorization', bearer).send({ serviceId: service.id, priority: 'normal' }).expect(200);
@@ -76,11 +80,18 @@ describe('Android customer API contract (real HTTP and SQLite)', () => {
     const bearer = `Bearer ${registered.body.data.token}`;
     expect((await request(server).get('/api/auth/me').set('Authorization', bearer).expect(200)).body.data.profileState.complete).toBe(false);
     const cities = await request(server).get('/api/public/cities').expect(200);
-    expect(cities.body.data.length).toBeGreaterThan(0);
+    expect(cities.body.data.length).toBeGreaterThan(1000);
+    expect(new Set(cities.body.data.map((city: any) => city.province)).size).toBe(31);
+    const andimeshk = cities.body.data.find((city: any) => city.name === 'اندیمشک' && city.province === 'خوزستان');
+    expect(andimeshk).toBeTruthy();
     await request(server).patch('/api/auth/profile').set('Authorization', bearer).send({
-      firstName: 'مشتری', lastName: 'اندروید', nationalId: '0013546295', cityId: cities.body.data[0].id,
+      firstName: 'مشتری', lastName: 'اندروید', nationalId: '0013546295', cityId: andimeshk.id,
+      fatherName: 'رضا', address: 'نشانی آزمون', postalCode: '1234567890', email: 'test@example.com',
     }).expect(200);
-    expect((await request(server).get('/api/auth/me').set('Authorization', bearer).expect(200)).body.data.profileState.complete).toBe(true);
+    const refreshed = (await request(server).get('/api/auth/me').set('Authorization', bearer).expect(200)).body.data;
+    expect(refreshed.profileState.complete).toBe(true);
+    expect(refreshed.profileState.profile).toMatchObject({ first_name: 'مشتری', last_name: 'اندروید', city_id: andimeshk.id, city: 'اندیمشک', province: 'خوزستان', father_name: 'رضا', address: 'نشانی آزمون', postal_code: '1234567890' });
+    expect(refreshed).toMatchObject({ email: 'test@example.com', nationalId: '0013546295' });
     await request(server).post('/api/auth/password/change').set('Authorization', bearer).send({ currentPassword: password, newPassword: 'NewPassword#12345' }).expect(200);
     await request(server).post('/api/auth/customer/login').send({ identifier: mobile, password }).expect(401);
     await request(server).post('/api/auth/customer/login').send({ identifier: mobile, password: 'NewPassword#12345' }).expect(200);
@@ -112,6 +123,25 @@ describe('Android customer API contract (real HTTP and SQLite)', () => {
     const documents = await request(server).get('/api/documents/mine').set('Cookie', customerAuth).expect(200);
     expect(documents.body.data.some((doc: any) => doc.docType === 'national_card')).toBe(true);
     expect(documents.body.meta.types.some((type: any) => type.code === 'national_card')).toBe(true);
+  });
+
+  it('publishes service artwork without making customer uploads public', async () => {
+    const server = await app();
+    const admin = await adminSession();
+    const customer = await newCustomer('مشتری آزمون تصویر خدمت');
+    const image = await sharp({ create: { width: 64, height: 64, channels: 3, background: '#3574ab' } }).png().toBuffer();
+    await request(server).post('/api/files/upload?purpose=service&public=true').set('Cookie', customer.session.cookie).attach('file', image, 'icon.png').expect(403);
+    const uploaded = await request(server).post('/api/files/upload?purpose=service&public=true').set('Cookie', admin.cookie).attach('file', image, 'icon.png').expect(201);
+    expect(uploaded.body.data.isPublic).toBe(true);
+    const url = uploaded.body.data.url;
+    expect(url).toMatch(/^\/uploads\/public\//);
+    expect(url.length).toBeLessThanOrEqual(60);
+    await request(server).get(url).expect(200);
+    const service = (await request(server).get('/api/public/services/insurance-history').expect(200)).body.data;
+    await request(server).patch(`/api/catalog/services/${service.id}`).set('Cookie', admin.cookie).send({ icon: url, image: url }).expect(200);
+    const saved = (await request(server).get('/api/public/services/insurance-history').expect(200)).body.data;
+    expect(saved.icon).toBe(url);
+    expect(saved.image).toBe(url);
   });
 
   it('returns the private offer slug so its owner can retrieve the real form', async () => {
