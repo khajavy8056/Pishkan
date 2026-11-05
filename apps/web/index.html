@@ -15,25 +15,10 @@
     <link rel="apple-touch-icon" href="/icons/icon-192.png" />
   </head>
   <body>
-    <script>
-      /* Apply the saved theme before the first paint so dark mode never flashes white. */
-      (function () {
-        try {
-          var stored = window.localStorage.getItem('pishkan.theme');
-          var mode = stored === 'light' || stored === 'dark' ? stored : 'system';
-          var dark = mode === 'dark' || (mode === 'system' &&
-            typeof window.matchMedia === 'function' &&
-            window.matchMedia('(prefers-color-scheme: dark)').matches);
-          var root = document.documentElement;
-          root.classList.toggle('dark', dark);
-          root.dataset.theme = dark ? 'dark' : 'light';
-          root.style.colorScheme = dark ? 'dark' : 'light';
-          var meta = document.querySelector('meta[name="theme-color"]');
-          if (meta) meta.setAttribute('content', dark ? '#060c17' : '#f2f6fc');
-        } catch (error) { /* private mode / blocked storage */ }
-      })();
-    </script>
-    <div id="root"></div>
+    <script src="/theme-bootstrap.js"></script>
+    <div id="root"><div role="status" style="font-family: sans-serif; text-align: center; padding: 3rem 1rem; color: #30465e;">
+      در حال بارگذاری پیشخوان… اگر صفحه باز نشد، اتصال شبکه را بررسی و <a href="">دوباره تلاش کنید</a>.
+    </div></div>
     <script type="module" src="/src/main.tsx"></script>
   </body>
 </html>

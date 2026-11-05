@@ -65,17 +65,25 @@ export async function createApp(): Promise<Express> {
   app.set('trust proxy', env.trustProxy ? 1 : false);
   app.disable('x-powered-by');
 
-  const csp = await getBool('security.content_security_policy').catch(() => false);
   const customCsp = await import('../modules/settings/service.js')
     .then((m) => m.getString('security.content_security_policy'))
     .catch(() => '');
+  const customDirectives = customCsp ? JSON.parse(customCsp) as Record<string, unknown> : null;
+  const customUpgrade = customDirectives && ('upgrade-insecure-requests' in customDirectives || 'upgradeInsecureRequests' in customDirectives);
+  const hsts = env.isProd && (await getBool('security.hsts').catch(() => true))
+    ? { maxAge: 15552000, includeSubDomains: true }
+    : false as const;
 
-  app.use(helmet({
-    contentSecurityPolicy: customCsp
-      ? { directives: { defaultSrc: ["'self'"], ...(JSON.parse(customCsp) as object) } }
-      : {
-          useDefaults: true,
-          directives: {
+  // Helmet defaults to upgrade-insecure-requests. On an HTTP LAN origin this
+  // upgrades the SPA's own JS/CSS to HTTPS, but the local Windows server does
+  // not speak TLS. Keep the upgrade on HTTPS, including trusted TLS proxies.
+  // An explicitly configured CSP directive still takes precedence.
+  const securityHeaders = (secure: boolean) => helmet({
+    contentSecurityPolicy: {
+      useDefaults: true,
+      directives: customDirectives
+        ? { defaultSrc: ["'self'"], ...(!secure && !customUpgrade ? { 'upgrade-insecure-requests': null } : {}), ...customDirectives }
+        : {
             'default-src': ["'self'"],
             'img-src': ["'self'", 'data:', 'blob:'],
             'script-src': ["'self'"],
@@ -86,14 +94,16 @@ export async function createApp(): Promise<Express> {
             'object-src': ["'none'"],
             'base-uri': ["'self'"],
             'form-action': ["'self'"],
+            ...(!secure ? { 'upgrade-insecure-requests': null } : {}),
           },
-        },
+    },
     crossOriginEmbedderPolicy: false,
-    hsts: env.isProd && (await getBool('security.hsts').catch(() => true))
-      ? { maxAge: 15552000, includeSubDomains: true }
-      : false,
+    hsts,
     referrerPolicy: { policy: 'strict-origin-when-cross-origin' },
-  }));
+  });
+  const secureHeaders = securityHeaders(true);
+  const httpHeaders = securityHeaders(false);
+  app.use((req, res, next) => (req.secure ? secureHeaders : httpHeaders)(req, res, next));
 
   app.use((req, res, next) => {
     res.setHeader('Permissions-Policy', 'geolocation=(self), camera=(self), microphone=()');
