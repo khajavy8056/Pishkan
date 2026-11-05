@@ -1,3 +1,4 @@
+import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:pishkan_app/core/format.dart';
 import 'package:pishkan_app/core/service_icons.dart';
@@ -66,22 +67,27 @@ void main() {
   });
 
   group('service artwork', () {
-    test('explicit admin emoji wins over keyword matching', () {
-      final art = artworkFor(explicitIcon: '🦄', title: 'تعویض پلاک خودرو');
-      expect(art.emoji, '🦄');
+    test('server-uploaded icon image is retained', () {
+      final art = artworkFor(explicitIcon: '/uploads/public/icon.webp', title: 'تعویض پلاک خودرو');
+      expect(art.imageUrl, '/uploads/public/icon.webp');
+      expect(art.icon, Icons.directions_car_rounded);
     });
 
-    test('keywords pick a fitting emoji per service', () {
-      expect(artworkFor(title: 'تعویض پلاک خودرو').emoji, '🚗');
-      expect(artworkFor(title: 'صدور کارت ملی هوشمند').emoji, '🪪');
-      expect(artworkFor(title: 'گذرنامه').emoji, '🛂');
-      expect(artworkFor(title: 'ثبت‌نام وام ازدواج').emoji, '💍');
-      expect(artworkFor(title: 'پروانه کسب').emoji, '🏪');
+    test('services use vector pictograms rather than emoji text', () {
+      expect(artworkFor(title: 'تعویض پلاک خودرو').icon, Icons.directions_car_rounded);
+      expect(artworkFor(title: 'صدور کارت ملی هوشمند').icon, Icons.badge_rounded);
+      expect(artworkFor(title: 'گذرنامه').icon, Icons.flight_takeoff_rounded);
+      expect(artworkFor(title: 'ثبت‌نام وام ازدواج').icon, Icons.favorite_rounded);
+      expect(artworkFor(title: 'پروانه کسب').icon, Icons.storefront_rounded);
+      expect(artworkFor(explicitIcon: '🦄', title: 'تعویض پلاک خودرو').icon, Icons.directions_car_rounded);
     });
 
-    test('web Lucide icon names are never rendered as text', () {
-      expect(artworkFor(explicitIcon: 'file-warning', title: 'صدور کارت ملی هوشمند').emoji, '🪪');
-      expect(artworkFor(explicitIcon: 'receipt-text', title: 'خدمت ناشناخته').emoji, '🧩');
+    test('bundled WebP photos only replace legacy default banners', () {
+      final art = artworkFor(categorySlug: 'vehicle-services');
+      expect(art.assetPath, 'assets/service_art/vehicle.webp');
+      expect(isLegacyDefaultServiceImage('/images/services/vehicle.png'), isTrue);
+      expect(isLegacyDefaultServiceImage('/uploads/public/my-banner.webp'), isFalse);
+      expect(artworkFor(explicitIcon: 'receipt-text', title: 'خدمت ناشناخته').icon, Icons.description_rounded);
     });
 
     test('real server buckets and cancelled spelling drive progress', () {
@@ -95,12 +101,12 @@ void main() {
       final a = artworkFor(title: 'خدمت نامشخص', slug: 'unknown-1');
       final b = artworkFor(title: 'خدمت نامشخص', slug: 'unknown-1');
       expect(a.color, b.color);
-      expect(a.emoji, isNotEmpty);
+      expect(a.icon, Icons.description_rounded);
     });
 
     test('artworkForService reads the catalog model', () {
       final service = CatalogService.fromJson({'title': 'کارت سوخت', 'slug': 'fuel-card'});
-      expect(artworkForService(service).emoji, '⛽');
+      expect(artworkForService(service).icon, Icons.local_gas_station_rounded);
     });
   });
 

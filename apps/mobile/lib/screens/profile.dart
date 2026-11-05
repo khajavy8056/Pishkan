@@ -169,9 +169,17 @@ class _ProfileTabState extends State<ProfileTab> {
               ]),
             ),
             const SizedBox(height: 18),
+            if (_biometricOn && _biometricAvailable) ...[
+              OutlinedButton.icon(
+                onPressed: () => Navigator.pushAndRemoveUntil(context, MaterialPageRoute(builder: (_) => const LoginScreen(lockMessage: 'برای ادامه، اثر انگشت را تأیید کنید.')), (_) => false),
+                icon: const Icon(Icons.lock_outline_rounded),
+                label: const Text('قفل برنامه'),
+              ),
+              const SizedBox(height: 8),
+            ],
             OutlinedButton.icon(
               onPressed: () async {
-                final confirmed = await confirmDialog(context, 'خروج از حساب؟', 'برای ورود دوباره، شماره موبایل و رمزتان را لازم دارید.', confirmLabel: 'خروج', danger: true);
+                final confirmed = await confirmDialog(context, 'خروج از حساب؟', 'خروج، نشست این گوشی را پاک می‌کند و ورود بعدی به رمز یا کد پیامکی نیاز دارد. برای ورود دوباره با اثر انگشت از «قفل برنامه» استفاده کنید.', confirmLabel: 'خروج', danger: true);
                 if (!confirmed) return;
                 await logoutServer();
                 if (context.mounted) {

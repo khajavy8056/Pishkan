@@ -25,6 +25,27 @@ Future<AppConfig?> fetchAppConfig() async {
   }
 }
 
+/// Same public achievement counters and manager-editable labels as the site.
+/// Cache only public statistics, never the customer-specific catalog in bootstrap.
+Future<Map<String, dynamic>> fetchPublicAchievements() async {
+  try {
+    final data = asMap(await api.getData('/api/public/bootstrap'));
+    final settings = asMap(data['settings']);
+    final result = <String, dynamic>{
+      'stats': asMap(data['stats']),
+      'show': settings['landing.show_stats'],
+      'customersText': settings['landing.stat_customers'],
+      'customersLabel': settings['landing.stat_customers_label'],
+      'hours': settings['office.working_hours'],
+    };
+    await JsonCache.put('public-achievements', result);
+    return result;
+  } catch (_) {
+    final cached = await JsonCache.get('public-achievements');
+    return cached == null ? <String, dynamic>{} : asMap(cached.value);
+  }
+}
+
 Future<List<StoryGroup>> fetchStories() async {
   try {
     final data = await api.getData('/api/app/stories');

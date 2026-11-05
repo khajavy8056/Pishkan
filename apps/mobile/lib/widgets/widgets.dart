@@ -250,35 +250,32 @@ class ErrorView extends StatelessWidget {
   }
 }
 
-/// An emoji/icon medallion for services & categories (icons come from the
-/// backend as emoji, exactly like the web panels). Pass [artwork] for the
-/// smart per-service art (admin emoji honoured, keyword fallback).
+/// A service pictogram, with a photo backdrop where available. An explicitly
+/// uploaded icon takes precedence; no catalog text is rendered as emoji.
 class IconMedallion extends StatelessWidget {
-  const IconMedallion({super.key, this.icon = '', this.artwork, this.size = 52, this.color});
-  final String icon;
+  const IconMedallion({super.key, this.artwork, this.size = 52, this.color});
   final ServiceArtwork? artwork;
   final double size;
   final Color? color;
 
   @override
   Widget build(BuildContext context) {
-    final emoji = artwork?.emoji ?? icon;
     final tint = color ?? artwork?.color ?? PishkanColors.primary;
-    final isEmoji = emoji.isNotEmpty && !emoji.startsWith('http');
-    return Container(
-      width: size,
-      height: size,
-      decoration: BoxDecoration(
-        gradient: LinearGradient(colors: [tint.withOpacity(0.18), tint.withOpacity(0.06)], begin: Alignment.topRight, end: Alignment.bottomLeft),
-        borderRadius: BorderRadius.circular(size * 0.34),
-        border: Border.all(color: tint.withOpacity(0.10)),
+    final radius = BorderRadius.circular(size * 0.30);
+    if (artwork?.imageUrl.isNotEmpty == true) {
+      return ClipRRect(borderRadius: radius, child: AuthImage(url: artwork!.imageUrl, width: size, height: size));
+    }
+    return ClipRRect(
+      borderRadius: radius,
+      child: Container(
+        width: size, height: size,
+        decoration: BoxDecoration(color: tint.withOpacity(0.11)),
+        child: Stack(fit: StackFit.expand, children: [
+          if (artwork?.assetPath.isNotEmpty == true)
+            Opacity(opacity: 0.25, child: Image.asset(artwork!.assetPath, fit: BoxFit.cover)),
+          Center(child: Icon(artwork?.icon ?? Icons.grid_view_rounded, color: tint, size: size * 0.52)),
+        ]),
       ),
-      alignment: Alignment.center,
-      child: artwork != null && artwork!.imageUrl.isNotEmpty
-          ? ClipRRect(borderRadius: BorderRadius.circular(size * 0.30), child: AuthImage(url: artwork!.imageUrl, width: size, height: size))
-          : isEmoji
-              ? Text(emoji, style: TextStyle(fontSize: size * 0.46))
-              : Icon(Icons.grid_view_rounded, color: tint, size: size * 0.5),
     );
   }
 }

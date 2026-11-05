@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 
 import '../core/api.dart';
@@ -6,6 +8,7 @@ import '../core/format.dart';
 import '../core/theme.dart';
 import '../models/models.dart';
 import '../services/services.dart';
+import '../services/notifier.dart' show AppPrefs;
 import '../widgets/widgets.dart';
 import 'home_shell.dart';
 import 'server_setup.dart';
@@ -48,16 +51,20 @@ class _LoginScreenState extends State<LoginScreen> {
     fetchAppConfig().then((config) {
       if (mounted) setState(() => _config = config);
     });
-    // Fingerprint unlock only makes sense with a stored session on device.
-    if (session.isSignedIn) {
-      BiometricAuth.isAvailable().then((ok) {
-        if (mounted) setState(() => _canBiometric = ok);
-      });
-    }
+    // Storage can finish after the first screen on slow devices. Listen for
+    // that completion so a valid saved session still offers biometric unlock.
+    session.addListener(_refreshBiometric);
+    _refreshBiometric();
+  }
+
+  Future<void> _refreshBiometric() async {
+    final available = session.isSignedIn && await AppPrefs.biometricEnabled() && await BiometricAuth.isAvailable();
+    if (mounted) setState(() => _canBiometric = available && session.isSignedIn);
   }
 
   @override
   void dispose() {
+    session.removeListener(_refreshBiometric);
     for (final c in [_identifier, _password, _mobile, _code, _fullName, _nationalId, _newPassword]) {
       c.dispose();
     }
@@ -97,9 +104,18 @@ class _LoginScreenState extends State<LoginScreen> {
     final ok = await BiometricAuth.authenticate();
     if (!ok || !mounted) return;
     await _run(() async {
-      await fetchMe();
-      await registerDevice();
-      if (mounted) _goHome();
+      try {
+        await fetchMe().timeout(const Duration(seconds: 6));
+      } on ApiException catch (error) {
+        // A revoked/expired session must never be unlocked locally.
+        if (error.statusCode == 401) rethrow;
+        if (error.statusCode != null) rethrow;
+      } on TimeoutException catch (_) {
+        // Open cached sections after a successful biometric check; actions
+        // still require confirmation from the server.
+      }
+      unawaited(registerDevice());
+      if (mounted && session.isSignedIn) _goHome();
     });
   }
 
@@ -215,8 +231,6 @@ class _LoginScreenState extends State<LoginScreen> {
           if (_mode != _Mode.reset) _modeSwitcher(config),
           const SizedBox(height: 18),
           _form(config),
-          const SizedBox(height: 14),
-          const Text('این اپ ویژهٔ مشتریان است؛ همکاران دفتر از پنل وب وارد شوند.', textAlign: TextAlign.center, style: TextStyle(fontSize: 11.5, color: PishkanColors.mutedText)),
         ]),
       ),
     );

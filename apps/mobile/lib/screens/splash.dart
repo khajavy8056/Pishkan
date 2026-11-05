@@ -48,6 +48,9 @@ class _SplashScreenState extends State<SplashScreen> {
 
   Future<void> _bootSteps() async {
     await Future<void>.delayed(const Duration(milliseconds: 350));
+    // main() paints promptly even if secure storage is slow. Give the same
+    // in-flight load a little longer before deciding the user has no session.
+    try { await session.load().timeout(const Duration(seconds: 5)); } catch (_) {}
     if (!mounted) return;
 
     if (!session.hasServer) {
@@ -88,7 +91,11 @@ class _SplashScreenState extends State<SplashScreen> {
     }
 
     // Optional fingerprint lock before showing any personal data.
-    if (await AppPrefs.biometricEnabled() && await BiometricAuth.isAvailable()) {
+    if (await AppPrefs.biometricEnabled()) {
+      if (!await BiometricAuth.isAvailable()) {
+        if (mounted) _go(const LoginScreen(lockMessage: 'برای ادامه، با رمز عبور وارد شوید.'));
+        return;
+      }
       final unlocked = await BiometricAuth.authenticate();
       if (!mounted) return;
       if (!unlocked) {

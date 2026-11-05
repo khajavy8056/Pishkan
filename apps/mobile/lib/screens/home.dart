@@ -39,6 +39,8 @@ class _HomeTabState extends State<HomeTab> {
   List<StoryGroup> _groups = [];
   Set<String> _seenGroups = {};
   List<CatalogService> _services = [];
+  List<ServiceCategory> _categories = [];
+  Map<String, dynamic> _achievements = {};
   List<ServiceRequestSummary> _recent = [];
   bool _loadingServices = true;
 
@@ -76,6 +78,12 @@ class _HomeTabState extends State<HomeTab> {
       fetchServices().then((services) {
         if (mounted) setState(() { _services = services; _loadingServices = false; });
       }).catchError((_) { if (mounted) setState(() => _loadingServices = false); }),
+      fetchCategories().then((categories) {
+        if (mounted) setState(() => _categories = categories);
+      }).catchError((_) {}),
+      fetchPublicAchievements().then((data) {
+        if (mounted) setState(() => _achievements = data);
+      }),
       fetchMyRequests().then((result) {
         if (mounted) setState(() => _recent = result.items);
       }).catchError((_) { /* Preserve the cached requests. */ }),
@@ -143,10 +151,22 @@ class _HomeTabState extends State<HomeTab> {
             _sectionTitle('دسترسی سریع'),
             const SizedBox(height: 10),
             _quickAccess(),
+            if (_categories.isNotEmpty) ...[
+              const SizedBox(height: 20),
+              _sectionTitle('دسته‌بندی خدمات', action: 'مشاهده همه', onAction: () => widget.onOpenTab(1)),
+              const SizedBox(height: 10),
+              _categoryRail(),
+            ],
             const SizedBox(height: 20),
             _sectionTitle('خدمات محبوب', action: 'مشاهده همه', onAction: () => widget.onOpenTab(1)),
             const SizedBox(height: 12),
             _popularServices(),
+            if (_achievements.isNotEmpty && _achievements['show'] != false && '${_achievements['show']}' != 'false' && asMap(_achievements['stats']).isNotEmpty) ...[
+              const SizedBox(height: 20),
+              _sectionTitle('پیشخوان در یک نگاه'),
+              const SizedBox(height: 10),
+              _achievementCard(),
+            ],
             if (_recent.isNotEmpty) ...[
               const SizedBox(height: 20),
               _sectionTitle('آخرین درخواست‌های شما', action: 'مشاهده همه', onAction: () => widget.onOpenTab(2)),
@@ -348,6 +368,50 @@ class _HomeTabState extends State<HomeTab> {
       const SizedBox(width: 10),
       tile(Icons.headset_mic_rounded, PishkanColors.pastelOrange, const Color(0xFFF97316), 'پشتیبانی', () => Navigator.push(context, MaterialPageRoute(builder: (_) => const SupportTab()))),
     ]);
+  }
+
+  Widget _categoryRail() {
+    return SizedBox(
+      height: 120,
+      child: ListView.separated(
+        scrollDirection: Axis.horizontal,
+        itemCount: _categories.length,
+        separatorBuilder: (_, _) => const SizedBox(width: 9),
+        itemBuilder: (context, index) {
+          final category = _categories[index];
+          final art = artworkFor(explicitIcon: category.icon, title: category.title, slug: category.slug);
+          return SizedBox(width: 105, child: SoftCard(
+            padding: const EdgeInsets.all(9),
+            onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => ServicesCatalogTab(initialCategorySlug: category.slug, showBack: true))),
+            child: Column(mainAxisAlignment: MainAxisAlignment.center, children: [
+              IconMedallion(artwork: art, size: 44),
+              const SizedBox(height: 6),
+              Text(category.title, maxLines: 2, overflow: TextOverflow.ellipsis, textAlign: TextAlign.center, style: const TextStyle(fontSize: 10.5, fontWeight: FontWeight.w700, height: 1.35)),
+            ]),
+          ));
+        },
+      ),
+    );
+  }
+
+  Widget _achievementCard() {
+    final stats = asMap(_achievements['stats']);
+    final customCustomers = asStr(_achievements['customersText']).trim();
+    final customerLabel = asStr(_achievements['customersLabel']).trim();
+    final hours = asStr(_achievements['hours']).trim();
+    Widget item(IconData icon, String value, String label) => Expanded(child: Column(children: [
+      Icon(icon, color: PishkanColors.primary, size: 21),
+      const SizedBox(height: 6),
+      Text(value, textAlign: TextAlign.center, maxLines: 2, overflow: TextOverflow.ellipsis, style: const TextStyle(fontSize: 11.5, fontWeight: FontWeight.w800, color: PishkanColors.navy)),
+      const SizedBox(height: 2),
+      Text(label, textAlign: TextAlign.center, maxLines: 2, overflow: TextOverflow.ellipsis, style: const TextStyle(fontSize: 10, color: PishkanColors.mutedText)),
+    ]));
+    return SoftCard(child: Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
+      item(Icons.verified_user_outlined, 'امن و قابل اعتماد', 'با استانداردهای روز'),
+      item(Icons.grid_view_rounded, '${faDigits('${asNum(stats['services']).toInt()}')}+', 'خدمت متنوع'),
+      item(Icons.people_outline_rounded, customCustomers.isNotEmpty ? customCustomers : '${faDigits('${asNum(stats['customers']).toInt()}')}+', customerLabel.isNotEmpty ? customerLabel : 'مشتری همراه'),
+      item(Icons.support_agent_rounded, 'پشتیبانی', hours.isNotEmpty ? hours : 'در تمام روزهای هفته'),
+    ]));
   }
 
   Widget _popularServices() {

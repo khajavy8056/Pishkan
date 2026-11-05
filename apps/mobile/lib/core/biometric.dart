@@ -20,7 +20,7 @@ class BiometricAuth {
     try {
       return await _auth.authenticate(
         localizedReason: 'برای ورود به حساب پیشخوان، هویت خود را تأیید کنید.',
-        options: const AuthenticationOptions(stickyAuth: true, biometricOnly: false),
+        options: const AuthenticationOptions(stickyAuth: true, biometricOnly: true),
       );
     } catch (_) {
       return false;

@@ -14,7 +14,9 @@ import 'service_detail.dart';
 /// from the backend catalog; the service layer keeps the last good copy
 /// cached for weak networks.
 class ServicesCatalogTab extends StatefulWidget {
-  const ServicesCatalogTab({super.key});
+  const ServicesCatalogTab({super.key, this.initialCategorySlug = '', this.showBack = false});
+  final String initialCategorySlug;
+  final bool showBack;
 
   @override
   State<ServicesCatalogTab> createState() => _ServicesCatalogTabState();
@@ -31,6 +33,7 @@ class _ServicesCatalogTabState extends State<ServicesCatalogTab> {
   @override
   void initState() {
     super.initState();
+    _categorySlug = widget.initialCategorySlug;
     _loadAll();
   }
 
@@ -67,7 +70,7 @@ class _ServicesCatalogTabState extends State<ServicesCatalogTab> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: const Text('همهٔ خدمات'), automaticallyImplyLeading: false),
+      appBar: AppBar(title: const Text('خدمات'), automaticallyImplyLeading: widget.showBack),
       body: RefreshIndicator(
         onRefresh: _loadAll,
         child: ListView(padding: const EdgeInsets.fromLTRB(16, 4, 16, 18), children: [
@@ -103,13 +106,14 @@ class _ServicesCatalogTabState extends State<ServicesCatalogTab> {
   }
 
   Widget _categoryChips() {
-    Widget chip(String slug, String label, String emoji) {
+    Widget chip(String slug, String label, IconData glyph) {
       final active = _categorySlug == slug;
       return Padding(
         padding: const EdgeInsets.only(left: 8),
         child: ChoiceChip(
           selected: active,
-          label: Text('${emoji.isNotEmpty ? '$emoji ' : ''}$label', style: TextStyle(fontSize: 12, fontWeight: active ? FontWeight.w800 : FontWeight.w600, color: active ? Colors.white : PishkanColors.navy)),
+          avatar: Icon(glyph, size: 16, color: active ? Colors.white : PishkanColors.primary),
+          label: Text(label, style: TextStyle(fontSize: 12, fontWeight: active ? FontWeight.w800 : FontWeight.w600, color: active ? Colors.white : PishkanColors.navy)),
           selectedColor: PishkanColors.primary,
           backgroundColor: Colors.white,
           side: BorderSide(color: active ? PishkanColors.primary : const Color(0xFFE2E8F0)),
@@ -125,8 +129,8 @@ class _ServicesCatalogTabState extends State<ServicesCatalogTab> {
     return SingleChildScrollView(
       scrollDirection: Axis.horizontal,
       child: Row(children: [
-        chip('', 'همه', '✨'),
-        for (final category in _categories) chip(category.slug, category.title, artworkFor(explicitIcon: category.icon, title: category.title, slug: category.slug).emoji),
+        chip('', 'همه', Icons.grid_view_rounded),
+        for (final category in _categories) chip(category.slug, category.title, artworkFor(explicitIcon: category.icon, title: category.title, slug: category.slug).icon),
       ]),
     );
   }

@@ -67,14 +67,15 @@ class _ServiceDetailScreenState extends State<ServiceDetailScreen> {
   }
 
   Widget _banner(ServiceArtwork art) {
-    final hasBanner = service.bannerUrl.isNotEmpty;
+    final useLocalArt = art.assetPath.isNotEmpty && (service.bannerUrl.isEmpty || isLegacyDefaultServiceImage(service.bannerUrl));
+    final hasBanner = service.bannerUrl.isNotEmpty && !useLocalArt;
     return SizedBox(
       height: 300,
       child: Stack(children: [
         Positioned.fill(
           child: hasBanner
               ? AuthImage(url: service.bannerUrl, fit: BoxFit.cover)
-              : _bannerArt(art),
+              : useLocalArt ? Image.asset(art.assetPath, fit: BoxFit.cover) : _bannerArt(art),
         ),
         SafeArea(
           child: Padding(
@@ -130,7 +131,7 @@ class _ServiceDetailScreenState extends State<ServiceDetailScreen> {
           end: Alignment.bottomLeft,
         ),
       ),
-      child: Center(child: Text(art.emoji, style: const TextStyle(fontSize: 84))),
+      child: Center(child: Icon(art.icon, size: 84, color: Colors.white)),
     );
   }
 
