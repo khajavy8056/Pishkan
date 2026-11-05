@@ -82,7 +82,7 @@ export function CustomerDocuments() {
     setBusy(true);
     try {
       const uploaded = await api.upload<{ data: { id: string; processing: { status: string }; savingsPercent: number; notes?: string[] } }>(
-        '/api/files/upload', selectedFile, { purpose: 'profile_document' },
+        '/api/files/upload', selectedFile, { purpose: 'profile_document', documentQuality: 'true' },
       );
       const created = await api.post<{ data: CustomerDocument }>('/api/documents/mine', {
         fileId: uploaded.data.id,

@@ -1,8 +1,10 @@
 import 'dart:io';
+import 'dart:async';
 
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:image_picker/image_picker.dart';
 
 import '../core/service_icons.dart';
@@ -10,7 +12,12 @@ import '../core/stages.dart';
 import '../core/theme.dart';
 import '../services/services.dart';
 
+Future<void> playAppSound(String kind) async {
+  try { await const MethodChannel('ir.pishkan.app/sounds').invokeMethod<void>('play', {'kind': kind}); } catch (_) { /* optional platform feedback */ }
+}
+
 void showSnack(BuildContext context, String message, {bool error = false}) {
+  if (error) unawaited(playAppSound('error'));
   ScaffoldMessenger.of(context).showSnackBar(SnackBar(
     content: Text(message, style: const TextStyle(fontFamily: 'Vazirmatn')),
     backgroundColor: error ? PishkanColors.danger : PishkanColors.navy,
@@ -519,5 +526,41 @@ class StageTimeline extends StatelessWidget {
         ),
       ]),
     );
+  }
+}
+
+/// Explicit consent and a user-selected type; storing the file does not imply
+/// approval. A failure here must not undo the already uploaded request file.
+Future<void> offerSaveProfileDocument(BuildContext context, String fileId, String title) async {
+  final save = await confirmDialog(context, 'ذخیره در مدارک پروفایل؟',
+      'می‌خواهید این مدرک برای استفاده بعدی در پروفایل شما ذخیره شود؟ مدرک تا بررسی کارشناس تأییدشده نیست.', confirmLabel: 'انتخاب نوع و ذخیره');
+  if (!save || !context.mounted) return;
+  try {
+    final result = await fetchMyDocuments();
+    if (!context.mounted) return;
+    final types = asMapList(result['types']);
+    if (types.isEmpty) {
+      showSnack(context, 'نوع مدرک برای ذخیره در پروفایل موجود نیست.', error: true);
+      return;
+    }
+    final type = await showModalBottomSheet<String>(
+      context: context,
+      isScrollControlled: true,
+      builder: (ctx) => SafeArea(child: SizedBox(
+        height: MediaQuery.sizeOf(ctx).height * .65,
+        child: Column(children: [
+          const Padding(padding: EdgeInsets.all(16), child: Text('نوع مدرک را انتخاب کنید', style: TextStyle(fontWeight: FontWeight.w800))),
+          Expanded(child: ListView(children: [
+            for (final item in types)
+              ListTile(title: Text(asStr(item['label'])), onTap: () => Navigator.pop(ctx, asStr(item['code']))),
+          ])),
+        ]),
+      )),
+    );
+    if (type == null || type.isEmpty || !context.mounted) return;
+    await api.postData('/api/documents/mine', body: {'fileId': fileId, 'docType': type, 'title': title});
+    if (context.mounted) showSnack(context, 'مدرک در پروفایل ذخیره شد و در انتظار بررسی است.');
+  } catch (_) {
+    if (context.mounted) showSnack(context, 'ذخیره در پروفایل انجام نشد؛ فایل درخواست همچنان موجود است.', error: true);
   }
 }

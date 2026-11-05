@@ -321,8 +321,8 @@ Future<void> cancelRequest(String requestId, String reason) async {
   await api.postData('/api/requests/$requestId/cancel', body: {'reason': reason});
 }
 
-Future<String> uploadOne(File file) async {
-  final result = await api.uploadFile(file);
+Future<String> uploadOne(File file, {bool documentQuality = false}) async {
+  final result = await api.uploadFile(file, documentQuality: documentQuality);
   return asStr(result['id']);
 }
 

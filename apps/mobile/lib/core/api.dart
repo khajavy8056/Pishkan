@@ -92,12 +92,12 @@ class ApiClient {
   }
 
   /// Upload one file to the central secure file store. Returns the file id.
-  Future<Map<String, dynamic>> uploadFile(File file, {String purpose = 'document'}) async {
+  Future<Map<String, dynamic>> uploadFile(File file, {String purpose = 'document', bool documentQuality = false}) async {
     final name = file.path.split(Platform.pathSeparator).last;
     final form = FormData.fromMap({
       'file': await MultipartFile.fromFile(file.path, filename: name),
     });
-    final response = await _send(() => _client.post('/api/files/upload', data: form, queryParameters: {'purpose': purpose}));
+    final response = await _send(() => _client.post('/api/files/upload', data: form, queryParameters: {'purpose': purpose, if (documentQuality) 'documentQuality': 'true'}));
     final data = response['data'];
     if (data is Map) return Map<String, dynamic>.from(data);
     throw ApiException('پاسخ نامعتبر هنگام بارگذاری فایل');

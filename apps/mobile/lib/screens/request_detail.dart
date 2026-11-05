@@ -1,3 +1,6 @@
+import 'dart:io';
+
+import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:open_filex/open_filex.dart';
 import 'package:path_provider/path_provider.dart';
@@ -90,8 +93,9 @@ class _RequestDetailScreenState extends State<RequestDetailScreen> with WidgetsB
     final file = await pickDocumentFile(context);
     if (file == null) return;
     await _guard(() async {
-      final fileId = await uploadOne(file);
+      final fileId = await uploadOne(file, documentQuality: true);
       await addRequestDocument(widget.requestId, fileId: fileId, title: title, requirementKey: requirementKey);
+      if (mounted) await offerSaveProfileDocument(context, fileId, title);
     }, success: 'مدرک ارسال شد.');
   }
 
@@ -142,6 +146,24 @@ class _RequestDetailScreenState extends State<RequestDetailScreen> with WidgetsB
       final path = '${dir.path}/$name';
       await api.downloadTo(doc.originalUrl.isEmpty ? '/api/files/${doc.fileId}?variant=original' : doc.originalUrl, path);
       await OpenFilex.open(path);
+    });
+  }
+
+  Future<void> _saveDeliveredDocument(RequestDocument doc) async {
+    await _guard(() async {
+      final directory = await Directory.systemTemp.createTemp('pishkan-export-');
+      try {
+        final rawName = asStr(doc.file['name']).split(RegExp(r'[/\\]')).last;
+        final name = rawName.replaceAll(RegExp(r'[\x00-\x1f\x7f]'), '').trim();
+        final safeName = name.isEmpty || name == '.' || name == '..' ? 'pishkan-file' : name;
+        final temp = File('${directory.path}/download');
+        await api.downloadTo('/api/files/${Uri.encodeComponent(doc.fileId)}?variant=original&download=true', temp.path);
+        final bytes = await temp.readAsBytes();
+        final saved = await FilePicker.platform.saveFile(dialogTitle: 'ذخیره فایل تحویلی', fileName: safeName, bytes: bytes);
+        if (saved != null && mounted) showSnack(context, 'فایل در محل انتخاب‌شده ذخیره شد.');
+      } finally {
+        await directory.delete(recursive: true);
+      }
     });
   }
 
@@ -269,7 +291,10 @@ class _RequestDetailScreenState extends State<RequestDetailScreen> with WidgetsB
                   : const Icon(Icons.insert_drive_file_rounded, color: PishkanColors.primary, size: 30),
               title: Text(doc.title, style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 13)),
               subtitle: Text(faFileSize(doc.size)),
-              trailing: FilledButton.tonal(onPressed: _busy ? null : () => _openDocument(doc), child: const Text('مشاهده / دانلود')),
+              trailing: Row(mainAxisSize: MainAxisSize.min, children: [
+                IconButton(tooltip: 'مشاهده', onPressed: _busy ? null : () => _openDocument(doc), icon: const Icon(Icons.visibility_outlined)),
+                IconButton(tooltip: 'ذخیره فایل', onPressed: _busy ? null : () => _saveDeliveredDocument(doc), icon: const Icon(Icons.download_rounded)),
+              ]),
             ),
         ]),
       ),

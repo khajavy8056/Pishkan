@@ -61,7 +61,18 @@ class AppNotificationEvent {
   final String stageLabel;
 
   bool get isStory => link == '/app/stories';
-  bool get isMessage => link.contains('messages') || link.contains('support') || link.startsWith('chat:');
+  bool get isMessage => link.contains('messages') || link.contains('support') || link.startsWith('chat:') || title.contains('پیام') || title.contains('یادداشت');
+  bool get isInvoice => link.contains('invoice') || '$title $body'.contains('فاکتور') || '$title $body'.contains('صورتحساب');
+
+  /// Android identifies a notification by BOTH id and tag. Using the full,
+  /// account-scoped key as a tag avoids persistent hash collisions and lets
+  /// request stages replace one another without swallowing invoices/messages.
+  String notificationTag(String server, String userId) {
+    final entity = requestId != null && !isMessage && !isInvoice && !isStory
+        ? 'request:${requestId!}'
+        : 'event:$id';
+    return 'pishkan:$server:$userId:$entity';
+  }
   String? get requestId {
     final match = RegExp(r'requests/([A-Za-z0-9_-]+)').firstMatch(link);
     return match?.group(1);
@@ -107,10 +118,12 @@ class NotifierService {
   static bool _ready = false;
   static void Function(String link)? onTapLink;
 
-  static const _requestsChannel = 'pishkan_requests';
-  static const _messagesChannel = 'pishkan_messages';
-  static const _storiesChannel = 'pishkan_stories';
-  static const _generalChannel = 'pishkan_general';
+  // New IDs are needed because Android retains each channel's original sound.
+  static const _requestsChannel = 'pishkan_requests_v2';
+  static const _messagesChannel = 'pishkan_messages_v2';
+  static const _storiesChannel = 'pishkan_stories_v2';
+  static const _invoiceChannel = 'pishkan_invoices_v2';
+  static const _generalChannel = 'pishkan_general_v2';
 
   static String? _pendingLaunchPayload;
 
@@ -159,32 +172,38 @@ class NotifierService {
   /// nothing appears twice). Returns the fresh events either way.
   static Future<List<AppNotificationEvent>> checkForUpdates({required bool systemNotifications}) async {
     if (!session.hasServer || !session.isSignedIn) return const [];
+    final server = session.serverUrl;
+    final userId = session.userId;
     Map<String, dynamic> feed;
     try {
       feed = await fetchNotifications(limit: 30);
     } catch (_) {
       return const [];
     }
+    if (!session.isSignedIn || session.serverUrl != server || session.userId != userId) return const [];
     final items = (feed['items'] as List).cast<Map<String, dynamic>>();
     final prefs = await SharedPreferences.getInstance();
+    final scope = '$server:$userId';
+    final seenKey = '$_seenIdsKey:$scope';
+    final baselineKey = '$_baselineKey:$scope';
 
     // First ever successful poll: record everything as "already known" so a
     // fresh install is not flooded with historical notifications.
-    if (!(prefs.getBool(_baselineKey) ?? false)) {
-      await prefs.setString(_seenIdsKey, jsonEncode(items.map((n) => asStr(n['id'])).toList()));
-      await prefs.setBool(_baselineKey, true);
+    if (!(prefs.getBool(baselineKey) ?? false)) {
+      await prefs.setString(seenKey, jsonEncode(items.map((n) => asStr(n['id'])).toList()));
+      await prefs.setBool(baselineKey, true);
       return const [];
     }
 
     List<String> seenList = [];
     try {
-      seenList = (jsonDecode(prefs.getString(_seenIdsKey) ?? '[]') as List).map((e) => e.toString()).toList();
+      seenList = (jsonDecode(prefs.getString(seenKey) ?? '[]') as List).map((e) => e.toString()).toList();
     } catch (_) {}
     final seen = seenList.toSet();
 
     final fresh = items.where((n) => !seen.contains(asStr(n['id'])) && asStr(n['readAt']).isEmpty).toList();
     if (fresh.isEmpty) {
-      await _remember(prefs, items);
+      await _remember(prefs, items, seenKey);
       return const [];
     }
 
@@ -224,31 +243,57 @@ class NotifierService {
       }
     }
 
+    if (!session.isSignedIn || session.serverUrl != server || session.userId != userId) return const [];
     if (systemNotifications && await AppPrefs.notificationsEnabled()) {
       await init();
       for (final event in events) {
         await _showSystem(event);
       }
     }
-    await _remember(prefs, items);
+    await _remember(prefs, items, seenKey);
     return events;
   }
 
-  static Future<void> _remember(SharedPreferences prefs, List<Map<String, dynamic>> items) async {
+  static Future<void> _remember(SharedPreferences prefs, List<Map<String, dynamic>> items, String seenKey) async {
     List<String> previous = [];
     try {
-      previous = (jsonDecode(prefs.getString(_seenIdsKey) ?? '[]') as List).map((e) => e.toString()).toList();
+      previous = (jsonDecode(prefs.getString(seenKey) ?? '[]') as List).map((e) => e.toString()).toList();
     } catch (_) {}
     final merged = <String>{...items.map((n) => asStr(n['id'])), ...previous}.toList();
-    await prefs.setString(_seenIdsKey, jsonEncode(merged.take(300).toList()));
+    await prefs.setString(seenKey, jsonEncode(merged.take(300).toList()));
+  }
+
+  // The plugin also uses the numeric id as Android's tap PendingIntent request
+  // code. Allocate it per full tag (rather than reusing 0) so different tray
+  // items retain their own deep links. The tag remains the collision-free key.
+  static Future<int> _notificationId(String tag) async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.reload();
+    var hash = 2166136261;
+    for (final unit in utf8.encode(tag)) {
+      hash = ((hash ^ unit) * 16777619) & 0x7fffffff;
+    }
+    var candidate = hash;
+    while (true) {
+      final key = 'pishkan.notif.androidId.$candidate';
+      final existing = prefs.getString(key);
+      if (existing == null || existing == tag) {
+        if (existing == null) await prefs.setString(key, tag);
+        return candidate;
+      }
+      candidate = (candidate + 1) & 0x7fffffff;
+    }
   }
 
   static Future<void> _showSystem(AppNotificationEvent event) async {
-    final (channelId, channelName, channelDescription) = switch ((event.isStory, event.isMessage, event.requestId != null)) {
-      (true, _, _) => (_storiesChannel, 'استوری و اطلاعیه‌ها', 'استوری تازه و اطلاعیه‌های دفتر'),
-      (_, true, _) => (_messagesChannel, 'پیام‌ها', 'پاسخ‌های گفتگو و تیکت پشتیبانی'),
-      (_, _, true) => (_requestsChannel, 'تغییرات پرونده‌ها', 'مرحلهٔ تازهٔ درخواست‌ها همراه نوار پیشرفت'),
-      _ => (_generalChannel, 'اطلاع‌رسانی سامانه', 'اعلان‌های عمومی پیشخوان'),
+    final tag = event.notificationTag(session.serverUrl, session.userId);
+    final notificationId = await _notificationId(tag);
+    final (channelId, channelName, channelDescription, sound) = switch ((event.isStory, event.isMessage, event.isInvoice, event.requestId != null)) {
+      (true, _, _, _) => (_storiesChannel, 'استوری و اطلاعیه‌ها', 'استوری تازه و اطلاعیه‌های دفتر', 'notice_soft'),
+      (_, true, _, _) => (_messagesChannel, 'پیام‌ها', 'پاسخ‌های گفتگو و تیکت پشتیبانی', 'message_soft'),
+      (_, _, true, _) => (_invoiceChannel, 'فاکتورها', 'فاکتورها و وضعیت پرداخت', 'invoice_soft'),
+      (_, _, _, true) => (_requestsChannel, 'تغییرات پرونده‌ها', 'مرحلهٔ تازهٔ درخواست‌ها همراه نوار پیشرفت', 'notice_soft'),
+      _ => (_generalChannel, 'اطلاع‌رسانی سامانه', 'اعلان‌های عمومی پیشخوان', 'notice_soft'),
     };
     final progressValue = event.progress == null ? 0 : (event.progress! * 100).round();
     final bodyText = event.progress == null
@@ -261,6 +306,9 @@ class NotifierService {
       importance: Importance.high,
       priority: Priority.high,
       icon: 'ic_stat_pishkan',
+      largeIcon: const DrawableResourceAndroidBitmap('ic_notif_large'),
+      tag: tag,
+      sound: RawResourceAndroidNotificationSound(sound),
       color: PishkanColors.primary,
       showProgress: event.progress != null,
       maxProgress: 100,
@@ -270,7 +318,7 @@ class NotifierService {
       ticker: event.title,
     );
     await _plugin.show(
-      event.id.hashCode & 0x7fffffff,
+      notificationId,
       event.title,
       event.body.isEmpty ? event.stageLabel : event.body,
       NotificationDetails(android: details),

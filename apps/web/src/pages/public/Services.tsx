@@ -327,11 +327,11 @@ export function ServiceDetailPage({ variant = 'public' }: { variant?: 'public' |
     setUploadingFiles((current) => ({ ...current, [requirement.key]: true }));
     try {
       const uploaded = await api.upload<{ data: { id: string; name: string; processing: { status: string }; savingsPercent: number } }>(
-        '/api/files/upload', file, { purpose: 'document' },
+        '/api/files/upload', file, { purpose: 'document', documentQuality: 'true' },
       );
       setDocumentUploads((current) => ({ ...current, [requirement.key]: { fileId: uploaded.data.id, name: uploaded.data.name } }));
       setFieldErrors((current) => current.filter((error) => error.path !== `documents.${requirement.key}`));
-      notify(`مدرک «${requirement.title}» بارگذاری شد.`, 'success');
+      notify(`مدرک «${requirement.title}» دریافت شد؛ تأیید نهایی با کارشناس است.`, 'info');
     } catch (err) {
       notify(err instanceof ApiFailure ? err.message : 'بارگذاری مدرک ناموفق بود.', 'error');
     } finally {
@@ -667,7 +667,7 @@ export function ServiceDetailPage({ variant = 'public' }: { variant?: 'public' |
                       <Input type="file" accept=".jpg,.jpeg,.png,.webp,.pdf" disabled={Boolean(uploadingFiles[document.key])}
                         onChange={(event) => event.target.files?.[0] && void uploadServiceDocument(document, event.target.files[0])} />
                       {uploadingFiles[document.key] && <p className="mt-1 text-[11px] text-navy-500">در حال بارگذاری…</p>}
-                      {documentUploads[document.key] && <p className="mt-1 text-[11px] text-emerald-700">بارگذاری شد: {documentUploads[document.key].name}</p>}
+                      {documentUploads[document.key] && <p className="mt-1 text-[11px] text-navy-600">دریافت شد؛ در انتظار بررسی: {documentUploads[document.key].name}</p>}
                     </Field>
                   ))}
                 </div>

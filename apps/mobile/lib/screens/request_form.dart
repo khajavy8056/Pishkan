@@ -93,9 +93,12 @@ class _RequestFormScreenState extends State<RequestFormScreen> {
     if (file == null) return;
     setState(() => _uploading.add(requirement.key));
     try {
-      final fileId = await uploadOne(file);
+      final fileId = await uploadOne(file, documentQuality: true);
       final name = file.path.split(Platform.pathSeparator).last;
-      if (mounted) setState(() => _requirementFiles[requirement.key] = (fileId: fileId, name: name));
+      if (mounted) {
+        setState(() => _requirementFiles[requirement.key] = (fileId: fileId, name: name));
+        await offerSaveProfileDocument(context, fileId, requirement.title);
+      }
     } on ApiException catch (error) {
       if (mounted) showSnack(context, error.message, error: true);
     } finally {
@@ -166,6 +169,7 @@ class _RequestFormScreenState extends State<RequestFormScreen> {
         idempotencyKey: _idempotencyKey,
       );
       if (!mounted) return;
+      playAppSound('success');
       setState(() {
         _createdRequestId = asStr(created['id']);
         _createdTrackingCode = asStr(created['trackingCode']);
@@ -310,15 +314,15 @@ class _RequestFormScreenState extends State<RequestFormScreen> {
     return Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
       Container(
         padding: const EdgeInsets.all(9),
-        decoration: BoxDecoration(color: (uploaded != null ? PishkanColors.success : PishkanColors.primary).withOpacity(0.12), shape: BoxShape.circle),
-        child: Icon(uploaded != null ? Icons.check_circle_rounded : Icons.cloud_upload_outlined, color: uploaded != null ? PishkanColors.success : PishkanColors.primary, size: 21),
+        decoration: BoxDecoration(color: PishkanColors.primary.withOpacity(0.12), shape: BoxShape.circle),
+        child: Icon(uploaded != null ? Icons.hourglass_top_rounded : Icons.cloud_upload_outlined, color: PishkanColors.primary, size: 21),
       ),
       const SizedBox(width: 10),
       Expanded(
         child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
           Text('${requirement.title}${requirement.required ? ' *' : ''}', style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 13)),
           if (requirement.description.isNotEmpty) Text(requirement.description, style: const TextStyle(fontSize: 11.5, color: PishkanColors.mutedText, height: 1.8)),
-          if (uploaded != null) Text(uploaded.name, style: const TextStyle(fontSize: 11, color: PishkanColors.success), overflow: TextOverflow.ellipsis),
+          if (uploaded != null) Text('${uploaded.name} — در انتظار بررسی کارشناس', style: const TextStyle(fontSize: 11, color: PishkanColors.primary), overflow: TextOverflow.ellipsis),
         ]),
       ),
       busy

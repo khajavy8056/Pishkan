@@ -9,8 +9,7 @@ import '../services/services.dart';
 import '../widgets/widgets.dart';
 import 'service_detail.dart';
 
-/// «خدمات» tab (approved design): search pill, category chips, and a grid of
-/// circular per-service icons. Everything (titles, prices, order) comes
+/// «خدمات» tab: an image-led category chooser, followed by a service grid. Everything (titles, prices, order) comes
 /// from the backend catalog; the service layer keeps the last good copy
 /// cached for weak networks.
 class ServicesCatalogTab extends StatefulWidget {
@@ -87,8 +86,16 @@ class _ServicesCatalogTabState extends State<ServicesCatalogTab> {
             ),
           ),
           const SizedBox(height: 14),
-          _categoryChips(),
-          const SizedBox(height: 18),
+          if (_categorySlug.isEmpty && _categories.isNotEmpty) ...[
+            const SectionTitle(title: 'دسته‌بندی خدمات'),
+            _categoryGrid(),
+          ] else ...[
+          if (_categorySlug.isNotEmpty)
+            Align(alignment: Alignment.centerRight, child: TextButton.icon(
+              onPressed: () { setState(() { _categorySlug = ''; _services = []; }); _loadServices(); },
+              icon: const Icon(Icons.arrow_forward_rounded), label: const Text('همه دسته‌بندی‌ها'),
+            )),
+          const SizedBox(height: 8),
           if (_loading && _services.isEmpty)
             const Padding(padding: EdgeInsets.symmetric(vertical: 60), child: Center(child: CircularProgressIndicator()))
           else if (_error != null && _services.isEmpty)
@@ -100,38 +107,43 @@ class _ServicesCatalogTabState extends State<ServicesCatalogTab> {
             )
           else
             _grid(),
+          ],
         ]),
       ),
     );
   }
 
-  Widget _categoryChips() {
-    Widget chip(String slug, String label, IconData glyph) {
-      final active = _categorySlug == slug;
-      return Padding(
-        padding: const EdgeInsets.only(left: 8),
-        child: ChoiceChip(
-          selected: active,
-          avatar: Icon(glyph, size: 16, color: active ? Colors.white : PishkanColors.primary),
-          label: Text(label, style: TextStyle(fontSize: 12, fontWeight: active ? FontWeight.w800 : FontWeight.w600, color: active ? Colors.white : PishkanColors.navy)),
-          selectedColor: PishkanColors.primary,
-          backgroundColor: Colors.white,
-          side: BorderSide(color: active ? PishkanColors.primary : const Color(0xFFE2E8F0)),
-          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(999)),
-          onSelected: (_) {
-            setState(() { _categorySlug = slug; _services = []; });
-            _loadServices();
-          },
-        ),
-      );
-    }
-
-    return SingleChildScrollView(
-      scrollDirection: Axis.horizontal,
-      child: Row(children: [
-        chip('', 'همه', Icons.grid_view_rounded),
-        for (final category in _categories) chip(category.slug, category.title, artworkFor(explicitIcon: category.icon, title: category.title, slug: category.slug).icon),
-      ]),
+  Widget _categoryGrid() {
+    return GridView.count(
+      crossAxisCount: 2,
+      shrinkWrap: true,
+      physics: const NeverScrollableScrollPhysics(),
+      mainAxisSpacing: 12,
+      crossAxisSpacing: 12,
+      childAspectRatio: 1.18,
+      children: [
+        for (final category in _categories)
+          Builder(builder: (context) {
+            final art = artworkFor(explicitIcon: category.icon, title: category.title, slug: category.slug);
+            return InkWell(
+              borderRadius: BorderRadius.circular(20),
+              onTap: () { setState(() { _categorySlug = category.slug; _services = []; }); _loadServices(); },
+              child: ClipRRect(
+                borderRadius: BorderRadius.circular(20),
+                child: Stack(fit: StackFit.expand, children: [
+                  if (art.imageUrl.isNotEmpty)
+                    AuthImage(url: art.imageUrl)
+                  else if (art.assetPath.isNotEmpty)
+                    Image.asset(art.assetPath, fit: BoxFit.cover)
+                  else
+                    Container(color: art.color.withOpacity(0.25), child: Icon(art.icon, size: 50, color: art.color)),
+                  const DecoratedBox(decoration: BoxDecoration(gradient: LinearGradient(begin: Alignment.topCenter, end: Alignment.bottomCenter, colors: [Colors.transparent, Color(0xD9001935)]))),
+                  Positioned(left: 10, right: 10, bottom: 12, child: Text(category.title, maxLines: 2, overflow: TextOverflow.ellipsis, textAlign: TextAlign.center, style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w800, fontSize: 13))),
+                ]),
+              ),
+            );
+          }),
+      ],
     );
   }
 

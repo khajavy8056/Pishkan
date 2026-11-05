@@ -15,6 +15,7 @@ import { getNumber } from '../modules/settings/service.js';
 import { writeAudit } from '../modules/audit/service.js';
 import { param } from '../http/params.js';
 import { validateUploadContent } from '../modules/media/validation.js';
+import { checkDocumentPhoto } from '../modules/media/document-quality.js';
 import {
   ensureMediaDirs, fileAccessHistory, fileShape, getFile, ingestUpload, loadMediaConfig,
   logFileAccess, mediaStats, pruneOriginals, removeFileArtifacts, reprocessFile,
@@ -79,6 +80,11 @@ filesRouter.post('/upload', requireAuth, asyncRoute(async (req, res, next) => {
           allowedTypes: purpose === 'story' ? [...cfg.allowedTypes, 'mp4', 'webm'] : cfg.allowedTypes,
           imagePolicy: cfg.policy,
         });
+
+        if (['document', 'profile_document'].includes(purpose) && req.query.documentQuality === 'true' && validated.mime.startsWith('image/')) {
+          const quality = await checkDocumentPhoto(file.path);
+          if (!quality.ok) throw badRequest(quality.reason ?? 'تصویر مدرک خوانا نیست.');
+        }
 
         if (purpose === 'service' && !validated.mime.startsWith('image/')) throw badRequest('تصویر خدمت باید فایل تصویری باشد.');
 

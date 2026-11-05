@@ -1,4 +1,4 @@
-import { one, q, run, nowIso } from '../../db/index.js';
+import { one, q, run, tx, nowIso } from '../../db/index.js';
 import { id } from '../../lib/crypto.js';
 import { badRequest, notFound } from '../../http/errors.js';
 import { getBool, getString } from '../settings/service.js';
@@ -279,7 +279,7 @@ const DEFAULT_STORIES: Array<Omit<StoryInput, 'status'> & { sortOrder: number }>
   {
     groupTitle: 'اطلاعیه‌ها',
     title: 'پیگیری لحظه‌ای پرونده',
-    caption: 'در هر مرحله از انجام کارتان اعلان می‌گیرید و وضعیت پرونده را قدم‌به‌قدم در «درخواست‌های من» می‌بینید؛ درست مثل پیگیری سفر.',
+    caption: 'با بررسی دوره‌ای اعلان‌های تغییر وضعیت را دریافت می‌کنید و وضعیت پرونده را قدم‌به‌قدم در «درخواست‌های من» می‌بینید؛ درست مثل پیگیری سفر.',
     mediaType: 'image',
     mediaUrl: '/app-stories/story-tracking.jpg',
     durationSeconds: 7,
@@ -288,32 +288,53 @@ const DEFAULT_STORIES: Array<Omit<StoryInput, 'status'> & { sortOrder: number }>
   {
     groupTitle: 'راهنما',
     title: 'مدارکتان همیشه همراهتان',
-    caption: 'کارت ملی و مدارک مهمتان را یک بار در «مدارک من» نگه دارید تا در درخواست‌های بعدی با یک لمس پیوست شوند؛ امن و بدون بارگذاری دوباره.',
+    caption: 'کارت ملی و مدارک مهمتان را یک بار در «مدارک من» نگه دارید تا پس از تأیید کارشناس در درخواست‌های بعدی دوباره از آنها استفاده کنید.',
     mediaType: 'image',
     mediaUrl: '/app-stories/story-documents.jpg',
     durationSeconds: 7,
     sortOrder: 4,
   },
+  {
+    groupTitle: 'خدمات جدید', title: 'آشنایی با خدمات پیشخوان',
+    caption: 'خدمت مورد نظرتان را از دسته‌بندی‌ها پیدا کنید و جزئیات آن را ببینید.',
+    mediaType: 'video', mediaUrl: '/app-stories/story-services-motion.mp4', durationSeconds: 7, sortOrder: 5,
+  },
+  {
+    groupTitle: 'راهنما', title: 'عکس واضح از مدارک',
+    caption: 'در نور کافی، بدون لرزش و از نزدیک عکس بگیرید. مدارک پس از ارسال به بررسی کارشناس نیاز دارند.',
+    mediaType: 'image', mediaUrl: '/app-stories/story-documents.jpg', durationSeconds: 7, sortOrder: 6,
+  },
+  {
+    groupTitle: 'راهنما', title: 'فایل تحویلی و پیام‌ها',
+    caption: 'در جزئیات درخواست، پیام کارشناس و فایل تحویلی را ببینید و فایل را در گوشی ذخیره کنید.',
+    mediaType: 'image', mediaUrl: '/app-stories/story-tracking.jpg', durationSeconds: 7, sortOrder: 7,
+  },
 ];
 
 export async function seedDefaultStories(log?: (message: string) => void) {
-  const count = await one<{ c: number }>('SELECT COUNT(*) AS c FROM app_stories');
-  if (Number(count?.c ?? 0) > 0) return 0;
-  const ts = nowIso();
-  for (const story of DEFAULT_STORIES) {
-    await run(
-      `INSERT INTO app_stories
-        (id, group_title, title, caption, media_type, file_id, media_url, link_url, link_label,
-         duration_seconds, sort_order, starts_at, expires_at, status, created_by, created_at, updated_at)
-       VALUES (?, ?, ?, ?, ?, NULL, ?, NULL, NULL, ?, ?, NULL, NULL, 'published', 'system', ?, ?)`,
-      [
-        id('story'), story.groupTitle ?? null, story.title, story.caption ?? null, story.mediaType,
-        story.mediaUrl ?? null, story.durationSeconds ?? 7, story.sortOrder, ts, ts,
-      ],
-    );
-  }
-  log?.(`seeded ${DEFAULT_STORIES.length} starter app stories`);
-  return DEFAULT_STORIES.length;
+  const seeded = await tx(async () => {
+    const marker = await one<{ value: string }>("SELECT value FROM settings WHERE key = 'internal.starter_stories_initialized'");
+    if (marker) return 0;
+    const count = await one<{ c: number }>('SELECT COUNT(*) AS c FROM app_stories');
+    const ts = nowIso();
+    if (Number(count?.c ?? 0) === 0) {
+      for (const story of DEFAULT_STORIES) {
+        await run(
+          `INSERT INTO app_stories
+            (id, group_title, title, caption, media_type, file_id, media_url, link_url, link_label,
+             duration_seconds, sort_order, starts_at, expires_at, status, created_by, created_at, updated_at)
+           VALUES (?, ?, ?, ?, ?, NULL, ?, NULL, NULL, ?, ?, NULL, NULL, 'published', 'system', ?, ?)`,
+          [id('story'), story.groupTitle ?? null, story.title, story.caption ?? null, story.mediaType,
+           story.mediaUrl ?? null, story.durationSeconds ?? 7, story.sortOrder, ts, ts],
+        );
+      }
+    }
+    await run(`INSERT INTO settings (key, value, group_name, is_secret, updated_at)
+      VALUES ('internal.starter_stories_initialized', 'true', 'internal', 0, ?)`, [ts]);
+    return Number(count?.c ?? 0) === 0 ? DEFAULT_STORIES.length : 0;
+  });
+  if (seeded) log?.(`seeded ${seeded} starter app stories`);
+  return seeded;
 }
 
 /* --------------------------------- devices -------------------------------- */

@@ -22,37 +22,53 @@ class StoryViewerScreen extends StatefulWidget {
 }
 
 class _StoryViewerScreenState extends State<StoryViewerScreen> {
+  late List<StoryGroup> _groups;
   late int _groupIndex;
   int _itemIndex = 0;
+  bool _closing = false;
+  int _playGeneration = 0;
   Timer? _timer;
   double _progress = 0;
   VideoPlayerController? _video;
   bool _videoReady = false;
 
-  StoryGroup get _group => widget.groups[_groupIndex];
+  StoryGroup get _group => _groups[_groupIndex];
   StoryItem get _item => _group.items[_itemIndex];
 
   @override
   void initState() {
     super.initState();
-    _groupIndex = widget.initialGroup.clamp(0, widget.groups.length - 1).toInt();
-    _playCurrent();
+    _groups = widget.groups.where((group) => group.items.isNotEmpty).toList();
+    final requested = widget.groups.isEmpty ? null : widget.groups[widget.initialGroup.clamp(0, widget.groups.length - 1).toInt()];
+    final requestedIndex = requested == null ? -1 : _groups.indexOf(requested);
+    _groupIndex = requestedIndex < 0 ? 0 : requestedIndex;
+    if (_groups.isEmpty) {
+      WidgetsBinding.instance.addPostFrameCallback((_) { if (mounted) Navigator.maybePop(context); });
+    } else {
+      _playCurrent();
+    }
   }
 
   @override
   void dispose() {
+    _closing = true;
+    _playGeneration++;
     _timer?.cancel();
+    _video?.removeListener(_onVideoTick);
     _video?.dispose();
     super.dispose();
   }
 
   Future<void> _playCurrent() async {
+    final generation = ++_playGeneration;
     _timer?.cancel();
-    await _video?.dispose();
+    final previous = _video;
     _video = null;
+    previous?.removeListener(_onVideoTick);
+    await previous?.dispose();
+    if (!mounted || _closing || generation != _playGeneration) return;
     _videoReady = false;
     _progress = 0;
-    if (!mounted) return;
     setState(() {});
 
     final item = _item;
@@ -64,12 +80,14 @@ class _StoryViewerScreenState extends State<StoryViewerScreen> {
       _video = controller;
       try {
         await controller.initialize();
-        if (!mounted || _video != controller) return;
+        if (!mounted || _closing || generation != _playGeneration || _video != controller) return;
         setState(() => _videoReady = true);
-        await controller.play();
         controller.addListener(_onVideoTick);
+        await controller.play();
       } catch (_) {
-        _startTimer(item.durationSeconds);
+        if (mounted && !_closing && generation == _playGeneration && _video == controller) {
+          _startTimer(item.durationSeconds);
+        }
       }
     } else {
       _startTimer(item.durationSeconds);
@@ -88,7 +106,7 @@ class _StoryViewerScreenState extends State<StoryViewerScreen> {
   }
 
   void _startTimer(int seconds) {
-    final totalMs = seconds * 1000;
+    final totalMs = (seconds < 1 ? 5 : seconds) * 1000;
     var elapsed = 0;
     _timer = Timer.periodic(const Duration(milliseconds: 50), (timer) {
       elapsed += 50;
@@ -102,19 +120,27 @@ class _StoryViewerScreenState extends State<StoryViewerScreen> {
   }
 
   void _next() {
+    if (_closing || _groups.isEmpty) return;
+    _timer?.cancel();
+    _video?.removeListener(_onVideoTick);
     if (_itemIndex < _group.items.length - 1) {
       _itemIndex++;
-    } else if (_groupIndex < widget.groups.length - 1) {
+    } else if (_groupIndex < _groups.length - 1) {
       _groupIndex++;
       _itemIndex = 0;
     } else {
-      Navigator.pop(context);
+      _closing = true;
+      _playGeneration++;
+      Navigator.popUntil(context, (route) => route.isFirst);
       return;
     }
     _playCurrent();
   }
 
   void _previous() {
+    if (_closing || _groups.isEmpty) return;
+    _timer?.cancel();
+    _video?.removeListener(_onVideoTick);
     if (_itemIndex > 0) {
       _itemIndex--;
     } else if (_groupIndex > 0) {
@@ -122,6 +148,15 @@ class _StoryViewerScreenState extends State<StoryViewerScreen> {
       _itemIndex = _group.items.length - 1;
     }
     _playCurrent();
+  }
+
+  void _close() {
+    if (_closing) return;
+    _closing = true;
+    _playGeneration++;
+    _timer?.cancel();
+    _video?.removeListener(_onVideoTick);
+    Navigator.maybePop(context);
   }
 
   Future<void> _openLink(String link) async {
@@ -132,7 +167,7 @@ class _StoryViewerScreenState extends State<StoryViewerScreen> {
 
   @override
   Widget build(BuildContext context) {
-    if (widget.groups.isEmpty || _group.items.isEmpty) {
+    if (_groups.isEmpty) {
       return const Scaffold(backgroundColor: Colors.black, body: Center(child: Text('استوری‌ای برای نمایش نیست.', style: TextStyle(color: Colors.white))));
     }
     final item = _item;
@@ -193,7 +228,7 @@ class _StoryViewerScreenState extends State<StoryViewerScreen> {
                     ),
                   ]),
                 ),
-                IconButton(onPressed: () => Navigator.pop(context), icon: const Icon(Icons.close_rounded, color: Colors.white)),
+                IconButton(onPressed: _close, icon: const Icon(Icons.close_rounded, color: Colors.white)),
               ]),
             ]),
           ),
