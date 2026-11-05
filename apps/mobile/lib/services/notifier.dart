@@ -61,7 +61,7 @@ class AppNotificationEvent {
   final String stageLabel;
 
   bool get isStory => link == '/app/stories';
-  bool get isMessage => link.contains('messages');
+  bool get isMessage => link.contains('messages') || link.contains('support') || link.startsWith('chat:');
   String? get requestId {
     final match = RegExp(r'requests/([A-Za-z0-9_-]+)').firstMatch(link);
     return match?.group(1);

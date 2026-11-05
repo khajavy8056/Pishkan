@@ -86,6 +86,34 @@ describe('Android customer API contract (real HTTP and SQLite)', () => {
     await request(server).post('/api/auth/customer/login').send({ identifier: mobile, password: 'NewPassword#12345' }).expect(200);
   });
 
+  it('uses real chat, support, documents and notification feeds', async () => {
+    const server = await app();
+    const customer = await newCustomer('مشتری آزمایش پشتیبانی');
+    const admin = await adminSession();
+    const customerAuth = customer.session.cookie;
+    const thread = await request(server).post('/api/messages/threads').set('Cookie', customerAuth).send({ subject: 'پیگیری آزمایشی' }).expect(201);
+    const threadId = thread.body.data.id;
+    await request(server).post(`/api/messages/threads/${threadId}/messages`).set('Cookie', customerAuth).send({ body: 'پیام آزمایشی مشتری' }).expect(201);
+    await request(server).post(`/api/messages/threads/${threadId}/messages`).set('Cookie', admin.cookie).send({ body: 'پاسخ آزمایشی دفتر' }).expect(201);
+    const messages = await request(server).get(`/api/messages/threads/${threadId}`).set('Cookie', customerAuth).expect(200);
+    expect(messages.body.data.messages.map((message: any) => message.body)).toContain('پاسخ آزمایشی دفتر');
+    const ticket = await request(server).post('/api/support/tickets').set('Cookie', customerAuth).send({
+      department: 'general', subject: 'تیکت آزمایشی', body: 'درخواست پشتیبانی آزمایشی مشتری', priority: 'normal',
+    }).expect(201);
+    await request(server).post(`/api/support/tickets/${ticket.body.data.id}/reply`).set('Cookie', admin.cookie).send({ body: 'پاسخ تیکت دفتر' }).expect(200);
+    const feed = await request(server).get('/api/customers/me/notifications?limit=50').set('Cookie', customerAuth).expect(200);
+    expect(feed.body.data.some((item: any) => item.link === `/app/messages/${threadId}`)).toBe(true);
+    expect(feed.body.data.some((item: any) => item.link === `chat:${ticket.body.data.id}`)).toBe(true);
+    const notification = feed.body.data.find((item: any) => item.link === `/app/messages/${threadId}`);
+    await request(server).post('/api/customers/me/notifications/read').set('Cookie', customerAuth).send({ id: notification.id }).expect(200);
+    const image = await sharp({ create: { width: 41, height: 37, channels: 3, background: { r: 20, g: 30, b: 40 } } }).png().toBuffer();
+    const upload = await request(server).post('/api/files/upload?purpose=document').set('Cookie', customerAuth).attach('file', image, 'national-card.png').expect(201);
+    await request(server).post('/api/documents/mine').set('Cookie', customerAuth).send({ fileId: upload.body.data.id, docType: 'national_card' }).expect(201);
+    const documents = await request(server).get('/api/documents/mine').set('Cookie', customerAuth).expect(200);
+    expect(documents.body.data.some((doc: any) => doc.docType === 'national_card')).toBe(true);
+    expect(documents.body.meta.types.some((type: any) => type.code === 'national_card')).toBe(true);
+  });
+
   it('returns the private offer slug so its owner can retrieve the real form', async () => {
     const server = await app();
     const admin = await adminSession();

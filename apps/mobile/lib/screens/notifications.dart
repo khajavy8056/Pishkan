@@ -7,10 +7,7 @@ import '../core/theme.dart';
 import '../models/models.dart';
 import '../services/services.dart';
 import '../widgets/widgets.dart';
-import 'chat.dart';
-import 'request_detail.dart';
-import 'stories_archive.dart';
-import 'wallet.dart';
+import 'notification_route.dart';
 
 enum _NotifFilter { all, requests, messages, stories }
 
@@ -88,7 +85,7 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
 
   static bool _isMessage(Map<String, dynamic> item) {
     final link = asStr(item['link']);
-    return link.contains('messages') || link.contains('support');
+    return link.contains('messages') || link.contains('support') || link.startsWith('chat:');
   }
 
   List<Map<String, dynamic>> get _visible {
@@ -105,28 +102,17 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
     if (asStr(item['readAt']).isEmpty && id.isNotEmpty) {
       try {
         await markNotificationRead(id);
-      } catch (_) {}
-      if (mounted) {
-        setState(() {
-          _items = _items.map((n) => asStr(n['id']) == id ? {...n, 'readAt': 'now'} : n).toList();
-        });
+        if (mounted) {
+          setState(() {
+            _items = _items.map((n) => asStr(n['id']) == id ? {...n, 'readAt': 'now'} : n).toList();
+          });
+        }
+      } catch (_) {
+        // Do not pretend the server recorded a read while offline.
       }
     }
     if (!mounted) return;
-    final link = asStr(item['link']);
-    final requestId = _requestIdOf(item);
-    if (requestId != null) {
-      Navigator.push(context, MaterialPageRoute(builder: (_) => RequestDetailScreen(requestId: requestId)));
-    } else if (_isStory(item)) {
-      Navigator.push(context, MaterialPageRoute(builder: (_) => const StoriesArchiveScreen()));
-    } else if (link.contains('wallet')) {
-      Navigator.push(context, MaterialPageRoute(builder: (_) => const WalletScreen()));
-    } else {
-      final chatMatch = RegExp(r'messages/([A-Za-z0-9_-]+)').firstMatch(link);
-      if (chatMatch != null) {
-        Navigator.push(context, MaterialPageRoute(builder: (_) => ChatScreen(threadId: chatMatch.group(1)!, title: 'گفت‌وگو با دفتر')));
-      }
-    }
+    openCustomerNotification(context, asStr(item['link']));
   }
 
   @override

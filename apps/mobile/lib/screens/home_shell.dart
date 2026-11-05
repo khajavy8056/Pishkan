@@ -6,15 +6,12 @@ import '../core/theme.dart';
 import '../services/notifier.dart';
 import '../services/services.dart';
 import '../widgets/widgets.dart';
-import 'chat.dart';
 import 'home.dart';
 import 'login.dart';
+import 'notification_route.dart';
 import 'profile.dart';
-import 'request_detail.dart';
 import 'requests.dart';
 import 'services_catalog.dart';
-import 'stories_archive.dart';
-import 'wallet.dart';
 
 /// Main customer shell (approved design): four bottom tabs — خانه، خدمات،
 /// پیگیری‌ها، پروفایل. A gentle foreground poll turns server notifications
@@ -118,24 +115,7 @@ class _HomeShellState extends State<HomeShell> with WidgetsBindingObserver {
   }
 
   void _openLink(String link) {
-    if (!mounted) return;
-    final requestMatch = RegExp(r'requests/([A-Za-z0-9_-]+)').firstMatch(link);
-    if (requestMatch != null) {
-      Navigator.push(context, MaterialPageRoute(builder: (_) => RequestDetailScreen(requestId: requestMatch.group(1)!)));
-      return;
-    }
-    if (link == '/app/stories') {
-      Navigator.push(context, MaterialPageRoute(builder: (_) => const StoriesArchiveScreen()));
-      return;
-    }
-    final chatMatch = RegExp(r'messages/([A-Za-z0-9_-]+)').firstMatch(link);
-    if (chatMatch != null) {
-      Navigator.push(context, MaterialPageRoute(builder: (_) => ChatScreen(threadId: chatMatch.group(1)!, title: 'گفت‌وگو با دفتر')));
-      return;
-    }
-    if (link.contains('wallet')) {
-      Navigator.push(context, MaterialPageRoute(builder: (_) => const WalletScreen()));
-    }
+    if (mounted) openCustomerNotification(context, link);
   }
 
   @override
