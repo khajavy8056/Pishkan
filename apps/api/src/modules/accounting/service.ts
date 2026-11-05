@@ -253,6 +253,8 @@ export async function createPayment(input: {
   walletId?: string | null;
 }, actor?: { id: string; name: string; ip?: string }) {
   return tx(async () => {
+  // Coordinate first-purchase eligibility with confirmed payments. Lock before invoices.
+  await run('UPDATE users SET id=id WHERE id=?', [input.customerId]);
   const amount = Math.round(Number(input.amount));
   if (!Number.isFinite(amount) || amount <= 0) throw badRequest('مبلغ پرداخت معتبر نیست.');
   // Wallet debits only ever settle a service invoice; `purpose` defaults to
@@ -433,6 +435,7 @@ export async function confirmPayment(paymentId: string, actor: { id: string; nam
   return tx(async () => {
   const payment = await one<any>('SELECT * FROM payments WHERE id = ?', [paymentId]);
   if (!payment) throw notFound('تراکنش یافت نشد.');
+  await run('UPDATE users SET id=id WHERE id=?', [payment.customer_id]);
   if (payment.status === 'confirmed') return mapPayment(payment);
   if (payment.status !== 'pending') throw conflict('این تراکنش قابل تأیید نیست.');
   if (payment.invoice_id) {

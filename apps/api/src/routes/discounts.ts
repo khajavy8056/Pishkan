@@ -1,3 +1,5 @@
+import { one } from '../db/index.js';
+import { officeScope } from '../lib/scope.js';
 import { Router } from 'express';
 import { z } from 'zod';
 import { asyncRoute, requireAuth, requirePermission } from '../http/middleware.js';
@@ -7,7 +9,7 @@ import { param } from '../http/params.js';
 import { writeAudit } from '../modules/audit/service.js';
 import {
   createDiscountCode, deleteDiscountCode, discountCodeUsages, listDiscountCodes,
-  previewDiscount, updateDiscountCode,
+  previewDiscount, updateDiscountCode, myDiscountCodes, assignDiscount,
 } from '../modules/discounts/service.js';
 import { getServiceById } from '../modules/catalog/service.js';
 
@@ -28,7 +30,22 @@ const codeSchema = z.object({
   startsAt: z.string().nullable().optional(),
   expiresAt: z.string().nullable().optional(),
   isActive: z.boolean().optional(),
+  audience: z.enum(['code', 'all', 'first_purchase', 'assigned']).optional(),
 });
+
+// Never expose unlisted codes or another customer's assignments.
+discountsRouter.get('/mine', asyncRoute(async (req, res) => {
+  if (req.auth!.user.kind !== 'customer') throw forbidden('این بخش مخصوص مشتریان است.');
+  ok(res, await myDiscountCodes(req.auth!.user.id));
+}));
+
+discountsRouter.post('/:id/assignments', requirePermission('discounts.edit'), requirePermission('customers.view'), asyncRoute(async (req, res) => {
+  const body = z.object({ customerId: z.string().min(3).max(80) }).parse(req.body);
+  if (!officeScope(req.auth!) && !(await one('SELECT id FROM requests WHERE customer_id=? AND assigned_to=? LIMIT 1', [body.customerId, req.auth!.user.id]))) throw forbidden('این مشتری در محدوده دسترسی شما نیست.');
+  const result = await assignDiscount(param(req, 'id'), body.customerId, req.auth!.user.id);
+  await writeAudit({ actorId: req.auth!.user.id, actorName: req.auth!.user.fullName, action: 'discount.assign', entityType: 'discount_code', entityId: param(req, 'id'), after: { customerId: body.customerId, ...result }, ip: req.ip });
+  ok(res, result);
+}));
 
 discountsRouter.get('/', requirePermission('discounts.view'), asyncRoute(async (req, res) => {
   const { page, pageSize } = pagination(req);

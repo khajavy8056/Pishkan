@@ -10,6 +10,7 @@ import '../services/notifier.dart';
 import '../services/services.dart';
 import '../widgets/widgets.dart';
 import 'documents.dart';
+import 'my_discounts.dart';
 import 'login.dart';
 import 'notifications.dart';
 import 'offers.dart';
@@ -107,6 +108,8 @@ class _ProfileTabState extends State<ProfileTab> {
                 _link(Icons.account_balance_wallet_rounded, 'کیف پول', 'موجودی، شارژ و گردش', () => Navigator.push(context, MaterialPageRoute(builder: (_) => const WalletScreen()))),
                 const Divider(height: 1),
                 _link(Icons.receipt_long_rounded, 'فاکتورها و پرداخت‌ها', 'پرداخت آنلاین یا از کیف پول', () => Navigator.push(context, MaterialPageRoute(builder: (_) => const PaymentsScreen()))),
+                const Divider(height: 1),
+                _link(Icons.discount_rounded, 'تخفیفات من', 'کدهای ویژه و شرایط استفاده', () => Navigator.push(context, MaterialPageRoute(builder: (_) => const MyDiscountsScreen()))),
                 const Divider(height: 1),
                 _link(Icons.local_offer_rounded, 'پیشنهادهای اختصاصی', 'خدمت‌های ویژه‌ای که دفتر برایتان تعریف کرده', () => Navigator.push(context, MaterialPageRoute(builder: (_) => const OffersScreen()))),
               ]),

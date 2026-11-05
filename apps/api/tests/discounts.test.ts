@@ -192,4 +192,41 @@ describe('discount codes', () => {
     expect(stillThere).toBeTruthy();
     expect(stillThere.isActive).toBe(false);
   });
+  it('lists only disclosed and assigned codes and enforces assignments at preview', async () => {
+    const alice = await newCustomer('آلیس');
+    const bob = await newCustomer('باب');
+    const assigned = await createCode({ code: 'PERSONALX', audience: 'assigned', value: 10 });
+    expect(assigned.status).toBe(201);
+    await createCode({ code: 'SECRETXX', audience: 'code', value: 10 }).expect(201);
+    await createCode({ code: 'EVERYONEX', audience: 'all', value: 10 }).expect(201);
+    const denied = await request(server).post('/api/discount-codes/preview').set('Cookie', bob.session.cookie).send({ code: 'PERSONALX', serviceId: service.id });
+    expect(denied.status).toBe(400);
+    await request(server).post(`/api/discount-codes/${assigned.body.data.id}/assignments`).set('Cookie', alice.session.cookie).send({ customerId: alice.id }).expect(403);
+    await request(server).post(`/api/discount-codes/${assigned.body.data.id}/assignments`).set('Cookie', admin.cookie).send({ customerId: alice.id }).expect(200);
+    const a = await request(server).get('/api/discount-codes/mine').set('Cookie', alice.session.cookie).expect(200);
+    const b = await request(server).get('/api/discount-codes/mine').set('Cookie', bob.session.cookie).expect(200);
+    expect(a.body.data.map((x: any) => x.code)).toContain('PERSONALX');
+    expect(a.body.data.map((x: any) => x.code)).toContain('EVERYONEX');
+    expect(a.body.data.map((x: any) => x.code)).not.toContain('SECRETXX');
+    expect(b.body.data.map((x: any) => x.code)).not.toContain('PERSONALX');
+    await request(server).post('/api/discount-codes/preview').set('Cookie', alice.session.cookie).send({ code: 'PERSONALX', serviceId: service.id }).expect(200);
+  });
+
+  it('reserves the first-purchase campaign once across competing codes', async () => {
+    const newcomer = await newCustomer('تازه وارد');
+    await createCode({ code: 'FIRSTONE', audience: 'first_purchase' }).expect(201);
+    await createCode({ code: 'FIRSTTWO', audience: 'first_purchase' }).expect(201);
+    const responses = await Promise.all([
+      createRequest(newcomer.session, { discountCode: 'FIRSTONE' }),
+      createRequest(newcomer.session, { discountCode: 'FIRSTTWO' }),
+    ]);
+    expect(responses.filter(r => r.status === 201)).toHaveLength(1);
+    expect(responses.filter(r => r.status !== 201)).toHaveLength(1);
+    const mine = await request(server).get('/api/discount-codes/mine').set('Cookie', newcomer.session.cookie).expect(200);
+    expect(mine.body.data.filter((x: any) => x.audience === 'first_purchase').every((x: any) => !x.usable)).toBe(true);
+    const used = responses.find(r => r.status === 201)!.body.data;
+    expect(used.invoices[0].total).toBe(used.total);
+    expect(used.discount).toBeGreaterThan(0);
+  });
+
 });

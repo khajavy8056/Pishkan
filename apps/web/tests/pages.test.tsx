@@ -154,6 +154,35 @@ describe('public pages render', () => {
     }
   });
 
+  it('shows red rejection inline and clears a previously accepted replacement', async () => {
+    const originalFetch = fetchMock.getMockImplementation();
+    let uploads = 0;
+    setAuthUser({ id: 'usr_screen_test', kind: 'customer', roleCode: 'customer', fullName: 'مشتری آزمون', permissions: [] });
+    fetchMock.mockImplementation(async (input, init) => {
+      const url = typeof input === 'string' ? input : input instanceof URL ? input.toString() : String(input.url);
+      if (url.includes('/api/files/upload')) {
+        uploads++;
+        const success = uploads === 1;
+        return { ok: success, status: success ? 201 : 400, headers: new Headers({ 'content-type': 'application/json' }), json: async () => success ? ({ ok: true, data: { id: 'good', name: 'good.png', mime: 'image/png', documentQuality: 'passed' } }) : ({ ok: false, error: { code: 'BAD_REQUEST', message: 'تصویر مدرک تار است.' } }), blob: async () => new Blob(), text: async () => '' } as unknown as Response;
+      }
+      return originalFetch!(input, init);
+    });
+    try {
+      const { container } = renderAt('/app/services/insurance-history', <ServiceDetailPage variant="app" />);
+      await screen.findByText('کد ملی');
+      const fileInput = container.querySelector('input[type="file"]') as HTMLInputElement;
+      fireEvent.change(fileInput, { target: { files: [new File(['good'], 'good.png', { type: 'image/png' })] } });
+      const green = await screen.findByText(/بررسی اولیه تصویر گذشت/);
+      expect(green.className).toContain('text-emerald-700');
+      await screen.findByRole('dialog', { name: 'ذخیره در مدارک پروفایل؟' });
+      fireEvent.click(screen.getByRole('button', { name: 'خیر، فقط در درخواست' }));
+      fireEvent.change(fileInput, { target: { files: [new File(['bad'], 'bad.png', { type: 'image/png' })] } });
+      const red = await screen.findByText('تصویر مدرک تار است.');
+      expect(red.className).toContain('text-rose-700');
+      expect(screen.queryByText(/بررسی اولیه تصویر گذشت/)).toBeNull();
+    } finally { fetchMock.mockImplementation(originalFetch!); setAuthUser(null); }
+  });
+
   it('shows the minute-based quote estimate for a signed-in customer', async () => {
     setAuthUser({ id: 'usr_quote_test', kind: 'customer', roleCode: 'customer', fullName: 'مشتری آزمون', permissions: [] });
     try {

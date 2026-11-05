@@ -1387,8 +1387,11 @@ export function CustomerProfile() {
   const [records, setRecords] = useState<{ key: string; label: string; value: string }[]>([]);
   const [passwords, setPasswords] = useState({ currentPassword: '', newPassword: '' });
   const [saving, setSaving] = useState(false);
+  const [discounts, setDiscounts] = useState<any[] | null>(null);
+  const [discountError, setDiscountError] = useState(false);
 
   useEffect(() => {
+    api.get<{ data: any[] }>('/api/discount-codes/mine').then(r => setDiscounts(r.data)).catch(() => setDiscountError(true));
     api.get<{ data: any }>('/api/auth/me').then((res) => {
       const profile=res.data.profileState?.profile ?? {};
       setForm({
@@ -1465,6 +1468,11 @@ export function CustomerProfile() {
         </Card>
 
         <div className="space-y-6">
+          <Card>
+            <h2 className="mb-2 font-bold text-navy-900">تخفیفات من</h2>
+            <p className="mb-3 text-xs text-navy-500">کد را هنگام ثبت درخواست وارد کنید؛ شرایط خدمت و مبلغ هنگام ثبت بررسی می‌شود.</p>
+            {discountError ? <p role="alert" className="text-sm text-rose-700">دریافت تخفیف‌ها ناموفق بود. صفحه را دوباره باز کنید یا از دفتر بخواهید سرور را به‌روزرسانی کند.</p> : discounts === null ? <p>در حال دریافت…</p> : discounts.length === 0 ? <p className="text-sm text-navy-500">در حال حاضر تخفیفی برای شما نمایش داده نشده است.</p> : <ul className="space-y-3">{discounts.map(d => <li key={d.id} className="rounded-xl bg-surface-3 p-3 text-sm"><div className="flex flex-wrap justify-between gap-2"><b>{d.title}</b><span className={d.usable ? 'text-emerald-700' : 'text-rose-700'}>{d.usable ? 'قابل استفاده با رعایت شرایط' : 'فعلاً قابل استفاده نیست'}</span></div><p className="mt-1"><code dir="ltr">{d.code}</code> · {d.type === 'percent' ? `${faNum(d.value)}٪` : rial(d.value)} · {d.serviceTitle ?? d.categoryTitle ?? 'همه خدمات'}</p>{d.expiresAt && <p className="text-xs">تا {faDate(d.expiresAt)}</p>}{d.audience === 'first_purchase' && <p className="text-xs">ویژه خرید اول</p>}</li>)}</ul>}
+          </Card>
           <Card>
             <h2 className="mb-1 font-bold text-navy-900">اطلاعات پرتکرار</h2>
             <p className="mb-3 text-xs leading-6 text-navy-500">

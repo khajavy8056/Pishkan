@@ -11,13 +11,13 @@ type CodeForm = {
   code: string; title: string; type: 'percent' | 'fixed';
   value: string; maxDiscount: string; minAmount: string; usageLimit: string;
   perCustomerLimit: string; serviceId: string; categoryId: string;
-  startsAt: string; expiresAt: string; isActive: boolean;
+  startsAt: string; expiresAt: string; isActive: boolean; audience: 'code' | 'all' | 'first_purchase' | 'assigned';
 };
 
 const EMPTY: CodeForm = {
   code: '', title: '', type: 'percent', value: '10', maxDiscount: '',
   minAmount: '', usageLimit: '', perCustomerLimit: '1', serviceId: '', categoryId: '',
-  startsAt: '', expiresAt: '', isActive: true,
+  startsAt: '', expiresAt: '', isActive: true, audience: 'code',
 };
 
 function toDateInput(value?: string | null): string {
@@ -37,6 +37,9 @@ export function AdminDiscountsPage({ variant = 'admin' }: { variant?: 'admin' | 
   const [busy, setBusy] = useState('');
   const [usagesFor, setUsagesFor] = useState<any>(null);
   const [usages, setUsages] = useState<any[]>([]);
+  const [assigning, setAssigning] = useState<any>(null);
+  const [customerQuery, setCustomerQuery] = useState('');
+  const [customers, setCustomers] = useState<any[]>([]);
 
   const load = async () => {
     setLoading(true);
@@ -67,7 +70,7 @@ export function AdminDiscountsPage({ variant = 'admin' }: { variant?: 'admin' | 
       perCustomerLimit: String(code.perCustomerLimit ?? 1),
       serviceId: code.serviceId ?? '', categoryId: code.categoryId ?? '',
       startsAt: toDateInput(code.startsAt), expiresAt: toDateInput(code.expiresAt),
-      isActive: Boolean(code.isActive),
+      isActive: Boolean(code.isActive), audience: code.audience ?? 'code',
     });
     setModalOpen(true);
   };
@@ -88,7 +91,7 @@ export function AdminDiscountsPage({ variant = 'admin' }: { variant?: 'admin' | 
       categoryId: form.categoryId || null,
       startsAt: form.startsAt || null,
       expiresAt: form.expiresAt || null,
-      isActive: form.isActive,
+      isActive: form.isActive, audience: form.audience,
     };
     setBusy('save');
     try {
@@ -125,6 +128,18 @@ export function AdminDiscountsPage({ variant = 'admin' }: { variant?: 'admin' | 
     }
   };
 
+  const searchCustomers = async () => {
+    if (customerQuery.trim().length < 3) { notify('حداقل سه حرف نام یا شماره را وارد کنید.', 'error'); return; }
+    try { const res = await api.list<{ data: any[] }>('/api/customers', { search: customerQuery.trim(), pageSize: 30 }); setCustomers(res.data ?? []); }
+    catch (err) { notify(err instanceof ApiFailure ? err.message : 'جست‌وجوی مشتری ناموفق بود.', 'error'); }
+  };
+  const assign = async (customerId: string) => {
+    setBusy(customerId);
+    try { await api.post(`/api/discount-codes/${assigning.id}/assignments`, { customerId }); notify('تخفیف به مشتری اختصاص یافت.', 'success'); }
+    catch (err) { notify(err instanceof ApiFailure ? err.message : 'تخصیص ناموفق بود.', 'error'); }
+    finally { setBusy(''); }
+  };
+
   const scopeLabel = (code: any) => code.serviceTitle ?? code.categoryTitle ?? 'همه خدمات';
 
   return (
@@ -154,7 +169,7 @@ export function AdminDiscountsPage({ variant = 'admin' }: { variant?: 'admin' | 
                 {codes.map((code) => (
                   <tr key={code.id} className="align-top">
                     <td className="py-3 pe-3"><span className="rounded-lg bg-surface-3 px-2 py-1 font-mono text-xs font-bold" dir="ltr">{code.code}</span></td>
-                    <td className="py-3 pe-3">{code.title}</td>
+                    <td className="py-3 pe-3">{code.title}<span className="block text-xs text-navy-500">{({code:'فقط با کد', all:'همه مشتریان', first_purchase:'خرید اول', assigned:'مشتریان انتخاب‌شده'} as Record<string,string>)[code.audience] ?? 'فقط با کد'}</span></td>
                     <td className="py-3 pe-3">
                       {code.type === 'percent' ? `${faNum(code.value)}٪` : rial(code.value)}
                       {code.type === 'percent' && code.maxDiscount ? <span className="block text-[11px] text-navy-400">سقف {rial(code.maxDiscount)}</span> : null}
@@ -168,6 +183,7 @@ export function AdminDiscountsPage({ variant = 'admin' }: { variant?: 'admin' | 
                     <td className="py-3 pe-3">{code.isActive ? <Badge tone="success">فعال</Badge> : <Badge>غیرفعال</Badge>}</td>
                     <td className="py-3">
                       <div className="flex gap-1">
+                        {code.audience === 'assigned' && <Button size="sm" variant="ghost" onClick={() => { setAssigning(code); setCustomerQuery(''); setCustomers([]); }}>تخصیص مشتری</Button>}
                         <Button size="sm" variant="ghost" aria-label="مصرف‌ها" onClick={() => void showUsages(code)}><ReceiptText className="size-4" /></Button>
                         <Button size="sm" variant="ghost" aria-label="ویرایش" onClick={() => openEdit(code)}><Pencil className="size-4" /></Button>
                         <Button size="sm" variant="ghost" aria-label="حذف" loading={busy === code.id} onClick={() => void remove(code)}><Trash2 className="size-4 text-rose-600" /></Button>
@@ -194,6 +210,10 @@ export function AdminDiscountsPage({ variant = 'admin' }: { variant?: 'admin' | 
           </Field>
           <Field label="عنوان نمایشی" required>
             <Input value={form.title} onChange={(e) => setForm({ ...form, title: e.target.value })} placeholder="تخفیف مشتریان تازه" required />
+          </Field>
+          <Field label="مخاطب کمپین" hint="خرید اول: بدون خرید پرداخت‌شده و بدون درخواست فعال با تخفیف خرید اول. مخاطب پس از مصرف قابل تغییر نیست.">
+            <Select value={form.audience} onChange={(e) => setForm({ ...form, audience: e.target.value as CodeForm['audience'] })}
+              options={[{ value: 'code', label: 'فقط با کد (نمایش داده نشود)' }, { value: 'all', label: 'همه مشتریان' }, { value: 'first_purchase', label: 'خرید اول' }, { value: 'assigned', label: 'مشتریان انتخاب‌شده' }]} />
           </Field>
           <Field label="نوع تخفیف">
             <Select value={form.type} onChange={(e) => setForm({ ...form, type: e.target.value as 'percent' | 'fixed' })}
@@ -234,6 +254,11 @@ export function AdminDiscountsPage({ variant = 'admin' }: { variant?: 'admin' | 
         </form>
       </Modal>
 
+      <Modal open={Boolean(assigning)} onClose={() => setAssigning(null)} title="تخصیص تخفیف به مشتری" size="lg">
+        <p className="mb-3 text-xs text-navy-600">نام یا شماره را جست‌وجو و مشتری موردنظر را انتخاب کنید.</p>
+        <div className="flex gap-2"><Input value={customerQuery} onChange={e => setCustomerQuery(e.target.value)} placeholder="نام یا موبایل مشتری" /><Button onClick={() => void searchCustomers()}>جست‌وجو</Button></div>
+        <ul className="divide-y divide-line">{customers.map(customer => <li key={customer.id} className="flex items-center gap-3 py-3 text-sm"><span>{customer.fullName} — {customer.mobile}</span><Button className="ms-auto" size="sm" loading={busy === customer.id} onClick={() => void assign(customer.id)}>تخصیص</Button></li>)}</ul>
+      </Modal>
       <Modal open={Boolean(usagesFor)} onClose={() => setUsagesFor(null)} title={usagesFor ? `مصرف کد ${usagesFor.code}` : ''} size="lg">
         {usages.length === 0 ? (
           <p className="text-sm text-navy-500">این کد هنوز استفاده نشده است.</p>

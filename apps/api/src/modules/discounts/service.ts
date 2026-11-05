@@ -31,6 +31,7 @@ export interface DiscountCodeRow {
   starts_at: string | null;
   expires_at: string | null;
   is_active: number;
+  audience: 'code' | 'all' | 'first_purchase' | 'assigned';
   created_by: string | null;
   created_at: string;
   updated_at: string;
@@ -62,6 +63,7 @@ export function discountDto(row: DiscountCodeRow & { service_title?: string | nu
     startsAt: row.starts_at,
     expiresAt: row.expires_at,
     isActive: Boolean(row.is_active),
+    audience: row.audience,
     expired,
     exhausted,
     usable: Boolean(row.is_active) && !expired && !exhausted && (!row.starts_at || row.starts_at <= now),
@@ -110,8 +112,14 @@ export async function previewDiscount(input: {
     throw invalid('ظرفیت استفاده از این کد تخفیف تکمیل شده است.');
   }
   if (row.service_id && row.service_id !== input.serviceId) throw invalid('این کد تخفیف برای خدمت دیگری تعریف شده است.');
-  if (row.category_id && input.categoryId && row.category_id !== input.categoryId) {
+  if (row.category_id && row.category_id !== input.categoryId) {
     throw invalid('این کد تخفیف برای دستهٔ دیگری از خدمات تعریف شده است.');
+  }
+  if (row.audience === 'assigned' && !(await one('SELECT code_id FROM discount_assignments WHERE code_id = ? AND customer_id = ?', [row.id, input.customerId]))) {
+    throw invalid('این تخفیف به حساب شما اختصاص داده نشده است.');
+  }
+  if (row.audience === 'first_purchase' && !(await eligibleForFirstPurchase(input.customerId))) {
+    throw invalid('این تخفیف فقط برای اولین خرید است یا قبلاً برای یک درخواست فعال استفاده شده است.');
   }
   if (input.subtotal < Number(row.min_amount)) {
     throw invalid(`برای استفاده از این کد، مبلغ خدمت باید دست‌کم ${Number(row.min_amount)} ریال باشد.`);
@@ -174,6 +182,7 @@ export interface DiscountCodeInput {
   startsAt?: string | null;
   expiresAt?: string | null;
   isActive?: boolean;
+  audience?: 'code' | 'all' | 'first_purchase' | 'assigned';
 }
 
 function assertValid(input: DiscountCodeInput) {
@@ -224,8 +233,8 @@ export async function createDiscountCode(input: DiscountCodeInput, actor: { id: 
   const ts = nowIso();
   await run(
     `INSERT INTO discount_codes (id, code, title, type, value, max_discount, min_amount, usage_limit,
-       per_customer_limit, used_count, service_id, category_id, starts_at, expires_at, is_active, created_by, created_at, updated_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?, ?, ?, ?, ?, ?, ?)`,
+       per_customer_limit, used_count, service_id, category_id, starts_at, expires_at, is_active, created_by, created_at, updated_at, audience)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     [
       codeId, code, input.title.trim(), input.type, input.value,
       input.type === 'percent' ? (input.maxDiscount ?? null) : null,
@@ -234,7 +243,7 @@ export async function createDiscountCode(input: DiscountCodeInput, actor: { id: 
       Math.max(1, Math.round(input.perCustomerLimit ?? 1)),
       input.serviceId ?? null, input.categoryId ?? null,
       input.startsAt ?? null, input.expiresAt ?? null,
-      input.isActive === false ? 0 : 1, actor.name, ts, ts,
+      input.isActive === false ? 0 : 1, actor.name, ts, ts, input.audience ?? 'code',
     ],
   );
   const row = await one<DiscountCodeRow>('SELECT * FROM discount_codes WHERE id = ?', [codeId]);
@@ -258,6 +267,7 @@ export async function updateDiscountCode(codeId: string, input: Partial<Discount
     startsAt: input.startsAt !== undefined ? input.startsAt : existing.starts_at,
     expiresAt: input.expiresAt !== undefined ? input.expiresAt : existing.expires_at,
     isActive: input.isActive ?? Boolean(existing.is_active),
+    audience: input.audience ?? existing.audience,
   };
   const code = assertValid(merged);
   const clash = await one<{ id: string }>('SELECT id FROM discount_codes WHERE code = ? AND id <> ?', [code, codeId]);
@@ -265,7 +275,7 @@ export async function updateDiscountCode(codeId: string, input: Partial<Discount
   await run(
     `UPDATE discount_codes SET code = ?, title = ?, type = ?, value = ?, max_discount = ?, min_amount = ?,
        usage_limit = ?, per_customer_limit = ?, service_id = ?, category_id = ?, starts_at = ?, expires_at = ?,
-       is_active = ?, updated_at = ? WHERE id = ?`,
+       is_active = ?, updated_at = ?, audience = ? WHERE id = ?`,
     [
       code, merged.title.trim(), merged.type, merged.value,
       merged.type === 'percent' ? (merged.maxDiscount ?? null) : null,
@@ -273,7 +283,7 @@ export async function updateDiscountCode(codeId: string, input: Partial<Discount
       Math.max(1, Math.round(merged.perCustomerLimit ?? 1)),
       merged.serviceId ?? null, merged.categoryId ?? null,
       merged.startsAt ?? null, merged.expiresAt ?? null,
-      merged.isActive === false ? 0 : 1, nowIso(), codeId,
+      merged.isActive === false ? 0 : 1, nowIso(), merged.audience ?? 'code', codeId,
     ],
   );
   const row = await one<DiscountCodeRow>('SELECT * FROM discount_codes WHERE id = ?', [codeId]);
@@ -313,4 +323,43 @@ export async function discountCodeUsages(codeId: string, params: { page?: number
     })),
     total: Number(total?.c ?? 0), page, pageSize,
   };
+}
+
+/** A first-purchase offer is reserved by an active discounted request; a
+ * cancelled/rejected request releases the reservation. Any paid request (even
+ * if subsequently cancelled) counts as a purchase. Callers creating requests
+ * serialize on the customer row before checking this predicate. */
+export async function eligibleForFirstPurchase(customerId: string): Promise<boolean> {
+  const paid = await one('SELECT id FROM requests WHERE customer_id = ? AND payment_status = ? LIMIT 1', [customerId, 'paid']);
+  if (paid) return false;
+  const reservation = await one(`SELECT u.id FROM discount_code_usages u JOIN discount_codes d ON d.id = u.code_id
+    JOIN requests r ON r.id = u.request_id WHERE u.customer_id = ? AND d.audience = 'first_purchase'
+    AND r.status NOT IN ('cancelled', 'canceled', 'rejected') LIMIT 1`, [customerId]);
+  return !reservation;
+}
+
+export async function myDiscountCodes(customerId: string) {
+  const firstEligible = await eligibleForFirstPurchase(customerId);
+  const rows = await q<DiscountCodeRow & { my_uses: number }>(`SELECT d.*,
+    (SELECT COUNT(*) FROM discount_code_usages u WHERE u.code_id = d.id AND u.customer_id = ?) AS my_uses
+    FROM discount_codes d WHERE d.audience = 'all' OR d.audience = 'first_purchase'
+      OR (d.audience = 'assigned' AND EXISTS (SELECT 1 FROM discount_assignments a WHERE a.code_id = d.id AND a.customer_id = ?))
+    ORDER BY d.created_at DESC`, [customerId, customerId]);
+  return rows.map((row) => {
+    const dto = discountDto(row);
+    const used = Number(row.my_uses);
+    return { ...dto, usedCount: undefined, myUses: used, firstPurchaseEligible: row.audience !== 'first_purchase' || firstEligible,
+      usable: dto.usable && used < Number(row.per_customer_limit) && (row.audience !== 'first_purchase' || firstEligible) };
+  });
+}
+
+export async function assignDiscount(codeId: string, customerId: string, actorId: string) {
+  const code = await one<DiscountCodeRow>('SELECT * FROM discount_codes WHERE id = ?', [codeId]);
+  if (!code) throw notFound('کد تخفیف یافت نشد.');
+  if (code.audience !== 'assigned') throw badRequest('برای تخصیص فردی، مخاطب کد باید «مشتریان انتخاب‌شده» باشد.');
+  const customer = await one("SELECT id FROM users WHERE id = ? AND kind = 'customer'", [customerId]);
+  if (!customer) throw notFound('مشتری یافت نشد.');
+  const result = await run(`INSERT INTO discount_assignments (code_id, customer_id, assigned_by, created_at)
+    VALUES (?, ?, ?, ?) ON CONFLICT (code_id, customer_id) DO NOTHING`, [codeId, customerId, actorId, nowIso()]);
+  return { assigned: Boolean(result.changes) };
 }

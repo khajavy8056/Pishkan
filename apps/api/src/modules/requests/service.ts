@@ -560,6 +560,8 @@ export async function createRequest(input: CreateRequestInput, actor?: { id: str
   if (service.archivedAt) throw conflict('این خدمت بایگانی شده است.');
   if (service.isCustom && service.ownerCustomerId !== input.customerId) throw forbidden('این خدمت اختصاصی برای شما نیست.');
 
+  // Serialize discount eligibility and first-purchase reservations per customer.
+  await run("UPDATE users SET id = id WHERE id = ? AND kind = 'customer'", [input.customerId]);
   const customer = await one<any>('SELECT * FROM users WHERE id = ? AND kind = ?', [input.customerId, 'customer']);
   if (!customer) throw notFound('مشتری یافت نشد.');
 
