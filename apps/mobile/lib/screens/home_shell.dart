@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 
 import '../core/theme.dart';
+import '../core/home_navigation.dart';
 import '../services/notifier.dart';
 import '../services/services.dart';
 import '../widgets/widgets.dart';
@@ -46,6 +47,7 @@ class _HomeShellState extends State<HomeShell> with WidgetsBindingObserver {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
     session.addListener(_sessionChanged);
+    homeNavigationRequests.addListener(_returnHome);
     NotifierService.onTapLink = _openLink;
     // Ask for the notification permission once the customer is inside the
     // app (never on the splash, where it could stall first paint).
@@ -65,6 +67,7 @@ class _HomeShellState extends State<HomeShell> with WidgetsBindingObserver {
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
     session.removeListener(_sessionChanged);
+    homeNavigationRequests.removeListener(_returnHome);
     _pollTimer?.cancel();
     _bannerTimer?.cancel();
     if (NotifierService.onTapLink == _openLink) NotifierService.onTapLink = null;
@@ -77,6 +80,10 @@ class _HomeShellState extends State<HomeShell> with WidgetsBindingObserver {
       _poll();
       _refreshUnread();
     }
+  }
+
+  void _returnHome() {
+    if (mounted && _index != 0) selectTab(0);
   }
 
   void _sessionChanged() {

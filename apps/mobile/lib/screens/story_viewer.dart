@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:url_launcher/url_launcher.dart';
 import 'package:video_player/video_player.dart';
 
+import '../core/home_navigation.dart';
 import '../models/models.dart';
 import '../services/services.dart';
 import '../widgets/widgets.dart';
@@ -131,6 +132,7 @@ class _StoryViewerScreenState extends State<StoryViewerScreen> {
     } else {
       _closing = true;
       _playGeneration++;
+      requestHomeTab();
       Navigator.popUntil(context, (route) => route.isFirst);
       return;
     }
