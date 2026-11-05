@@ -97,7 +97,7 @@ class _DocumentCameraScreenState extends State<DocumentCameraScreen> with Widget
     try {
       final cropped = await ImageCropper().cropImage(sourcePath: captured.path, uiSettings: [
         AndroidUiSettings(toolbarTitle: 'برش و چرخش مدرک', toolbarColor: const Color(0xFF0B1F3A), toolbarWidgetColor: Colors.white,
-            lockAspectRatio: false, freeStyleCropEnabled: true),
+            lockAspectRatio: false),
       ]);
       if (mounted && cropped != null) setState(() => _capture = File(cropped.path));
     } catch (_) {
