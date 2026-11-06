@@ -88,8 +88,8 @@ try {
   console.log('PASS: damaged file triggers one clean dependency rebuild and successful retry');
 
   // NODE_ENV=production must not omit build dependencies. A changed manifest is
-  // reconciled with the lockfile for an existing tree. Verification is expected
-  // is outside the scope of this npm check; the run is stopped before starting a server.
+  // reconciled with the lockfile for an existing tree. Local runtime settings
+  // must override the inherited NODE_ENV; --no-start then causes verify to fail.
   const manifestFile = path.join(fixture, 'apps/api/package.json');
   const manifest = JSON.parse(fs.readFileSync(manifestFile, 'utf8'));
   manifest.dependencies['adm-zip'] = '0.5.16';
@@ -101,8 +101,9 @@ try {
   const lock = JSON.parse(fs.readFileSync(path.join(fixture, 'package-lock.json'), 'utf8'));
   assert.equal(lock.packages['apps/api'].dependencies['adm-zip'], '0.5.16');
   assert.equal(run.final.ok, false);
-  assert.notEqual(run.final.error.step, 'deps');
-  console.log(`PASS: production environment includes dev dependencies; changed manifest and lock reconciled (later ${run.final.error.step} step failed as SQLite rejects production mode)`);
+  assert.equal(run.final.error.step, 'verify', JSON.stringify(run.final));
+  assert.ok(run.events.some((e) => e.id === 'database' && e.status === 'ok'));
+  console.log('PASS: production shell includes dev dependencies and local SQLite config overrides it; manifest and lock reconciled');
 
   // Exercise the fresh-tree npm ci path using the real lockfile as well.
   fs.rmSync(path.join(fixture, 'node_modules'), { recursive: true, force: true });

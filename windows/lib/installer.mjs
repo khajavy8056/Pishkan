@@ -29,11 +29,12 @@ import { spawn } from 'node:child_process';
 import {
   MODULE_DIR, DEFAULT_PORT, DEFAULT_ROOT, backupDir, controlPipePath, dataDir, dbFile, dirSizeBytes,
   envFilePath, errorLogFile, errorReportPath, formatBytes, installReportPath, logFile,
-  isPortBusy, findFreePort, parseArgs, pidAlive, readJson, sleep, stateFile, uploadDir, writeJson,
+  isPortBusy, findFreePort, legacyWindowsControlPipePath, parseArgs, pidAlive, readJson, sleep, stateFile, uploadDir, writeJson,
 } from './common.mjs';
 import { readEnvFile, upsertEnvFile } from './envfile.mjs';
 import { privateLanUrls, resolveLanAccess } from './lan-access.mjs';
 import { runLanFirewall } from './lan-firewall.mjs';
+import { stopPishkanServers } from './owned-servers.mjs';
 
 const args = parseArgs();
 const ROOT = path.resolve(args.get('root', DEFAULT_ROOT));
@@ -328,25 +329,35 @@ async function stepClean(job) {
     stepEvent('clean', 'پاک‌سازی نصب قبلی', 'skip', { message: 'حالت آزمایشی (dry-run)؛ هیچ داده‌ای جابه‌جا نمی‌شود', stepProgress: 100 });
     return;
   }
-  // The database file cannot be moved while our own server holds it open.
-  try { await managerCommand('stop', ['--json']); } catch { /* not running: fine */ }
+  // The verified shutdown step already stopped all discoverable installations.
 
   const envFile = envFilePath(ROOT);
   const existing = readEnvFile(envFile);
   const stamp = new Date().toISOString().replaceAll(':', '-').replaceAll('.', '-');
-  const quarantine = path.join(dataDir(ROOT), `previous-install-${stamp}`);
+  let quarantine = '';
   const moved = [];
-  const moveAside = (from) => {
+  const ensureQuarantine = () => {
+    if (!quarantine) {
+      fs.mkdirSync(dataDir(ROOT), { recursive: true });
+      quarantine = fs.mkdtempSync(path.join(dataDir(ROOT), `previous-install-${stamp}-`));
+    }
+    return quarantine;
+  };
+  const moveAside = (from, group = '') => {
     if (!from || !fs.existsSync(from)) return;
-    fs.mkdirSync(quarantine, { recursive: true });
-    const to = path.join(quarantine, path.basename(from));
+    const parent = path.join(ensureQuarantine(), group);
+    fs.mkdirSync(parent, { recursive: true });
+    const to = path.join(parent, path.basename(from));
+    if (fs.existsSync(to)) throw new Error(`مسیر قرنطینه از قبل وجود دارد: ${to}`);
     try {
       fs.renameSync(from, to);
-    } catch {
-      fs.copyFileSync(from, to);
-      fs.unlinkSync(from);
+    } catch (error) {
+      if (error?.code !== 'EXDEV') throw error;
+      // External volumes need a complete copy before the original is removed.
+      fs.cpSync(from, to, { recursive: true, verbatimSymlinks: true, errorOnExist: true, force: false });
+      fs.rmSync(from, { recursive: true, force: false });
     }
-    moved.push(path.basename(from));
+    moved.push(from);
   };
   try {
     const dbCandidates = new Set(
@@ -354,19 +365,34 @@ async function stepClean(job) {
         .filter(Boolean)
         .map((candidate) => (path.isAbsolute(candidate) ? candidate : path.join(ROOT, candidate))),
     );
+    let index = 0;
     for (const db of dbCandidates) {
-      moveAside(db);
-      moveAside(`${db}-wal`);
-      moveAside(`${db}-shm`);
+      const group = index++ === 0 ? '' : `other-database-${index}`;
+      moveAside(db, group);
+      moveAside(`${db}-wal`, group);
+      moveAside(`${db}-shm`, group);
     }
     moveAside(envFile);
-    try {
-      for (const name of fs.readdirSync(ROOT)) {
-        if (name.startsWith('.env.windows.local.bak')) moveAside(path.join(ROOT, name));
+    for (const name of fs.readdirSync(ROOT)) {
+      if (name.startsWith('.env.windows.local.bak')) moveAside(path.join(ROOT, name));
+    }
+    // A clean install must not reuse old uploads, backup listings, logs or
+    // stale installation state. Preserve all of them under quarantine.
+    if (fs.existsSync(dataDir(ROOT))) {
+      for (const name of fs.readdirSync(dataDir(ROOT))) {
+        if (name.startsWith('previous-install-')) continue;
+        moveAside(path.join(dataDir(ROOT), name), 'previous-data');
       }
-    } catch { /* env backups are optional */ }
-    moveAside(path.join(dataDir(ROOT), 'initial-admin-credentials.txt'));
-    moveAside(stateFile(ROOT));
+    }
+    for (const key of ['UPLOAD_DIR', 'BACKUP_DIR']) {
+      const external = existing[key];
+      if (external && path.isAbsolute(external)) {
+        const rel = path.relative(dataDir(ROOT), external);
+        if (rel.startsWith('..') || path.isAbsolute(rel)) {
+          log(`مسیر سفارشی ${key} خارج از .data جابه‌جا یا حذف نشد: ${external}`, 'warn');
+        }
+      }
+    }
     for (const dist of ['apps/api/dist', 'apps/web/dist']) {
       fs.rmSync(path.join(ROOT, dist), { recursive: true, force: true });
     }
@@ -375,10 +401,56 @@ async function stepClean(job) {
   }
   stepEvent('clean', 'پاک‌سازی نصب قبلی', moved.length ? 'ok' : 'skip', {
     message: moved.length
-      ? `داده‌های نصب قبلی به «.data/previous-install-${stamp}» منتقل شد (${moved.length} فایل)؛ نصب از صفر آغاز می‌شود`
+      ? `داده‌های نصب قبلی به «${quarantine}» منتقل شد (${moved.length} مورد)؛ نصب از صفر آغاز می‌شود`
       : 'داده‌ای از نصب قبلی پیدا نشد؛ نصب از صفر آغاز می‌شود',
     stepProgress: 100,
   });
+}
+
+/** Stop only positively identified Pishkan APIs, never unrelated Node apps. */
+async function stepStopExisting() {
+  if (DRY_RUN) return;
+  try {
+    const count = await stopPishkanServers({
+      onStop: ({ pid, root }) => log(`سرویس قبلی Pishkan با خاموشی نرم متوقف شد (PID ${pid}، مسیر ${root}).`),
+    });
+    if (!count) log('سرویس قبلی Pishkan در حال اجرا شناسایی نشد.');
+  } catch (error) {
+    throw Object.assign(new Error(error?.message ?? String(error)), { step: 'clean' });
+  }
+}
+
+/** Read-only integrity gate: never delete, replace or silently reset user data. */
+async function checkExistingDatabase(job) {
+  if (DRY_RUN || job.cleanInstall === true) return;
+  const existing = readEnvFile(envFilePath(ROOT));
+  const file = existing.SQLITE_FILE || dbFile(ROOT);
+  if (!path.isAbsolute(file)) {
+    throw Object.assign(new Error('مسیر SQLITE_FILE نسبی است و بسته به محل اجرای برنامه می‌تواند به دو پایگاه داده متفاوت اشاره کند. ابتدا مسیر مطلق فایل درست را در .env.windows.local تنظیم کنید؛ هیچ داده‌ای تغییر نکرد.'), { step: 'database' });
+  }
+  if (!fs.existsSync(file)) return;
+  let tempDir;
+  try {
+    if (fs.statSync(file).size === 0) throw new Error('فایل پایگاه داده موجود ولی خالی است');
+    // Even a SQLite read-only connection may rewrite SHM or checkpoint a WAL.
+    // Inspect a private offline copy of all three files, never the originals.
+    tempDir = fs.mkdtempSync(path.join(path.dirname(file), '.pishkan-integrity-'));
+    const copy = path.join(tempDir, 'database.sqlite');
+    for (const suffix of ['', '-wal', '-shm']) {
+      if (fs.existsSync(`${file}${suffix}`)) fs.copyFileSync(`${file}${suffix}`, `${copy}${suffix}`);
+    }
+    const { DatabaseSync } = await import('node:sqlite');
+    const db = new DatabaseSync(copy, { readOnly: true });
+    try {
+      const rows = db.prepare('PRAGMA quick_check').all();
+      if (rows.length !== 1 || Object.values(rows[0])[0] !== 'ok') throw new Error(rows.map((row) => Object.values(row).join(' ')).join('; '));
+    } finally { db.close(); }
+    log('سلامت اولیه نسخه‌ای از پایگاه داده موجود بررسی شد.');
+  } catch (error) {
+    throw Object.assign(new Error(`پایگاه داده موجود قابل تأیید نیست (${file}): ${error?.message ?? error}. نصب متوقف شد و فایل‌ها حذف نشدند. پس از توقف همه سرویس‌ها، از فایل پایگاه داده و فایل‌های -wal و -shm همراه با تنظیمات و مدارک کپی بگیرید؛ پشتیبان سالم را بررسی و در صورت نیاز بازیابی کنید. برای شروع از صفر فقط در صورت اطمینان از بی‌نیازی به داده‌ها «نصب تمیز» را انتخاب کنید.`), { step: 'database' });
+  } finally {
+    if (tempDir) { try { fs.rmSync(tempDir, { recursive: true, force: true }); } catch { log(`پوشه موقت بررسی پایگاه داده پاک نشد: ${tempDir}`, 'warn'); } }
+  }
 }
 
 async function stepEnv(job) {
@@ -485,7 +557,11 @@ async function stepEnv(job) {
     APP_ENCRYPTION_KEY: existing.APP_ENCRYPTION_KEY || randomHex(32),
     UPLOAD_DIR: (existing.UPLOAD_DIR || uploadDir(ROOT)).replace(/\\/g, '/'),
     BACKUP_DIR: (existing.BACKUP_DIR || backupDir(ROOT)).replace(/\\/g, '/'),
-    PISHKAN_CONTROL_PIPE: existing.PISHKAN_CONTROL_PIPE || controlPipePath(ROOT),
+    // Replace the old basename-only default (which collided across copied ZIPs)
+    // after stopping it; leave intentionally customised pipes alone.
+    PISHKAN_CONTROL_PIPE: process.platform === 'win32' &&
+      (existing.PISHKAN_CONTROL_PIPE || '').toLowerCase() === legacyWindowsControlPipePath(ROOT).toLowerCase()
+      ? controlPipePath(ROOT) : (existing.PISHKAN_CONTROL_PIPE || controlPipePath(ROOT)),
     DEMO_MODE: existing.DEMO_MODE || 'false',
     LOG_LEVEL: existing.LOG_LEVEL || 'info',
     // The local app is one machine and every automated check (installer verify,
@@ -741,12 +817,14 @@ async function stepDatabase(config) {
   }
   const result = await runProcess(process.execPath, [...sqliteFlag, 'dist/cli/seed.js', '--catalog-only'], {
     cwd: path.join(ROOT, 'apps/api'),
-    env: { PISHKAN_ENV_FILE: config.file },
+    env: { ...readEnvFile(config.file), PISHKAN_ENV_FILE: config.file },
     timeoutMs: 10 * 60 * 1000,
   });
   if (result.code !== 0) {
     const output = tail(result.stderr || result.stdout, 20);
-    const reason = /SQLITE_CANTOPEN|EACCES|permission/i.test(output)
+    const reason = /database disk image is malformed|SQLITE_CORRUPT|file is not a database/i.test(output)
+      ? 'پایگاه داده قابل خواندن یا سالم نیست؛ فایل‌ها را حذف نکنید و پشتیبان سالم را بررسی کنید'
+      : /SQLITE_CANTOPEN|EACCES|permission/i.test(output)
       ? 'دسترسی به فایل پایگاه داده ممکن نیست'
       : /SQLITE_BUSY|locked/i.test(output)
         ? 'پایگاه داده در حال استفاده است (سرور دیگری در حال اجراست)'
@@ -797,7 +875,7 @@ async function stepAdmin(config, job) {
       ...(admin.mobile ? ['--mobile', String(admin.mobile)] : [])],
     {
       cwd: path.join(ROOT, 'apps/api'),
-      env: { PISHKAN_ENV_FILE: config.file },
+      env: { ...readEnvFile(config.file), PISHKAN_ENV_FILE: config.file },
       input: `${password}\n`,
       timeoutMs: 120_000,
     },
@@ -946,10 +1024,15 @@ async function main() {
   try {
     validateJobShape(job);
     checks = await stepChecks(job);
+    await stepStopExisting();
+    await checkExistingDatabase(job);
     await stepClean(job);
     config = await stepEnv(job);
     await stepDependencies();
     await stepBuild();
+    // A different copy could have started while dependencies were installed.
+    await stepStopExisting();
+    await checkExistingDatabase(job);
     await stepDatabase(config);
     await stepAdmin(config, job);
     await stepStart(config);
@@ -1003,7 +1086,9 @@ async function main() {
       root: ROOT,
       stoppedServer,
       step: error?.step ?? events.steps.at(-1)?.id ?? 'unknown',
-      stepTitle: events.steps.at(-1)?.title ?? '',
+      stepTitle: [...events.steps].reverse().find((entry) => entry.id === error?.step)?.title
+        ?? ({ clean: 'توقف سرویس‌ها و پاک‌سازی', database: 'بررسی پایگاه داده' }[error?.step])
+        ?? events.steps.at(-1)?.title ?? '',
       message: error?.message ?? String(error),
       command: error?.command ?? null,
       exitCode: error?.exitCode ?? null,

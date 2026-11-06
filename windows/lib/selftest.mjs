@@ -21,7 +21,7 @@ import http from 'node:http';
 import { spawnSync } from 'node:child_process';
 
 import {
-  MODULE_DIR, compareVersions, envFilePath, findFreePort, formatBytes, isPortBusy, parseArgs, pidAlive, readJson, writeJson,
+  MODULE_DIR, compareVersions, envFilePath, findFreePort, formatBytes, isPortBusy, legacyWindowsControlPipePath, parseArgs, pidAlive, readJson, windowsControlPipePath, writeJson,
 } from './common.mjs';
 import { formatEnvValue, readEnvFile, renderEnvFile, restoreEnvFile, upsertEnvFile } from './envfile.mjs';
 import { firewallRuleName, isPrivateLanIPv4, isSafeWindowsBindConfig, privateLanIPv4Addresses, privateLanUrls, resolveLanAccess } from './lan-access.mjs';
@@ -446,7 +446,10 @@ await testAsync('manager: بایند LAN از انتخاب نصاب پیروی �
   fs.mkdirSync(path.join(root, '.data', 'backups'), { recursive: true });
   fs.symlinkSync(path.join(repoRoot, 'apps', 'api', 'dist'), path.join(root, 'apps', 'api', 'dist'), 'junction');
   fs.symlinkSync(path.join(repoRoot, 'apps', 'api', 'migrations'), path.join(root, 'apps', 'api', 'migrations'), 'junction');
-  fs.writeFileSync(path.join(root, 'package.json'), '{"name":"manager-fallback"}\n', 'utf8');
+  fs.writeFileSync(path.join(root, 'package.json'), '{"name":"pishkan"}\n', 'utf8');
+  fs.writeFileSync(path.join(root, 'apps', 'api', 'package.json'), '{"name":"@pishkan/api"}\n', 'utf8');
+  fs.mkdirSync(path.join(root, 'windows', 'lib'), { recursive: true });
+  fs.writeFileSync(path.join(root, 'windows', 'lib', 'manager.mjs'), '// fixture marker\n', 'utf8');
   const port = await findFreePort(46100);
   assert.ok(port, 'پورت آزاد برای آزمون پیدا نشد');
   fs.writeFileSync(envFilePath(root), [
@@ -486,6 +489,15 @@ test('کلید تنظیمات نامعتبر رد می‌شود', () => {
 });
 
 /* -------------------------------- helpers -------------------------------- */
+
+test('Windows control pipes distinguish copies with the same folder name', () => {
+  const a = 'C:\\Old\\Pishkan';
+  const b = 'C:\\New\\Pishkan';
+  assert.equal(legacyWindowsControlPipePath(a), legacyWindowsControlPipePath(b));
+  assert.notEqual(windowsControlPipePath(a), windowsControlPipePath(b));
+  assert.equal(windowsControlPipePath(a), windowsControlPipePath('c:\\OLD\\pishkan'));
+  assert.ok(windowsControlPipePath(a).startsWith('\\\\.\\pipe\\pishkan-'));
+});
 
 test('مقایسه نسخه Node', () => {
   assert.equal(compareVersions('22.22.3', '22.22.2'), 1);

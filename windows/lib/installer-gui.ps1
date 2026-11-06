@@ -207,7 +207,7 @@ $pass2Box = New-PishkanTextBox '' 600 -Password
 [void](New-Field 'تکرار رمز عبور' 332 $pass2Box)
 
 $cleanInstallCheckBox = New-Object System.Windows.Forms.CheckBox
-$cleanInstallCheckBox.Text = 'نصب تمیز: پاک‌سازی پایگاه داده و تنظیمات نصب قبلی (شروع از صفر)'
+$cleanInstallCheckBox.Text = 'نصب تمیز: انتقال داده‌ها و تنظیمات نصب قبلی و شروع از صفر'
 $cleanInstallCheckBox.Location = New-Object System.Drawing.Point(80, 390)
 $cleanInstallCheckBox.Size = New-Object System.Drawing.Size(600, 26)
 $cleanInstallCheckBox.RightToLeft = [System.Windows.Forms.RightToLeft]::Yes
@@ -537,8 +537,10 @@ function Invoke-SystemCheck {
 
 function Start-Installation {
   if (-not (Test-FormInput)) { return }
+  $stopAnswer = [System.Windows.Forms.MessageBox]::Show('برای نصب، سرویس‌های شناسایی‌شدهٔ Pishkan در این رایانه، حتی در پوشه‌های دیگر، با خاموشی نرم متوقف می‌شوند. فایل‌ها و پایگاه دادهٔ آن نصب‌ها جابه‌جا نمی‌شود. ادامه می‌دهید؟', 'توقف سرویس‌های قبلی', [System.Windows.Forms.MessageBoxButtons]::YesNo, [System.Windows.Forms.MessageBoxIcon]::Warning)
+  if ($stopAnswer -ne [System.Windows.Forms.DialogResult]::Yes) { return }
   if ($cleanInstallCheckBox.Checked) {
-    $cleanAnswer = [System.Windows.Forms.MessageBox]::Show('«نصب تمیز» انتخاب شده است: پایگاه داده و تنظیمات نصب قبلی در این مسیر پاک‌سازی و نصب از صفر آغاز می‌شود. ادامه می‌دهید؟', 'تأیید نصب تمیز', [System.Windows.Forms.MessageBoxButtons]::YesNo, [System.Windows.Forms.MessageBoxIcon]::Warning)
+    $cleanAnswer = [System.Windows.Forms.MessageBox]::Show('«نصب تمیز» انتخاب شده است: پایگاه داده، مدارک، پشتیبان‌ها و تنظیمات محلی این مسیر به پوشه قرنطینه منتقل می‌شوند و نصب از صفر آغاز می‌شود. مسیرهای سفارشی خارج از .data دست‌نخورده می‌مانند. ادامه می‌دهید؟', 'تأیید نصب تمیز', [System.Windows.Forms.MessageBoxButtons]::YesNo, [System.Windows.Forms.MessageBoxIcon]::Warning)
     if ($cleanAnswer -ne [System.Windows.Forms.DialogResult]::Yes) { return }
   }
   if (-not (Ensure-NodeReady)) {

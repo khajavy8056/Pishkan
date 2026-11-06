@@ -14,9 +14,9 @@
  * The server keeps running after this process exits (detached), so the GUI can
  * call `start` and close. Stopping is graceful: the manager connects to the
  * server's local control pipe and sends "shutdown" — the same shutdown path as
- * SIGTERM (close listener, close database, exit 0). If the server does not
- * answer within 15 s, the manager falls back to terminating the PID recorded in
- * `.data/pishkan-manager.json`, and reports that explicitly.
+ * SIGTERM (close listener, close database, exit 0). It verifies the process
+ * and control pipe owner and waits for process exit; it does not force-kill
+ * a stale or unverified PID.
  *
  * Only `start`/`stop`/`restart` touch processes; `status`, `logs`, `backup` are
  * read-only. Backups use SQLite's `VACUUM INTO`, which is consistent while the
@@ -37,6 +37,7 @@ import { isSafeWindowsBindConfig, privateLanUrls } from './lan-access.mjs';
 import { qrAscii, qrPngBase64 } from './qr.mjs';
 import { runLanFirewall } from './lan-firewall.mjs';
 import { formatManagerLogLine, sanitizeManagerLogMessage } from './manager-log.mjs';
+import { listPishkanServers, stopPishkanServers } from './owned-servers.mjs';
 
 const args = parseArgs();
 const ROOT = path.resolve(args.get('root', process.cwd()));
@@ -254,7 +255,7 @@ async function start({ lanAllowed = true, lanWarning: inheritedWarning = '', rec
     const previousHost = current?.bindHost || (current?.lanAccess ? '0.0.0.0' : '127.0.0.1');
     const guardMissing = effectiveLan && LAN_STRICT && !lanGuardHealthy(current);
     if (previousHost !== bindHost || Boolean(current?.lanAccess) !== effectiveLan || guardMissing) {
-      const stopped = await stop();
+      const stopped = await stop({ quiet: true });
       if (!stopped.ok) return out(withLan({ ok: false, port: PORT, url: URL_BASE, message: 'پیکربندی شبکه تغییر کرده اما سرویس قبلی متوقف نشد؛ تنظیم جدید اعمال نشد.' }));
       if (!effectiveLan && current?.lanAccess) {
         const removed = runLanFirewall('remove', { root: ROOT, port: PORT, program: process.execPath });
@@ -299,11 +300,8 @@ async function start({ lanAllowed = true, lanWarning: inheritedWarning = '', rec
     // Our recorded process is alive but not answering (hung boot, wedged):
     // stop it ourselves instead of blaming «another program» for the port.
     log(`Owned server pid=${current.pid} is alive but unhealthy; stopping it before a fresh start.`);
-    await stop();
-    if (current?.pid && pidAlive(current.pid)) {
-      forceKill(current.pid);
-      for (let attempt = 0; attempt < 12 && pidAlive(current.pid); attempt += 1) await sleep(250);
-    }
+    const stopped = await stop({ quiet: true });
+    if (!stopped.ok) return out(withLan({ ok: false, port: PORT, url: URL_BASE, message: stopped.message }));
     await sleep(400);
   }
   if (await isPortBusy(PORT)) {
@@ -341,6 +339,7 @@ async function start({ lanAllowed = true, lanWarning: inheritedWarning = '', rec
     cwd: ROOT,
     env: {
       ...process.env,
+      ...env, // This installation, not unrelated inherited shell settings, owns its database and secrets.
       PISHKAN_ENV_FILE: envFilePath(ROOT),
       PISHKAN_CONTROL_PIPE: PIPE,
       PORT: String(PORT),
@@ -440,60 +439,31 @@ function forceKill(pid) {
   }
 }
 
-async function stop() {
+async function stop({ quiet = false } = {}) {
+  const respond = (payload) => quiet ? payload : out(payload);
   const current = state();
-  const probe = await health(800);
-  let owned = Boolean(current?.pid) && current.root === ROOT && pidAlive(current.pid);
-  // A server adopted after its state file was lost has no recorded pid; its
-  // control pipe (scoped to this root) is the ownership proof.
-  if (probe.up && !owned) owned = await pingControlPipe(800);
-  if (probe.up && !owned) {
-    return out({ ok: false, foreignOccupied: true,
-      message: 'سرویس در حال اجرا به این نصب تعلق ندارد و متوقف نشد. آن را از برنامه خودش ببندید.' });
-  }
-  const known = owned;
-  if (!probe.up && !known) {
+  try {
+    const matches = listPishkanServers().filter((server) =>
+      isWindows() ? server.root.toLowerCase() === ROOT.toLowerCase() : server.root === ROOT);
+    if (!matches.length && current?.root === ROOT && current?.pid && pidAlive(current.pid)) {
+      return respond({ ok: false, message: 'فرایند ثبت‌شده هنوز فعال است اما مالکیت آن تأیید نشد؛ هیچ فرایندی متوقف نشد.' });
+    }
+    if (!matches.length && (await health(800)).up) {
+      return respond({ ok: false, foreignOccupied: true, message: 'سرویس روی این پورت به این نصب تعلق ندارد و متوقف نشد.' });
+    }
+    const count = await stopPishkanServers({ root: ROOT });
+    if (current?.root === ROOT) fs.rmSync(stateFile(ROOT), { force: true });
     fs.rmSync(FIREWALL_LEASE_FILE, { force: true });
-    if (current?.root === ROOT && fs.existsSync(stateFile(ROOT))) fs.rmSync(stateFile(ROOT), { force: true });
-    return out({ ok: true, alreadyStopped: true, message: 'Pishkan در حال اجرا نبود.' });
+    return respond({ ok: true, alreadyStopped: count === 0, graceful: count > 0, method: count ? 'control-pipe' : 'none',
+      message: count ? `${count} سرویس Pishkan این نصب با خاموشی نرم متوقف شد.` : 'Pishkan در حال اجرا نبود.' });
+  } catch (error) {
+    return respond({ ok: false, message: error?.message ?? String(error) });
   }
-  const graceful = await closeControlPipe();
-  let stopped = false;
-  for (let attempt = 0; attempt < 30; attempt += 1) {
-    await sleep(500);
-    const now = await health(600);
-    if (!now.up) {
-      stopped = true;
-      break;
-    }
-  }
-  let method = graceful ? 'control-pipe' : 'none';
-  if (!stopped && current?.pid) {
-    forceKill(current.pid);
-    method = 'forced';
-    for (let attempt = 0; attempt < 10; attempt += 1) {
-      await sleep(300);
-      if (!(await health(500)).up) {
-        stopped = true;
-        break;
-      }
-    }
-  }
-  if (fs.existsSync(stateFile(ROOT))) fs.rmSync(stateFile(ROOT), { force: true });
-  if (stopped || !current?.pid || !pidAlive(current.pid)) fs.rmSync(FIREWALL_LEASE_FILE, { force: true });
-  return out({
-    ok: stopped,
-    graceful,
-    method,
-    message: stopped
-      ? `Pishkan متوقف شد (${method === 'control-pipe' ? 'خاموشی نرم' : 'خاتمه اجباری'}).`
-      : 'خاموش‌کردن سرویس ناموفق بود؛ فرآیند را در Task Manager ببندید.',
-  });
 }
 
 async function restart() {
-  const first = await stop();
-  if (!first.ok) return first;
+  const first = await stop({ quiet: true });
+  if (!first.ok) return out(first);
   await sleep(600);
   return start();
 }
@@ -710,22 +680,16 @@ async function restore() {
   }
   if (migrations <= 0) return out({ ok: false, message: 'پشتیبان هیچ مهاجرتی ندارد؛ بازیابی انجام نشد.' });
 
-  const wasRunning = (await health(800)).up;
-  const previousPid = state()?.pid ?? null;
-  if (wasRunning) {
-    const stopped = await stop();
-    if (!stopped?.ok) {
-      return out({
-        ok: false,
-        message: 'سرویس در حال اجرا متوقف نشد و بازیابی انجام نشد تا به داده‌ها آسیبی نرسد. راه ساده‌تر: بازیابی را از داخل پنل وب انجام دهید (پنل مدیر ← زیرساخت و پشتیبان‌گیری ← «بازیابی از فایل پشتیبان»). در غیر این صورت سرویس را با دکمه توقف ببندید و دوباره تلاش کنید.',
-      });
-    }
-    // The health endpoint can go quiet a moment before Windows releases the
-    // database file handle; wait for the process to actually die so the copy
-    // below cannot race a still-closing server (EBUSY/EPERM).
-    if (previousPid) {
-      for (let attempt = 0; attempt < 20 && pidAlive(previousPid); attempt += 1) await sleep(400);
-    }
+  // A nonresponsive health endpoint does not mean the database is closed.
+  // Always verify shutdown, even for a hung/unhealthy existing server.
+  const wasRunning = listPishkanServers().some((server) =>
+    isWindows() ? server.root.toLowerCase() === ROOT.toLowerCase() : server.root === ROOT);
+  const stopped = await stop({ quiet: true });
+  if (!stopped?.ok) {
+    return out({
+      ok: false,
+      message: 'سرویس با اطمینان متوقف نشد؛ برای حفاظت از پایگاه داده بازیابی انجام نشد. ' + (stopped?.message || ''),
+    });
   }
   const safety = `${DB}.before-restore-${Date.now()}`;
   // Copy with retries: antivirus/indexers on Windows can hold the file for a

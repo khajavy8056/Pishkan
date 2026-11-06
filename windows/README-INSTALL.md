@@ -41,6 +41,8 @@
 
 `npm run test:windows:deps` copies the project and installed dependency tree to a temporary fixture and runs the actual installer, builds, SQLite and service verification. It needs Node 22, an existing `node_modules`, sufficient disk space and registry access or a warm npm cache. It does not validate the Windows GUI or firewall.
 
+`npm run test:windows:safety` exercises live servers in isolated fixture folders and SQLite corruption/clean-install safety. It invokes the real installer, which stops other detectable Pishkan servers on that machine; run only on an isolated test machine.
+
 ## Commands (no GUI)
 
 ```bat
