@@ -28,11 +28,11 @@ class _ReferralsScreenState extends State<ReferralsScreen> {
   @override Widget build(BuildContext context) => Scaffold(
     appBar:AppBar(title:const Text('دعوت دوستان')),
     body:_loading ? const Center(child:CircularProgressIndicator()) : _error!=null ? Center(child:Column(mainAxisSize:MainAxisSize.min,children:[Text(_error!),TextButton(onPressed:_load,child:const Text('تلاش دوباره'))])) : RefreshIndicator(onRefresh:_load,child:ListView(padding:const EdgeInsets.all(16),children:[
-      const Text('با ثبت‌نام دوستان جدید و تأیید موبایل آنها، طبق شرایط هر کمپین پاداش کیف پول دریافت کنید.',style:TextStyle(height:1.8)),
+      const Text('با ثبت‌نام دوستان جدید و تأیید موبایل آنها، تا پیش از تکمیل ظرفیت و طبق شرایط هر کمپین پاداش کیف پول دریافت کنید.',style:TextStyle(height:1.8)),
       if(_items.isEmpty) const Padding(padding:EdgeInsets.all(24),child:Text('کمپینی فعال نیست.',textAlign:TextAlign.center)),
       for(final item in _items) Padding(padding:const EdgeInsets.only(top:12),child:SoftCard(child:Column(crossAxisAlignment:CrossAxisAlignment.start,children:[
         Text(asStr(item['title']),style:const TextStyle(fontWeight:FontWeight.bold)), const SizedBox(height:8),
-        Text('با ${faDigits(item['threshold'])} ثبت‌نام تأییدشده، یک‌بار ${faMoney(asNum(item['rewardAmount']))} هدیه. پیشرفت: ${faDigits(item['qualified'])} از ${faDigits(item['threshold'])}',style:const TextStyle(height:1.8)),
+        Text('با ${faDigits(item['threshold'])} ثبت‌نام تأییدشده، یک‌بار ${faMoney(asNum(item['rewardAmount']))} هدیه در صورت باقی‌ماندن ظرفیت. پیشرفت: ${faDigits(item['qualified'])} از ${faDigits(item['threshold'])}',style:const TextStyle(height:1.8)),
         Text(asBool(item['rewarded'])?'پاداش پرداخت شده است':asBool(item['accepting'])?'کمپین فعال':'کمپین متوقف یا ظرفیت تکمیل شده است'),
         if(asStr(item['token']).isEmpty) FilledButton(onPressed:asBool(item['accepting'])?()=>_issue(asStr(item['id'])):null,child:const Text('ساخت لینک دعوت'))
         else ...[

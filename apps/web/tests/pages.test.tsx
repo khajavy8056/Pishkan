@@ -236,6 +236,31 @@ describe('public pages render', () => {
     await waitFor(() => expect(screen.getByText('ایجاد حساب مشتری')).toBeTruthy());
   });
 
+  it('carries the invitation to password registration and clears it only after the server accepts the account', async () => {
+    const originalFetch = fetchMock.getMockImplementation();
+    const token = 'abcdefghijklmnopqrstuvwxyz123456';
+    let payload: any = null;
+    sessionStorage.setItem('pishkan.referral', token);
+    fetchMock.mockImplementation(async (input, init) => {
+      const url = typeof input === 'string' ? input : input instanceof URL ? input.toString() : String(input.url);
+      if (url === '/api/auth/register') {
+        payload = JSON.parse(String(init?.body));
+        return { ok: true, status: 201, headers: new Headers({ 'content-type': 'application/json' }), json: async () => ({ok:true,data:{requiresVerification:true}}), blob: async () => new Blob(), text: async () => '' } as unknown as Response;
+      }
+      return originalFetch!(input,init);
+    });
+    try {
+      renderAt('/register', <RegisterPage />);
+      expect((await screen.findByLabelText('کد دعوت (اختیاری)') as HTMLInputElement).value).toBe(token);
+      fireEvent.change(screen.getByLabelText(/نام و نام خانوادگی/), {target:{value:'کاربر آزمون'}});
+      fireEvent.change(screen.getByLabelText(/شماره موبایل/), {target:{value:'09123456789'}});
+      fireEvent.change(screen.getByLabelText(/رمز عبور/), {target:{value:'Password123'}});
+      fireEvent.click(screen.getByRole('button',{name:'ثبت‌نام'}));
+      await waitFor(()=>expect(payload?.referralCode).toBe(token));
+      expect(sessionStorage.getItem('pishkan.referral')).toBeNull();
+    } finally { sessionStorage.removeItem('pishkan.referral'); fetchMock.mockImplementation(originalFetch!); }
+  });
+
   it('renders the assistant conversation shell', async () => {
     renderAt('/assistant', <AssistantPage />);
     await waitFor(() => expect(screen.getByPlaceholderText('سؤال خود را بنویسید…')).toBeTruthy());

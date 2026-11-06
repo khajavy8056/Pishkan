@@ -2,7 +2,7 @@ import { Router } from 'express';
 import { z } from 'zod';
 import { asyncRoute, requireAuth, requirePermission } from '../http/middleware.js';
 import { forbidden } from '../http/errors.js';
-import { created, ok } from '../http/respond.js';
+import { created, ok, pagination } from '../http/respond.js';
 import { param } from '../http/params.js';
 import { officeScope } from '../lib/scope.js';
 import { writeAudit } from '../modules/audit/service.js';
@@ -28,7 +28,7 @@ referralsRouter.patch('/admin/:id', requirePermission('discounts.edit'), require
   const c=await setCampaignActive(param(req,'id'),body.isActive);
   await writeAudit({actorId:req.auth!.user.id,actorName:req.auth!.user.fullName,action:'referral.campaign.toggle',entityType:'referral_campaign',entityId:c.id,after:body,ip:req.ip}); ok(res,c);
 }));
-referralsRouter.get('/admin/:id/progress', requirePermission('discounts.view'),requirePermission('wallet.view'),asyncRoute(async(req,res) => { office(req); ok(res,await campaignProgress(param(req,'id'))); }));
+referralsRouter.get('/admin/:id/progress', requirePermission('discounts.view'),requirePermission('wallet.view'),asyncRoute(async(req,res) => { office(req); const {page,pageSize}=pagination(req,{pageSize:50}); const result=await campaignProgress(param(req,'id'),page,pageSize); ok(res,result.items,{total:result.total,page,pageSize}); }));
 referralsRouter.post('/admin/:id/retry', requirePermission('discounts.edit'),requirePermission('wallet.credit'),asyncRoute(async(req,res) => {
   office(req); const body=z.object({inviterId:z.string().min(3).max(80)}).parse(req.body);
   await run(`UPDATE referral_attributions SET qualified_at=? WHERE campaign_id=? AND inviter_id=? AND qualified_at IS NULL AND EXISTS (SELECT 1 FROM users u WHERE u.id=referral_attributions.invitee_id AND u.mobile_verified=1 AND u.kind='customer')`,[nowIso(),param(req,'id'),body.inviterId]);

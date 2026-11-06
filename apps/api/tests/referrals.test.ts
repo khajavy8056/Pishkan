@@ -70,4 +70,39 @@ describe('referral campaigns', () => {
     await request(server).post('/api/auth/register').send({mobile:randomMobile(),password,fullName:'کاربر ظرفیت',referralCode:code}).expect(400);
     await request(server).post('/api/referrals/admin').set('Cookie',inviter.session.cookie).send({title:'x'}).expect(403);
   });
+  it('keeps verification successful when wallet is frozen and allows an idempotent administrator retry', async () => {
+    const inviter=await newCustomer(); await run('UPDATE users SET mobile_verified=1 WHERE id=?',[inviter.id]);
+    const c=await makeCampaign({threshold:1}); const code=await link(c.id,inviter.session);
+    await request(server).get('/api/wallet/my').set('Cookie',inviter.session.cookie).expect(200);
+    await run("UPDATE wallets SET status='frozen' WHERE customer_id=?",[inviter.id]);
+    const invitee=await passwordSignup(code);
+    await verifyMobile(invitee.session);
+    expect(Number((await one<any>('SELECT COUNT(*) AS n FROM referral_rewards WHERE campaign_id=?',[c.id]))!.n)).toBe(0);
+    const status=await request(server).get(`/api/referrals/admin/${c.id}/progress`).set('Cookie',admin.cookie).expect(200);
+    expect(Number(status.body.data.find((x:any)=>x.inviterId===inviter.id).qualified)).toBe(1);
+    await run("UPDATE wallets SET status='active' WHERE customer_id=?",[inviter.id]);
+    const retry=await request(server).post(`/api/referrals/admin/${c.id}/retry`).set('Cookie',admin.cookie).send({inviterId:inviter.id}).expect(200);
+    expect(retry.body.data.paid).toBe(true);
+    const again=await request(server).post(`/api/referrals/admin/${c.id}/retry`).set('Cookie',admin.cookie).send({inviterId:inviter.id}).expect(200);
+    expect(again.body.data.reason).toBe('already_paid');
+    expect(Number((await one<any>('SELECT balance FROM wallets WHERE customer_id=?',[inviter.id]))!.balance)).toBe(250000);
+  });
+  it('does not spend a valid OTP on an invalid referral before an account exists', async () => {
+    const mobile=randomMobile();
+    const sent=await request(server).post('/api/auth/otp/request').send({mobile,kind:'customer'}).expect(200);
+    await request(server).post('/api/auth/otp/verify').send({mobile,code:sent.body.data.debugCode,kind:'customer',referralCode:'invalid_token_12345'}).expect(400);
+    const withoutReferral=await request(server).post('/api/auth/otp/verify').send({mobile,code:sent.body.data.debugCode,kind:'customer'}).expect(200);
+    expect(withoutReferral.body.data.isNewUser).toBe(true);
+  });
+  it('caps rewards across two simultaneous qualifying inviters', async () => {
+    const a=await newCustomer(), b=await newCustomer();
+    await run('UPDATE users SET mobile_verified=1 WHERE id=? OR id=?',[a.id,b.id]);
+    const c=await makeCampaign({threshold:1,maxRewards:1});
+    const ia=await passwordSignup(await link(c.id,a.session));
+    const ib=await passwordSignup(await link(c.id,b.session));
+    await Promise.all([verifyMobile(ia.session),verifyMobile(ib.session)]);
+    expect(Number((await one<any>('SELECT COUNT(*) AS n FROM referral_rewards WHERE campaign_id=?',[c.id]))!.n)).toBe(1);
+    expect(Number((await one<any>('SELECT paid_count AS n FROM referral_campaigns WHERE id=?',[c.id]))!.n)).toBe(1);
+  });
+
 });

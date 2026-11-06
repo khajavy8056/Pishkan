@@ -89,9 +89,11 @@ export async function payReward(campaignId: string, inviterId: string) {
     return {paid:true,reason:'paid'};
   });
 }
-export async function campaignProgress(campaignId:string) {
-  return q<any>(`SELECT l.inviter_id AS "inviterId", u.full_name AS "inviterName", u.mobile AS "inviterMobile",
+export async function campaignProgress(campaignId:string, page:number, pageSize:number) {
+  const total = await one<{n:number}>('SELECT COUNT(*) AS n FROM referral_links WHERE campaign_id=?',[campaignId]);
+  const items = await q<any>(`SELECT l.inviter_id AS "inviterId", u.full_name AS "inviterName", u.mobile AS "inviterMobile",
     (SELECT COUNT(*) FROM referral_attributions a WHERE a.campaign_id=l.campaign_id AND a.inviter_id=l.inviter_id AND a.qualified_at IS NOT NULL) AS qualified,
     (SELECT COUNT(*) FROM referral_rewards r WHERE r.campaign_id=l.campaign_id AND r.inviter_id=l.inviter_id) AS rewarded
-    FROM referral_links l JOIN users u ON u.id=l.inviter_id WHERE l.campaign_id=? ORDER BY l.created_at DESC LIMIT 500`,[campaignId]);
+    FROM referral_links l JOIN users u ON u.id=l.inviter_id WHERE l.campaign_id=? ORDER BY l.created_at DESC LIMIT ? OFFSET ?`,[campaignId,pageSize,(page-1)*pageSize]);
+  return {items,total:Number(total?.n ?? 0)};
 }
