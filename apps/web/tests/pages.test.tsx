@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { fireEvent, render, screen, waitFor } from '@testing-library/react';
-import { MemoryRouter } from 'react-router-dom';
+import { MemoryRouter, Route, Routes } from 'react-router-dom';
 import { AuthProvider } from '../src/lib/auth';
 import { formatDuration, SiteProvider } from '../src/lib/site';
 import { ToastProvider } from '../src/components/ui';
@@ -10,6 +10,7 @@ import { ServicesPage, ServiceDetailPage } from '../src/pages/public/Services';
 import { LoginPage, StaffLoginPage, RegisterPage, LegalPage, StatusPage, AssistantPage } from '../src/pages/public/Auth';
 import { NotFoundPage } from '../src/pages/public/Auth';
 import { fetchMock, setAuthUser } from './setup';
+import { InviteLanding } from '../src/pages/customer/Referrals';
 
 function renderAt(path: string, element: React.ReactElement) {
   return render(
@@ -234,6 +235,21 @@ describe('public pages render', () => {
   it('renders the registration form when open', async () => {
     renderAt('/register', <RegisterPage />);
     await waitFor(() => expect(screen.getByText('ایجاد حساب مشتری')).toBeTruthy());
+  });
+
+  it('carries the code from the invitation page into the registration form', async () => {
+    const token = 'abcdefghijklmnopqrstuvwxyz123456';
+    sessionStorage.removeItem('pishkan.referral');
+    try {
+      render(<AuthProvider><SiteProvider><ToastProvider><MemoryRouter initialEntries={[`/invite/${token}`]}><Routes>
+        <Route path="/invite/:token" element={<InviteLanding />} />
+        <Route path="/register" element={<RegisterPage />} />
+      </Routes></MemoryRouter></ToastProvider></SiteProvider></AuthProvider>);
+      const open = await screen.findByRole('link', {name:'باز کردن اپ اندروید'});
+      expect(open.getAttribute('href')).toContain(`pishkan://invite?ref=${token}`);
+      fireEvent.click(screen.getByRole('link',{name:'ثبت‌نام در وب'}));
+      expect((await screen.findByLabelText('کد دعوت (اختیاری)') as HTMLInputElement).value).toBe(token);
+    } finally { sessionStorage.removeItem('pishkan.referral'); }
   });
 
   it('carries the invitation to password registration and clears it only after the server accepts the account', async () => {
