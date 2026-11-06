@@ -7,7 +7,7 @@ import { api, ApiFailure } from '../../lib/api';
 import { faNum, rial } from '../../lib/format';
 
 const valid = (v:string) => /^[A-Za-z0-9_-]{16,128}$/.test(v);
-export function saveReferral(token:string) { if (valid(token)) sessionStorage.setItem('pishkan.referral',token); }
+export function saveReferral(token:string) { if (valid(token)) sessionStorage.setItem('pishkan.referral',token); else sessionStorage.removeItem('pishkan.referral'); }
 export function getReferral() { const s=sessionStorage.getItem('pishkan.referral') ?? ''; return valid(s) ? s : ''; }
 export function clearReferral() { sessionStorage.removeItem('pishkan.referral'); }
 
