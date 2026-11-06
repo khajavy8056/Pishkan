@@ -1,7 +1,7 @@
 name: pishkan_app
 description: اپلیکیشن اندروید مشتریان پیشخوان — متصل به همان سامانه و پایگاه داده نسخه وب.
 publish_to: 'none'
-version: 1.1.7+9
+version: 1.1.8+10
 
 environment:
   # >=3.7: wildcard variables (`(_, _)`) used across the codebase.
@@ -16,6 +16,7 @@ dependencies:
   dio: ^5.7.0
   flutter_secure_storage: ^9.2.2
   shared_preferences: ^2.3.3
+  app_links: ^6.4.1
   cached_network_image: ^3.4.1
   image_picker: ^1.1.2
   camera: ^0.11.1

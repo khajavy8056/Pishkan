@@ -1,14 +1,33 @@
+import 'dart:async';
+import 'package:app_links/app_links.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
 
 import 'core/theme.dart';
+import 'core/referral.dart';
 import 'screens/splash.dart';
 
 /// Shared navigator so notification taps can deep-link from anywhere.
 final appNavigatorKey = GlobalKey<NavigatorState>();
 
-class PishkanApp extends StatelessWidget {
+class PishkanApp extends StatefulWidget {
   const PishkanApp({super.key});
+
+  @override
+  State<PishkanApp> createState() => _PishkanAppState();
+}
+
+class _PishkanAppState extends State<PishkanApp> {
+  StreamSubscription<Uri>? _links;
+  @override
+  void initState() {
+    super.initState();
+    final links = AppLinks();
+    ReferralStore.load().then((_) => links.getInitialLink()).then((uri) { if (uri != null) ReferralStore.acceptUri(uri); }).catchError((_) {});
+    _links = links.uriLinkStream.listen((uri) { ReferralStore.acceptUri(uri); }, onError: (_) {});
+  }
+  @override
+  void dispose() { _links?.cancel(); super.dispose(); }
 
   @override
   Widget build(BuildContext context) {

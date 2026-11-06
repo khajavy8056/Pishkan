@@ -7,6 +7,7 @@ import { formatDuration, useSite } from '../../lib/site';
 import { useAuth, homeFor, safeNextPath, type CurrentUser } from '../../lib/auth';
 import { useBrand, BrandLockup, BrandMark } from '../../lib/brand';
 import { api, ApiFailure } from '../../lib/api';
+import { clearReferral, getReferral, saveReferral } from '../customer/Referrals';
 import { Button, Field, Input, useToast } from '../../components/ui';
 
 type Audience = 'customer' | 'staff';
@@ -39,6 +40,7 @@ function LoginPanel({ audience }: { audience: Audience }) {
     else if (!otpEnabled && passwordEnabled) setMode('password');
   }, [otpEnabled, passwordEnabled]);
 
+  const [referral, setReferral] = useState(() => getReferral());
   const [mobile, setMobile] = useState('');
   const [code, setCode] = useState('');
   const [identifier, setIdentifier] = useState('');
@@ -107,7 +109,8 @@ function LoginPanel({ audience }: { audience: Audience }) {
     setError('');
     setLoading(true);
     try {
-      const res = await api.post<any>('/api/auth/otp/verify', { mobile, code, kind: audience });
+      const res = await api.post<any>('/api/auth/otp/verify', { mobile, code, kind: audience, ...(audience === 'customer' && referral.trim() ? { referralCode: referral.trim() } : {}) });
+      if (audience === 'customer') clearReferral();
       if (res.data.mfaRequired) { setMfa({ token: res.data.mfaToken, mode: 'totp', message: 'کد برنامه تأیید دومرحله‌ای را وارد کنید.' }); return; }
       await afterLogin();
     } catch (err) {
@@ -127,6 +130,7 @@ function LoginPanel({ audience }: { audience: Audience }) {
         if (res.data.mode === 'otp') notify('کد تأیید به موبایل شما ارسال شد.', 'success');
         return;
       }
+      if (audience === 'customer') clearReferral();
       await afterLogin();
     } catch (err) {
       setError(err instanceof ApiFailure ? err.message : 'ورود ناموفق بود');
@@ -210,6 +214,7 @@ function LoginPanel({ audience }: { audience: Audience }) {
         <div className="space-y-4">
           {step === 'request' ? (
             <>
+              {audience === 'customer' && <Field label="کد دعوت (اختیاری)" hint="فقط هنگام ساخت حساب جدید اعمال می‌شود."><Input value={referral} onChange={e=>{setReferral(e.target.value); if(e.target.value) saveReferral(e.target.value); else clearReferral();}} dir="ltr" /></Field>}
               <Field label="شماره موبایل" hint="کد تأیید به همین شماره ارسال می‌شود." required>
                 <Input value={mobile} onChange={(e) => setMobile(e.target.value)} placeholder="09123456789" inputMode="tel" dir="ltr" className="text-left" />
               </Field>
@@ -373,6 +378,7 @@ export function RegisterPage() {
   const [params] = useSearchParams();
   const next = safeNextPath(params.get('next'), 'customer');
   const { notify } = useToast();
+  const [referralCode, setReferralCode] = useState(() => params.get('ref') || getReferral());
   const [form, setForm] = useState({ fullName: '', username: '', mobile: '', password: '', email: '', nationalId: '' });
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
@@ -385,7 +391,8 @@ export function RegisterPage() {
     setLoading(true);
     setError('');
     try {
-      const res = await api.post<any>('/api/auth/register', {...form,username:form.username || undefined});
+      const res = await api.post<any>('/api/auth/register', {...form,username:form.username || undefined, ...(referralCode.trim() ? { referralCode: referralCode.trim() } : {})});
+      clearReferral();
       if (res.data?.requiresVerification) {
         setNeedsVerification(true);
         notify('حساب ساخته شد. کد تأیید پیامک شد.', 'info');
@@ -431,6 +438,7 @@ export function RegisterPage() {
             </div>
           ) : (
             <form onSubmit={submit} className="mt-5 space-y-4">
+              <Field label="کد دعوت (اختیاری)" hint="از لینک دعوت دریافت می‌شود یا می‌توانید آن را دستی وارد کنید."><Input value={referralCode} onChange={e => { setReferralCode(e.target.value); if (e.target.value) saveReferral(e.target.value); else clearReferral(); }} dir="ltr" /></Field>
               <Field label="نام و نام خانوادگی" required>
                 <Input value={form.fullName} onChange={set('fullName')} autoComplete="name" />
               </Field>

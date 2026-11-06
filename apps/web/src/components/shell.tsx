@@ -48,6 +48,7 @@ const customerNav: NavItem[] = [
   { to: '/app/messages', label: 'پیام‌ها', icon: <MessageSquare className="size-5" />, section: SECTION_ACCOUNT },
   { to: '/app/support', label: 'پشتیبانی و تیکت‌ها', short: 'پشتیبانی', icon: <Headset className="size-5" />, section: SECTION_SUPPORT },
   { to: '/assistant', label: 'دستیار هوشمند', short: 'دستیار', icon: <LifeBuoy className="size-5" />, section: SECTION_SUPPORT },
+  { to: '/app/referrals', label: 'دعوت دوستان', icon: <Users className="size-5" />, section: SECTION_ACCOUNT },
   { to: '/app/profile', label: 'پروفایل و تنظیمات', short: 'پروفایل', icon: <Settings className="size-5" />, section: SECTION_ACCOUNT },
 ];
 
@@ -71,6 +72,7 @@ const accountantNav: NavItem[] = [
   { to: '/staff/accounting', label: 'حسابداری دفتر', short: 'حسابداری', icon: <Wallet className="size-5" />, permission: 'invoices.view', section: SECTION_SYSTEM },
   { to: '/staff/reports', label: 'گزارش‌های مالی', short: 'گزارش‌ها', icon: <BarChart3 className="size-5" />, permission: 'reports.view', section: SECTION_SYSTEM },
   { to: '/staff/payroll', label: 'حقوق و تسویه کارکنان', short: 'حقوق', icon: <Receipt className="size-5" />, permission: 'payroll.view', section: SECTION_SYSTEM },
+  { to: '/staff/referrals', label: 'کمپین‌های دعوت', icon: <Users className="size-5" />, permission: 'discounts.view', section: SECTION_SYSTEM },
   { to: '/staff/discounts', label: 'کدهای تخفیف', short: 'تخفیف', icon: <TicketPercent className="size-5" />, permission: 'discounts.view', section: SECTION_SYSTEM },
 ];
 
@@ -87,6 +89,7 @@ const adminNav: NavItem[] = [
   { to: '/admin/support', label: 'پشتیبانی و تیکت‌ها', short: 'پشتیبانی', icon: <Headset className="size-5" />, permission: 'support.view', section: SECTION_MANAGE },
   { to: '/admin/finance', label: 'حسابداری', icon: <Wallet className="size-5" />, permission: 'invoices.view', section: SECTION_SYSTEM },
   { to: '/admin/wallet', label: 'کیف پول مشتریان', short: 'کیف پول', icon: <Wallet className="size-5" />, permission: 'wallet.view', section: SECTION_SYSTEM },
+  { to: '/admin/referrals', label: 'کمپین‌های دعوت', icon: <Users className="size-5" />, permission: 'discounts.view', section: SECTION_SYSTEM },
   { to: '/admin/discounts', label: 'کدهای تخفیف', short: 'تخفیف', icon: <TicketPercent className="size-5" />, permission: 'discounts.view', section: SECTION_SYSTEM },
   { to: '/admin/monitoring', label: 'مرکز پایش', short: 'پایش', icon: <Activity className="size-5" />, permission: 'monitoring.view', section: SECTION_SYSTEM },
   { to: '/admin/payroll', label: 'حقوق و تسویه کارکنان', short: 'حقوق', icon: <Users className="size-5" />, permission: 'payroll.view', section: SECTION_SYSTEM },

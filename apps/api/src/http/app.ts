@@ -31,6 +31,7 @@ import { paymentsRouter } from '../routes/payments.js';
 import { walletRouter } from '../routes/wallet.js';
 import { monitoringRouter } from '../routes/monitoring.js';
 import { discountsRouter } from '../routes/discounts.js';
+import { referralsRouter } from '../routes/referrals.js';
 import { supportRouter } from '../routes/support.js';
 import { pushRouter } from '../routes/push.js';
 import { mobileRouter } from '../routes/mobile.js';
@@ -218,6 +219,7 @@ export async function createApp(): Promise<Express> {
   app.use(['/api/wallet','/api/v1/wallet'],walletRouter);
   app.use(['/api/monitoring','/api/v1/monitoring'],monitoringRouter);
   app.use(['/api/discount-codes','/api/v1/discount-codes'],discountsRouter);
+  app.use(['/api/referrals','/api/v1/referrals'],referralsRouter);
   app.use(['/api/support','/api/v1/support'],supportRouter);
   app.use(['/api/push','/api/v1/push'],pushRouter);
   app.use(['/api/app','/api/v1/app'],mobileRouter);

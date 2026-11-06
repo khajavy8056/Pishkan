@@ -5,6 +5,7 @@ import 'package:device_info_plus/device_info_plus.dart';
 import 'package:package_info_plus/package_info_plus.dart';
 
 import '../core/api.dart';
+import '../core/referral.dart';
 import '../core/cache.dart';
 import '../core/session.dart';
 import '../models/models.dart';
@@ -112,7 +113,7 @@ Future<void> requestOtp(String mobile, {String purpose = 'login'}) async {
   await api.postData('/api/auth/otp/request', body: {'mobile': mobile, 'kind': 'customer', 'purpose': purpose});
 }
 
-Future<Map<String, dynamic>> verifyOtp(String mobile, String code, {String purpose = 'login', String newPassword = ''}) async {
+Future<Map<String, dynamic>> verifyOtp(String mobile, String code, {String purpose = 'login', String newPassword = '', String referralCode = ''}) async {
   // Password reset has its own endpoint on the server; the OTP verify
   // endpoint only signs the customer in.
   if (purpose == 'reset') {
@@ -128,12 +129,15 @@ Future<Map<String, dynamic>> verifyOtp(String mobile, String code, {String purpo
     'code': code,
     'kind': 'customer',
     'purpose': purpose,
+    if (referralCode.isNotEmpty) 'referralCode': referralCode,
   });
+  await ReferralStore.clear();
   return _finishAuth(data);
 }
 
 Future<Map<String, dynamic>> registerCustomer(Map<String, dynamic> body) async {
   final data = await api.postData('/api/auth/register', body: body);
+  await ReferralStore.clear();
   final map = asMap(data);
   if (asStr(map['token']).isEmpty) {
     // The account was created but needs verification/office approval first.

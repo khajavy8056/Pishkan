@@ -5,8 +5,8 @@ describe('migration registry', () => {
   it('contains an ordered, unique, checksum-addressed migration for every current feature change', () => {
     const migrations = listMigrations();
     const names = migrations.map((migration) => migration.name);
-    expect(names).toHaveLength(34);
-    expect(names.at(-1)).toBe('034_discount_audiences.sql');
+    expect(names).toHaveLength(35);
+    expect(names.at(-1)).toBe('035_referral_campaigns.sql');
     expect(new Set(names).size).toBe(names.length);
     expect(names.every((name) => /^\d{3}_[a-z0-9_]+\.sql$/.test(name))).toBe(true);
     expect(migrations.every((migration) => /^[a-f0-9]{64}$/.test(migration.checksum))).toBe(true);

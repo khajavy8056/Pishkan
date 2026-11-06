@@ -75,8 +75,9 @@ authRouter.post('/otp/verify',
       code: z.string().min(4).max(8),
       kind: z.enum(['customer', 'staff']),
       purpose: z.enum(['login', 'register', 'reset']).optional(),
+      referralCode: z.string().regex(/^[A-Za-z0-9_-]{16,128}$/).optional(),
     }).parse(req.body);
-    const result = await verifyOtpAndLogin(body.mobile, body.code, { ip: req.ip, userAgent: req.header('user-agent') }, { purpose: body.purpose ?? 'login', kind: body.kind });
+    const result = await verifyOtpAndLogin(body.mobile, body.code, { ip: req.ip, userAgent: req.header('user-agent') }, { purpose: body.purpose ?? 'login', kind: body.kind, referralCode: body.referralCode });
     if(result.mfaRequired)return res.json({ok:true,data:{mfaRequired:true,mfaToken:result.mfaToken,mfaMode:result.mfaMode}});
     setSessionCookie(res, result.token, result.expiresAt);
     res.json({ ok: true, data: { ...(await sessionPayload(result.context, result.token, result.expiresAt)), isNewUser: result.isNewUser } });
@@ -146,11 +147,12 @@ authRouter.post('/register',
       username: z.string().min(3).max(60).optional(),
       email: z.string().email().optional().or(z.literal('')),
       nationalId: z.string().min(10).max(10).optional().or(z.literal('')),
+      referralCode: z.string().regex(/^[A-Za-z0-9_-]{16,128}$/).optional(),
     }).parse(req.body);
     await validatePasswordAgainstPolicy(body.password);
     const result = await registerCustomer({
       mobile: body.mobile, password: body.password, fullName: body.fullName, username: body.username,
-      email: body.email || undefined, nationalId: body.nationalId || undefined,
+      email: body.email || undefined, nationalId: body.nationalId || undefined, referralCode: body.referralCode,
     }, { ip: req.ip, userAgent: req.header('user-agent') });
 
     if (result.token) {

@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 import '../core/api.dart';
 import '../core/biometric.dart';
 import '../core/format.dart';
+import '../core/referral.dart';
 import '../core/theme.dart';
 import '../models/models.dart';
 import '../services/services.dart';
@@ -44,10 +45,15 @@ class _LoginScreenState extends State<LoginScreen> {
   final _fullName = TextEditingController();
   final _nationalId = TextEditingController();
   final _newPassword = TextEditingController();
+  final _referral = TextEditingController();
+
+  void _receiveReferral() { if (mounted) setState(() => _referral.text = ReferralStore.code.value); }
 
   @override
   void initState() {
     super.initState();
+    ReferralStore.code.addListener(_receiveReferral);
+    _receiveReferral();
     fetchAppConfig().then((config) {
       if (mounted) setState(() => _config = config);
     });
@@ -65,7 +71,8 @@ class _LoginScreenState extends State<LoginScreen> {
   @override
   void dispose() {
     session.removeListener(_refreshBiometric);
-    for (final c in [_identifier, _password, _mobile, _code, _fullName, _nationalId, _newPassword]) {
+    ReferralStore.code.removeListener(_receiveReferral);
+    for (final c in [_identifier, _password, _mobile, _code, _fullName, _nationalId, _newPassword, _referral]) {
       c.dispose();
     }
     super.dispose();
@@ -142,7 +149,9 @@ class _LoginScreenState extends State<LoginScreen> {
       return;
     }
     await _run(() async {
-      await verifyOtp(mobile, code);
+      final referral = _referral.text.trim();
+      if (!ReferralStore.matchesServer(referral)) throw ApiException('این دعوت متعلق به سرور دیگری است. آدرس دفتر را بررسی کنید.');
+      await verifyOtp(mobile, code, referralCode: referral);
       if (mounted) _goHome();
     });
   }
@@ -180,11 +189,14 @@ class _LoginScreenState extends State<LoginScreen> {
       return;
     }
     await _run(() async {
+      final referral = _referral.text.trim();
+      if (!ReferralStore.matchesServer(referral)) throw ApiException('این دعوت متعلق به سرور دیگری است. آدرس دفتر را بررسی کنید.');
       await registerCustomer({
         'mobile': mobile,
         'password': _password.text,
         'fullName': _fullName.text.trim(),
         if (nationalId.isNotEmpty) 'nationalId': nationalId,
+        if (referral.isNotEmpty) 'referralCode': referral,
       });
       if (mounted) _goHome();
     });
@@ -348,6 +360,8 @@ class _LoginScreenState extends State<LoginScreen> {
         ]);
       case _Mode.otp:
         return Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+          TextField(controller: _referral, textDirection: TextDirection.ltr, decoration: const InputDecoration(hintText: 'کد دعوت (اختیاری)')),
+          const SizedBox(height: 12),
           TextField(
             controller: _mobile,
             keyboardType: TextInputType.phone,
@@ -368,6 +382,8 @@ class _LoginScreenState extends State<LoginScreen> {
         ]);
       case _Mode.register:
         return Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+          TextField(controller: _referral, textDirection: TextDirection.ltr, decoration: const InputDecoration(hintText: 'کد دعوت (اختیاری)')),
+          const SizedBox(height: 12),
           TextField(controller: _fullName, decoration: const InputDecoration(hintText: 'نام و نام خانوادگی', prefixIcon: Icon(Icons.person_outline_rounded))),
           const SizedBox(height: 12),
           TextField(controller: _mobile, keyboardType: TextInputType.phone, decoration: const InputDecoration(hintText: 'شماره موبایل', prefixIcon: Icon(Icons.smartphone_rounded))),

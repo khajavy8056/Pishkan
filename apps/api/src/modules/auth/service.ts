@@ -1,4 +1,4 @@
-import { one, q, run, nowIso, addHours } from '../../db/index.js';
+import { one, q, run, nowIso, addHours, tx } from '../../db/index.js';
 import {
   encryptSecret, decryptSecret, hashPassword, id, numericCode, randomToken,
   sha256, verifyPassword,
@@ -12,6 +12,7 @@ import { logEvent } from '../logging/service.js';
 import type { AuthContext, AuthUser } from './types.js';
 import { env } from '../../env.js';
 import { verifyTotp } from './totp.js';
+import { recordAttribution, qualifyInvitation, validateReferral } from '../referrals/service.js';
 
 /* -------------------------------------------------------------------------- */
 /*                                   types                                    */
@@ -331,7 +332,7 @@ export async function verifyOtpAndLogin(
   mobileRaw: string,
   codeRaw: string,
   client: ClientInfo,
-  options: { purpose?: 'login' | 'register' | 'reset' | 'verify'; kind?: 'customer' | 'staff'; staffKinds?: ('staff' | 'admin')[] } = {},
+  options: { purpose?: 'login' | 'register' | 'reset' | 'verify'; kind?: 'customer' | 'staff'; staffKinds?: ('staff' | 'admin')[]; referralCode?: string } = {},
 ): Promise<{ context: AuthContext; token: string; expiresAt: string; isNewUser: boolean; mfaRequired?:boolean;mfaToken?:string;mfaMode?:'totp' }> {
   const mobile = normalizeMobile(mobileRaw);
   const purpose = options.purpose ?? 'login';
@@ -361,6 +362,8 @@ export async function verifyOtpAndLogin(
     throw badRequest('کد واردشده صحیح نیست.');
   }
 
+  if (kind === 'customer' && !customerAccount && options.referralCode) await validateReferral(options.referralCode, mobile);
+
   const consumed = await run('UPDATE otp_codes SET consumed_at = ? WHERE id = ? AND consumed_at IS NULL AND attempts < max_attempts', [nowIso(), record.id]);
   if (!consumed.changes) throw conflict('کد قبلاً مصرف شده است.');
 
@@ -384,12 +387,15 @@ export async function verifyOtpAndLogin(
       const requireApproval = await getBool('auth.customer_require_approval');
       const ts = nowIso();
       const userId = id('usr');
-      await run(
-        `INSERT INTO users (id, kind, mobile, mobile_verified, full_name, status, created_at, updated_at)
-         VALUES (?, 'customer', ?, 1, ?, ?, ?, ?)`,
-        [userId, mobile, '', requireApproval ? 'pending' : 'active', ts, ts],
-      );
-      await run('INSERT INTO customer_profiles (user_id, extra, created_at, updated_at) VALUES (?, ?, ?, ?)', [userId, '{}', ts, ts]);
+      await tx(async () => {
+        await run(
+          `INSERT INTO users (id, kind, mobile, mobile_verified, full_name, status, created_at, updated_at)
+           VALUES (?, 'customer', ?, 1, ?, ?, ?, ?)`,
+          [userId, mobile, '', requireApproval ? 'pending' : 'active', ts, ts],
+        );
+        await run('INSERT INTO customer_profiles (user_id, extra, created_at, updated_at) VALUES (?, ?, ?, ?)', [userId, '{}', ts, ts]);
+        await recordAttribution(options.referralCode, userId, mobile);
+      });
       user = await findUserById(userId);
       isNewUser = true;
       await writeAudit({ actorId: userId, actorName: mobile, action: 'customer.self_register', entityType: 'user', entityId: userId, ip: client.ip });
@@ -399,6 +405,9 @@ export async function verifyOtpAndLogin(
   }
 
   if (!user) throw unauthorized('ورود ناموفق بود.');
+  if (user.kind === 'customer') {
+    try { await qualifyInvitation(user.id); } catch (error) { console.error('Referral qualification/payment needs retry', error); }
+  }
   assertNotLocked(user);
   assertActive(user);
 
@@ -554,6 +563,7 @@ export interface RegisterInput {
   fullName: string;
   email?: string;
   nationalId?: string;
+  referralCode?: string;
 }
 
 export async function registerCustomer(input: RegisterInput, client: ClientInfo) {
@@ -578,15 +588,16 @@ export async function registerCustomer(input: RegisterInput, client: ClientInfo)
   const requireVerification = await getBool('auth.customer_require_mobile_verification');
   const ts = nowIso();
   const userId = id('usr');
-  await run(
-    `INSERT INTO users (id, kind, mobile, mobile_verified, email, password_hash, full_name, national_id, status, created_at, updated_at, username)
-     VALUES (?, 'customer', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-    [
-      userId, mobile, 0, input.email ?? null, await hashPassword(input.password),
-      fullName, input.nationalId ?? null, requireApproval ? 'pending' : 'active', ts, ts, username,
-    ],
-  );
-  await run('INSERT INTO customer_profiles (user_id, extra, created_at, updated_at) VALUES (?, ?, ?, ?)', [userId, '{}', ts, ts]);
+  const passwordHash = await hashPassword(input.password);
+  await tx(async () => {
+    await run(
+      `INSERT INTO users (id, kind, mobile, mobile_verified, email, password_hash, full_name, national_id, status, created_at, updated_at, username)
+       VALUES (?, 'customer', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      [userId, mobile, 0, input.email ?? null, passwordHash, fullName, input.nationalId ?? null, requireApproval ? 'pending' : 'active', ts, ts, username],
+    );
+    await run('INSERT INTO customer_profiles (user_id, extra, created_at, updated_at) VALUES (?, ?, ?, ?)', [userId, '{}', ts, ts]);
+    await recordAttribution(input.referralCode, userId, mobile);
+  });
   await writeAudit({ actorId: userId, actorName: fullName, action: 'customer.register', entityType: 'user', entityId: userId, ip: client.ip });
 
   if (requireVerification && (await getBool('auth.customer_otp_enabled'))) {

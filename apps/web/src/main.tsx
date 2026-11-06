@@ -40,6 +40,8 @@ import { AdminAudit, AdminShifts, AdminSystem } from './pages/admin/Operations';
 import { SettingsCenter } from './pages/admin/SettingsCenter';
 import { AdminWallet } from './pages/admin/WalletAdmin';
 import { AdminMonitoring } from './pages/admin/Monitoring';
+import { CustomerReferrals, InviteLanding } from './pages/customer/Referrals';
+import { AdminReferrals } from './pages/admin/Referrals';
 import { AdminDiscountsPage } from './pages/admin/Discounts';
 import { AdminAndroidApp } from './pages/admin/AndroidApp';
 import { AdminSupportPage, CustomerSupportPage, StaffSupportPage } from './pages/support/Support';
@@ -88,6 +90,7 @@ function App() {
               {/* Staff/admin door — intentionally not linked from any public page. */}
               <Route path="/login-admin" element={<StaffLoginPage />} />
               <Route path="/register" element={<RegisterPage />} />
+              <Route path="/invite/:token" element={<InviteLanding />} />
               <Route path="/reset-password" element={<ResetPasswordPage />} />
 
               {/* customer */}
@@ -103,6 +106,7 @@ function App() {
               <Route path="/app/messages" element={customer(<CustomerMessages />)} />
               <Route path="/app/support" element={customer(<CustomerSupportPage />)} />
               <Route path="/app/profile" element={customer(<CustomerProfile />)} />
+              <Route path="/app/referrals" element={customer(<CustomerReferrals />)} />
 
               {/* staff */}
               <Route path="/staff" element={staffOnly(<StaffWorkbench />)} />
@@ -114,6 +118,7 @@ function App() {
               <Route path="/staff/messages" element={staffOnly(<MessageCenter variant="staff" />)} />
               <Route path="/staff/support" element={staffOnly(<StaffSupportPage />,'support.view')} />
               <Route path="/staff/discounts" element={financial(<AdminDiscountsPage variant="staff" />,'discounts.view')} />
+              <Route path="/staff/referrals" element={financial(<AdminReferrals variant="staff" />,'discounts.view')} />
               <Route path="/staff/shifts" element={staffOnly(<StaffShifts />)} />
               <Route path="/staff/queue" element={staffOnly(<EligibleQueue />,'requests.edit')} />
               <Route path="/staff/accounting" element={financial(<AdminFinance />,'invoices.view')} />
@@ -142,6 +147,7 @@ function App() {
               <Route path="/admin/messages" element={adminOnly(<MessageCenter variant="admin" />)} />
               <Route path="/admin/support" element={adminOnly(<AdminSupportPage />,'support.view')} />
               <Route path="/admin/discounts" element={adminOnly(<AdminDiscountsPage />,'discounts.view')} />
+              <Route path="/admin/referrals" element={adminOnly(<AdminReferrals />,'discounts.view')} />
               <Route path="/admin/payroll" element={adminOnly(<AdminPayroll />,'payroll.view')} />
               <Route path="/admin/finance" element={adminOnly(<AdminFinance />,'invoices.view')} />
               <Route path="/admin/reports" element={adminOnly(<AdminReports />,'reports.view')} />
