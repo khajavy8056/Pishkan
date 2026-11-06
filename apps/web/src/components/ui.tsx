@@ -359,7 +359,7 @@ export function StatCard({ label, value, hint, icon, tone = 'brand' }: {
     <div className="card card-pad lift flex items-start justify-between gap-3">
       <div className="min-w-0">
         <p className="truncate text-xs font-medium text-navy-500">{label}</p>
-        <p className="mt-1 text-2xl font-bold tracking-tight text-navy-900">{value}</p>
+        <p className="mt-1 text-lg font-bold tracking-tight text-navy-900 sm:text-2xl">{value}</p>
         {hint && <p className="mt-1 text-xs text-navy-400">{hint}</p>}
       </div>
       {icon && <span className={clsx('grid size-11 shrink-0 place-items-center rounded-xl', tones[tone])}>{icon}</span>}

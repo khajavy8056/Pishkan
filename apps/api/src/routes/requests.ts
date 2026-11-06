@@ -7,21 +7,22 @@ import { created, dateRange, ok, pagination } from '../http/respond.js';
 import { hasPermission } from '../lib/permissions.js';
 import { officeScope } from '../lib/scope.js';
 import {
-  nextStatuses,STATUSES, STATUS_LABELS, addNote, assignRequest, attachDocument, autoAssign, candidatesForService,
-  eligibleQueue,claimRequest,claimAttempts,forceAssignSweep,quoteRequest, changeStatus, createRequest, customerCancel, getRequest, listRequests, requestStats, reviewDocument, setRequestDeadline,
+  nextStatuses,STATUSES, STATUS_LABELS, addNote, assignRequest, attachDocument, autoAssign, candidatesForService, createExternalCostInvoice, moveStep,
+  eligibleQueue,claimRequest,claimAttempts,declineRequest,forceAssignSweep,quoteRequest, changeStatus, createRequest, customerCancel, getRequest, listRequests, requestStats, reviewDocument, setRequestDeadline,
 } from '../modules/requests/service.js';
 import { getServiceById } from '../modules/catalog/service.js';
 import { one, q } from '../db/index.js';
 import { documentTypeLabel, reuseDocumentInRequest } from '../modules/documents/service.js';
 import { notifyUser } from '../modules/notifications/service.js';
 import { param } from '../http/params.js';
+import { writeAudit } from '../modules/audit/service.js';
 
 export const requestsRouter = Router();
 requestsRouter.use(requireAuth);
 requestsRouter.post('/quote',asyncRoute(async(req,res)=>{
  if(req.auth!.user.kind!=='customer') throw forbidden();
- const body=z.object({serviceId:z.string(),priority:z.enum(['normal','high']).default('normal')}).parse(req.body);
- ok(res,await quoteRequest(body.serviceId,req.auth!.user.id,body.priority));
+ const body=z.object({serviceId:z.string(),priority:z.enum(['normal','high']).default('normal'),discountCode:z.string().max(40).optional()}).parse(req.body);
+ ok(res,await quoteRequest(body.serviceId,req.auth!.user.id,body.priority,body.discountCode));
 }));
 const requestViewer = (req: any) => ({
   actorId: req.auth.user.id,
@@ -57,12 +58,16 @@ requestsRouter.get('/', asyncRoute(async (req, res) => {
 
   const result = await listRequests({
     page, pageSize,
+    // Staff cards carry the viewer's own share (percentage staff only —
+    // the helper returns nothing for fixed-salary contracts).
+    viewerId: isCustomer ? undefined : auth.user.id,
     customerId: isCustomer ? auth.user.id : (typeof req.query.customerId === 'string' ? req.query.customerId : undefined),
     assignedTo: !isCustomer && !officeScope(auth) ? auth.user.id : typeof req.query.assignedTo === 'string'
       ? req.query.assignedTo
       : (req.query.mine === 'true' ? auth.user.id : undefined),
     status: typeof req.query.status === 'string' ? req.query.status : undefined,
     statusGroup: (req.query.group as 'open' | 'closed' | 'all' | undefined) ?? undefined,
+    bucket: typeof req.query.bucket === 'string' ? req.query.bucket : undefined,
     search: typeof req.query.search === 'string' ? req.query.search : undefined,
     unassigned: req.query.unassigned === 'true',
     ...dateRange(req),
@@ -72,6 +77,7 @@ requestsRouter.get('/', asyncRoute(async (req, res) => {
 
 requestsRouter.get('/queue/eligible',requirePermission('requests.view'),asyncRoute(async(req,res)=>{ok(res,await eligibleQueue(req.auth!.user.id))}));
 requestsRouter.post('/:id/claim',requirePermission('requests.edit'),asyncRoute(async(req,res)=>{ok(res,await claimRequest(param(req,'id'),req.auth!.user.id,req.auth!.user.fullName))}));
+requestsRouter.post('/:id/decline',requirePermission('requests.edit'),asyncRoute(async(req,res)=>{ok(res,await declineRequest(param(req,'id'),req.auth!.user.id))}));
 /** Evidence of who tried to accept a request first (manager view). */
 requestsRouter.get('/:id/claim-attempts',requirePermission('requests.view'),asyncRoute(async(req,res)=>{ok(res,await claimAttempts(param(req,'id')))}));
 /**
@@ -154,6 +160,7 @@ requestsRouter.post('/',
       formData: z.record(z.string(), z.any()).default({}),
       paymentMethod: z.string().optional(),
       priority: z.enum(['normal', 'high']).optional(),
+      discountCode: z.string().max(40).optional(),
       documentIds: z.array(z.object({ fileId: z.string(), title: z.string().optional(), requirementKey: z.string().min(2).max(80).optional() })).optional(),
     }).parse(req.body);
 
@@ -175,6 +182,7 @@ requestsRouter.post('/',
       formData: body.formData,
       paymentMethod: body.paymentMethod,
       priority: body.priority,
+      discountCode: body.discountCode,
       documentIds: body.documentIds,
       idempotencyKey,
     }, { id: auth.user.id, name: auth.user.fullName, ip: req.ip });
@@ -194,7 +202,7 @@ requestsRouter.post('/',
 
 requestsRouter.get('/:id/handoffs',asyncRoute(async(req,res)=>{ok(res,await handoffsForCase(param(req,'id'),req.auth!))}));
 requestsRouter.post('/:id/handoffs',asyncRoute(async(req,res)=>{const b=z.object({department:z.enum(['management','accounting']),reason:z.string().trim().min(5).max(2000)}).parse(req.body);created(res,await handoff(param(req,'id'),b.department,b.reason,req.auth!))}));
-requestsRouter.post('/:id/deliver',asyncRoute(async(req,res)=>{const b=z.object({files:z.array(z.object({fileId:z.string(),title:z.string().trim().min(2).max(200),replacesDocumentId:z.string().min(3).max(80).optional()})).min(1).max(10),summary:z.string().trim().min(5).max(2000)}).parse(req.body);ok(res,await deliver(param(req,'id'),b.files,b.summary,req.auth!))}));
+requestsRouter.post('/:id/deliver',asyncRoute(async(req,res)=>{const b=z.object({files:z.array(z.object({fileId:z.string(),title:z.string().trim().min(2).max(200),replacesDocumentId:z.string().min(3).max(80).optional()})).max(10).default([]),summary:z.string().trim().min(5).max(2000)}).parse(req.body);ok(res,await deliver(param(req,'id'),b.files,b.summary,req.auth!))}));
 
 requestsRouter.patch('/:id/status', requirePermission('requests.edit'), asyncRoute(async (req, res) => {
   const body = z.object({
@@ -217,6 +225,69 @@ requestsRouter.patch('/:id/status', requirePermission('requests.edit'), asyncRou
     }).catch(() => undefined);
   }
   ok(res, await safeRequest(req, param(req, 'id')));
+}));
+
+// Workflow-step engine: the assignee moves the case one step at a time. The
+// step kind drives the work bucket (and therefore capacity) automatically.
+const stepBody = z.object({ note: z.string().max(2000).optional() });
+for (const [path, direction] of [['advance', 1], ['back', -1]] as const) {
+  requestsRouter.post(`/:id/steps/${path}`, requirePermission('requests.edit'), asyncRoute(async (req, res) => {
+    const body = stepBody.parse(req.body ?? {});
+    await loadAuthorized(param(req, 'id'), req);
+    const updated = await moveStep(param(req, 'id'), direction, { id: req.auth!.user.id, name: req.auth!.user.fullName, ip: req.ip }, body.note);
+    ok(res, updated);
+  }));
+}
+
+// Mid-process organization-fee invoice (e.g. an insurance premium the expert
+// just looked up). Only for services flagged as carrying such fees — the
+// customer was warned up front — unless an office manager issues it.
+requestsRouter.post('/:id/external-invoices', requirePermission('requests.edit'), asyncRoute(async (req, res) => {
+  const body = z.object({
+    title: z.string().trim().min(3).max(200),
+    amount: z.number().int().positive().max(10_000_000_000),
+    note: z.string().max(500).nullish(),
+  }).parse(req.body);
+  const current = await loadAuthorized(param(req, 'id'), req);
+  const service = await getServiceById(current.serviceId);
+  if (!service?.hasExternalCosts && !officeScope(req.auth!)) {
+    throw forbidden('برای این خدمت «هزینهٔ سازمانی حین انجام» فعال نیست؛ ابتدا مدیر باید آن را در تعریف خدمت فعال کند تا مشتری از قبل در جریان باشد.');
+  }
+  const updated = await createExternalCostInvoice(
+    param(req, 'id'),
+    { title: body.title, amount: body.amount, note: body.note ?? null },
+    { id: req.auth!.user.id, name: req.auth!.user.fullName, ip: req.ip },
+  );
+  created(res, updated);
+}));
+
+// Manager-approved split of this request's commission pool. Frozen once the
+// first commission entry exists, so recorded money is never redistributed.
+requestsRouter.get('/:id/shares', requirePermission('payroll.view'), asyncRoute(async (req, res) => {
+  await loadAuthorized(param(req, 'id'), req);
+  const { requestShares } = await import('../modules/payroll/service.js');
+  ok(res, await requestShares(param(req, 'id')));
+}));
+
+requestsRouter.put('/:id/shares', requirePermission('payroll.contracts.edit'), asyncRoute(async (req, res) => {
+  const body = z.object({
+    shares: z.array(z.object({
+      userId: z.string().min(3),
+      sharePercent: z.number().int().min(1).max(100),
+      note: z.string().max(300).nullish(),
+    })).max(10),
+  }).parse(req.body);
+  await loadAuthorized(param(req, 'id'), req);
+  const { setRequestShares } = await import('../modules/payroll/service.js');
+  const actor = { id: req.auth!.user.id, name: req.auth!.user.fullName };
+  const result = await setRequestShares(param(req, 'id'), body.shares.map((share) => ({
+    userId: share.userId, sharePercent: share.sharePercent, note: share.note ?? null,
+  })), actor);
+  await writeAudit({
+    actorId: actor.id, actorName: actor.name, action: 'payroll.request_shares',
+    entityType: 'request', entityId: param(req, 'id'), after: { shares: body.shares }, ip: req.ip,
+  });
+  ok(res, result);
 }));
 
 requestsRouter.patch('/:id/deadline', requirePermission('requests.edit'), asyncRoute(async (req, res) => {

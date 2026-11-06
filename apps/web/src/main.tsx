@@ -15,7 +15,7 @@ import type { ReactNode } from 'react';
 import { HomePage } from './pages/public/Home';
 import { ServiceDetailPage, ServicesPage } from './pages/public/Services';
 import {
-  AssistantPage, LegalPage, LoginPage, NotFoundPage, RegisterPage, ResetPasswordPage, StatusPage,
+  AssistantPage, LegalPage, LoginPage, NotFoundPage, RegisterPage, ResetPasswordPage, StaffLoginPage, StatusPage,
 } from './pages/public/Auth';
 import {
   CustomerDashboard, CustomerInvoices, CustomerMessages, CustomerOffers, CustomerProfile,
@@ -26,10 +26,13 @@ import { CustomerWallet } from './pages/customer/Wallet';
 import { CustomerDocuments } from './pages/customer/Documents';
 import {
   RequestDetail, StaffCustomers, StaffCustomService, StaffDocuments,
-  StaffPerformance, StaffRequests, StaffShifts, StaffWorkbench,
+  StaffPerformance, StaffRequests, StaffShifts,
 } from './pages/staff/StaffPages';
+import { StaffWorkbench } from './pages/staff/Workbench';
 import { MessageCenter } from './pages/shared/MessageCenter';
 import { AdminDashboard } from './pages/admin/AdminDashboard';
+import { BlogAdmin, BlogEditor } from './pages/admin/BlogAdmin';
+import { BlogHome, BlogPostPage } from './pages/public/Blog';
 import { AdminServiceEditor, AdminServices } from './pages/admin/CatalogAdmin';
 import { AdminCustomers, AdminStaff } from './pages/admin/PeopleAdmin';
 import { AdminFinance, AdminReports } from './pages/admin/FinanceAdmin';
@@ -37,6 +40,11 @@ import { AdminAudit, AdminShifts, AdminSystem } from './pages/admin/Operations';
 import { SettingsCenter } from './pages/admin/SettingsCenter';
 import { AdminWallet } from './pages/admin/WalletAdmin';
 import { AdminMonitoring } from './pages/admin/Monitoring';
+import { CustomerReferrals, InviteLanding } from './pages/customer/Referrals';
+import { AdminReferrals } from './pages/admin/Referrals';
+import { AdminDiscountsPage } from './pages/admin/Discounts';
+import { AdminAndroidApp } from './pages/admin/AndroidApp';
+import { AdminSupportPage, CustomerSupportPage, StaffSupportPage } from './pages/support/Support';
 
 import './styles.css';
 
@@ -73,16 +81,22 @@ function App() {
               <Route path="/panel" element={<PanelEntry />} />
               <Route path="/services" element={<ServicesPage />} />
               <Route path="/services/:slug" element={<ServiceDetailPage />} />
+              <Route path="/blog" element={<BlogHome />} />
+              <Route path="/blog/:slug" element={<BlogPostPage />} />
               <Route path="/assistant" element={<AssistantPage />} />
               <Route path="/status" element={<StatusPage />} />
               <Route path="/legal" element={<LegalPage />} />
               <Route path="/login" element={<LoginPage />} />
+              {/* Staff/admin door — intentionally not linked from any public page. */}
+              <Route path="/login-admin" element={<StaffLoginPage />} />
               <Route path="/register" element={<RegisterPage />} />
+              <Route path="/invite/:token" element={<InviteLanding />} />
               <Route path="/reset-password" element={<ResetPasswordPage />} />
 
               {/* customer */}
               <Route path="/app" element={customer(<CustomerDashboard />)} />
               <Route path="/app/services" element={customer(<CustomerServices />)} />
+              <Route path="/app/services/:slug" element={customer(<ServiceDetailPage variant="app" />)} />
               <Route path="/app/requests" element={customer(<CustomerRequests />)} />
               <Route path="/app/requests/:id" element={customer(<CustomerRequestDetail />)} />
               <Route path="/app/invoices" element={customer(<CustomerInvoices />)} />
@@ -90,7 +104,9 @@ function App() {
               <Route path="/app/offers" element={customer(<CustomerOffers />)} />
               <Route path="/app/documents" element={customer(<CustomerDocuments />)} />
               <Route path="/app/messages" element={customer(<CustomerMessages />)} />
+              <Route path="/app/support" element={customer(<CustomerSupportPage />)} />
               <Route path="/app/profile" element={customer(<CustomerProfile />)} />
+              <Route path="/app/referrals" element={customer(<CustomerReferrals />)} />
 
               {/* staff */}
               <Route path="/staff" element={staffOnly(<StaffWorkbench />)} />
@@ -100,6 +116,9 @@ function App() {
               <Route path="/staff/customers" element={staffOnly(<StaffCustomers />,'customers.view')} />
               <Route path="/staff/custom-services" element={staffOnly(<StaffCustomService />,'services.create')} />
               <Route path="/staff/messages" element={staffOnly(<MessageCenter variant="staff" />)} />
+              <Route path="/staff/support" element={staffOnly(<StaffSupportPage />,'support.view')} />
+              <Route path="/staff/discounts" element={financial(<AdminDiscountsPage variant="staff" />,'discounts.view')} />
+              <Route path="/staff/referrals" element={financial(<AdminReferrals variant="staff" />,'discounts.view')} />
               <Route path="/staff/shifts" element={staffOnly(<StaffShifts />)} />
               <Route path="/staff/queue" element={staffOnly(<EligibleQueue />,'requests.edit')} />
               <Route path="/staff/accounting" element={financial(<AdminFinance />,'invoices.view')} />
@@ -109,22 +128,32 @@ function App() {
               <Route path="/admin/automation" element={adminOnly(<AutomationInbox variant="admin" />,'requests.view')} />
               <Route path="/staff/finance" element={staffOnly(<StaffEarnings />)} />
               <Route path="/staff/performance" element={staffOnly(<StaffPerformance />)} />
+              <Route path="/staff/blog" element={staffOnly(<BlogAdmin variant="staff" />,'blog.view')} />
+              <Route path="/staff/blog/new" element={staffOnly(<BlogEditor variant="staff" />,'blog.create')} />
+              <Route path="/staff/blog/:id/edit" element={staffOnly(<BlogEditor variant="staff" />,'blog.edit')} />
 
               {/* admin */}
               <Route path="/admin" element={adminOnly(<AdminDashboard />)} />
               <Route path="/admin/requests" element={adminOnly(<StaffRequests variant="admin" />)} />
               <Route path="/admin/requests/:id" element={adminOnly(<RequestDetail variant="admin" />)} />
               <Route path="/admin/services" element={adminOnly(<AdminServices />,'services.view')} />
+              <Route path="/admin/blog" element={adminOnly(<BlogAdmin variant="admin" />,'blog.view')} />
+              <Route path="/admin/blog/new" element={adminOnly(<BlogEditor variant="admin" />,'blog.create')} />
+              <Route path="/admin/blog/:id/edit" element={adminOnly(<BlogEditor variant="admin" />,'blog.edit')} />
               <Route path="/admin/services/:id" element={adminOnly(<AdminServiceEditor />,'services.edit')} />
               <Route path="/admin/customers" element={adminOnly(<AdminCustomers />,'customers.view')} />
               <Route path="/admin/staff" element={adminOnly(<AdminStaff />,'staff.view')} />
               <Route path="/admin/shifts" element={adminOnly(<AdminShifts />,'shifts.view')} />
               <Route path="/admin/messages" element={adminOnly(<MessageCenter variant="admin" />)} />
+              <Route path="/admin/support" element={adminOnly(<AdminSupportPage />,'support.view')} />
+              <Route path="/admin/discounts" element={adminOnly(<AdminDiscountsPage />,'discounts.view')} />
+              <Route path="/admin/referrals" element={adminOnly(<AdminReferrals />,'discounts.view')} />
               <Route path="/admin/payroll" element={adminOnly(<AdminPayroll />,'payroll.view')} />
               <Route path="/admin/finance" element={adminOnly(<AdminFinance />,'invoices.view')} />
               <Route path="/admin/reports" element={adminOnly(<AdminReports />,'reports.view')} />
               <Route path="/admin/wallet" element={adminOnly(<AdminWallet />,'wallet.view')} />
               <Route path="/admin/monitoring" element={adminOnly(<AdminMonitoring />,'monitoring.view')} />
+              <Route path="/admin/android-app" element={adminOnly(<AdminAndroidApp />,'app.manage')} />
               <Route path="/admin/settings" element={adminOnly(<SettingsCenter />,'settings.view')} />
               <Route path="/admin/system" element={adminOnly(<AdminSystem />,'system.view')} />
               <Route path="/admin/audit" element={adminOnly(<AdminAudit />,'audit.view')} />

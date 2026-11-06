@@ -75,7 +75,7 @@ function log(message, level = 'info') {
 }
 
 /** Overall progress weights (sum = 100). */
-const WEIGHTS = { check: 3, env: 2, lan: 2, deps: 40, build: 18, database: 13, admin: 6, start: 6, verify: 10 };
+const WEIGHTS = { check: 3, clean: 1, env: 2, lan: 2, deps: 39, build: 18, database: 13, admin: 6, start: 6, verify: 10 };
 let completedWeight = 0;
 
 function stepEvent(id, title, status, options = {}) {
@@ -276,6 +276,111 @@ async function stepChecks(job = {}) {
   return payload;
 }
 
+/** Fail fast on a structurally invalid job — before anything destructive. */
+function validateJobShape(job) {
+  if (job.cleanInstall !== undefined && typeof job.cleanInstall !== 'boolean') {
+    throw Object.assign(new Error('گزینهٔ نصب تمیز باید روشن/خاموش باشد.'), { step: 'job' });
+  }
+  const admin = job.admin;
+  if (admin !== undefined && admin !== null) {
+    // A string/array here means the launcher serialized the admin block
+    // incorrectly (historically: a PowerShell scriptblock `{}` instead of a
+    // hashtable `@{}` in the GUI job). Surface that loudly instead of
+    // silently installing a system nobody can log into.
+    if (typeof admin !== 'object' || Array.isArray(admin)) {
+      throw Object.assign(new Error('اطلاعات مدیر کل در درخواست نصب به‌درستی نرسیده است؛ کد پروژه را به‌روز کنید و نصب را دوباره اجرا کنید.'), { step: 'job' });
+    }
+    for (const key of ['username', 'password', 'fullName', 'mobile']) {
+      if (admin[key] !== undefined && typeof admin[key] !== 'string') {
+        throw Object.assign(new Error(`اطلاعات مدیر کل معتبر نیست (${key}).`), { step: 'job' });
+      }
+    }
+  }
+}
+
+async function countExistingAdmins(databaseFile) {
+  try {
+    if (!databaseFile || !fs.existsSync(databaseFile)) return 0;
+    const { DatabaseSync } = await import('node:sqlite');
+    const db = new DatabaseSync(databaseFile, { readOnly: true });
+    try {
+      const row = db.prepare("SELECT COUNT(*) AS c FROM users WHERE kind = 'admin' AND status = 'active'").get();
+      return Number(row?.c ?? 0);
+    } finally {
+      db.close();
+    }
+  } catch {
+    return 0;
+  }
+}
+
+/**
+ * Clean install (explicit opt-in): before any configuration is read, move the
+ * previous installation's database + env aside and drop stale build output so
+ * this run starts from zero. Files are quarantined under
+ * .data/previous-install-<timestamp>/ instead of being hard-deleted — the new
+ * install never sees them, but a human can still recover them.
+ */
+async function stepClean(job) {
+  if (job.cleanInstall !== true) return;
+  stepEvent('clean', 'پاک‌سازی نصب قبلی', 'running', { stepProgress: 10 });
+  if (DRY_RUN) {
+    stepEvent('clean', 'پاک‌سازی نصب قبلی', 'skip', { message: 'حالت آزمایشی (dry-run)؛ هیچ داده‌ای جابه‌جا نمی‌شود', stepProgress: 100 });
+    return;
+  }
+  // The database file cannot be moved while our own server holds it open.
+  try { await managerCommand('stop', ['--json']); } catch { /* not running: fine */ }
+
+  const envFile = envFilePath(ROOT);
+  const existing = readEnvFile(envFile);
+  const stamp = new Date().toISOString().replaceAll(':', '-').replaceAll('.', '-');
+  const quarantine = path.join(dataDir(ROOT), `previous-install-${stamp}`);
+  const moved = [];
+  const moveAside = (from) => {
+    if (!from || !fs.existsSync(from)) return;
+    fs.mkdirSync(quarantine, { recursive: true });
+    const to = path.join(quarantine, path.basename(from));
+    try {
+      fs.renameSync(from, to);
+    } catch {
+      fs.copyFileSync(from, to);
+      fs.unlinkSync(from);
+    }
+    moved.push(path.basename(from));
+  };
+  try {
+    const dbCandidates = new Set(
+      [existing.SQLITE_FILE, dbFile(ROOT)]
+        .filter(Boolean)
+        .map((candidate) => (path.isAbsolute(candidate) ? candidate : path.join(ROOT, candidate))),
+    );
+    for (const db of dbCandidates) {
+      moveAside(db);
+      moveAside(`${db}-wal`);
+      moveAside(`${db}-shm`);
+    }
+    moveAside(envFile);
+    try {
+      for (const name of fs.readdirSync(ROOT)) {
+        if (name.startsWith('.env.windows.local.bak')) moveAside(path.join(ROOT, name));
+      }
+    } catch { /* env backups are optional */ }
+    moveAside(path.join(dataDir(ROOT), 'initial-admin-credentials.txt'));
+    moveAside(stateFile(ROOT));
+    for (const dist of ['apps/api/dist', 'apps/web/dist']) {
+      fs.rmSync(path.join(ROOT, dist), { recursive: true, force: true });
+    }
+  } catch (error) {
+    throw Object.assign(new Error(`پاک‌سازی نصب قبلی کامل نشد: ${error?.message ?? error} — اگر سرور Pishkan در حال اجراست ابتدا آن را متوقف کنید (Stop-Pishkan) و دوباره تلاش کنید.`), { step: 'clean' });
+  }
+  stepEvent('clean', 'پاک‌سازی نصب قبلی', moved.length ? 'ok' : 'skip', {
+    message: moved.length
+      ? `داده‌های نصب قبلی به «.data/previous-install-${stamp}» منتقل شد (${moved.length} فایل)؛ نصب از صفر آغاز می‌شود`
+      : 'داده‌ای از نصب قبلی پیدا نشد؛ نصب از صفر آغاز می‌شود',
+    stepProgress: 100,
+  });
+}
+
 async function stepEnv(job) {
   stepEvent('env', 'آماده‌سازی تنظیمات محلی', 'running', { stepProgress: 5 });
   const file = envFilePath(ROOT);
@@ -306,7 +411,7 @@ async function stepEnv(job) {
   if (job.lanAccess !== undefined && typeof job.lanAccess !== 'boolean') {
     throw Object.assign(new Error('گزینهٔ دسترسی LAN باید روشن/خاموش باشد.'), { step: 'lan' });
   }
-  const lan = resolveLanAccess(job.lanAccess, existing);
+  let lan = resolveLanAccess(job.lanAccess, existing);
   const wasLanEnabled = String(existing.LAN_ACCESS ?? '').toLowerCase() === 'true';
   let firewallWarning = '';
   if (lan.enabled) {
@@ -316,12 +421,23 @@ async function stepEnv(job) {
     } else {
       const firewall = runLanFirewall('ensure', { root: ROOT, port, program: process.execPath });
       if (!firewall.ok) {
-        stepEvent('lan', 'دسترسی شبکه محلی', 'fail', { message: firewall.message });
-        throw Object.assign(new Error(firewall.message), { step: 'lan', command: 'PowerShell lan-firewall.ps1' });
+        // LAN no longer dies with the firewall. The rule is best-effort: the
+        // firewall may be off entirely (then phones already connect) or the
+        // rule may just need one elevated confirmation later. Keep LAN enabled
+        // in the written config and point the operator to the Manager's
+        // one-click «باز کردن فایروال برای موبایل» instead of silently
+        // degrading the whole install to loopback-only.
+        firewallWarning = firewall.message;
+        log(`قانون فایروال LAN ساخته نشد؛ نصب با دسترسی LAN ادامه می‌یابد. دلیل: ${firewall.message}`, 'warn');
+        stepEvent('lan', 'دسترسی شبکه محلی', 'warn', {
+          message: `قانون فایروال ساخته نشد (${firewall.message}) اما نصب با دسترسی LAN ادامه می‌یابد. اگر گوشی به سامانه وصل نشد، بعد از نصب در «Pishkan Manager» دکمهٔ «📱 باز کردن فایروال برای موبایل» را بزنید (فقط یک تأیید Windows لازم دارد).`,
+          stepProgress: 100,
+        });
+      } else {
+        stepEvent('lan', 'دسترسی شبکه محلی', 'ok', {
+          message: 'فایروال فقط Private/LocalSubnet را مجاز و Public/Domain را مسدود می‌کند.', stepProgress: 100,
+        });
       }
-      stepEvent('lan', 'دسترسی شبکه محلی', 'ok', {
-        message: 'فایروال فقط Private/LocalSubnet را مجاز و Public/Domain را مسدود می‌کند.', stepProgress: 100,
-      });
     }
   } else if (wasLanEnabled) {
     stepEvent('lan', 'دسترسی شبکه محلی', 'running', { stepProgress: 10 });
@@ -628,20 +744,30 @@ async function stepAdmin(config, job) {
   const admin = job.admin ?? {};
   const username = String(admin.username ?? '').trim();
   const password = String(admin.password ?? '');
-  if (!username || !password) {
-    adminMissing = true;
-    stepEvent('admin', 'ایجاد حساب مدیر کل', 'skip', {
-      message: 'اطلاعات مدیر کل داده نشد؛ می‌توانید بعداً با create-admin بسازید',
-    });
-    return { created: false };
-  }
   if (DRY_RUN) {
     stepEvent('admin', 'ایجاد حساب مدیر کل', 'skip', { message: 'حالت آزمایشی (dry-run)' });
     return { created: false };
   }
+  if (!username || !password) {
+    // Never finish a «successful» install that nobody can log into. Skipping
+    // is only legitimate when an active admin already exists (e.g. a repair
+    // run that intentionally left the account untouched).
+    const admins = await countExistingAdmins(config.database);
+    if (admins > 0) {
+      adminMissing = true;
+      stepEvent('admin', 'ایجاد حساب مدیر کل', 'skip', {
+        message: `اطلاعات مدیر کل داده نشد؛ ${admins} حساب مدیر فعال از قبل وجود دارد و همان معتبر می‌ماند`,
+      });
+      return { created: false };
+    }
+    stepEvent('admin', 'ایجاد حساب مدیر کل', 'fail', {
+      message: 'هیچ حساب مدیر کلی وجود ندارد و اطلاعات ساخت آن داده نشده است',
+    });
+    throw Object.assign(new Error('هیچ حساب مدیر کلی وجود ندارد و اطلاعات ساخت آن داده نشده است؛ در پنجرهٔ نصب بخش «حساب مدیر کل» (نام، نام کاربری و رمز عبور) را کامل کنید و نصب را دوباره اجرا کنید.'), { step: 'admin' });
+  }
   const result = await runProcess(
     process.execPath,
-    ['--experimental-sqlite', 'dist/cli/create-admin.js', '--username', username, '--stdin',
+    ['--experimental-sqlite', 'dist/cli/create-admin.js', '--username', username, '--stdin', '--upsert',
       '--full-name', String(admin.fullName ?? 'مدیر سامانه'),
       ...(admin.mobile ? ['--mobile', String(admin.mobile)] : [])],
     {
@@ -653,17 +779,27 @@ async function stepAdmin(config, job) {
   );
   const output = `${result.stdout}\n${result.stderr}`.trim();
   if (result.code !== 0) {
-    const reason = /حداقل|ترکیبی/.test(output) ? 'رمز عبور با سیاست امنیتی سازگار نیست' : 'ایجاد حساب مدیر ناموفق بود';
+    const reason = /username-taken/.test(output)
+      ? 'این نام کاربری برای حساب دیگری (غیرمدیر) ثبت شده است؛ نام کاربری دیگری برای مدیر کل انتخاب کنید'
+      : /حداقل|ترکیبی/.test(output) ? 'رمز عبور با سیاست امنیتی سازگار نیست' : 'ایجاد حساب مدیر ناموفق بود';
     throw Object.assign(new Error(`${reason}: ${tail(output, 8)}`), {
       step: 'admin', command: 'node dist/cli/create-admin.js --username … --stdin', exitCode: result.code, output: tail(output, 40),
     });
   }
-  const created = /created/i.test(output) && !/already exists/i.test(output);
+  const updated = /account updated/i.test(output);
+  const verified = !updated && /account verified/i.test(output);
+  const created = !updated && !verified && /created/i.test(output) && !/already exists/i.test(output);
   stepEvent('admin', 'ایجاد حساب مدیر کل', 'ok', {
-    message: created ? `حساب «${username}» با نقش مدیر کل ساخته شد` : `حساب مدیر از قبل وجود داشت («${username}» تغییر نکرد)`,
+    message: updated
+      ? `حساب مدیر کل «${username}» از قبل وجود داشت؛ رمز عبور آن به رمز واردشده تغییر کرد تا ورود با همین اطلاعات ممکن باشد`
+      : verified
+        ? `حساب مدیر کل «${username}» از قبل با همین رمز عبور وجود داشت`
+        : created
+          ? `حساب «${username}» با نقش مدیر کل ساخته شد`
+          : `حساب مدیر کل «${username}» آمادهٔ ورود است`,
     stepProgress: 100,
   });
-  return { created, username };
+  return { created, updated, verified, username };
 }
 
 async function managerCommand(command, extra = []) {
@@ -693,7 +829,7 @@ async function stepStart(config) {
   serverStartedHere = true;
   if (config.lanAccess && Array.isArray(payload.mobileUrls)) config.mobileUrls = payload.mobileUrls;
   const mobileText = config.lanAccess
-    ? (payload.mobileUrls?.length ? ` · آدرس موبایل: ${payload.mobileUrls.join('، ')}` : ' · LAN فعال است؛ برای دیدن آدرس، به Wi‑Fi خصوصی وصل شوید و Manager را تازه‌سازی کنید.')
+    ? (payload.mobileUrls?.length ? ` · آدرس موبایل: ${payload.mobileUrls.join('، ')}` : ' · LAN فعال است؛ ابتدا این رایانه را به Wi‑Fi دفتر وصل کنید و Manager را تازه‌سازی کنید.')
     : ' · دسترسی شبکه خاموش و محدود به همین رایانه است.';
   stepEvent('start', 'راه‌اندازی سرویس‌ها', 'ok', {
     message: `سرور روی ${payload.url ?? `http://127.0.0.1:${config.port}`} پاسخ می‌دهد${mobileText}`,
@@ -716,10 +852,17 @@ async function stepVerify(config, job) {
   // The installer only warns in that case (a human can create the account
   // later); a *wrong* installation still fails on every other check.
   if (adminMissing) verifyArgs.push('--allow-missing-admin');
-  if (RUN_WORKFLOW) {
-    verifyArgs.push('--admin-user', String(job.admin?.username ?? 'admin'), '--admin-pass', String(job.admin?.password ?? ''));
-  }
+  // Always prove the installer-entered credentials can actually log in — not
+  // only in workflow mode. An install that «succeeds» while the typed admin
+  // password does not work is the exact failure this guards against. The
+  // password travels via the environment, never the process argv.
+  const adminUser = String(job.admin?.username ?? '').trim();
+  const adminPass = String(job.admin?.password ?? '');
+  const verifyEnv = !adminMissing && adminUser && adminPass
+    ? { PISHKAN_ADMIN_USER: adminUser, PISHKAN_ADMIN_PASS: adminPass }
+    : {};
   const result = await runProcess(process.execPath, verifyArgs, {
+    env: verifyEnv,
     timeoutMs: 10 * 60 * 1000,
     onLine: (line) => {
       if (line.startsWith('[PASS]') || line.startsWith('[FAIL]') || line.startsWith('[STEP]')) {
@@ -776,7 +919,9 @@ async function main() {
   let config;
   let checks = null;
   try {
+    validateJobShape(job);
     checks = await stepChecks(job);
+    await stepClean(job);
     config = await stepEnv(job);
     await stepDependencies();
     await stepBuild();
@@ -791,6 +936,7 @@ async function main() {
       durationMs: Date.now() - startedAt.getTime(),
       root: ROOT,
       url: `http://127.0.0.1:${config.port}`,
+      adminLoginUrl: `http://127.0.0.1:${config.port}/login-admin`,
       port: config.port,
       lanAccess: config.lanAccess,
       mobileUrls: config.mobileUrls,

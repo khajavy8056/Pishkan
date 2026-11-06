@@ -5,12 +5,12 @@ import { one } from '../src/db/index.js';
 import { updateSettings } from '../src/modules/settings/service.js';
 
 describe('service catalogue', () => {
-  it('exposes the 30 default services in 3 categories', async () => {
+  it('exposes the default services in their categories', async () => {
     const server = await app();
     const categories = await request(server).get('/api/public/categories');
-    expect(categories.body.data).toHaveLength(3);
+    expect(categories.body.data).toHaveLength(15);
     const services = await request(server).get('/api/public/services?pageSize=100');
-    expect(services.body.meta.total).toBe(30);
+    expect(services.body.meta.total).toBe(193);
   });
 
   it('includes a dynamic form, documents and workflow for each service', async () => {

@@ -1,0 +1,70 @@
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+    <uses-permission android:name="android.permission.INTERNET"/>
+    <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE"/>
+    <uses-permission android:name="android.permission.CAMERA"/>
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS"/>
+    <!-- Optional fingerprint/face unlock (local_auth). -->
+    <uses-permission android:name="android.permission.USE_BIOMETRIC"/>
+    <!-- Lets scheduled background notification checks survive reboots. -->
+    <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED"/>
+
+    <!-- Cleartext stays on because the same APK must reach an office PC over
+         the local Wi-Fi (Windows edition). Production servers are expected
+         to be HTTPS; see README before tightening this. -->
+    <application
+        android:label="پیشخوان"
+        android:name="${applicationName}"
+        android:icon="@mipmap/ic_launcher"
+        android:usesCleartextTraffic="true"
+        android:supportsRtl="true">
+        <activity
+            android:name=".MainActivity"
+            android:exported="true"
+            android:launchMode="singleTop"
+            android:taskAffinity=""
+            android:theme="@style/LaunchTheme"
+            android:configChanges="orientation|keyboardHidden|keyboard|screenSize|smallestScreenSize|locale|layoutDirection|fontScale|screenLayout|density|uiMode"
+            android:hardwareAccelerated="true"
+            android:windowSoftInputMode="adjustResize">
+            <meta-data
+              android:name="io.flutter.embedding.android.NormalTheme"
+              android:resource="@style/NormalTheme"
+              />
+            <meta-data android:name="flutter_deeplinking_enabled" android:value="false" />
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data android:scheme="pishkan" android:host="invite" />
+            </intent-filter>
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN"/>
+                <category android:name="android.intent.category.LAUNCHER"/>
+            </intent-filter>
+        </activity>
+        <activity android:name="com.yalantis.ucrop.UCropActivity"
+            android:screenOrientation="portrait"
+            android:theme="@style/Theme.AppCompat.Light.NoActionBar"/>
+        <meta-data
+            android:name="flutterEmbedding"
+            android:value="2" />
+    </application>
+    <queries>
+        <intent>
+            <action android:name="android.intent.action.PROCESS_TEXT"/>
+            <data android:mimeType="text/plain"/>
+        </intent>
+        <intent>
+            <action android:name="android.intent.action.VIEW"/>
+            <data android:scheme="https"/>
+        </intent>
+        <intent>
+            <action android:name="android.intent.action.VIEW"/>
+            <data android:scheme="http"/>
+        </intent>
+        <intent>
+            <action android:name="android.intent.action.DIAL"/>
+            <data android:scheme="tel"/>
+        </intent>
+    </queries>
+</manifest>

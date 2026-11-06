@@ -3,16 +3,19 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import {
   ClipboardList, Wallet, MessageSquare, User, Sparkles, UploadCloud, Download, CheckCircle2,
-  Clock, FileText, Send, Plus, CreditCard, ReceiptText, ShieldCheck, AlertTriangle, Trash2,
+  Clock, FileText, Send, Plus, CreditCard, ReceiptText, ShieldCheck, AlertTriangle, Trash2, Landmark,
+  BellRing, ChevronLeft, ChevronRight, ArrowLeft, Headset, History, ListChecks, Megaphone, Star,
 } from 'lucide-react';
 import clsx from 'clsx';
 import { AppShell, PageHeader } from '../../components/shell';
-import { Button, Card, EmptyState, ErrorState, Field, Input, Loading, Modal, Select, StatCard, StatusBadge, Textarea, WelcomePanel, useToast } from '../../components/ui';
+import { Badge, Button, Card, EmptyState, ErrorState, Field, Input, Loading, Modal, Select, StatCard, StatusBadge, Textarea, WelcomePanel, useToast } from '../../components/ui';
 import { DocumentViewer, FileSummary, FileThumbnail } from '../../components/documents';
 import { api, ApiFailure } from '../../lib/api';
 import { useAuth } from '../../lib/auth';
 import { faDate, faDateTime, faNum, relative, rial, STATUS_LABELS } from '../../lib/format';
-import { useSite, type FormField } from '../../lib/site';
+import { parseListSetting, useSite, type FormField } from '../../lib/site';
+import { useBrand } from '../../lib/brand';
+import { CategoryArt, CategoryIcon, PhoneMockup, ShieldArt, Tilt } from '../../components/visual';
 import { availableRequestDocumentRequirements, defaultRequestDocumentRequirementKey, requestDocumentRequirements } from '../../lib/request-documents';
 import { ThemeSegmented } from '../../lib/theme';
 import { DynamicField } from '../public/Services';
@@ -21,10 +24,14 @@ import { DynamicField } from '../public/Services';
 
 export function CustomerDashboard() {
   const { user } = useAuth();
-  const { setting } = useSite();
+  const { site, setting } = useSite();
+  const brand = useBrand();
   const [data, setData] = useState<any>(null);
+  const [wallet, setWallet] = useState<{ balance: number; enabled: boolean } | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
+  const [slide, setSlide] = useState(0);
+  const [heroHover, setHeroHover] = useState(false);
 
   const load = () => {
     setLoading(true);
@@ -32,88 +39,209 @@ export function CustomerDashboard() {
       .then((res) => setData(res.data))
       .catch((err) => setError(err instanceof ApiFailure ? err.message : 'خطا در دریافت داشبورد'))
       .finally(() => setLoading(false));
+    api.get<{ data: any }>('/api/wallet/my')
+      .then((res) => setWallet({ balance: Number(res.data?.balance ?? 0), enabled: res.data?.enabled !== false }))
+      .catch(() => setWallet(null));
   };
   useEffect(load, []);
+
+  const announcements = parseListSetting<{ title: string; date?: string; link?: string }>(setting('landing.announcements'), [])
+    .filter((item) => item?.title);
+  const noticeItems: { title: string; meta: string; link?: string }[] = announcements.length > 0
+    ? announcements.slice(0, 3).map((item) => ({ title: item.title, meta: item.date ?? '', link: item.link }))
+    : (data?.notifications ?? []).slice(0, 3).map((n: any) => ({
+      title: n.title,
+      meta: relative(n.createdAt),
+      link: typeof n.link === 'string' && n.link.startsWith('/') ? n.link : undefined,
+    }));
+  const slideCount = 1 + (noticeItems.length > 0 ? 1 : 0) + (wallet ? 1 : 0);
+
+  useEffect(() => {
+    if (slideCount < 2 || heroHover) return;
+    if (typeof window !== 'undefined' && window.matchMedia?.('(prefers-reduced-motion: reduce)').matches) return;
+    const timer = setInterval(() => setSlide((v) => (v + 1) % slideCount), 7000);
+    return () => clearInterval(timer);
+  }, [slideCount, heroHover]);
 
   if (loading) return <AppShell variant="customer"><Loading rows={4} /></AppShell>;
   if (error) return <AppShell variant="customer"><ErrorState message={error} onRetry={load} /></AppShell>;
 
+  const noticeIcons = [<Megaphone className="size-5" />, <Star className="size-5" />, <BellRing className="size-5" />];
+  const showApp = setting('landing.show_app_section') !== 'false';
+  const appUrl = setting('landing.app_android_url');
+  const quickCategories = (site?.categories ?? []).slice(0, 6);
+
+  const slides: { key: string; title: string; sub?: string; text?: string; ctaTo: string; ctaLabel: string }[] = [
+    {
+      key: 'greet',
+      title: `سلام ${user?.fullName ?? 'کاربر'} عزیز!`,
+      sub: `به ${brand.name} خوش آمدید`,
+      text: setting('site.welcome_message') || 'همراه شما در انجام امور اداری و خدمات دولتی',
+      ctaTo: '/app/services',
+      ctaLabel: 'ثبت درخواست جدید',
+    },
+  ];
+  if (noticeItems.length > 0) {
+    slides.push({
+      key: 'notice',
+      title: 'تازه‌ترین اطلاعیه',
+      sub: noticeItems[0].title,
+      text: noticeItems[0].meta || 'برای مشاهدهٔ جزئیات، روی دکمهٔ زیر کلیک کنید.',
+      ctaTo: noticeItems[0].link ?? '/app/requests',
+      ctaLabel: noticeItems[0].link ? 'مشاهده' : 'پیگیری درخواست‌ها',
+    });
+  }
+  if (wallet) {
+    slides.push({
+      key: 'wallet',
+      title: 'کیف پول شما',
+      sub: `موجودی: ${rial(wallet.balance)}`,
+      text: 'پرداخت هزینهٔ خدمات از کیف پول، سریع و بدون درگاه است.',
+      ctaTo: '/app/wallet',
+      ctaLabel: 'شارژ کیف پول',
+    });
+  }
+  const activeSlide = Math.min(slide, slides.length - 1);
+  const hero = slides[activeSlide];
+
   return (
     <AppShell variant="customer">
-      <WelcomePanel
-        badge="پنل مشتریان"
-        title={`سلام ${user?.fullName?.split(' ')[0] ?? ''} 👋`}
-        subtitle={setting('site.welcome_message') || 'خدمت مورد نظر را انتخاب کنید، مدارک را امن بفرستید و روند پرونده را از همین‌جا پیگیری کنید.'}
-        actions={(
-          <>
-            <Link to="/services" className="btn btn-sm border border-white/20 bg-white text-shell hover:bg-white/90"><Plus className="size-4" /> درخواست جدید</Link>
-            <Link to="/app/documents" className="btn btn-sm border border-white/25 bg-white/10 text-white hover:bg-white/20"><FileText className="size-4" /> مدارک من</Link>
-          </>
-        )}
-      />
+      {/* ------------------------------ hero ------------------------------ */}
+      <section
+        className="relative mb-6 overflow-hidden rounded-[2rem] shadow-soft ring-1 ring-line"
+        onMouseEnter={() => setHeroHover(true)}
+        onMouseLeave={() => setHeroHover(false)}
+        aria-label="خوشامد"
+      >
+        <img src={brand.panelHero} alt="" aria-hidden="true" className="absolute inset-0 size-full object-cover" />
+        <div
+          aria-hidden="true"
+          className="absolute inset-0"
+          style={{
+            background: 'linear-gradient(to left, color-mix(in oklab, var(--surface) 94%, transparent) 18%, color-mix(in oklab, var(--surface) 72%, transparent) 44%, color-mix(in oklab, var(--surface) 12%, transparent) 68%, transparent 82%)',
+          }}
+        />
 
-      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-        <StatCard label="پرونده‌های در جریان" value={faNum(data.stats.open)} icon={<ClipboardList className="size-5" />} hint={`از ${faNum(data.stats.total)} درخواست`} />
-        <StatCard label="تکمیل‌شده" value={faNum(data.stats.completed)} tone="emerald" icon={<CheckCircle2 className="size-5" />} />
-        <StatCard label="مانده پرداخت" value={rial(data.stats.outstandingAmount)} tone="amber" icon={<Wallet className="size-5" />} />
-        <StatCard label="اعلان خوانده‌نشده" value={faNum(data.unreadNotifications)} tone="rose" icon={<Sparkles className="size-5" />} />
-      </div>
-
-      <div className="mt-6 grid gap-6 lg:grid-cols-3">
-        <Card className="lg:col-span-2">
-          <div className="mb-4 flex items-center justify-between">
-            <h2 className="font-bold text-navy-900">درخواست‌های اخیر</h2>
-            <Link to="/app/requests" className="text-xs text-accent hover:underline">همه درخواست‌ها</Link>
+        <div className="relative flex min-h-[15rem] items-center sm:min-h-[16.5rem]">
+          <div key={hero.key} className="animate-pop max-w-xl p-6 sm:p-9">
+            <h1 className="text-[1.65rem] leading-[1.45] font-black tracking-tight text-navy-950 sm:text-4xl sm:leading-[1.4]">{hero.title}</h1>
+            {hero.sub && <p className="mt-1.5 text-base font-extrabold text-navy-900 sm:text-lg">{hero.sub}</p>}
+            {hero.text && <p className="mt-2 max-w-md text-[13px] leading-7 text-navy-600 sm:text-sm">{hero.text}</p>}
+            <Link to={hero.ctaTo} className="btn-primary btn-lg animate-shine mt-5">
+              {hero.ctaLabel} <ArrowLeft className="size-5" />
+            </Link>
           </div>
-          {data.recentRequests.length === 0 ? (
-            <EmptyState title="هنوز درخواستی ثبت نکرده‌اید" description="از فهرست خدمات، خدمت مورد نظر را انتخاب کنید."
-              action={<Link to="/services" className="btn-primary btn-sm">مشاهده خدمات</Link>} />
-          ) : (
-            <div className="space-y-2">
-              {data.recentRequests.map((request: any) => (
-                <Link key={request.id} to={`/app/requests/${request.id}`}
-                  className="flex items-center justify-between gap-3 rounded-xl bg-surface-3 px-4 py-3 transition hover:bg-brand-50">
-                  <div className="min-w-0">
-                    <p className="truncate text-sm font-medium text-navy-900">{request.serviceTitle}</p>
-                    <p className="mt-0.5 text-[11px] text-navy-500">کد پیگیری {request.trackingCode} • {faDate(request.createdAt)}</p>
-                  </div>
-                  <StatusBadge status={request.status} label={request.statusLabel} />
-                </Link>
-              ))}
-            </div>
-          )}
-        </Card>
+        </div>
 
-        <div className="space-y-6">
-          <Card>
-            <div className="mb-3 flex items-center justify-between">
-              <h2 className="font-bold text-navy-900">اعلان‌ها</h2>
-              <Link to="/app/profile" className="text-xs text-accent hover:underline">تنظیمات</Link>
-            </div>
-            {data.notifications.length === 0 && <p className="text-sm text-navy-400">اعلانی ندارید.</p>}
-            <div className="space-y-2">
-              {data.notifications.map((n: any) => (
-                <div key={n.id} className={clsx('rounded-xl p-3', n.readAt ? 'bg-surface-3/50' : 'bg-brand-50/70')}>
-                  <p className="text-sm font-medium text-navy-900">{n.title}</p>
-                  {n.body && <p className="mt-0.5 text-xs text-navy-500">{n.body}</p>}
-                  <p className="mt-1 text-[10px] text-navy-400">{relative(n.createdAt)}</p>
-                </div>
+        <ShieldArt className="animate-floaty absolute bottom-7 left-[42%] hidden w-20 lg:block xl:left-[40%]" />
+
+        {slides.length > 1 && (
+          <div className="absolute bottom-4 left-5 flex items-center gap-2">
+            <button
+              type="button"
+              aria-label="اسلاید قبلی"
+              onClick={() => setSlide((activeSlide - 1 + slides.length) % slides.length)}
+              className="grid size-9 place-items-center rounded-full bg-white/85 text-navy-700 shadow-lg ring-1 ring-white/60 backdrop-blur transition hover:scale-105 hover:bg-white"
+            >
+              <ChevronRight className="size-5" />
+            </button>
+            <span className="flex items-center gap-1.5 rounded-full bg-white/70 px-2.5 py-2 shadow ring-1 ring-white/50 backdrop-blur">
+              {slides.map((item, index) => (
+                <button
+                  key={item.key}
+                  type="button"
+                  aria-label={`اسلاید ${faNum(index + 1)}`}
+                  aria-current={index === activeSlide}
+                  onClick={() => setSlide(index)}
+                  className={clsx('h-2 rounded-full transition-all', index === activeSlide ? 'w-5 bg-brand-600' : 'w-2 bg-navy-300 hover:bg-navy-400')}
+                />
               ))}
+            </span>
+            <button
+              type="button"
+              aria-label="اسلاید بعدی"
+              onClick={() => setSlide((activeSlide + 1) % slides.length)}
+              className="grid size-9 place-items-center rounded-full bg-white/85 text-navy-700 shadow-lg ring-1 ring-white/60 backdrop-blur transition hover:scale-105 hover:bg-white"
+            >
+              <ChevronLeft className="size-5" />
+            </button>
+          </div>
+        )}
+      </section>
+
+      {/* -------------------------- quick access -------------------------- */}
+      {quickCategories.length > 0 && (
+        <section aria-label="دسترسی سریع به خدمات" className="mb-6">
+          <div className="mb-3 flex items-center justify-between">
+            <h2 className="text-base font-black text-navy-900">دسترسی سریع به خدمات</h2>
+            <Link to="/app/services" className="text-xs font-bold text-accent hover:underline">همهٔ خدمات</Link>
+          </div>
+          <div className="grid grid-cols-3 gap-3 sm:gap-4 md:grid-cols-6">
+            {quickCategories.map((category) => (
+              <Link
+                key={category.id}
+                to={`/app/services?category=${category.slug}`}
+                className="group relative rounded-[1.7rem] bg-surface p-4 pb-6 text-center shadow-soft ring-1 ring-line transition duration-300 hover:-translate-y-1.5 hover:shadow-xl"
+              >
+                <CategoryArt name={category.icon} color={category.color} className="mx-auto size-16 transition duration-300 group-hover:scale-110 group-hover:-rotate-3 sm:size-[4.4rem]" glyphClassName="size-9" />
+                <span className="mt-3 block text-xs leading-5 font-bold text-navy-900">{category.title}</span>
+                <span className="absolute bottom-3 left-3 grid size-5.5 place-items-center rounded-full bg-surface-3 text-brand-700 ring-1 ring-line transition group-hover:-translate-x-0.5">
+                  <ChevronLeft className="size-3.5" />
+                </span>
+              </Link>
+            ))}
+          </div>
+        </section>
+      )}
+
+      {/* ---------------------- wallet + latest requests ------------------- */}
+      <div className="grid gap-5 lg:grid-cols-5">
+        <div className="space-y-5 lg:col-span-2">
+          <Card className="relative overflow-hidden">
+            <div aria-hidden="true" className="pointer-events-none absolute -top-16 -left-12 size-44 rounded-full bg-brand-400/15 blur-3xl" />
+            <div className="relative">
+              <div className="mb-1 flex items-center justify-between">
+                <h2 className="font-black text-navy-900">کیف پول شما</h2>
+                <Link to="/app/wallet" className="text-xs font-bold text-accent hover:underline">مشاهدهٔ جزئیات</Link>
+              </div>
+              <div className="mt-1 flex items-center gap-4">
+                <div className="min-w-0 flex-1">
+                  <p className="text-xs text-navy-500">موجودی کیف پول</p>
+                  <p className="mt-1.5 text-[1.6rem] leading-9 font-black tracking-tight text-navy-950">
+                    {wallet ? rial(wallet.balance) : '—'}
+                  </p>
+                  {Number(data.stats.outstandingAmount ?? 0) > 0 && (
+                    <p className="mt-1.5 flex items-center gap-1.5 text-[11px] font-semibold text-amber-800">
+                      <AlertTriangle className="size-3.5 shrink-0" /> ماندهٔ پرداخت پرونده‌ها: {rial(data.stats.outstandingAmount)}
+                    </p>
+                  )}
+                </div>
+                <Tilt maxX={8} maxY={10} className="w-28 shrink-0 sm:w-32">
+                  <img src="/images/wallet-3d.jpg" alt="کیف پول" loading="lazy" className="animate-bob aspect-square w-full rounded-[1.6rem] object-cover shadow-lg ring-1 ring-line" />
+                </Tilt>
+              </div>
+              <div className="mt-4 flex gap-2">
+                <Link to="/app/wallet" className="btn-primary btn-sm flex-1 justify-center"><Plus className="size-4" /> شارژ کیف پول</Link>
+                <Link to="/app/wallet" className="btn-ghost btn-sm flex-1 justify-center"><History className="size-4" /> تاریخچهٔ تراکنش‌ها</Link>
+              </div>
             </div>
           </Card>
 
           <Card>
-            <h2 className="mb-3 font-bold text-navy-900">فاکتورهای اخیر</h2>
+            <div className="mb-3 flex items-center justify-between">
+              <h2 className="font-black text-navy-900">فاکتورهای اخیر</h2>
+              <Link to="/app/invoices" className="text-xs font-bold text-accent hover:underline">همهٔ فاکتورها</Link>
+            </div>
             {data.invoices.length === 0 && <p className="text-sm text-navy-400">فاکتوری ندارید.</p>}
             <div className="space-y-2">
-              {data.invoices.map((invoice: any) => (
-                <Link key={invoice.id} to="/app/invoices" className="flex items-center justify-between gap-2 rounded-xl bg-surface-3 px-3 py-2.5 hover:bg-brand-50">
+              {data.invoices.slice(0, 3).map((invoice: any) => (
+                <Link key={invoice.id} to="/app/invoices" className="flex items-center justify-between gap-2 rounded-2xl bg-surface-3 px-3.5 py-2.5 transition hover:bg-brand-50">
                   <span className="min-w-0">
-                    <span className="block truncate text-xs font-medium text-navy-900">{invoice.title}</span>
+                    <span className="block truncate text-xs font-semibold text-navy-900">{invoice.title}</span>
                     <span className="block text-[10px] text-navy-500">{invoice.number}</span>
                   </span>
                   <span className="shrink-0 text-left">
-                    <span className="block text-xs font-semibold text-navy-900">{rial(invoice.total)}</span>
+                    <span className="block text-xs font-black text-navy-900">{rial(invoice.total)}</span>
                     <StatusBadge status={invoice.status} />
                   </span>
                 </Link>
@@ -121,22 +249,145 @@ export function CustomerDashboard() {
             </div>
           </Card>
         </div>
+
+        <Card className="lg:col-span-3">
+          <div className="mb-4 flex items-center justify-between">
+            <h2 className="font-black text-navy-900">آخرین درخواست‌های شما</h2>
+            <Link to="/app/requests" className="text-xs font-bold text-accent hover:underline">مشاهدهٔ همه</Link>
+          </div>
+          {data.recentRequests.length === 0 ? (
+            <EmptyState title="هنوز درخواستی ثبت نکرده‌اید" description="از دسترسی سریع بالا یا فهرست خدمات، خدمت مورد نظر را انتخاب کنید."
+              action={<Link to="/app/services" className="btn-primary btn-sm">مشاهدهٔ خدمات</Link>} />
+          ) : (
+            <div className="space-y-2.5">
+              {data.recentRequests.map((request: any) => (
+                <Link
+                  key={request.id}
+                  to={`/app/requests/${request.id}`}
+                  className="group flex items-center gap-3 rounded-3xl bg-surface-2 px-4 py-3 ring-1 ring-line transition duration-300 hover:-translate-y-0.5 hover:bg-surface hover:shadow-md"
+                >
+                  <CategoryArt name={request.categoryIcon ?? request.serviceIcon} color={request.categoryColor} className="size-12 rounded-[1rem] transition group-hover:scale-105" glyphClassName="size-6" />
+                  <span className="min-w-0 flex-1">
+                    <span className="block truncate text-sm font-bold text-navy-900">{request.serviceTitle}</span>
+                    <span className="mt-0.5 block text-[11px] text-navy-500">{faDateTime(request.createdAt)} • کد پیگیری {request.trackingCode}</span>
+                  </span>
+                  <StatusBadge status={request.status} label={request.statusLabel} />
+                </Link>
+              ))}
+            </div>
+          )}
+        </Card>
       </div>
 
-      <div className="mt-6 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-        {[
-          { to: '/services', label: 'ثبت درخواست جدید', icon: <Plus className="size-5" /> },
-          { to: '/assistant', label: 'پرسیدن از دستیار', icon: <Sparkles className="size-5" /> },
-          { to: '/app/messages', label: 'گفت‌وگو با دفتر', icon: <MessageSquare className="size-5" /> },
-          { to: '/app/profile', label: 'تکمیل پروفایل', icon: <User className="size-5" /> },
-        ].map((action) => (
-          <Link key={action.to} to={action.to} className="card flex items-center gap-3 p-4 transition hover:-translate-y-0.5 hover:shadow-lg">
-            <span className="grid size-10 place-items-center rounded-xl bg-brand-50 text-accent">{action.icon}</span>
-            <span className="text-sm font-medium text-navy-800">{action.label}</span>
-          </Link>
-        ))}
+      {/* ---------------------- app promo + announcements -------------------- */}
+      <div className="mt-5 grid gap-5 lg:grid-cols-5">
+        {showApp ? (
+          <section
+            className="relative overflow-hidden rounded-[1.4rem] text-white shadow-soft ring-1 ring-brand-700/40 lg:col-span-3"
+            style={{ background: 'linear-gradient(120deg, #1e40af 0%, #2563eb 48%, #38bdf8 118%)' }}
+            aria-label="اپلیکیشن موبایل"
+          >
+            <div aria-hidden="true" className="pointer-events-none absolute -top-24 left-[16%] size-60 rounded-full bg-white/15 blur-3xl" />
+            <div aria-hidden="true" className="pointer-events-none absolute -bottom-28 -left-10 size-64 rounded-full border-[14px] border-white/10" />
+            <div className="relative grid items-center gap-4 p-6 sm:grid-cols-[1fr_auto] sm:p-7">
+              <div>
+                <h2 className="text-lg font-black sm:text-xl">{setting('landing.app_title') || `اپلیکیشن اندروید ${brand.name}`}</h2>
+                <p className="mt-1.5 max-w-md text-xs leading-6 text-white/80">{setting('landing.app_text') || 'دسترسی سریع و آسان به خدمات در دستان شما'}</p>
+                <ul className="mt-4 space-y-2 text-[13px] font-semibold">
+                  {['ثبت درخواست‌ها', 'پیگیری پرونده‌ها', 'پرداخت آنلاین'].map((text) => (
+                    <li key={text} className="flex items-center gap-2">
+                      <span className="grid size-5 place-items-center rounded-full bg-emerald-400 text-emerald-950"><CheckCircle2 className="size-3.5" /></span>
+                      {text}
+                    </li>
+                  ))}
+                </ul>
+                {appUrl ? (
+                  <a
+                    href={appUrl}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="btn-primary mt-5"
+                    style={{
+                      backgroundImage: 'linear-gradient(180deg,#34d399 0%,#059669 55%,#047857 100%)',
+                      boxShadow: '0 14px 28px -10px rgb(5 150 105 / .55), inset 0 1px 0 rgb(255 255 255 / .4), inset 0 -2px 0 rgb(0 0 0 / .15)',
+                    }}
+                  >
+                    <Download className="size-5" /> {setting('landing.app_button_label') || 'دانلود اپلیکیشن'}
+                  </a>
+                ) : (
+                  <p className="mt-5 inline-flex items-center gap-2 rounded-2xl bg-white/10 px-4 py-2.5 text-xs font-semibold text-white/85 ring-1 ring-white/15">
+                    <Sparkles className="size-4 text-amber-300" /> نسخهٔ اندروید به‌زودی منتشر می‌شود.
+                  </p>
+                )}
+              </div>
+              <div className="mx-auto hidden rotate-[7deg] sm:block">
+                <Tilt maxX={8} maxY={10}>
+                  <div className="w-36 lg:w-44">
+                    <PhoneMockup />
+                  </div>
+                </Tilt>
+              </div>
+            </div>
+            <img
+              src="/images/android-mascot.jpg"
+              alt="ربات اندروید"
+              loading="lazy"
+              className="animate-floaty-slow absolute -bottom-3 left-4 hidden w-20 rounded-[1.3rem] shadow-2xl ring-4 ring-white/25 md:block"
+            />
+          </section>
+        ) : (
+          <Card className="lg:col-span-3">
+            <h2 className="mb-3 font-black text-navy-900">خدمات پرکاربرد</h2>
+            <div className="grid gap-3 sm:grid-cols-2">
+              {(data.popularServices ?? []).slice(0, 4).map((service: any) => (
+                <Link key={service.id} to={`/app/services/${service.slug}`} className="rounded-3xl bg-surface-2 p-4 ring-1 ring-line transition hover:bg-brand-50">
+                  <p className="text-sm font-bold text-navy-900">{service.title}</p>
+                  <p className="mt-1 line-clamp-2 text-xs leading-5 text-navy-500">{service.summary}</p>
+                </Link>
+              ))}
+            </div>
+          </Card>
+        )}
+
+        <Card className="lg:col-span-2">
+          <div className="mb-3 flex items-center justify-between">
+            <h2 className="font-black text-navy-900">آخرین اطلاعیه‌ها</h2>
+            <Link to="/app/profile" className="text-xs font-bold text-accent hover:underline">مشاهدهٔ همه</Link>
+          </div>
+          {noticeItems.length === 0 && <p className="text-sm text-navy-400">اطلاعیه‌ای نیست.</p>}
+          <div className="space-y-2.5">
+            {noticeItems.map((item, index) => {
+              const inner = (
+                <>
+                  <span className="grid size-10 shrink-0 place-items-center rounded-2xl bg-gradient-to-br from-sky-400 to-brand-600 text-white shadow-md shadow-brand-600/25">
+                    {noticeIcons[index % noticeIcons.length]}
+                  </span>
+                  <span className="min-w-0 flex-1">
+                    <span className="block truncate text-[13px] font-bold text-navy-900">{item.title}</span>
+                    {item.meta && <span className="mt-0.5 block text-[11px] text-navy-400">{item.meta}</span>}
+                  </span>
+                </>
+              );
+              const cls = 'flex items-center gap-3 rounded-3xl bg-surface-2 px-3.5 py-3 ring-1 ring-line';
+              return item.link ? (
+                <Link key={`${item.title}-${index}`} to={item.link} className={clsx(cls, 'transition hover:bg-brand-50')}>{inner}</Link>
+              ) : (
+                <div key={`${item.title}-${index}`} className={cls}>{inner}</div>
+              );
+            })}
+          </div>
+        </Card>
       </div>
 
+      {/* ----------------------------- trust strip ------------------------- */}
+      <footer className="mt-6 flex flex-wrap items-center gap-3 rounded-[1.4rem] bg-surface px-4 py-3.5 shadow-soft ring-1 ring-line sm:px-5">
+        <div className="flex flex-wrap items-center gap-2 text-xs font-bold text-navy-700">
+          <span className="flex items-center gap-2 rounded-full bg-surface-2 px-3.5 py-2 ring-1 ring-line"><Landmark className="size-4 text-brand-600" /> سامانهٔ هوشمند خدمات دولتی</span>
+          <span className="flex items-center gap-2 rounded-full bg-surface-2 px-3.5 py-2 ring-1 ring-line"><ShieldCheck className="size-4 text-emerald-600" /> امنیت و اعتماد</span>
+          <span className="flex items-center gap-2 rounded-full bg-surface-2 px-3.5 py-2 ring-1 ring-line"><Headset className="size-4 text-sky-600" /> پشتیبانی {setting('office.working_hours') || 'در تمام روزهای هفته'}</span>
+        </div>
+        <span className="ms-auto text-xs font-semibold text-navy-400">{brand.name} | همراه شما، در مسیر خدمات بهتر</span>
+      </footer>
     </AppShell>
   );
 }
@@ -168,7 +419,7 @@ export function CustomerRequests() {
   return (
     <AppShell variant="customer">
       <PageHeader title="درخواست‌های من" description="وضعیت هر پرونده، تاریخچه و مدارک را در یک نگاه ببینید."
-        actions={<Link to="/services" className="btn-primary btn-sm"><Plus className="size-4" /> درخواست جدید</Link>} />
+        actions={<Link to="/app/services" className="btn-primary btn-sm"><Plus className="size-4" /> درخواست جدید</Link>} />
 
       <div className="mb-4 flex gap-1 rounded-xl bg-surface p-1 ring-1 ring-line sm:w-fit">
         {[
@@ -186,7 +437,7 @@ export function CustomerRequests() {
       {loading && <Loading />}
       {!loading && items.length === 0 && (
         <EmptyState title="درخواستی در این دسته وجود ندارد" description="می‌توانید از میان خدمات، درخواست جدید ثبت کنید."
-          action={<Link to="/services" className="btn-soft btn-sm">انتخاب خدمت</Link>} />
+          action={<Link to="/app/services" className="btn-soft btn-sm">انتخاب خدمت</Link>} />
       )}
 
       <div className="space-y-3">
@@ -265,20 +516,17 @@ export function CustomerRequestDetail() {
   const upload = async (file: File) => {
     setUploading(true);
     try {
+      const requirement = requestDocumentRequirements(request).find((item) => item.key === requirementKey);
+      const documentQuality = Boolean(requirement && !requirement.key.startsWith('field:') && !/عکس (پرسنلی|شخصی)/.test(requirement.title));
       const uploaded = await api.upload<{ data: { id: string; name: string; processing: { status: string }; savingsPercent: number; notes?: string[] } }>(
-        '/api/files/upload', file, { purpose: 'document' },
+        '/api/files/upload', file, { purpose: 'document', documentQuality: String(documentQuality) },
       );
       await api.post(`/api/requests/${id}/documents`, {
         fileId: uploaded.data.id,
         title: uploaded.data.name,
         requirementKey: requirementKey || undefined,
       });
-      notify(
-        uploaded.data.processing.status === 'ready'
-          ? `مدرک بارگذاری شد و تصویر بدون افت خوانایی بهینه شد (${faNum(uploaded.data.savingsPercent)}٪ کاهش حجم).`
-          : 'مدرک بارگذاری شد؛ نسخه اصلی حفظ شد و در انتظار بررسی است.',
-        'success',
-      );
+      notify('مدرک بارگذاری شد.', 'success');
       load();
     } catch (err) {
       notify(err instanceof ApiFailure ? err.message : 'خطا در بارگذاری', 'error');
@@ -420,6 +668,33 @@ export function CustomerRequestDetail() {
             )}
           </Card>
 
+          {(() => {
+            const delivery = [...(request.events ?? [])].reverse().find((event: any) => event.type === 'delivery');
+            if (!delivery) return null;
+            const deliveredDocs = (request.documents ?? []).filter((doc: any) => doc.kind === 'staff' && doc.status === 'approved');
+            return (
+              <Card className="border-emerald-200 bg-emerald-50/60">
+                <h2 className="mb-2 flex items-center gap-2 font-bold text-emerald-900">کار تحویل شد</h2>
+                <p className="whitespace-pre-wrap text-sm leading-7 text-emerald-950">
+                  {String(delivery.message ?? '').replace(/^تحویل نهایی به مشتری:\s*/, '')}
+                </p>
+                <p className="mt-1 text-[11px] text-emerald-800/70">{faDateTime(delivery.createdAt)}</p>
+                {deliveredDocs.length > 0 && (
+                  <div className="mt-3 space-y-1.5">
+                    {deliveredDocs.map((doc: any) => (
+                      <a key={doc.id} href={doc.file?.originalUrl ?? doc.file?.displayUrl} target="_blank" rel="noreferrer"
+                        className="flex items-center gap-2 rounded-xl bg-white/70 px-3 py-2 text-xs font-medium text-emerald-950 ring-1 ring-emerald-200 transition hover:bg-white">
+                        <FileText className="size-4 shrink-0 text-emerald-700" />
+                        <span className="min-w-0 flex-1 truncate">{doc.title}</span>
+                        <span className="shrink-0 text-[10px] text-emerald-700">دریافت فایل</span>
+                      </a>
+                    ))}
+                  </div>
+                )}
+              </Card>
+            );
+          })()}
+
           <Card>
             <h2 className="mb-4 font-bold text-navy-900">تاریخچه پرونده</h2>
             <ol className="relative space-y-4 border-r border-navy-100 pr-4">
@@ -513,9 +788,19 @@ export function CustomerRequestDetail() {
               <FileText className="size-4" /> افزودن از مدارک من
             </Button>
             <p className="mt-2 text-[10px] leading-5 text-navy-500">
-              تصویر پس از بارگذاری به‌طور خودکار اصلاح جهت و به WebP بهینه می‌شود؛ نیازی به فشرده‌سازی قبلی نیست.
+              تصویر مدرک را خوانا و بدون برش بارگذاری کنید.
             </p>
           </Card>
+
+          {request.invoices?.some((invoice: any) => invoice.purpose === 'external_cost' && invoice.status !== 'paid' && invoice.status !== 'void') && (
+            <Card className="border-sky-200 bg-sky-50/70">
+              <h2 className="flex items-center gap-2 font-bold text-sky-950"><Landmark className="size-4" /> هزینهٔ سازمانی در انتظار پرداخت</h2>
+              <p className="mt-2 text-xs leading-6 text-sky-950">
+                کارشناس مبلغ اعلامی سازمان مربوطه را برای پروندهٔ شما مشخص کرده است. این مبلغ هزینهٔ خودِ سازمان است و جزو حق‌الزحمهٔ دفتر نیست.
+                برای اینکه کارتان ادامه پیدا کند، فاکتور «هزینهٔ سازمانی» را در بخش فاکتورها پرداخت کنید.
+              </p>
+            </Card>
+          )}
 
           <Card>
             <h2 className="mb-3 flex items-center gap-2 font-bold text-navy-900"><Wallet className="size-4 text-accent" /> فاکتورها</h2>
@@ -524,8 +809,15 @@ export function CustomerRequestDetail() {
                 <div key={invoice.id} className="rounded-xl bg-surface-3 px-3 py-2.5">
                   <div className="flex items-center justify-between gap-2">
                     <span className="text-xs font-medium text-navy-900">{invoice.number}</span>
-                    <StatusBadge status={invoice.status} />
+                    <span className="flex items-center gap-1">
+                      {invoice.purpose === 'external_cost' && <Badge tone="info">هزینهٔ سازمانی</Badge>}
+                      <StatusBadge status={invoice.status} />
+                    </span>
                   </div>
+                  {invoice.title && <p className="mt-0.5 text-[11px] font-medium text-navy-700">{invoice.title}</p>}
+                  {invoice.purpose === 'external_cost' && (
+                    <p className="text-[10px] leading-5 text-navy-500">مبلغ سازمان مربوطه است و جزو حق‌الزحمهٔ دفتر نیست.</p>
+                  )}
                   <p className="mt-1 text-sm font-semibold text-navy-900">{rial(invoice.total)}</p>
                   <p className="text-[11px] text-navy-500">پرداخت‌شده: {rial(invoice.paidAmount)}</p>
                   {invoice.status !== 'paid' && invoice.status !== 'void' && (
@@ -772,6 +1064,9 @@ export function CustomerInvoices() {
 export function CustomerOffers() {
   const { notify } = useToast();
   const [offers, setOffers] = useState<any[]>([]);
+  const [intakes, setIntakes] = useState<any[]>([]);
+  const [intakeForm, setIntakeForm] = useState({ title: '', description: '' });
+  const [intakeBusy, setIntakeBusy] = useState(false);
   const [loading, setLoading] = useState(true);
   const [accepting, setAccepting] = useState<any>(null);
   const [values, setValues] = useState<Record<string, any>>({});
@@ -779,9 +1074,38 @@ export function CustomerOffers() {
 
   const load = () => {
     setLoading(true);
-    api.list<any>('/api/catalog/offers').then((res) => setOffers(res.data)).finally(() => setLoading(false));
+    Promise.all([
+      api.list<any>('/api/catalog/offers'),
+      api.list<any>('/api/catalog/custom-requests').catch(() => ({ data: [] as any[] })),
+    ]).then(([offerRes, intakeRes]) => { setOffers(offerRes.data); setIntakes(intakeRes.data); })
+      .finally(() => setLoading(false));
   };
   useEffect(load, []);
+
+  const submitIntake = async () => {
+    setIntakeBusy(true);
+    try {
+      await api.post('/api/catalog/custom-requests', {
+        title: intakeForm.title.trim(),
+        description: intakeForm.description.trim(),
+      });
+      setIntakeForm({ title: '', description: '' });
+      notify('درخواست شما ثبت شد؛ کارشناس دفتر آن را بررسی و قیمت‌گذاری می‌کند و نتیجه همین‌جا اعلام می‌شود.', 'success');
+      load();
+    } catch (err) {
+      notify(err instanceof ApiFailure ? err.message : 'ثبت درخواست ناموفق بود.', 'error');
+    } finally { setIntakeBusy(false); }
+  };
+
+  const cancelIntake = async (intake: any) => {
+    try {
+      await api.post(`/api/catalog/custom-requests/${intake.id}/cancel`, {});
+      notify('درخواست اختصاصی لغو شد.', 'info');
+      load();
+    } catch (err) {
+      notify(err instanceof ApiFailure ? err.message : 'خطا', 'error');
+    }
+  };
 
   const openAccept = async (offer: any) => {
     setAccepting(offer);
@@ -823,10 +1147,63 @@ export function CustomerOffers() {
 
   return (
     <AppShell variant="customer">
-      <PageHeader title="پیشنهادهای خدمت اختصاصی" description="خدماتی که کارشناس دفتر مخصوص شما تعریف کرده است." />
+      <PageHeader title="پیشنهادهای خدمت اختصاصی" description="خدماتی که کارشناس دفتر مخصوص شما تعریف کرده است؛ و اگر خدمتتان در فهرست سایت نیست، همین‌جا درخواست بدهید." />
+
+      <Card className="mb-4">
+        <h2 className="flex items-center gap-2 font-bold text-navy-900"><Sparkles className="size-4 text-accent" /> خدمت موردنظرتان در فهرست نیست؟</h2>
+        <p className="mt-1 text-xs leading-6 text-navy-500">
+          شرح بدهید چه کاری لازم دارید؛ کارشناس دفتر آن را بررسی می‌کند، مخصوص شما تعریف و قیمت‌گذاری می‌کند و پیشنهادش همین‌جا برای تأیید و پرداخت نمایش داده می‌شود.
+        </p>
+        <div className="mt-3 space-y-3">
+          <Field label="عنوان خواسته" required>
+            <Input value={intakeForm.title} onChange={(e) => setIntakeForm({ ...intakeForm, title: e.target.value })}
+              placeholder="مثلاً: پیگیری وام ازدواج در بانک…" />
+          </Field>
+          <Field label="شرح کامل" required>
+            <Textarea value={intakeForm.description} onChange={(e) => setIntakeForm({ ...intakeForm, description: e.target.value })}
+              placeholder="هرچه دقیق‌تر بنویسید، قیمت‌گذاری سریع‌تر و دقیق‌تر انجام می‌شود…" />
+          </Field>
+          <Button loading={intakeBusy} disabled={intakeForm.title.trim().length < 3 || intakeForm.description.trim().length < 10}
+            onClick={() => void submitIntake()}>
+            <Send className="size-4" /> ثبت درخواست اختصاصی
+          </Button>
+        </div>
+      </Card>
+
+      {intakes.length > 0 && (
+        <div className="mb-4 space-y-2">
+          <h2 className="font-bold text-navy-900">درخواست‌های اختصاصی من</h2>
+          {intakes.map((intake) => (
+            <Card key={intake.id} className="p-4">
+              <div className="flex flex-wrap items-start justify-between gap-2">
+                <div className="min-w-0">
+                  <p className="font-semibold text-navy-900">{intake.title}</p>
+                  <p className="mt-1 line-clamp-2 text-xs leading-6 text-navy-500">{intake.description}</p>
+                  <p className="mt-1 text-[11px] text-navy-400">{faDate(intake.createdAt)}</p>
+                  {intake.status === 'priced' && (
+                    <p className="mt-1 text-[11px] font-medium text-emerald-700">پیشنهاد قیمت آماده است؛ در فهرست پایین همین صفحه آن را تأیید و پرداخت کنید.</p>
+                  )}
+                  {intake.status === 'rejected' && intake.staffNote && (
+                    <p className="mt-1 rounded-lg bg-rose-50 px-3 py-2 text-[11px] leading-6 text-rose-800">{intake.staffNote}</p>
+                  )}
+                </div>
+                <span className="flex items-center gap-2">
+                  <Badge tone={intake.status === 'priced' ? 'success' : intake.status === 'rejected' ? 'danger' : intake.status === 'pending' ? 'warning' : 'default'}>
+                    {intake.statusLabel}
+                  </Badge>
+                  {intake.status === 'pending' && (
+                    <Button size="sm" variant="ghost" onClick={() => void cancelIntake(intake)}>لغو</Button>
+                  )}
+                </span>
+              </div>
+            </Card>
+          ))}
+        </div>
+      )}
+
       {loading && <Loading />}
       {!loading && offers.length === 0 && (
-        <EmptyState title="پیشنهاد اختصاصی ندارید" description="اگر خدمت مورد نیاز شما در کاتالوگ نیست، با دفتر تماس بگیرید تا پیشنهاد اختصاصی برای شما ثبت شود." />
+        <EmptyState title="پیشنهاد اختصاصی فعالی ندارید" description="وقتی کارشناس برای خواسته‌تان قیمت بگذارد، پیشنهادش اینجا برای تأیید نمایش داده می‌شود." />
       )}
 
       <div className="space-y-3">
@@ -1006,18 +1383,23 @@ export function CustomerProfile() {
   const { notify } = useToast();
   const navigate = useNavigate();
   const [cities, setCities] = useState<any[]>([]);
-  const [form, setForm] = useState<any>({ firstName:'',lastName:'',cityId:'', fullName: '', email: '', nationalId: '', address: '', postalCode: '', city: '', province: '', jobTitle: '' });
+  const [form, setForm] = useState<any>({ firstName:'',lastName:'',cityId:'', fullName: '', email: '', nationalId: '', address: '', postalCode: '', city: '', province: '', jobTitle: '', birthDate: '', fatherName: '', birthCertificateNo: '', birthPlace: '', landline: '', iban: '', bankName: '', cardNumber: '' });
   const [records, setRecords] = useState<{ key: string; label: string; value: string }[]>([]);
   const [passwords, setPasswords] = useState({ currentPassword: '', newPassword: '' });
   const [saving, setSaving] = useState(false);
+  const [discounts, setDiscounts] = useState<any[] | null>(null);
+  const [discountError, setDiscountError] = useState(false);
 
   useEffect(() => {
+    api.get<{ data: any[] }>('/api/discount-codes/mine').then(r => setDiscounts(r.data)).catch(() => setDiscountError(true));
     api.get<{ data: any }>('/api/auth/me').then((res) => {
       const profile=res.data.profileState?.profile ?? {};
       setForm({
         firstName:profile.first_name ?? '',lastName:profile.last_name ?? '',cityId:profile.city_id ?? '',
         fullName: res.data.fullName ?? '', email: res.data.email ?? '', nationalId: res.data.nationalId ?? '',
         address:profile.address ?? '',postalCode:profile.postal_code ?? '',city:profile.city ?? '',province:profile.province ?? '',jobTitle:profile.job_title ?? '',
+        birthDate:profile.birth_date ?? '',fatherName:profile.father_name ?? '',birthCertificateNo:profile.birth_certificate_no ?? '',birthPlace:profile.birth_place ?? '',
+        landline:profile.landline ?? '',iban:profile.iban ?? '',bankName:profile.bank_name ?? '',cardNumber:profile.card_number ?? '',
       });
     });
     api.get<{data:any[]}>('/api/public/cities').then(r=>setCities(r.data)).catch(()=>notify('دریافت فهرست شهرها ناموفق بود.','error'));
@@ -1077,7 +1459,8 @@ export function CustomerProfile() {
             <Field label="ایمیل"><Input type="email" value={form.email} onChange={(e) => setForm({ ...form, email: e.target.value })} dir="ltr" className="text-left" /></Field>
             <Field label="نشانی"><Textarea value={form.address} onChange={(e) => setForm({ ...form, address: e.target.value })} /></Field>
             <div className="grid gap-4 sm:grid-cols-3">
-              <Field label="شهر محل سکونت" required hint="اگر شهر شما در فهرست نیست، از مدیر دفتر بخواهید آن را به مرجع شهرها اضافه کند."><Select value={form.cityId} onChange={e=>setForm({...form,cityId:e.target.value})} options={[{value:'',label:'انتخاب استان و شهر'},...cities.map(c=>({value:c.id,label:`${c.province} · ${c.name}`}))]} /></Field>
+              <Field label="استان محل سکونت" required><Select value={form.province} onChange={e=>setForm({...form,province:e.target.value,city:'',cityId:''})} options={[{value:'',label:'انتخاب استان'},...Array.from(new Set<string>(cities.map(c=>String(c.province)))).sort((a,b)=>a.localeCompare(b,'fa')).map(province=>({value:province,label:province}))]} /></Field>
+              <Field label="شهر محل سکونت" required hint="ابتدا استان را انتخاب کنید؛ در صورت نبود شهر با دفتر تماس بگیرید."><Select value={form.cityId} onChange={e=>{const city=cities.find(c=>c.id===e.target.value);setForm({...form,cityId:e.target.value,city:city?.name ?? ''})}} options={[{value:'',label:form.province?'انتخاب شهر':'ابتدا استان را انتخاب کنید'},...cities.filter(c=>c.province===form.province).map(c=>({value:c.id,label:c.name}))]} disabled={!form.province} /></Field>
               <Field label="کد پستی"><Input value={form.postalCode} onChange={(e) => setForm({ ...form, postalCode: e.target.value })} dir="ltr" className="text-left" maxLength={10} /></Field>
             </div>
             <Button loading={saving} onClick={save}>ذخیره پروفایل</Button>
@@ -1085,6 +1468,11 @@ export function CustomerProfile() {
         </Card>
 
         <div className="space-y-6">
+          <Card>
+            <h2 className="mb-2 font-bold text-navy-900">تخفیفات من</h2>
+            <p className="mb-3 text-xs text-navy-500">کد را هنگام ثبت درخواست وارد کنید؛ شرایط خدمت و مبلغ هنگام ثبت بررسی می‌شود.</p>
+            {discountError ? <p role="alert" className="text-sm text-rose-700">دریافت تخفیف‌ها ناموفق بود. صفحه را دوباره باز کنید یا از دفتر بخواهید سرور را به‌روزرسانی کند.</p> : discounts === null ? <p>در حال دریافت…</p> : discounts.length === 0 ? <p className="text-sm text-navy-500">در حال حاضر تخفیفی برای شما نمایش داده نشده است.</p> : <ul className="space-y-3">{discounts.map(d => <li key={d.id} className="rounded-xl bg-surface-3 p-3 text-sm"><div className="flex flex-wrap justify-between gap-2"><b>{d.title}</b><span className={d.usable ? 'text-emerald-700' : 'text-rose-700'}>{d.usable ? 'قابل استفاده با رعایت شرایط' : 'فعلاً قابل استفاده نیست'}</span></div><p className="mt-1"><code dir="ltr">{d.code}</code> · {d.type === 'percent' ? `${faNum(d.value)}٪` : rial(d.value)} · {d.serviceTitle ?? d.categoryTitle ?? 'همه خدمات'}</p>{d.expiresAt && <p className="text-xs">تا {faDate(d.expiresAt)}</p>}{d.audience === 'first_purchase' && <p className="text-xs">ویژه خرید اول</p>}</li>)}</ul>}
+          </Card>
           <Card>
             <h2 className="mb-1 font-bold text-navy-900">اطلاعات پرتکرار</h2>
             <p className="mb-3 text-xs leading-6 text-navy-500">
@@ -1139,6 +1527,25 @@ export function CustomerProfile() {
             </dl>
           </Card>
         </div>
+
+        <Card className="lg:col-span-2">
+          <h2 className="mb-1 font-bold text-navy-900">اطلاعات تکمیلی (تکمیل خودکار فرم خدمات)</h2>
+          <p className="mb-4 text-xs leading-6 text-navy-500">
+            این موارد یک بار ذخیره می‌شوند تا هنگام ثبت درخواست هر خدمت، با دکمهٔ «استفاده از اطلاعات پروفایل من» فرم‌ها به‌صورت خودکار پر شوند و نیازی به نوشتن دوباره نباشد.
+          </p>
+          <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+            <Field label="نام پدر"><Input value={form.fatherName} onChange={(e) => setForm({ ...form, fatherName: e.target.value })} /></Field>
+            <Field label="شماره شناسنامه"><Input value={form.birthCertificateNo} onChange={(e) => setForm({ ...form, birthCertificateNo: e.target.value })} dir="ltr" className="text-left" /></Field>
+            <Field label="محل تولد"><Input value={form.birthPlace} onChange={(e) => setForm({ ...form, birthPlace: e.target.value })} /></Field>
+            <Field label="تاریخ تولد"><Input type="date" value={form.birthDate} onChange={(e) => setForm({ ...form, birthDate: e.target.value })} dir="ltr" className="text-left" /></Field>
+            <Field label="تلفن ثابت"><Input value={form.landline} onChange={(e) => setForm({ ...form, landline: e.target.value })} dir="ltr" className="text-left" placeholder="۰۲۱…" /></Field>
+            <Field label="شغل"><Input value={form.jobTitle} onChange={(e) => setForm({ ...form, jobTitle: e.target.value })} /></Field>
+            <Field label="شماره شبا" hint="برای وام و یارانه استفاده می‌شود."><Input value={form.iban} onChange={(e) => setForm({ ...form, iban: e.target.value })} dir="ltr" className="text-left" placeholder="IR…" maxLength={26} /></Field>
+            <Field label="نام بانک"><Input value={form.bankName} onChange={(e) => setForm({ ...form, bankName: e.target.value })} /></Field>
+            <Field label="شماره کارت بانکی"><Input value={form.cardNumber} onChange={(e) => setForm({ ...form, cardNumber: e.target.value })} dir="ltr" className="text-left" maxLength={19} /></Field>
+          </div>
+          <Button className="mt-4" loading={saving} onClick={save}>ذخیره اطلاعات تکمیلی</Button>
+        </Card>
       </div>
     </AppShell>
   );

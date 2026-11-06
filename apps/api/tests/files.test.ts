@@ -2,6 +2,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { describe, expect, it } from 'vitest';
 import request from 'supertest';
+import sharp from 'sharp';
 import { adminSession, app, createStaff, customerSession, ACCOUNTANT } from './helpers.js';
 import { env } from '../src/env.js';
 import { run } from '../src/db/index.js';
@@ -26,7 +27,7 @@ describe('private file authorization and upload validation', () => {
   it('does not grant managers or accountants blanket access to unrelated private files', async () => {
     const server = await app();
     const customer = await customerSession();
-    const customerLogin = await request(server).post('/api/auth/login').send({ identifier: '09121112233', password: 'Customer#12345' });
+    const customerLogin = await request(server).post('/api/auth/customer/login').send({ identifier: '09121112233', password: 'Customer#12345' });
     const ownerId = customerLogin.body.data.user.id;
     const fileId = await storedFile(ownerId, 'private-bank-document');
     const manager = await createStaff('manager', { username: 'files_manager', password: 'Manager#12345', fullName: 'مدیر پرونده' });
@@ -42,12 +43,12 @@ describe('private file authorization and upload validation', () => {
   it('allows only the assigned case worker and the owning customer to read a request document', async () => {
     const server = await app();
     const customer = await customerSession();
-    const profile = await request(server).post('/api/auth/login').send({ identifier: '09121112233', password: 'Customer#12345' });
+    const profile = await request(server).post('/api/auth/customer/login').send({ identifier: '09121112233', password: 'Customer#12345' });
     const customerId = profile.body.data.user.id;
     const serviceId = (await request(server).get('/api/public/services?pageSize=1')).body.data[0].id;
     const expert = await createStaff('service_expert', { username: 'files_assigned', password: 'Expert#12345', fullName: 'کارشناس تخصیص‌یافته' });
     const otherExpert = await createStaff('service_expert', { username: 'files_unassigned', password: 'Expert#12345', fullName: 'کارشناس دیگر' });
-    const expertLogin = await request(server).post('/api/auth/login').send({ identifier: 'files_assigned', password: 'Expert#12345' });
+    const expertLogin = await request(server).post('/api/auth/staff/login').send({ identifier: 'files_assigned', password: 'Expert#12345' });
     const requestId = `request-files-${Date.now()}`;
     const fileId = await storedFile(customerId);
     await run(
@@ -79,4 +80,31 @@ describe('private file authorization and upload validation', () => {
     const after = fs.existsSync(privateDir) ? fs.readdirSync(privateDir) : [];
     expect(after.filter((name) => !before.has(name))).toHaveLength(0);
   });
+  it('screens requested customer document photos before storage without applying the rule to unrelated uploads', async () => {
+    const server = await app();
+    const customer = await customerSession();
+    const blank = await sharp({ create: { width: 1000, height: 650, channels: 3, background: 'white' } }).png().toBuffer();
+    const image = Buffer.from(`<svg width="1000" height="650"><rect width="100%" height="100%" fill="white"/><text x="70" y="200" font-size="50">CLEAR DOCUMENT TEXT 123456789</text><text x="70" y="350" font-size="36">Another line 0123456789</text></svg>`);
+    const readable = await sharp(image).png().toBuffer();
+    const blurred = await sharp(image).blur(15).png().toBuffer();
+    const incoming = path.join(env.uploadDir, 'incoming');
+    const before = fs.existsSync(incoming) ? new Set(fs.readdirSync(incoming)) : new Set<string>();
+    for (const photo of [blank, blurred]) {
+      const bad = await request(server).post('/api/files/upload?purpose=document&documentQuality=true')
+        .set('Cookie', customer.cookie).attach('file', photo, 'document.png');
+      expect(bad.status).toBe(400);
+      expect(bad.body.error.message).toContain('تصویر مدرک');
+    }
+    const after = fs.existsSync(incoming) ? fs.readdirSync(incoming) : [];
+    expect(after.filter((name) => !before.has(name))).toHaveLength(0);
+    const good = await request(server).post('/api/files/upload?purpose=document&documentQuality=true')
+      .set('Cookie', customer.cookie).attach('file', readable, 'document.png');
+    expect(good.status).toBe(201);
+    expect(good.body.data.documentQuality).toBe('passed');
+    const unrelated = await request(server).post('/api/files/upload?purpose=chat')
+      .set('Cookie', customer.cookie).attach('file', blank, 'attachment.png');
+    expect(unrelated.status).toBe(201);
+    expect(unrelated.body.data.documentQuality).toBe('not_checked');
+  });
+
 });

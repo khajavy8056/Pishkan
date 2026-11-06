@@ -1,7 +1,8 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import {
   Plus, CalendarClock, RefreshCw, Database, ServerCog, ShieldCheck, Download, Trash2, Play,
   AlertTriangle, CheckCircle2, XCircle, Clock, HardDrive, Users, KeyRound, Globe, Search, Wifi,
+  Upload, FileArchive,
 } from 'lucide-react';
 import clsx from 'clsx';
 import { AppShell, PageHeader } from '../../components/shell';
@@ -250,7 +251,37 @@ export function AdminShifts() {
 
 /* --------------------------------- system --------------------------------- */
 
+/** Upload a backup package with real progress (fetch has no upload progress). */
+function uploadRestorePackage(file: File, onProgress: (pct: number) => void): Promise<any> {
+  return new Promise((resolve, reject) => {
+    const xhr = new XMLHttpRequest();
+    xhr.open('POST', '/api/system/backups/restore-upload');
+    xhr.withCredentials = true;
+    xhr.upload.onprogress = (event) => {
+      if (event.lengthComputable) onProgress(Math.round((event.loaded / event.total) * 100));
+    };
+    xhr.onload = () => {
+      try {
+        const json = JSON.parse(xhr.responseText);
+        if (xhr.status >= 200 && xhr.status < 300 && json.ok) resolve(json.data);
+        else reject(new ApiFailure(xhr.status, json.error ?? { code: 'error', message: 'خطا در بارگذاری فایل' }));
+      } catch {
+        reject(new ApiFailure(xhr.status, { code: 'error', message: 'پاسخ سرور قابل خواندن نبود.' }));
+      }
+    };
+    xhr.onerror = () => reject(new ApiFailure(0, { code: 'network', message: 'خطای شبکه هنگام بارگذاری فایل.' }));
+    const form = new FormData();
+    form.append('file', file);
+    xhr.send(form);
+  });
+}
+
+const RESTORE_STAGES: Record<string, number> = {
+  staged: 5, verifying: 15, safety_backup: 35, swapping: 60, migrating: 80, finalizing: 92, done: 100, failed: 100,
+};
+
 export function AdminSystem() {
+  const { can, logout } = useAuth();
   const { notify } = useToast();
   const [status, setStatus] = useState<any>(null);
   const [health, setHealth] = useState<any>(null);
@@ -268,6 +299,17 @@ export function AdminSystem() {
   const [restoreConfirm, setRestoreConfirm] = useState('');
   const [restorePassword, setRestorePassword] = useState('');
   const [busy, setBusy] = useState(false);
+  // one-file restore from an uploaded package
+  const [pkgFile, setPkgFile] = useState<File | null>(null);
+  const [pkgProgress, setPkgProgress] = useState<number | null>(null);
+  const [pkgJob, setPkgJob] = useState<any>(null);
+  const [pkgConfirm, setPkgConfirm] = useState('');
+  const [pkgPassword, setPkgPassword] = useState('');
+  const [pkgBusy, setPkgBusy] = useState(false);
+  const [pkgDone, setPkgDone] = useState(false);
+  const pkgPollRef = useRef<number | null>(null);
+  const pkgStageRef = useRef<string>('');
+  const pkgInputRef = useRef<HTMLInputElement | null>(null);
 
   const load = () => {
     setLoading(true);
@@ -306,10 +348,22 @@ export function AdminSystem() {
   const verifyBackup = async (backup: any) => {
     try {
       const res = await api.post<{ data: any }>(`/api/system/backups/${backup.id}/verify`);
-      notify(res.data.valid ? 'صحت نسخه پشتیبان تأیید شد.' : 'نسخه پشتیبان معتبر نیست.', res.data.valid ? 'success' : 'error');
+      notify(res.data.message ?? (res.data.ok ? 'صحت نسخه پشتیبان تأیید شد.' : 'نسخه پشتیبان معتبر نیست.'), res.data.ok ? 'success' : 'error');
     } catch (err) {
       notify(err instanceof ApiFailure ? err.message : 'خطا', 'error');
     }
+  };
+
+  const deleteBackup = async (backup: any) => {
+    if (!window.confirm(`نسخه پشتیبان «${backup.filename}» و آرشیو مدارک آن برای همیشه حذف شود؟`)) return;
+    setBusy(true);
+    try {
+      await api.delete(`/api/system/backups/${backup.id}`, { confirmation: 'DELETE' });
+      notify('نسخه پشتیبان حذف شد.', 'success');
+      load();
+    } catch (err) {
+      notify(err instanceof ApiFailure ? err.message : 'خطا در حذف', 'error');
+    } finally { setBusy(false); }
   };
 
   const restore = async () => {
@@ -325,6 +379,95 @@ export function AdminSystem() {
     } catch (err) {
       notify(err instanceof ApiFailure ? err.message : 'خطا در بازیابی', 'error');
     } finally { setBusy(false); }
+  };
+
+  const stopPkgPoll = () => {
+    if (pkgPollRef.current) { window.clearInterval(pkgPollRef.current); pkgPollRef.current = null; }
+  };
+  useEffect(() => stopPkgPoll, []);
+
+  const startPkgPoll = (jobId: string) => {
+    stopPkgPoll();
+    const tick = async () => {
+      try {
+        const res = await api.get<{ data: any }>(`/api/system/backups/restore-upload/${jobId}`);
+        pkgStageRef.current = res.data.stage;
+        setPkgJob(res.data);
+        if (res.data.stage === 'done' || res.data.stage === 'failed') {
+          stopPkgPoll();
+          if (res.data.stage === 'done') setPkgDone(true);
+        }
+      } catch (err) {
+        // A successful restore wipes every session right before finishing, so
+        // a 401 after the swap stages is the expected "we are back" signal.
+        if (err instanceof ApiFailure && err.status === 401
+          && ['swapping', 'migrating', 'finalizing'].includes(pkgStageRef.current)) {
+          stopPkgPoll();
+          setPkgDone(true);
+        }
+      }
+    };
+    void tick();
+    pkgPollRef.current = window.setInterval(tick, 1200);
+  };
+
+  const uploadPkg = async (file: File) => {
+    setPkgFile(file);
+    setPkgJob(null); setPkgDone(false); setPkgConfirm(''); setPkgPassword('');
+    setPkgProgress(0); setPkgBusy(true);
+    try {
+      const staged = await uploadRestorePackage(file, setPkgProgress);
+      setPkgJob({ jobId: staged.jobId, stage: 'staged', message: 'فایل دریافت و بررسی شد؛ در انتظار تأیید بازیابی.', inspection: staged.inspection });
+      pkgStageRef.current = 'staged';
+      notify('فایل پشتیبان بررسی شد. پیش از بازیابی، خلاصه زیر را بخوانید.', 'success');
+    } catch (err) {
+      notify(err instanceof ApiFailure ? err.message : 'خطا در بارگذاری فایل پشتیبان', 'error');
+      setPkgFile(null);
+      if (pkgInputRef.current) pkgInputRef.current.value = '';
+    } finally { setPkgProgress(null); setPkgBusy(false); }
+  };
+
+  const discardPkg = async () => {
+    stopPkgPoll();
+    if (pkgJob?.jobId) {
+      try { await api.delete(`/api/system/backups/restore-upload/${pkgJob.jobId}`); } catch { /* job may already be gone */ }
+    }
+    setPkgJob(null); setPkgFile(null); setPkgConfirm(''); setPkgPassword(''); setPkgDone(false);
+    if (pkgInputRef.current) pkgInputRef.current.value = '';
+  };
+
+  const executePkg = async () => {
+    if (!pkgJob?.jobId) return;
+    setPkgBusy(true);
+    try {
+      const res = await api.post<{ data: any }>(`/api/system/backups/restore-upload/${pkgJob.jobId}/execute`, { confirmation: pkgConfirm, password: pkgPassword });
+      setPkgJob(res.data);
+      pkgStageRef.current = res.data.stage;
+      startPkgPoll(pkgJob.jobId);
+    } catch (err) {
+      notify(err instanceof ApiFailure ? err.message : 'خطا در شروع بازیابی', 'error');
+    } finally { setPkgBusy(false); }
+  };
+
+  const downloadPkg = async () => {
+    setPkgBusy(true);
+    try {
+      const blob = await api.post<Blob>('/api/system/backups/package');
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `pishkan-package-${new Date().toISOString().slice(0, 10)}.zip`;
+      document.body.appendChild(a); a.click(); a.remove();
+      URL.revokeObjectURL(url);
+      notify('بسته پشتیبان تک‌فایل از وضعیت فعلی ساخته و دانلود شد.', 'success');
+    } catch (err) {
+      notify(err instanceof ApiFailure ? err.message : 'خطا در ساخت بسته پشتیبان', 'error');
+    } finally { setPkgBusy(false); }
+  };
+
+  const goLoginAfterRestore = async () => {
+    await logout();
+    window.location.assign('/login-admin');
   };
 
   const previewPrune = async () => {
@@ -394,12 +537,134 @@ export function AdminSystem() {
           <div className="mt-6 grid gap-6 lg:grid-cols-2">
             <Card>
               <h2 className="mb-3 flex items-center gap-2 font-bold text-navy-900"><Database className="size-4 text-accent" /> پشتیبان‌گیری</h2>
+
+              {backups.status?.overdue && (
+                <p role="alert" className="mb-3 flex items-start gap-1.5 rounded-lg bg-rose-50 p-2 text-[11px] leading-5 text-rose-800 ring-1 ring-rose-200">
+                  <AlertTriangle className="mt-0.5 size-3.5 shrink-0" />
+                  {backups.status.lastOkAt
+                    ? `بیش از ${faNum(backups.status.lastOkAgeHours)} ساعت از آخرین نسخهٔ سالم می‌گذرد؛ همین حالا یک نسخهٔ دستی بسازید و زمان‌بندی خودکار را بررسی کنید.`
+                    : 'هنوز هیچ نسخهٔ پشتیبان سالمی ساخته نشده است؛ داده‌های دفتر در برابر خرابی بدون محافظ‌اند.'}
+                </p>
+              )}
+
+              <div className="mb-3 grid gap-2 rounded-xl bg-surface-3 p-3 text-[11px] leading-6 text-navy-600 sm:grid-cols-2">
+                <span>آخرین نسخهٔ سالم: <b className="text-navy-900">{backups.status?.lastOkAt ? relative(backups.status.lastOkAt) : '—'}</b></span>
+                <span>نسخه‌های سالم: <b className="text-navy-900">{faNum(backups.status?.healthyCount ?? 0)} از {faNum(backups.status?.total ?? 0)}</b></span>
+                <span>پشتیبان‌گیری خودکار: <b className={backups.status?.scheduler?.enabled ? 'text-emerald-700' : 'text-rose-700'}>{backups.status?.scheduler?.enabled ? 'فعال' : 'غیرفعال'}</b>
+                  {backups.status?.scheduler?.schedule && <span dir="ltr" className="mr-1 text-navy-400">({backups.status.scheduler.schedule})</span>}
+                </span>
+                <span>اجرای خودکار بعدی: <b className="text-navy-900">{backups.status?.scheduler?.nextRunAt ? faDateTime(backups.status.scheduler.nextRunAt) : '—'}</b></span>
+                {backups.status?.scheduler?.lastError && (
+                  <span className="text-rose-700 sm:col-span-2">آخرین خطای خودکار: {backups.status.scheduler.lastError}</span>
+                )}
+                <span>نگهداری: <b className="text-navy-900">{faNum(backups.status?.retentionDays ?? 0)} روز</b> (دست‌کم {faNum(backups.status?.retentionMinCount ?? 3)} نسخهٔ سالم همیشه می‌ماند)</span>
+                <span>حجم کل نسخه‌ها: <b className="text-navy-900">{faNum(Math.round((backups.status?.totalSize ?? 0) / 1048576))} MB</b></span>
+              </div>
+
               <div className="mb-3 flex flex-wrap gap-2">
-                <Button size="sm" loading={busy} onClick={createBackup}>ایجاد نسخه پشتیبان</Button>
+                <Button size="sm" loading={busy} onClick={createBackup} disabled={!can('backup.create')}>ایجاد نسخه پشتیبان</Button>
                 <span className="self-center text-[11px] text-navy-500">
                   {backups.status?.lastBackupAt ? `آخرین نسخه: ${relative(backups.status.lastBackupAt)}` : 'هنوز نسخه‌ای ایجاد نشده است.'}
                 </span>
               </div>
+              {can('backup.restore') && (
+                <div className="mb-4 rounded-2xl border-2 border-dashed border-navy-200 bg-white/60 p-3"
+                  onDragOver={(e) => e.preventDefault()}
+                  onDrop={(e) => { e.preventDefault(); const f = e.dataTransfer.files?.[0]; if (f) void uploadPkg(f); }}>
+                  <h3 className="flex items-center gap-2 text-sm font-bold text-navy-900"><FileArchive className="size-4 text-accent" /> بازیابی از فایل پشتیبان (تک‌فایل)</h3>
+                  <p className="mt-1 text-[11px] leading-6 text-navy-500">
+                    تنها یک فایل انتخاب کنید: بسته پشتیبان <span dir="ltr">.zip</span> (پایگاه داده + مدارک) یا فایل پایگاه داده <span dir="ltr">.sqlite</span>.
+                    سامانه فایل را بررسی می‌کند، پیش از بازیابی از وضعیت فعلی نسخه ایمنی می‌گیرد و همه‌چیز را بازیابی می‌کند؛
+                    نیازی به مدیر ویندوز یا باز کردن دستی فایل نیست. پس از بازیابی همه کاربران باید دوباره وارد شوند.
+                  </p>
+                  <input ref={pkgInputRef} type="file" accept=".zip,.sqlite,.db" className="hidden"
+                    onChange={(e) => { const f = e.target.files?.[0]; if (f) void uploadPkg(f); }} />
+                  <div className="mt-2 flex flex-wrap gap-2">
+                    <Button size="sm" loading={pkgProgress !== null} disabled={pkgBusy || pkgDone} onClick={() => pkgInputRef.current?.click()}>
+                      <Upload className="size-3.5" /> انتخاب فایل پشتیبان
+                    </Button>
+                    {can('backup.export') && (
+                      <Button size="sm" variant="ghost" loading={pkgBusy && pkgProgress === null && !pkgJob} onClick={downloadPkg}>
+                        <Download className="size-3.5" /> دانلود بسته تک‌فایل از وضعیت فعلی
+                      </Button>
+                    )}
+                    {pkgFile && <span dir="ltr" className="max-w-full truncate self-center text-[11px] text-navy-600">{pkgFile.name} • {faNum(Math.round(pkgFile.size / 1024))} KB</span>}
+                  </div>
+
+                  {pkgProgress !== null && (
+                    <div className="mt-3">
+                      <div className="flex items-center justify-between text-[11px] text-navy-600"><span>در حال بارگذاری فایل…</span><span>{faNum(pkgProgress)}٪</span></div>
+                      <div className="mt-1 h-2.5 overflow-hidden rounded-full bg-surface-3"><div className="h-full rounded-full bg-accent transition-all" style={{ width: `${pkgProgress}%` }} /></div>
+                    </div>
+                  )}
+
+                  {pkgJob && !pkgDone && (
+                    <div className="mt-3 space-y-2">
+                      {pkgJob.inspection && (
+                        <div className="grid gap-2 rounded-xl bg-surface-3 p-3 text-[11px] leading-6 text-navy-600 sm:grid-cols-2">
+                          <span>نوع فایل: <b className="text-navy-900">{pkgJob.inspection.type === 'package' ? 'بسته تک‌فایل (پایگاه داده + مدارک)' : 'فقط پایگاه داده'}</b></span>
+                          <span>تاریخ ساخت: <b className="text-navy-900">{pkgJob.inspection.createdAt ? faDateTime(pkgJob.inspection.createdAt) : '—'}</b></span>
+                          <span>نسخه برنامه هنگام ساخت: <b className="text-navy-900" dir="ltr">{pkgJob.inspection.appVersion ?? '—'}</b></span>
+                          <span>کاربران داخل نسخه: <b className="text-navy-900">{faNum(pkgJob.inspection.users ?? 0)}</b></span>
+                          <span>مدارک: <b className="text-navy-900">{pkgJob.inspection.includesUploads ? `شامل ${faNum(pkgJob.inspection.uploadsFiles ?? 0)} فایل` : 'ندارد (مدارک فعلی می‌مانند)'}</b></span>
+                          <span>حجم فایل: <b className="text-navy-900">{faNum(Math.round((pkgJob.inspection.size ?? 0) / 1048576))} MB</b></span>
+                        </div>
+                      )}
+                      {(pkgJob.inspection?.warnings ?? []).map((w: string) => (
+                        <p key={w} className="flex items-start gap-1.5 rounded-lg bg-amber-50 p-2 text-[11px] leading-5 text-amber-900"><AlertTriangle className="mt-0.5 size-3.5 shrink-0" />{w}</p>
+                      ))}
+
+                      {pkgJob.stage === 'staged' && (
+                        <div className="rounded-xl bg-rose-50 p-3 ring-1 ring-rose-200">
+                          <p className="text-[11px] leading-6 text-rose-900">
+                            با شروع بازیابی، تمام داده‌های فعلی با محتوای این فایل جایگزین می‌شود و همه نشست‌ها بسته خواهد شد.
+                            یک نسخه ایمنی از وضعیت فعلی به‌صورت خودکار ساخته می‌شود. برای ادامه عبارت <code dir="ltr" className="font-bold">RESTORE</code> و رمز عبور خود را وارد کنید.
+                          </p>
+                          <div className="mt-2 grid gap-2 sm:grid-cols-2">
+                            <Field label="عبارت تأیید"><Input value={pkgConfirm} onChange={(e) => setPkgConfirm(e.target.value)} dir="ltr" className="text-left" placeholder="RESTORE" /></Field>
+                            <Field label="رمز عبور شما"><Input type="password" value={pkgPassword} onChange={(e) => setPkgPassword(e.target.value)} dir="ltr" className="text-left" /></Field>
+                          </div>
+                          <div className="mt-2 flex flex-wrap gap-2">
+                            <Button size="sm" variant="danger" loading={pkgBusy} disabled={pkgConfirm !== 'RESTORE' || pkgPassword.length < 1} onClick={executePkg}>شروع بازیابی کامل</Button>
+                            <Button size="sm" variant="ghost" onClick={discardPkg}>کنار گذاشتن فایل</Button>
+                          </div>
+                        </div>
+                      )}
+
+                      {pkgJob.stage !== 'staged' && (
+                        <div>
+                          <div className="flex items-center justify-between text-[11px] text-navy-700">
+                            <span>{pkgJob.stage === 'failed' ? 'بازیابی ناموفق بود و داده‌های فعلی دست‌نخورده ماندند.' : pkgJob.message}</span>
+                            <span>{faNum(RESTORE_STAGES[pkgJob.stage] ?? 0)}٪</span>
+                          </div>
+                          <div className="mt-1 h-2.5 overflow-hidden rounded-full bg-surface-3">
+                            <div className={clsx('h-full rounded-full transition-all', pkgJob.stage === 'failed' ? 'bg-rose-500' : 'bg-accent')} style={{ width: `${RESTORE_STAGES[pkgJob.stage] ?? 0}%` }} />
+                          </div>
+                          {pkgJob.error && <p className="mt-2 rounded-lg bg-rose-50 p-2 text-[11px] leading-5 text-rose-800">{pkgJob.error}</p>}
+                          {pkgJob.stage === 'failed' && (
+                            <div className="mt-2"><Button size="sm" variant="ghost" onClick={discardPkg}>بستن و تلاش دوباره</Button></div>
+                          )}
+                          {!['failed', 'done'].includes(pkgJob.stage) && (
+                            <p className="mt-1 text-[11px] text-navy-500">این صفحه را نبندید؛ پیشرفت به‌صورت خودکار به‌روز می‌شود.</p>
+                          )}
+                        </div>
+                      )}
+                    </div>
+                  )}
+
+                  {pkgDone && (
+                    <div className="mt-3 rounded-xl bg-emerald-50 p-3 ring-1 ring-emerald-200">
+                      <p className="flex items-start gap-1.5 text-[12px] font-bold leading-6 text-emerald-900"><CheckCircle2 className="mt-0.5 size-4 shrink-0" /> بازیابی کامل شد؛ سامانه با داده‌های فایل پشتیبان بالا آمده است.</p>
+                      <p className="mt-1 text-[11px] leading-6 text-emerald-800">
+                        همه نشست‌ها بسته شده‌اند. با حساب‌های داخل نسخه بازیابی‌شده دوباره وارد شوید.
+                        {pkgJob?.safetyNote ? ` ${pkgJob.safetyNote}` : ' نسخه ایمنیِ پیش از بازیابی در فهرست پشتیبان‌ها (پس از ورود دوباره) قابل مشاهده است.'}
+                      </p>
+                      <div className="mt-2"><Button size="sm" onClick={goLoginAfterRestore}>رفتن به صفحه ورود کارکنان</Button></div>
+                    </div>
+                  )}
+                </div>
+              )}
+
               {backups.items.length === 0 && <p className="text-sm text-navy-400">نسخه پشتیبانی وجود ندارد.</p>}
               <div className="space-y-2">
                 {backups.items.map((backup) => (
@@ -407,12 +672,26 @@ export function AdminSystem() {
                     <div className="flex flex-wrap items-center justify-between gap-2">
                       <div className="min-w-0">
                         <p dir="ltr" className="truncate text-right text-xs font-medium text-navy-900">{backup.filename}</p>
-                        <p className="text-[10px] text-navy-500">{faDateTime(backup.createdAt)} • {faNum(Math.round((backup.size ?? 0) / 1024))} KB</p>
+                        <p className="text-[10px] text-navy-500">
+                          {faDateTime(backup.createdAt)} • پایگاه داده {faNum(Math.round((backup.size ?? 0) / 1024))} KB
+                          {backup.uploadsFilename ? ` • مدارک ${faNum(Math.round((backup.uploadsSize ?? 0) / 1024))} KB` : ' • بدون آرشیو مدارک'}
+                          {backup.note ? ` • ${backup.note}` : ''}
+                        </p>
                       </div>
-                      <div className="flex gap-1">
-                        <Button size="sm" variant="ghost" onClick={() => verifyBackup(backup)}>بررسی</Button>
-                        <Button size="sm" variant="ghost" onClick={() => { setRestoreModal(backup); setRestoreConfirm(''); setRestorePassword(''); }}>بازیابی</Button>
-                      </div>
+                      <Badge tone={backup.status === 'ok' ? 'success' : backup.status === 'invalid' || backup.status === 'failed' ? 'danger' : 'warning'}>
+                        {backup.status === 'ok' ? 'سالم' : backup.status === 'invalid' ? 'نامعتبر' : backup.status === 'failed' ? 'ناموفق' : backup.status}
+                      </Badge>
+                    </div>
+                    <div className="mt-1.5 flex flex-wrap gap-1">
+                      <Button size="sm" variant="ghost" onClick={() => verifyBackup(backup)}>بررسی صحت</Button>
+                      {can('backup.export') && (
+                        <>
+                          <a className="btn-ghost btn-sm" href={`/api/system/backups/${backup.id}/download?part=db`}><Download className="size-3.5" /> پایگاه داده</a>
+                          {backup.uploadsFilename && <a className="btn-ghost btn-sm" href={`/api/system/backups/${backup.id}/download?part=uploads`}><Download className="size-3.5" /> آرشیو مدارک</a>}
+                        </>
+                      )}
+                      <Button size="sm" variant="ghost" onClick={() => { setRestoreModal(backup); setRestoreConfirm(''); setRestorePassword(''); }}>بازیابی</Button>
+                      {can('backup.delete') && <Button size="sm" variant="ghost" onClick={() => deleteBackup(backup)}><Trash2 className="size-3.5" /> حذف</Button>}
                     </div>
                   </div>
                 ))}

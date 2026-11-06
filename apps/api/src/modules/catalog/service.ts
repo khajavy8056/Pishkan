@@ -44,6 +44,32 @@ export interface ServiceDocumentRequirement {
   note?: string;
 }
 
+/** A known-in-advance organization fee shown separately from our own fee. */
+export interface ExternalCostItem {
+  title: string;
+  amount: number;
+}
+
+/** Default wording shown to customers when a service may incur org fees. */
+export const DEFAULT_EXTERNAL_COSTS_NOTE =
+  'در حین انجام این خدمت ممکن است مبالغی بابت هزینهٔ سازمان مربوطه (مانند حق بیمه، عوارض یا هزینهٔ صدور) لازم باشد که جزو حق‌الزحمهٔ دفتر نیست و مبلغ آن برای هر شخص متفاوت است. مبلغ دقیق پس از بررسی کارشناس، با فاکتور جداگانه در همین پرونده اعلام می‌شود و همان‌جا می‌توانید آن را پرداخت کنید.';
+
+export function validateExternalCostItems(items: unknown): ExternalCostItem[] {
+  if (items === undefined || items === null) return [];
+  if (!Array.isArray(items)) throw badRequest('اقلام هزینهٔ سازمانی باید آرایه باشد.');
+  if (items.length > 20) throw badRequest('حداکثر ۲۰ قلم هزینهٔ سازمانی برای هر خدمت مجاز است.');
+  return items.map((raw, index) => {
+    const item = raw as ExternalCostItem;
+    const title = String(item?.title ?? '').trim();
+    const amount = Math.round(Number(item?.amount ?? 0));
+    if (title.length < 2) throw badRequest(`عنوان قلم هزینهٔ سازمانی شماره ${index + 1} نامعتبر است.`);
+    if (!Number.isFinite(amount) || amount < 0 || amount > 10_000_000_000) {
+      throw badRequest(`مبلغ قلم هزینهٔ سازمانی شماره ${index + 1} نامعتبر است.`);
+    }
+    return { title: title.slice(0, 200), amount };
+  });
+}
+
 const MAX_DURATION_MINUTES = 5_256_000; // ten years, well beyond supported service SLAs
 
 function durationMinutes(minutes: number | undefined, days: number | undefined, fallback: number): number {
@@ -98,6 +124,12 @@ export interface ServiceDTO {
   documents: ServiceDocumentRequirement[];
   workflow: WorkflowStep[];
   contactNotice: string | null;
+  /** Organization fees may arise mid-process; they are never office revenue. */
+  hasExternalCosts: boolean;
+  /** Special services only: executor delivery must be approved by a manager before the customer sees the result. */
+  requiresManagerApproval: boolean;
+  externalCostsNote: string | null;
+  externalCostItems: ExternalCostItem[];
   isPublished: boolean;
   acceptingRequests: boolean;
   isCustom: boolean;
@@ -144,6 +176,12 @@ export function mapService(row: ServiceRow & { category_title?: string | null; c
     documents: normalizedDocuments(jsonParse(row.documents, [])),
     workflow: jsonParse<WorkflowStep[]>(row.workflow_steps, []),
     contactNotice: row.contact_notice,
+    hasExternalCosts: Boolean((row as any).has_external_costs),
+    requiresManagerApproval: Boolean((row as any).requires_manager_approval),
+    externalCostsNote: (row as any).has_external_costs
+      ? ((row as any).external_costs_note || DEFAULT_EXTERNAL_COSTS_NOTE)
+      : ((row as any).external_costs_note ?? null),
+    externalCostItems: validateExternalCostItems(jsonParse((row as any).external_cost_items, [])),
     isPublished: Boolean(row.is_published),
     acceptingRequests: Boolean(row.accepting_requests),
     isCustom: Boolean(row.is_custom),
@@ -314,6 +352,10 @@ export interface ServiceInput {
   paymentMethods?: string[];
   tags?: string[];
   contactNotice?: string | null;
+  hasExternalCosts?: boolean;
+  requiresManagerApproval?: boolean;
+  externalCostsNote?: string | null;
+  externalCostItems?: ExternalCostItem[];
   isPublished?: boolean;
   acceptingRequests?: boolean;
   needsReview?: boolean;
@@ -371,11 +413,14 @@ function validateWorkflow(steps: unknown): WorkflowStep[] {
   return steps.map((raw, i) => {
     const step = raw as WorkflowStep;
     if (!step?.title || String(step.title).trim().length < 2) throw badRequest(`عنوان مرحله ${i + 1} الزامی است.`);
+    const kind = (step as any).kind;
     return {
       title: String(step.title).trim(),
       description: step.description ? String(step.description) : undefined,
       role: step.role ? String(step.role) : undefined,
       requiresDocument: Boolean(step.requiresDocument),
+      kind: ['action', 'waiting_customer', 'waiting_organization', 'followup', 'delivery'].includes(kind)
+        ? kind : 'action',
     };
   });
 }
@@ -416,8 +461,9 @@ export async function createService(input: ServiceInput, actor: { id: string; na
   await run(
     `INSERT INTO services (id, category_id, slug, title, summary, description, image, icon, form_schema, documents,
       workflow_steps, base_fee, discount_percent, estimated_days, estimated_minutes, payment_methods, tags, search_text, contact_notice,
-      is_published, accepting_requests, is_custom, owner_customer_id, created_by, sort_order, needs_review, created_at, updated_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, NULL, ?, ?, ?, ?, ?)`,
+      is_published, accepting_requests, is_custom, owner_customer_id, created_by, sort_order, needs_review, created_at, updated_at,
+      has_external_costs, external_costs_note, external_cost_items, requires_manager_approval)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, NULL, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     [
       serviceId, input.categoryId ?? null, slug, title, input.summary ?? null, input.description ?? null,
       input.image ?? null, input.icon ?? null, jsonStringify(validateFormSchema(input.form)),
@@ -428,6 +474,9 @@ export async function createService(input: ServiceInput, actor: { id: string; na
       input.contactNotice ?? null,
       input.isPublished === false ? 0 : 1, input.acceptingRequests === false ? 0 : 1,
       actor.id, Number(input.sortOrder ?? 1000), input.needsReview === false ? 0 : 1, ts, ts,
+      input.hasExternalCosts ? 1 : 0, input.externalCostsNote?.trim() || null,
+      jsonStringify(validateExternalCostItems(input.externalCostItems)),
+      input.requiresManagerApproval ? 1 : 0,
     ],
   );
 
@@ -465,7 +514,8 @@ export async function updateService(serviceId: string, input: ServiceInput, acto
       category_id = ?, title = ?, summary = ?, description = ?, image = ?, icon = ?,
       form_schema = ?, documents = ?, workflow_steps = ?, base_fee = ?, discount_percent = ?,
       estimated_days = ?, estimated_minutes = ?, payment_methods = ?, tags = ?, search_text = ?, contact_notice = ?,
-      is_published = ?, accepting_requests = ?, sort_order = ?, needs_review = ?, updated_at = ?
+      is_published = ?, accepting_requests = ?, sort_order = ?, needs_review = ?, updated_at = ?,
+      has_external_costs = ?, external_costs_note = ?, external_cost_items = ?, requires_manager_approval = ?
      WHERE id = ?`,
     [
       input.categoryId !== undefined ? input.categoryId : existing.categoryId,
@@ -485,7 +535,12 @@ export async function updateService(serviceId: string, input: ServiceInput, acto
       input.acceptingRequests !== undefined ? (input.acceptingRequests ? 1 : 0) : (existing.acceptingRequests ? 1 : 0),
       input.sortOrder !== undefined ? Number(input.sortOrder) : existing.sortOrder,
       input.needsReview !== undefined ? (input.needsReview ? 1 : 0) : (existing.needsReview ? 1 : 0),
-      nowIso(), serviceId,
+      nowIso(),
+      input.hasExternalCosts !== undefined ? (input.hasExternalCosts ? 1 : 0) : (existing.hasExternalCosts ? 1 : 0),
+      input.externalCostsNote !== undefined ? (input.externalCostsNote?.trim() || null) : existing.externalCostsNote,
+      jsonStringify(input.externalCostItems !== undefined ? validateExternalCostItems(input.externalCostItems) : existing.externalCostItems),
+      input.requiresManagerApproval !== undefined ? (input.requiresManagerApproval ? 1 : 0) : (existing.requiresManagerApproval ? 1 : 0),
+      serviceId,
     ],
   );
 
@@ -577,6 +632,10 @@ export interface CustomServiceInput {
   estimatedMinutes?: number;
   estimatedDays?: number;
   createInvoice?: boolean;
+  hasExternalCosts?: boolean;
+  requiresManagerApproval?: boolean;
+  externalCostsNote?: string | null;
+  externalCostItems?: ExternalCostItem[];
 }
 
 export async function createCustomService(input: CustomServiceInput, actor: { id: string; name: string; ip?: string }) {
@@ -601,8 +660,9 @@ export async function createCustomService(input: CustomServiceInput, actor: { id
   await run(
     `INSERT INTO services (id, category_id, slug, title, summary, description, image, icon, form_schema, documents,
       workflow_steps, base_fee, discount_percent, estimated_days, estimated_minutes, payment_methods, tags, search_text, contact_notice,
-      is_published, accepting_requests, is_custom, owner_customer_id, created_by, sort_order, needs_review, created_at, updated_at)
-     VALUES (?, NULL, ?, ?, ?, ?, NULL, 'sparkles', ?, ?, ?, ?, ?, ?, ?, ?, '[]', ?, ?, 0, 1, 1, ?, ?, 9999, 0, ?, ?)`,
+      is_published, accepting_requests, is_custom, owner_customer_id, created_by, sort_order, needs_review, created_at, updated_at,
+      has_external_costs, external_costs_note, external_cost_items, requires_manager_approval)
+     VALUES (?, NULL, ?, ?, ?, ?, NULL, 'sparkles', ?, ?, ?, ?, ?, ?, ?, ?, '[]', ?, ?, 0, 1, 1, ?, ?, 9999, 0, ?, ?, ?, ?, ?, ?)`,
     [
       serviceId, slug, title, input.summary ?? title.slice(0, 120), input.description,
       jsonStringify(validateFormSchema(input.form)), jsonStringify(validateDocuments(input.documents)),
@@ -610,6 +670,9 @@ export async function createCustomService(input: CustomServiceInput, actor: { id
       durationDays(estimatedMinutes), estimatedMinutes, jsonStringify(normalizePaymentMethods(null)),
       normalizePersian([title, input.description].join(' ')),
       'این خدمت اختصاصی برای شما تعریف شده است.', input.customerId, actor.id, ts, ts,
+      input.hasExternalCosts ? 1 : 0, input.externalCostsNote?.trim() || null,
+      jsonStringify(validateExternalCostItems(input.externalCostItems)),
+      input.requiresManagerApproval ? 1 : 0,
     ],
   );
 

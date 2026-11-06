@@ -13,7 +13,7 @@ import {
 import { api, ApiFailure } from '../../lib/api';
 import { faNum, rial } from '../../lib/format';
 import { useAuth } from '../../lib/auth';
-import { formatDuration, type FormField, type WorkflowStep } from '../../lib/site';
+import { formatDuration, STEP_KIND_LABELS, type FormField, type WorkflowStep, type WorkflowStepKind } from '../../lib/site';
 
 interface DocItem { key: string; title: string; required: boolean; note?: string }
 
@@ -238,6 +238,7 @@ export function AdminServiceEditor() {
   const [cities,setCities]=useState<any[]>([]);
   const [loading, setLoading] = useState(!isNew);
   const [saving, setSaving] = useState(false);
+  const [uploadingArtwork, setUploadingArtwork] = useState(false);
   const [error, setError] = useState('');
   const [tab, setTab] = useState<'general' | 'form' | 'documents' | 'workflow' | 'pricing'>('general');
 
@@ -258,6 +259,18 @@ export function AdminServiceEditor() {
   }, [id]);
 
   const set = (patch: Record<string, any>) => setService((prev: any) => ({ ...prev, ...patch }));
+
+  const uploadArtwork = async (file: File, field: 'icon' | 'image') => {
+    setUploadingArtwork(true);
+    try {
+      const result = await api.upload<{data:{url:string;isPublic:boolean}}>('/api/files/upload', file, {purpose:'service', public:true});
+      if (!result.data.isPublic || !result.data.url) throw new Error('تصویر عمومی ذخیره نشد.');
+      if (field === 'icon' && result.data.url.length > 60) throw new Error('نشانی آیکون بیش از حد مجاز طولانی است.');
+      set({[field]: result.data.url});
+      notify('تصویر بارگذاری شد؛ برای ثبت نهایی خدمت را ذخیره کنید.', 'success');
+    } catch (err) { notify(err instanceof Error ? err.message : 'بارگذاری تصویر ناموفق بود.', 'error'); }
+    finally { setUploadingArtwork(false); }
+  };
 
   const save = async () => {
     setSaving(true);
@@ -317,7 +330,7 @@ export function AdminServiceEditor() {
   const updateDoc = (index: number, patch: Partial<DocItem>) =>
     set({ documents: service.documents.map((d: DocItem, i: number) => (i === index ? { ...d, ...patch } : d)) });
 
-  const addStep = () => set({ workflow: [...service.workflow, { title: '', description: '' } as WorkflowStep] });
+  const addStep = () => set({ workflow: [...service.workflow, { title: '', description: '', kind: 'action' } as WorkflowStep] });
   const updateStep = (index: number, patch: Partial<WorkflowStep>) =>
     set({ workflow: service.workflow.map((s: WorkflowStep, i: number) => (i === index ? { ...s, ...patch } : s)) });
 
@@ -374,6 +387,17 @@ export function AdminServiceEditor() {
                 <Field label="توضیحات کامل">
                   <Textarea value={service.description} onChange={(e) => set({ description: e.target.value })} className="min-h-32" />
                 </Field>
+                <div className="grid gap-4 sm:grid-cols-2">
+                  <Field label="آیکون خدمت" hint="یک ایموجی بنویسید یا تصویر آیکون بارگذاری کنید؛ در اپ و سایت نمایش داده می‌شود.">
+                    <Input value={service.icon ?? ''} maxLength={60} onChange={e=>set({icon:e.target.value})} placeholder="مثلاً 🪪" />
+                    <input type="file" accept="image/*" disabled={uploadingArtwork} onChange={e=>{const file=e.target.files?.[0];if(file) void uploadArtwork(file,'icon');e.target.value='';}} className="mt-2 block w-full text-xs" aria-label="بارگذاری آیکون خدمت" />
+                    {service.icon?.startsWith('/uploads/') && <img src={service.icon} alt="پیش‌نمایش آیکون" className="mt-2 size-16 rounded-xl object-cover" />}
+                  </Field>
+                  <Field label="تصویر خدمت" hint="تصویر صفحهٔ جزئیات خدمت در سایت و اپ.">
+                    <input type="file" accept="image/*" disabled={uploadingArtwork} onChange={e=>{const file=e.target.files?.[0];if(file) void uploadArtwork(file,'image');e.target.value='';}} className="block w-full text-xs" aria-label="بارگذاری تصویر خدمت" />
+                    {service.image && <div className="mt-2"><img src={service.image} alt="پیش‌نمایش تصویر خدمت" className="h-28 max-w-full rounded-xl object-cover" /><Button variant="ghost" size="sm" onClick={()=>set({image:null})}>حذف تصویر</Button></div>}
+                  </Field>
+                </div>
                 <Field label="هشدار تماس / توضیح تکمیلی" hint="در صفحه خدمت با رنگ هشدار نمایش داده می‌شود.">
                   <Input value={service.contactNotice ?? ''} onChange={(e) => set({ contactNotice: e.target.value })} />
                 </Field>
@@ -466,7 +490,7 @@ export function AdminServiceEditor() {
               <div className="mb-3 flex items-center justify-between">
                 <div>
                   <h2 className="font-bold text-navy-900">مراحل رسیدگی</h2>
-                  <p className="text-[11px] text-navy-500">ترتیب مراحل برای مشتری نمایش داده می‌شود و مبنای پیشرفت پرونده است.</p>
+                  <p className="text-[11px] text-navy-500">ترتیب مراحل برای مشتری نمایش داده می‌شود و مبنای پیشرفت پرونده است. «نوع مرحله» مشخص می‌کند الان نوبت کیست؛ سیستم از روی آن ظرفیت واقعی هر کارشناس و دستهٔ پرونده در پنل کارکنان را حساب می‌کند.</p>
                 </div>
                 <Button size="sm" variant="ghost" onClick={addStep}><Plus className="size-4" /> افزودن مرحله</Button>
               </div>
@@ -481,7 +505,14 @@ export function AdminServiceEditor() {
                         <Trash2 className="size-3.5" />
                       </Button>
                     </div>
-                    <Input className="mt-2" value={step.description ?? ''} onChange={(e) => updateStep(index, { description: e.target.value })} placeholder="توضیح کوتاه مرحله" />
+                    <div className="mt-2 flex flex-wrap items-center gap-2">
+                      <Input className="min-w-48 flex-1" value={step.description ?? ''} onChange={(e) => updateStep(index, { description: e.target.value })} placeholder="توضیح کوتاه مرحله" />
+                      <label className="flex items-center gap-2 text-xs text-navy-600">
+                        نوع مرحله:
+                        <Select value={step.kind ?? 'action'} onChange={(e) => updateStep(index, { kind: e.target.value as WorkflowStepKind })}
+                          options={Object.entries(STEP_KIND_LABELS).map(([value, label]) => ({ value, label }))} className="w-40" />
+                      </label>
+                    </div>
                   </div>
                 ))}
               </div>
@@ -507,6 +538,63 @@ export function AdminServiceEditor() {
                   </Field>
                 </div>
                 <div className="space-y-4 rounded-2xl border border-navy-100 p-4"><h3 className="text-sm font-bold">محدوده ارائه خدمت</h3><Select value={service.coverage} onChange={e=>set({coverage:e.target.value})} options={[{value:'nationwide',label:'سراسر کشور'},{value:'cities',label:'فقط شهرهای انتخابی'}]} />{service.coverage==='cities'&&<div className="max-h-48 space-y-2 overflow-auto">{cities.map(c=><label key={c.id} className="flex items-center gap-2 text-sm"><input type="checkbox" checked={service.cityIds.includes(c.id)} onChange={e=>set({cityIds:e.target.checked?[...service.cityIds,c.id]:service.cityIds.filter((v:string)=>v!==c.id)})} />{c.province} · {c.name}</label>)}</div>}<Button variant="ghost" size="sm" onClick={async()=>{const province=prompt('نام استان');if(!province)return;const name=prompt('نام شهر');if(!name)return;try{await api.post('/api/catalog/cities',{province,name});setCities((await api.get<{data:any[]}>('/api/public/cities')).data);notify('شهر ثبت شد','success')}catch(e){notify(e instanceof Error?e.message:'خطا','error')}}}>افزودن شهر به مرجع</Button></div>
+                <div className="flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-navy-100 p-4">
+                  <div className="min-w-0">
+                    <h3 className="text-sm font-bold">تأیید مدیر پیش از تحویل به مشتری (موارد خاص)</h3>
+                    <p className="mt-1 text-[11px] leading-6 text-navy-500">
+                      در حالت عادی، مجری کار با دکمهٔ «تحویل به مشتری» نتیجه را مستقیم تحویل می‌دهد و پرونده همان لحظه بسته می‌شود؛ نیازی به تأیید مدیر نیست.
+                      فقط برای خدمت‌های خاص و حساس این گزینه را فعال کنید تا نتیجهٔ مجری اول به کارتابل مدیر برود و پس از تأیید او برای مشتری منتشر شود.
+                    </p>
+                  </div>
+                  <Switch checked={Boolean(service.requiresManagerApproval)} label={service.requiresManagerApproval ? 'نیازمند تأیید مدیر' : 'تحویل مستقیم'}
+                    onChange={(checked) => set({ requiresManagerApproval: checked })} />
+                </div>
+                <div className="space-y-4 rounded-2xl border border-navy-100 p-4">
+                  <div className="flex flex-wrap items-center justify-between gap-3">
+                    <div>
+                      <h3 className="text-sm font-bold">هزینه‌های سازمانی حین انجام</h3>
+                      <p className="mt-1 text-[11px] leading-6 text-navy-500">
+                        بعضی خدمت‌ها در حین انجام هزینه‌ای برای سازمان مربوطه دارند (مثل حق بیمهٔ تأمین اجتماعی یا عوارض) که جزو حق‌الزحمهٔ دفتر نیست
+                        و مبلغش برای هر شخص متفاوت است. با فعال‌کردن این گزینه، مشتری از قبل در جریان قرار می‌گیرد و کارشناس می‌تواند حین کار
+                        برای همان پرونده فاکتور جداگانه صادر کند تا مشتری همان‌جا پرداختش کند. این مبالغ هرگز جزو درآمد دفتر و مبنای پورسانت نیستند.
+                      </p>
+                    </div>
+                    <Switch checked={Boolean(service.hasExternalCosts)} label={service.hasExternalCosts ? 'فعال' : 'غیرفعال'}
+                      onChange={(checked) => set({ hasExternalCosts: checked })} />
+                  </div>
+                  {service.hasExternalCosts && (
+                    <>
+                      <Field label="متن اطلاع‌رسانی به مشتری" hint="خالی بماند، متن پیش‌فرض سامانه نمایش داده می‌شود.">
+                        <Textarea value={service.externalCostsNote ?? ''} onChange={(e) => set({ externalCostsNote: e.target.value })}
+                          placeholder="در حین انجام این خدمت ممکن است مبالغی بابت هزینهٔ سازمان مربوطه لازم باشد که جزو حق‌الزحمهٔ دفتر نیست…" />
+                      </Field>
+                      <div>
+                        <p className="mb-2 text-xs font-bold text-navy-700">اقلام مشخص از پیش معلوم (اختیاری)</p>
+                        <p className="mb-2 text-[11px] text-navy-500">اگر مبلغ بعضی هزینه‌ها از قبل معلوم است، اینجا بیاورید تا در صفحهٔ خدمت جدا از حق‌الزحمه به مشتری نشان داده شود و کارشناس موقع صدور فاکتور با یک کلیک انتخابشان کند.</p>
+                        <div className="space-y-2">
+                          {(service.externalCostItems ?? []).map((item: any, index: number) => (
+                            <div key={index} className="flex flex-wrap items-center gap-2">
+                              <Input className="min-w-48 flex-1" value={item.title}
+                                onChange={(e) => set({ externalCostItems: (service.externalCostItems ?? []).map((row: any, i: number) => (i === index ? { ...row, title: e.target.value } : row)) })}
+                                placeholder="مثلاً عوارض شهرداری" />
+                              <Input type="number" min={0} className="w-36" dir="ltr" value={item.amount}
+                                onChange={(e) => set({ externalCostItems: (service.externalCostItems ?? []).map((row: any, i: number) => (i === index ? { ...row, amount: Number(e.target.value) } : row)) })}
+                                placeholder="مبلغ (ریال)" />
+                              <Button size="sm" variant="ghost" aria-label="حذف"
+                                onClick={() => set({ externalCostItems: (service.externalCostItems ?? []).filter((_: any, i: number) => i !== index) })}>
+                                <Trash2 className="size-3.5 text-rose-600" />
+                              </Button>
+                            </div>
+                          ))}
+                        </div>
+                        <Button size="sm" variant="ghost" className="mt-2"
+                          onClick={() => set({ externalCostItems: [...(service.externalCostItems ?? []), { title: '', amount: 0 }] })}>
+                          <Plus className="size-4" /> افزودن قلم
+                        </Button>
+                      </div>
+                    </>
+                  )}
+                </div>
                 <div className="space-y-4 rounded-2xl border border-amber-200 bg-amber-50/50 p-4">
                   <label className="flex items-center gap-2 text-sm font-bold"><input type="checkbox" checked={service.urgentEnabled} onChange={(e) => set({ urgentEnabled: e.target.checked })} />پذیرش درخواست فوری</label>
                   {service.urgentEnabled && <div className="grid gap-3 sm:grid-cols-3">

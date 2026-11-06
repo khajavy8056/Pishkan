@@ -132,7 +132,7 @@ async function main() {
     '--root', root, '--json-lines', '--job-stdin',
   ], { cwd: root, stdio: ['pipe', 'pipe', 'inherit'] });
 
-  child.stdin.end(`${JSON.stringify({ port, admin, lanAccess })}\n`);
+  child.stdin.end(`${JSON.stringify({ port, admin, lanAccess, cleanInstall })}\n`);
 
   let lastKey = '';
   let ok = false;
@@ -159,7 +159,7 @@ async function main() {
     } else if (event.type === 'result') {
       ok = Boolean(event.ok);
       if (event.ok) {
-        process.stdout.write(`\nنصب کامل شد. آدرس همین رایانه: ${event.report.url}\n`);
+        process.stdout.write(`\nنصب کامل شد. آدرس همین رایانه: ${event.report.url}\nورود مدیر و کارکنان: ${event.report.adminLoginUrl ?? `${event.report.url}/login-admin`}\n`);
         if (event.report.lanAccess) {
           const urls = event.report.mobileUrls ?? [];
           process.stdout.write(urls.length

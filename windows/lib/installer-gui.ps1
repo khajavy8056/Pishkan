@@ -198,13 +198,22 @@ $nameBox = New-PishkanTextBox 'مدیر کل محلی' 600
 [void](New-Field 'نام و نام خانوادگی مدیر کل' 176 $nameBox)
 
 $userBox = New-PishkanTextBox 'admin' 600
-[void](New-Field 'نام کاربری مدیر کل (حروف انگلیسی، رقم، نقطه، خط تیره)' 236 $userBox)
+[void](New-Field 'نام کاربری مدیر کل (حروف انگلیسی، رقم، نقطه، خط تیره)' 228 $userBox)
 
 $passBox = New-PishkanTextBox '' 600 -Password
-[void](New-Field 'رمز عبور (حداقل ۱۰ کاراکتر، ترکیب حرف و رقم)' 296 $passBox)
+[void](New-Field 'رمز عبور (حداقل ۱۰ کاراکتر، ترکیب حرف و رقم)' 280 $passBox)
 
 $pass2Box = New-PishkanTextBox '' 600 -Password
-[void](New-Field 'تکرار رمز عبور' 356 $pass2Box)
+[void](New-Field 'تکرار رمز عبور' 332 $pass2Box)
+
+$cleanInstallCheckBox = New-Object System.Windows.Forms.CheckBox
+$cleanInstallCheckBox.Text = 'نصب تمیز: پاک‌سازی پایگاه داده و تنظیمات نصب قبلی (شروع از صفر)'
+$cleanInstallCheckBox.Location = New-Object System.Drawing.Point(80, 390)
+$cleanInstallCheckBox.Size = New-Object System.Drawing.Size(600, 26)
+$cleanInstallCheckBox.RightToLeft = [System.Windows.Forms.RightToLeft]::Yes
+$cleanInstallCheckBox.TextAlign = 'MiddleRight'
+$cleanInstallCheckBox.Tag = 'input'
+$pageConfig.Controls.Add($cleanInstallCheckBox)
 
 $checkButton = New-PishkanButton 'بررسی سیستم' 'ghost' 150 38
 $checkButton.Location = New-Object System.Drawing.Point(520, 424)
@@ -528,6 +537,10 @@ function Invoke-SystemCheck {
 
 function Start-Installation {
   if (-not (Test-FormInput)) { return }
+  if ($cleanInstallCheckBox.Checked) {
+    $cleanAnswer = [System.Windows.Forms.MessageBox]::Show('«نصب تمیز» انتخاب شده است: پایگاه داده و تنظیمات نصب قبلی در این مسیر پاک‌سازی و نصب از صفر آغاز می‌شود. ادامه می‌دهید؟', 'تأیید نصب تمیز', [System.Windows.Forms.MessageBoxButtons]::YesNo, [System.Windows.Forms.MessageBoxIcon]::Warning)
+    if ($cleanAnswer -ne [System.Windows.Forms.DialogResult]::Yes) { return }
+  }
   if (-not (Ensure-NodeReady)) {
     Show-PishkanMessage 'Node.js لازم است' 'نصب خودکار Node.js انجام نشد. نصب متنی را امتحان کنید: PishkanSetup.cmd /console' 'error'
     return
@@ -550,7 +563,8 @@ function Start-Installation {
   $job = @{
     port = [int]$portBox.Value
     lanAccess = [bool]$lanAccessCheckBox.Checked
-    admin = {
+    cleanInstall = [bool]$cleanInstallCheckBox.Checked
+    admin = @{
       fullName = $nameBox.Text.Trim()
       username = $userBox.Text.Trim()
       password = $passBox.Text
@@ -641,6 +655,8 @@ function Show-InstallResult([bool]$Ok) {
   $finishSummary.Text = ("نصب با موفقیت انجام شد.`n`n" +
     "آدرس همین رایانه: $url`n" + $lanSummary + "`n`n" +
     "نام کاربری مدیر کل: $($userBox.Text.Trim())`n" +
+    "ورود مدیر و کارکنان (فقط از این نشانی): $url/login-admin`n" +
+    "ورود مشتریان از همان آدرس اصلی سایت است.`n" +
     "پوشه داده: " + (Join-Path $pathBox.Text '.data') + "`n`n" +
     "برای اتصال دوباره از «Pishkan Manager» استفاده کنید. گزارش نصب در .data\install-report.json ذخیره شد.")
   $finishSummary.Tag = 'text'

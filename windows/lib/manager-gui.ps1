@@ -251,10 +251,76 @@ function Invoke-Manager([string[]]$Arguments) {
     }
   }
   $managerScript = Join-Path $RepoRoot 'windows\lib\manager.mjs'
-  $output = & $node $managerScript @Arguments --root $RepoRoot --json 2>&1
+  # PS 5.1 + $ErrorActionPreference='Stop' turns the first stderr line of a
+  # native command into a terminating error; the contract is the RESULT_JSON
+  # line on stdout, so stderr must never abort the call.
+  $previousPreference = $ErrorActionPreference
+  $ErrorActionPreference = 'Continue'
+  try { $output = & $node $managerScript @Arguments --root $RepoRoot --json 2>&1 }
+  finally { $ErrorActionPreference = $previousPreference }
   $line = ($output | Where-Object { "$_" -like 'RESULT_JSON:*' } | Select-Object -Last 1)
   if (-not $line) { return @{ ok = $false; message = ($output -join "`n") } }
   return ("$line".Substring(12) | ConvertFrom-Json)
+}
+
+function Set-ManagerProcessEncoding($Info) {
+  $encoding = New-Object System.Text.UTF8Encoding($false)
+  if ($Info.PSObject.Properties.Match('StandardOutputEncoding').Count -gt 0) {
+    try { $Info.StandardOutputEncoding = $encoding } catch { }
+  }
+  if ($Info.PSObject.Properties.Match('StandardErrorEncoding').Count -gt 0) {
+    try { $Info.StandardErrorEncoding = $encoding } catch { }
+  }
+  return $Info
+}
+
+# Same contract as Invoke-Manager, but the window stays alive while a slow
+# start/stop runs: a synchronous `& node ...` froze the whole form for up to a
+# minute (Windows ghosted it as not responding) and the click looked dead.
+function Invoke-ManagerAsync([string[]]$Arguments) {
+  $node = Get-NodeCommand
+  if (-not $node) { return (Invoke-Manager $Arguments) }
+  $managerScript = Join-Path $RepoRoot 'windows\lib\manager.mjs'
+  $info = New-Object System.Diagnostics.ProcessStartInfo
+  $info.FileName = $node
+  $quoted = @($Arguments | ForEach-Object { '"' + ([string]$_).Replace('"', '\"') + '"' })
+  $info.Arguments = '"' + $managerScript + '" ' + ($quoted -join ' ') + ' --root "' + $RepoRoot + '" --json'
+  $info.WorkingDirectory = $RepoRoot
+  $info.UseShellExecute = $false
+  $info.CreateNoWindow = $true
+  $info.RedirectStandardOutput = $true
+  $info.RedirectStandardError = $true
+  $info = Set-ManagerProcessEncoding $info
+  $process = New-Object System.Diagnostics.Process
+  $process.StartInfo = $info
+  [void]$process.Start()
+  $lines = @()
+  $pending = $process.StandardOutput.ReadLineAsync()
+  while ($true) {
+    if ($null -eq $pending) { break }
+    if ($pending.IsCompleted) {
+      $line = $null
+      try { $line = $pending.Result } catch { $line = $null }
+      if ($null -eq $line) { break }
+      $lines += $line
+      $pending = $process.StandardOutput.ReadLineAsync()
+    } else {
+      [System.Windows.Forms.Application]::DoEvents()
+      Start-Sleep -Milliseconds 60
+    }
+  }
+  $waitDeadline = (Get-Date).AddSeconds(20)
+  while (-not $process.HasExited -and (Get-Date) -lt $waitDeadline) {
+    [System.Windows.Forms.Application]::DoEvents()
+    Start-Sleep -Milliseconds 60
+  }
+  $resultLine = ($lines | Where-Object { "$_" -like 'RESULT_JSON:*' } | Select-Object -Last 1)
+  if (-not $resultLine) {
+    $stderrText = ''
+    try { $stderrText = $process.StandardError.ReadToEnd() } catch { }
+    return @{ ok = $false; message = (($lines + $stderrText) -join "`n") }
+  }
+  return ("$resultLine".Substring(12) | ConvertFrom-Json)
 }
 
 function Update-Status {
@@ -294,14 +360,14 @@ function Update-Status {
     if ($status.lanAccess.enabled) {
       $mobileUrls = @($status.lanAccess.mobileUrls | Where-Object { $_ })
       if ($mobileUrls.Count -gt 0) {
-        $lanText = "آدرس موبایل فقط در Wi‑Fi خصوصی:`n" + ($mobileUrls -join "`n")
+        $lanText = "آدرس موبایل (فقط روی همان Wi‑Fi):`n" + ($mobileUrls -join "`n")
       } else {
         $lanText = [string]$status.lanAccess.message
       }
     }
     $infoText.Text = ("پورت: {0}`n{1}`nپایگاه داده: {2}`nپوشه داده: {3}`nفایل تنظیمات: {4}`nگزارش سرور: {5}`nگزارش مدیر: {6}" -f `
       $status.port, $lanText, (Split-Path $status.envFile -Leaf), $status.dataDir, $status.envFile, $status.logFile, $status.managerLogFile)
-    if ($autoRefresh.Checked -and $status.running) {
+    if ($autoRefresh.Checked) {
       $log = Invoke-Manager @('logs', '--lines', '40')
       if ($log -and $log.lines) { $logBox.Text = ($log.lines -join "`r`n") }
     }
@@ -319,7 +385,7 @@ function Show-LanDialog {
   $dialog = New-Object System.Windows.Forms.Form
   $dialog.Text = 'دسترسی موبایل در شبکه محلی'
   $dialog.Width = 460
-  $dialog.Height = 520
+  $dialog.Height = 566
   $dialog.StartPosition = 'CenterParent'
   $dialog.RightToLeft = [System.Windows.Forms.RightToLeft]::Yes
   $dialog.RightToLeftLayout = $true
@@ -402,16 +468,16 @@ function Invoke-Action([string]$Label, [string[]]$Arguments, [string]$SuccessTex
   Set-Footer ($Label + ' — کمی صبر کنید…') 'warn'
   [System.Windows.Forms.Application]::DoEvents()
   try {
-    $result = Invoke-Manager $Arguments
+    $result = Invoke-ManagerAsync $Arguments
     if ($result.ok) {
       Set-Footer $SuccessText 'ok'
     } else {
       Set-Footer ("$Label ناموفق بود: " + $result.message) 'danger'
-      Show-PishkanMessage ($Label + ' ناموفق بود') ([string]$result.message) 'error'
+      Show-PishkanMessage ($Label + ' ناموفق بود') ([string]$result.message) 'error' $form
     }
   } catch {
     Set-Footer ($Label + ' با خطا مواجه شد') 'danger'
-    Show-PishkanMessage ($Label + ' با خطا مواجه شد') $_.Exception.Message 'error'
+    Show-PishkanMessage ($Label + ' با خطا مواجه شد') $_.Exception.Message 'error' $form
   } finally {
     $script:Busy = $false
     Update-Status

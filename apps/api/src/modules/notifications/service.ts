@@ -11,6 +11,8 @@ export interface NotifyInput {
   link?: string;
   sms?: SmsEvent;
   idempotencyKey?: string;
+  /** Also ring the user's subscribed devices (Web Push). */
+  push?: boolean;
   email?: boolean;
 }
 
@@ -35,6 +37,25 @@ export async function notifyUser(userId: string, input: NotifyInput): Promise<vo
       const smsKey = `${input.idempotencyKey ?? notificationId}:sms`;
       await sendEventNotificationSms(user.mobile, input.sms, smsKey).catch(() => undefined);
     }
+  }
+
+  if (input.push) {
+    const { sendPushToUsers } = await import('./push.js');
+    // In-app "chat:<ticketId>" pointers become a real URL for the device:
+    // the recipient lands in their panel with the conversation auto-opened.
+    let url = '/';
+    if (input.link && input.link.startsWith('/')) url = input.link;
+    else if (input.link && input.link.startsWith('chat:')) {
+      const target = await one<{ kind: string }>('SELECT kind FROM users WHERE id = ?', [userId]).catch(() => null);
+      const home = target?.kind === 'customer' ? '/app' : target?.kind === 'admin' ? '/admin' : '/staff';
+      url = `${home}?chat=${encodeURIComponent(input.link.slice(5))}`;
+    }
+    await sendPushToUsers([userId], {
+      title: input.title,
+      body: (input.body ?? '').slice(0, 180),
+      url,
+      tag: (input.idempotencyKey ?? notificationId).slice(0, 64),
+    }).catch(() => undefined);
   }
 }
 

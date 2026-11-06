@@ -58,10 +58,10 @@ export async function resetDb() {
 
 export interface Session { cookie: string[] }
 
-/** Log in and return a supertest-friendly cookie jar. */
-export async function login(identifier: string, password: string): Promise<Session> {
+/** Log in through one of the two separated doors and return a cookie jar. */
+export async function login(identifier: string, password: string, audience: 'customer' | 'staff' = 'staff'): Promise<Session> {
   const server = await app();
-  const res = await request(server).post('/api/auth/login').send({ identifier, password });
+  const res = await request(server).post(`/api/auth/${audience}/login`).send({ identifier, password });
   if (!res.body.ok) throw new Error(`login failed for ${identifier}: ${JSON.stringify(res.body)}`);
   const cookie = res.headers['set-cookie'] as unknown as string[];
   return { cookie };
@@ -78,7 +78,7 @@ export async function customerSession() {
     mobile: CUSTOMER.mobile, password: CUSTOMER.password, fullName: CUSTOMER.fullName,
   });
   if (!reg.body.ok && reg.body?.error?.code !== 'conflict') throw new Error(`register failed: ${JSON.stringify(reg.body)}`);
-  const session = await login(CUSTOMER.mobile, CUSTOMER.password);
+  const session = await login(CUSTOMER.mobile, CUSTOMER.password, 'customer');
   await request(server).patch('/api/auth/profile').set('Cookie',session.cookie).send({firstName:'مشتری',lastName:'آزمایشی',nationalId:'0013546295',cityId:'tehran'}).expect(200);
   return session;
 }
@@ -89,7 +89,7 @@ export async function newCustomer(name = 'مشتری دوم') {
   const mobile = `0935${Math.floor(1000000 + Math.random() * 8999999)}`;
   const password = 'Customer#12345';
   await request(server).post('/api/auth/register').send({ mobile, password, fullName: name }).expect(201);
-  const session = await login(mobile, password);
+  const session = await login(mobile, password, 'customer');
   await request(server).patch('/api/auth/profile').set('Cookie', session.cookie).send({
     firstName: 'مشتری', lastName: 'دوم', nationalId: '0013546295', cityId: 'tehran',
   }).expect(200);

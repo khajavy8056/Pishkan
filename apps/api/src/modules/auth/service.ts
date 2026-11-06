@@ -1,4 +1,4 @@
-import { one, q, run, nowIso, addHours } from '../../db/index.js';
+import { one, q, run, nowIso, addHours, tx } from '../../db/index.js';
 import {
   encryptSecret, decryptSecret, hashPassword, id, numericCode, randomToken,
   sha256, verifyPassword,
@@ -12,6 +12,7 @@ import { logEvent } from '../logging/service.js';
 import type { AuthContext, AuthUser } from './types.js';
 import { env } from '../../env.js';
 import { verifyTotp } from './totp.js';
+import { recordAttribution, qualifyInvitation, validateReferral } from '../referrals/service.js';
 
 /* -------------------------------------------------------------------------- */
 /*                                   types                                    */
@@ -55,9 +56,13 @@ export async function findUserByMobile(mobile: string, kind: 'customer' | 'staff
   return one<UserRow>('SELECT * FROM users WHERE kind = ? AND mobile = ?', [kind, normalizeMobile(mobile)]);
 }
 
-export async function findUserByUsername(username: string): Promise<UserRow | null> {
+export async function findUserByUsername(username: string, kinds?: ('customer' | 'staff' | 'admin')[]): Promise<UserRow | null> {
   const value = String(username ?? '').trim().toLowerCase();
   if (!value) return null;
+  if (kinds?.length) {
+    const marks = kinds.map(() => '?').join(', ');
+    return one<UserRow>(`SELECT * FROM users WHERE (LOWER(username) = ? OR LOWER(email) = ?) AND kind IN (${marks})`, [value, value, ...kinds]);
+  }
   return one<UserRow>('SELECT * FROM users WHERE LOWER(username) = ? OR LOWER(email) = ?', [value, value]);
 }
 
@@ -251,8 +256,9 @@ export async function requestOtp(mobileRaw: string, purpose: 'login' | 'register
   if (!isValidMobile(mobile)) throw badRequest('شماره موبایل را به شکل ۰۹۱۲۳۴۵۶۷۸۹ وارد کنید.');
 
   const staffAccount = await one<UserRow>("SELECT * FROM users WHERE mobile=? AND kind IN ('staff','admin')", [mobile]);
-  const customerAccount = await findUserByMobile(mobile, 'customer');
-  const kind = requestedKind ?? (staffAccount && !customerAccount && purpose === 'login' ? 'staff' : 'customer');
+  // Audience separation: the entrance (customer vs staff door) decides which
+  // account family an OTP may ever touch. We never "helpfully" switch doors.
+  const kind = requestedKind ?? 'customer';
   if (kind === 'staff' && (!staffAccount || (purpose !== 'verify' && !staffAccount.mobile_verified))) throw forbidden('ورود پیامکی کارکنان نیازمند حساب و شماره تأییدشده است.');
   const otpEnabled = await getBool(kind === 'staff' ? 'auth.staff_otp_enabled' : 'auth.customer_otp_enabled');
   if (!otpEnabled && purpose !== 'verify' && purpose !== 'reset') throw forbidden('ورود با رمز یک‌بارمصرف در حال حاضر فعال نیست.');
@@ -326,7 +332,7 @@ export async function verifyOtpAndLogin(
   mobileRaw: string,
   codeRaw: string,
   client: ClientInfo,
-  options: { purpose?: 'login' | 'register' | 'reset' | 'verify'; kind?: 'customer' | 'staff'; staffKinds?: ('staff' | 'admin')[] } = {},
+  options: { purpose?: 'login' | 'register' | 'reset' | 'verify'; kind?: 'customer' | 'staff'; staffKinds?: ('staff' | 'admin')[]; referralCode?: string } = {},
 ): Promise<{ context: AuthContext; token: string; expiresAt: string; isNewUser: boolean; mfaRequired?:boolean;mfaToken?:string;mfaMode?:'totp' }> {
   const mobile = normalizeMobile(mobileRaw);
   const purpose = options.purpose ?? 'login';
@@ -336,7 +342,7 @@ export async function verifyOtpAndLogin(
 
   const staffAccount = await one<UserRow>("SELECT * FROM users WHERE mobile=? AND kind IN ('staff','admin')", [mobile]);
   const customerAccount = await findUserByMobile(mobile, 'customer');
-  const kind = options.kind ?? (staffAccount && !customerAccount && purpose === 'login' ? 'staff' : 'customer');
+  const kind = options.kind ?? 'customer';
   if (purpose !== 'verify' && !(await getBool(kind === 'staff' ? 'auth.staff_otp_enabled' : 'auth.customer_otp_enabled'))) throw forbidden('ورود با رمز یک‌بارمصرف غیرفعال است.');
 
   const record = await one<{
@@ -355,6 +361,8 @@ export async function verifyOtpAndLogin(
     await logLogin({ identifier: mobile, method: 'otp-verify', success: false, reason: 'wrong_code', client });
     throw badRequest('کد واردشده صحیح نیست.');
   }
+
+  if (kind === 'customer' && !customerAccount && options.referralCode) await validateReferral(options.referralCode, mobile);
 
   const consumed = await run('UPDATE otp_codes SET consumed_at = ? WHERE id = ? AND consumed_at IS NULL AND attempts < max_attempts', [nowIso(), record.id]);
   if (!consumed.changes) throw conflict('کد قبلاً مصرف شده است.');
@@ -379,12 +387,15 @@ export async function verifyOtpAndLogin(
       const requireApproval = await getBool('auth.customer_require_approval');
       const ts = nowIso();
       const userId = id('usr');
-      await run(
-        `INSERT INTO users (id, kind, mobile, mobile_verified, full_name, status, created_at, updated_at)
-         VALUES (?, 'customer', ?, 1, ?, ?, ?, ?)`,
-        [userId, mobile, '', requireApproval ? 'pending' : 'active', ts, ts],
-      );
-      await run('INSERT INTO customer_profiles (user_id, extra, created_at, updated_at) VALUES (?, ?, ?, ?)', [userId, '{}', ts, ts]);
+      await tx(async () => {
+        await run(
+          `INSERT INTO users (id, kind, mobile, mobile_verified, full_name, status, created_at, updated_at)
+           VALUES (?, 'customer', ?, 1, ?, ?, ?, ?)`,
+          [userId, mobile, '', requireApproval ? 'pending' : 'active', ts, ts],
+        );
+        await run('INSERT INTO customer_profiles (user_id, extra, created_at, updated_at) VALUES (?, ?, ?, ?)', [userId, '{}', ts, ts]);
+        await recordAttribution(options.referralCode, userId, mobile);
+      });
       user = await findUserById(userId);
       isNewUser = true;
       await writeAudit({ actorId: userId, actorName: mobile, action: 'customer.self_register', entityType: 'user', entityId: userId, ip: client.ip });
@@ -394,6 +405,9 @@ export async function verifyOtpAndLogin(
   }
 
   if (!user) throw unauthorized('ورود ناموفق بود.');
+  if (user.kind === 'customer') {
+    try { await qualifyInvitation(user.id); } catch (error) { console.error('Referral qualification/payment needs retry', error); }
+  }
   assertNotLocked(user);
   assertActive(user);
 
@@ -418,12 +432,34 @@ export async function passwordLogin(
   identifier: string,
   password: string,
   client: ClientInfo,
+  audience: 'customer' | 'staff',
 ): Promise<{ context: AuthContext; token: string; expiresAt: string; mfaRequired?: boolean; mfaToken?: string; mfaMode?: 'totp' | 'otp' }> {
   const ident = String(identifier ?? '').trim();
   if (!ident || !password) throw badRequest('نام کاربری و رمز عبور الزامی است.');
 
-  const byMobile = isValidMobile(ident) ? await one<UserRow>('SELECT * FROM users WHERE mobile = ? ORDER BY kind ASC', [normalizeMobile(ident)]) : null;
-  const user = byMobile ?? (await findUserByUsername(ident));
+  // The two entrances are fully separated: the customer door only ever sees
+  // customer accounts and the staff door only staff/admin accounts. Valid
+  // credentials presented at the wrong door fail exactly like unknown ones,
+  // so an entrance never reveals which door an account belongs to.
+  const kinds: ('customer' | 'staff' | 'admin')[] = audience === 'customer' ? ['customer'] : ['staff', 'admin'];
+  const byMobile = isValidMobile(ident)
+    ? await one<UserRow>(
+      audience === 'customer'
+        ? "SELECT * FROM users WHERE mobile = ? AND kind = 'customer'"
+        : "SELECT * FROM users WHERE mobile = ? AND kind IN ('staff','admin')",
+      [normalizeMobile(ident)],
+    )
+    : null;
+  let user = byMobile;
+  if (!user) {
+    user = await findUserByUsername(ident, kinds);
+    if (!user) {
+      const otherDoor = await findUserByUsername(ident);
+      if (otherDoor) {
+        await logLogin({ userId: otherDoor.id, identifier: ident, method: 'password', success: false, reason: 'wrong_audience', client });
+      }
+    }
+  }
   if (!user) {
     await logLogin({ identifier: ident, method: 'password', success: false, reason: 'unknown_user', client });
     throw unauthorized('نام کاربری یا رمز عبور صحیح نیست.');
@@ -460,7 +496,7 @@ export async function passwordLogin(
 
   if (user.kind === 'customer' && (await getBool('auth.customer_combined_required')) && (await getBool('auth.customer_otp_enabled'))) {
     // combined mode: password verified, a fresh OTP is required next
-    await requestOtp(user.mobile ?? '', 'login', client);
+    await requestOtp(user.mobile ?? '', 'login', client, 'customer');
     return { context: null as any, token: '', expiresAt: '', mfaRequired: true, mfaToken: mfaTicket(user.id), mfaMode: 'otp' };
   }
 
@@ -527,6 +563,7 @@ export interface RegisterInput {
   fullName: string;
   email?: string;
   nationalId?: string;
+  referralCode?: string;
 }
 
 export async function registerCustomer(input: RegisterInput, client: ClientInfo) {
@@ -551,15 +588,16 @@ export async function registerCustomer(input: RegisterInput, client: ClientInfo)
   const requireVerification = await getBool('auth.customer_require_mobile_verification');
   const ts = nowIso();
   const userId = id('usr');
-  await run(
-    `INSERT INTO users (id, kind, mobile, mobile_verified, email, password_hash, full_name, national_id, status, created_at, updated_at, username)
-     VALUES (?, 'customer', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-    [
-      userId, mobile, 0, input.email ?? null, await hashPassword(input.password),
-      fullName, input.nationalId ?? null, requireApproval ? 'pending' : 'active', ts, ts, username,
-    ],
-  );
-  await run('INSERT INTO customer_profiles (user_id, extra, created_at, updated_at) VALUES (?, ?, ?, ?)', [userId, '{}', ts, ts]);
+  const passwordHash = await hashPassword(input.password);
+  await tx(async () => {
+    await run(
+      `INSERT INTO users (id, kind, mobile, mobile_verified, email, password_hash, full_name, national_id, status, created_at, updated_at, username)
+       VALUES (?, 'customer', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      [userId, mobile, 0, input.email ?? null, passwordHash, fullName, input.nationalId ?? null, requireApproval ? 'pending' : 'active', ts, ts, username],
+    );
+    await run('INSERT INTO customer_profiles (user_id, extra, created_at, updated_at) VALUES (?, ?, ?, ?)', [userId, '{}', ts, ts]);
+    await recordAttribution(input.referralCode, userId, mobile);
+  });
   await writeAudit({ actorId: userId, actorName: fullName, action: 'customer.register', entityType: 'user', entityId: userId, ip: client.ip });
 
   if (requireVerification && (await getBool('auth.customer_otp_enabled'))) {
@@ -612,7 +650,7 @@ export async function changePassword(userId: string, currentPassword: string, ne
 
 export async function resetPasswordWithOtp(mobileRaw: string, code: string, newPassword: string, client: ClientInfo) {
   if (!(await getBool('auth.allow_customer_password_reset'))) throw forbidden('بازیابی رمز عبور فعال نیست.');
-  const result = await verifyOtpAndLogin(mobileRaw, code, client, { purpose: 'reset' });
+  const result = await verifyOtpAndLogin(mobileRaw, code, client, { purpose: 'reset', kind: 'customer' });
   await validatePasswordAgainstPolicy(newPassword);
   await run('UPDATE users SET password_hash = ?, updated_at = ? WHERE id = ?', [await hashPassword(newPassword), nowIso(), result.context.user.id]);
   await revokeAllSessions(result.context.user.id);

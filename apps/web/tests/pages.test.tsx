@@ -7,7 +7,7 @@ import { ToastProvider } from '../src/components/ui';
 
 import { HomePage } from '../src/pages/public/Home';
 import { ServicesPage, ServiceDetailPage } from '../src/pages/public/Services';
-import { LoginPage, RegisterPage, LegalPage, StatusPage, AssistantPage } from '../src/pages/public/Auth';
+import { LoginPage, StaffLoginPage, RegisterPage, LegalPage, StatusPage, AssistantPage } from '../src/pages/public/Auth';
 import { NotFoundPage } from '../src/pages/public/Auth';
 import { fetchMock, setAuthUser } from './setup';
 
@@ -39,19 +39,39 @@ describe('public pages render', () => {
     renderAt('/', <HomePage />);
     await waitFor(() => expect(screen.getAllByText(/دفتر پیشخوان/).length).toBeGreaterThan(0));
     await waitFor(() => expect(screen.getAllByText('سابقه بیمه تأمین اجتماعی').length).toBeGreaterThan(0));
+    // «ثبت درخواست خدمت» for a guest passes the login door first and returns to the panel afterwards.
+    const cta = screen.getByRole('link', { name: /ثبت درخواست خدمت/ });
+    expect(cta.getAttribute('href')).toBe('/login?next=%2Fapp%2Fservices');
+    // Floating support button is present on public pages too.
+    expect(screen.getByRole('button', { name: 'پیام‌ها و پشتیبانی' })).toBeTruthy();
   });
 
   it('lists services returned by the API', async () => {
     renderAt('/services', <ServicesPage />);
     await waitFor(() => expect(screen.getByText('سابقه بیمه تأمین اجتماعی')).toBeTruthy());
-    expect(screen.getByRole('heading', { name: 'خدمات دفتر پیشخوان' })).toBeTruthy();
+    expect(screen.getByRole('heading', { name: 'خدمات پیشخوان' })).toBeTruthy();
   });
 
-  it('renders the dynamic request form for a service', async () => {
+  it('keeps the request form behind login for guests on the public service page', async () => {
     renderAt('/services/insurance-history', <ServiceDetailPage />);
-    await waitFor(() => expect(screen.getByText('کد ملی')).toBeTruthy());
+    await waitFor(() => expect(screen.getByText('مراحل رسیدگی')).toBeTruthy());
     expect(screen.getAllByText('کارت ملی').length).toBeGreaterThan(0);
-    expect(screen.getByText('مراحل رسیدگی')).toBeTruthy();
+    const loginCta = screen.getByRole('link', { name: /ورود و ثبت درخواست/ });
+    expect(decodeURIComponent(loginCta.getAttribute('href') ?? '')).toBe('/login?next=/app/services/insurance-history');
+    expect(screen.getByRole('link', { name: /حساب ندارم/ })).toBeTruthy();
+    expect(screen.queryByRole('button', { name: 'ثبت نهایی درخواست' })).toBeNull();
+    expect(screen.queryByLabelText(/کد ملی/)).toBeNull();
+  });
+
+  it('renders the dynamic request form inside the customer panel', async () => {
+    setAuthUser({ id: 'usr_form_test', kind: 'customer', roleCode: 'customer', fullName: 'مشتری آزمون', permissions: [] });
+    try {
+      renderAt('/app/services/insurance-history', <ServiceDetailPage variant="app" />);
+      await waitFor(() => expect(screen.getByText('کد ملی')).toBeTruthy());
+      expect(screen.getByRole('button', { name: /ثبت نهایی درخواست/ })).toBeTruthy();
+    } finally {
+      setAuthUser(null);
+    }
   });
 
   it('shows actionable field errors returned when a request submission fails', async () => {
@@ -61,7 +81,7 @@ describe('public pages render', () => {
     fetchMock.mockImplementation(async (input) => {
       const url = typeof input === 'string' ? input : input instanceof URL ? input.toString() : String(input.url);
       if (url.includes('/api/files/upload')) {
-        const data = { id: 'file_submit_test', name: 'card.png', processing: { status: 'ready' }, savingsPercent: 0 };
+        const data = { id: 'file_submit_test', name: 'card.png', mime: 'image/png', documentQuality: 'passed', processing: { status: 'ready' }, savingsPercent: 0 };
         return { ok: true, status: 200, headers: new Headers({ 'content-type': 'application/json' }), json: async () => ({ ok: true, data }), blob: async () => new Blob(), text: async () => '' } as unknown as Response;
       }
       if (url === '/api/requests') {
@@ -73,13 +93,19 @@ describe('public pages render', () => {
     });
 
     try {
-      const { container } = renderAt('/services/insurance-history', <ServiceDetailPage />);
+      const { container } = renderAt('/app/services/insurance-history', <ServiceDetailPage variant="app" />);
       await screen.findByText('کد ملی');
-      const nationalId = screen.getAllByRole('textbox')[0];
+      // Inside the panel the shell header search is also a textbox; pick the
+      // service form's national-id input (rendered LTR) instead of index 0.
+      const nationalId = container.querySelector('form input[dir="ltr"]');
+      if (!(nationalId instanceof HTMLInputElement)) throw new Error('national-id input was not rendered');
       const fileInput = container.querySelector('input[type="file"]');
       if (!(fileInput instanceof HTMLInputElement)) throw new Error('service-document input was not rendered');
       fireEvent.change(fileInput, { target: { files: [new File(['image'], 'card.png', { type: 'image/png' })] } });
-      await screen.findByText('بارگذاری شد: card.png');
+      await screen.findByText('بررسی اولیه تصویر گذشت؛ در انتظار کارشناس: card.png');
+      expect(screen.getByRole('dialog', { name: 'ذخیره در مدارک پروفایل؟' })).toBeTruthy();
+      fireEvent.click(screen.getByRole('button', { name: 'خیر، فقط در درخواست' }));
+      expect(fetchMock.mock.calls.some(([input, init]) => String(input).includes('/api/documents/mine') && init?.method === 'POST')).toBe(false);
       fireEvent.click(screen.getByRole('button', { name: 'ثبت نهایی درخواست' }));
       expect((await screen.findAllByText('«کد ملی» الزامی است.')).length).toBeGreaterThan(0);
       expect(createCalls).toBe(0); // client validation should explain missing input before sending
@@ -94,10 +120,73 @@ describe('public pages render', () => {
     }
   });
 
+  it('saves an uploaded service document only after explicit type selection and consent', async () => {
+    const originalFetch = fetchMock.getMockImplementation();
+    let archiveCalls = 0;
+    let archiveBody = '';
+    setAuthUser({ id: 'usr_archive_test', kind: 'customer', roleCode: 'customer', fullName: 'مشتری آزمون', permissions: [] });
+    fetchMock.mockImplementation(async (input, init) => {
+      const url = typeof input === 'string' ? input : input instanceof URL ? input.toString() : String(input.url);
+      const respond = (data: unknown) => ({ ok: true, status: 200, headers: new Headers({ 'content-type': 'application/json' }), json: async () => ({ ok: true, data }), blob: async () => new Blob(), text: async () => '' } as unknown as Response);
+      if (url.includes('/api/files/upload')) return respond({ id: 'file_archive_test', name: 'card.png', mime: 'image/png', documentQuality: 'passed', processing: { status: 'ready' } });
+      if (url === '/api/documents/types') return respond([{ code: 'national_card', label: 'کارت ملی' }]);
+      if (url === '/api/documents/mine' && init?.method === 'POST') { archiveCalls++; archiveBody = String(init.body); return respond({ id: 'profile_doc' }); }
+      return originalFetch!(input, init);
+    });
+    try {
+      const { container } = renderAt('/app/services/insurance-history', <ServiceDetailPage variant="app" />);
+      await screen.findByText('کد ملی');
+      const fileInput = container.querySelector('input[type="file"]');
+      if (!(fileInput instanceof HTMLInputElement)) throw new Error('service-document input was not rendered');
+      fireEvent.change(fileInput, { target: { files: [new File(['image'], 'card.png', { type: 'image/png' })] } });
+      const dialog = await screen.findByRole('dialog', { name: 'ذخیره در مدارک پروفایل؟' });
+      expect(archiveCalls).toBe(0);
+      await waitFor(() => expect(dialog.querySelector('option[value="national_card"]')).toBeTruthy());
+      const select = dialog.querySelector('select');
+      if (!select) throw new Error('archive type selection was not rendered');
+      fireEvent.change(select, { target: { value: 'national_card' } });
+      fireEvent.click(screen.getByRole('button', { name: 'ذخیره در پروفایل' }));
+      await waitFor(() => expect(archiveCalls).toBe(1));
+      expect(JSON.parse(archiveBody)).toMatchObject({ fileId: 'file_archive_test', docType: 'national_card' });
+    } finally {
+      fetchMock.mockImplementation(originalFetch!);
+      setAuthUser(null);
+    }
+  });
+
+  it('shows red rejection inline and clears a previously accepted replacement', async () => {
+    const originalFetch = fetchMock.getMockImplementation();
+    let uploads = 0;
+    setAuthUser({ id: 'usr_screen_test', kind: 'customer', roleCode: 'customer', fullName: 'مشتری آزمون', permissions: [] });
+    fetchMock.mockImplementation(async (input, init) => {
+      const url = typeof input === 'string' ? input : input instanceof URL ? input.toString() : String(input.url);
+      if (url.includes('/api/files/upload')) {
+        uploads++;
+        const success = uploads === 1;
+        return { ok: success, status: success ? 201 : 400, headers: new Headers({ 'content-type': 'application/json' }), json: async () => success ? ({ ok: true, data: { id: 'good', name: 'good.png', mime: 'image/png', documentQuality: 'passed' } }) : ({ ok: false, error: { code: 'BAD_REQUEST', message: 'تصویر مدرک تار است.' } }), blob: async () => new Blob(), text: async () => '' } as unknown as Response;
+      }
+      return originalFetch!(input, init);
+    });
+    try {
+      const { container } = renderAt('/app/services/insurance-history', <ServiceDetailPage variant="app" />);
+      await screen.findByText('کد ملی');
+      const fileInput = container.querySelector('input[type="file"]') as HTMLInputElement;
+      fireEvent.change(fileInput, { target: { files: [new File(['good'], 'good.png', { type: 'image/png' })] } });
+      const green = await screen.findByText(/بررسی اولیه تصویر گذشت/);
+      expect(green.className).toContain('text-emerald-700');
+      await screen.findByRole('dialog', { name: 'ذخیره در مدارک پروفایل؟' });
+      fireEvent.click(screen.getByRole('button', { name: 'خیر، فقط در درخواست' }));
+      fireEvent.change(fileInput, { target: { files: [new File(['bad'], 'bad.png', { type: 'image/png' })] } });
+      const red = await screen.findByText('تصویر مدرک تار است.');
+      expect(red.className).toContain('text-rose-700');
+      expect(screen.queryByText(/بررسی اولیه تصویر گذشت/)).toBeNull();
+    } finally { fetchMock.mockImplementation(originalFetch!); setAuthUser(null); }
+  });
+
   it('shows the minute-based quote estimate for a signed-in customer', async () => {
     setAuthUser({ id: 'usr_quote_test', kind: 'customer', roleCode: 'customer', fullName: 'مشتری آزمون', permissions: [] });
     try {
-      renderAt('/services/insurance-history', <ServiceDetailPage />);
+      renderAt('/app/services/insurance-history', <ServiceDetailPage variant="app" />);
       await waitFor(() => expect(screen.getByText('زمان تخمینی خدمت')).toBeTruthy());
       expect(screen.getByText('۴ ساعت')).toBeTruthy();
     } finally {
@@ -116,7 +205,7 @@ describe('public pages render', () => {
     let authMeCalls = 0;
     fetchMock.mockImplementation(async (input) => {
       const url = typeof input === 'string' ? input : input instanceof URL ? input.toString() : String(input.url);
-      if (url.includes('/api/auth/login')) {
+      if (url.includes('/api/auth/staff/login')) {
         const data = { user: { id: 'usr_admin', kind: 'admin', fullName: 'مدیر سامانه', roleCode: 'super_admin', permissions: '*' }, token: 'test-session-token' };
         return { ok: true, status: 200, headers: new Headers({ 'content-type': 'application/json' }), json: async () => ({ ok: true, data }), blob: async () => new Blob(), text: async () => '' } as unknown as Response;
       }
@@ -128,11 +217,11 @@ describe('public pages render', () => {
     });
 
     try {
-      renderAt('/login?account=staff', <LoginPage />);
+      renderAt('/login-admin', <StaffLoginPage />);
       await screen.findByText('نام کاربری و رمز');
       fireEvent.click(screen.getByText('نام کاربری و رمز'));
-      await screen.findByLabelText(/نام کاربری، موبایل یا ایمیل/);
-      fireEvent.change(screen.getByLabelText(/نام کاربری، موبایل یا ایمیل/), { target: { value: 'preview-admin' } });
+      await screen.findByLabelText(/نام کاربری یا موبایل/);
+      fireEvent.change(screen.getByLabelText(/نام کاربری یا موبایل/), { target: { value: 'preview-admin' } });
       fireEvent.change(screen.getByLabelText(/رمز عبور/), { target: { value: 'example-password' } });
       fireEvent.click(screen.getByRole('button', { name: 'ورود' }));
       await waitFor(() => expect(screen.getByText(/نشست مرورگر تأیید نشد/)).toBeTruthy());
@@ -145,6 +234,31 @@ describe('public pages render', () => {
   it('renders the registration form when open', async () => {
     renderAt('/register', <RegisterPage />);
     await waitFor(() => expect(screen.getByText('ایجاد حساب مشتری')).toBeTruthy());
+  });
+
+  it('carries the invitation to password registration and clears it only after the server accepts the account', async () => {
+    const originalFetch = fetchMock.getMockImplementation();
+    const token = 'abcdefghijklmnopqrstuvwxyz123456';
+    let payload: any = null;
+    sessionStorage.setItem('pishkan.referral', token);
+    fetchMock.mockImplementation(async (input, init) => {
+      const url = typeof input === 'string' ? input : input instanceof URL ? input.toString() : String(input.url);
+      if (url === '/api/auth/register') {
+        payload = JSON.parse(String(init?.body));
+        return { ok: true, status: 201, headers: new Headers({ 'content-type': 'application/json' }), json: async () => ({ok:true,data:{requiresVerification:true}}), blob: async () => new Blob(), text: async () => '' } as unknown as Response;
+      }
+      return originalFetch!(input,init);
+    });
+    try {
+      renderAt('/register', <RegisterPage />);
+      expect((await screen.findByLabelText('کد دعوت (اختیاری)') as HTMLInputElement).value).toBe(token);
+      fireEvent.change(screen.getByLabelText(/نام و نام خانوادگی/), {target:{value:'کاربر آزمون'}});
+      fireEvent.change(screen.getByLabelText(/شماره موبایل/), {target:{value:'09123456789'}});
+      fireEvent.change(screen.getByLabelText(/رمز عبور/), {target:{value:'Password123'}});
+      fireEvent.click(screen.getByRole('button',{name:'ثبت‌نام'}));
+      await waitFor(()=>expect(payload?.referralCode).toBe(token));
+      expect(sessionStorage.getItem('pishkan.referral')).toBeNull();
+    } finally { sessionStorage.removeItem('pishkan.referral'); fetchMock.mockImplementation(originalFetch!); }
   });
 
   it('renders the assistant conversation shell', async () => {

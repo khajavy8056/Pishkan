@@ -15,6 +15,7 @@ import { getNumber } from '../modules/settings/service.js';
 import { writeAudit } from '../modules/audit/service.js';
 import { param } from '../http/params.js';
 import { validateUploadContent } from '../modules/media/validation.js';
+import { checkDocumentPhoto } from '../modules/media/document-quality.js';
 import {
   ensureMediaDirs, fileAccessHistory, fileShape, getFile, ingestUpload, loadMediaConfig,
   logFileAccess, mediaStats, pruneOriginals, removeFileArtifacts, reprocessFile,
@@ -45,10 +46,14 @@ async function multerMiddleware() {
   return multer({
     storage: incomingStorage,
     limits: { fileSize: cfg.maxBytes, files: 1, fields: 8 },
-    fileFilter: (_req, file, cb) => {
+    fileFilter: (req, file, cb) => {
       const ext = (file.originalname.split('.').pop() ?? '').toLowerCase();
-      if (!cfg.allowedTypes.includes(ext)) {
-        return cb(badRequest(`پسوند .${ext || '—'} مجاز نیست. فرمت‌های مجاز: ${cfg.allowedTypes.join(', ')}`));
+      // App-story media may be a short video even where office documents are
+      // restricted to images/PDF; the signature check still decides below.
+      const isStory = (req as any)?.query?.purpose === 'story';
+      const allowed = isStory ? [...cfg.allowedTypes, 'mp4', 'webm'] : cfg.allowedTypes;
+      if (!allowed.includes(ext)) {
+        return cb(badRequest(`پسوند .${ext || '—'} مجاز نیست. فرمت‌های مجاز: ${allowed.join(', ')}`));
       }
       cb(null, true);
     },
@@ -65,15 +70,24 @@ filesRouter.post('/upload', requireAuth, asyncRoute(async (req, res, next) => {
       const cleanup = () => { try { fs.rmSync(file.path, { force: true }); } catch { /* ignore */ } };
       try {
         const purpose = typeof req.query.purpose === 'string' ? req.query.purpose.slice(0, 40) : 'document';
-        const isPublic = req.query.public === 'true' && hasPermission(req.auth!.permissions, 'settings.edit');
+        const isPublic = req.query.public === 'true' && (hasPermission(req.auth!.permissions, 'settings.edit') || (purpose === 'service' && (hasPermission(req.auth!.permissions, 'services.edit') || hasPermission(req.auth!.permissions, 'services.create'))));
+        if (purpose === 'service' && req.query.public === 'true' && !isPublic) throw forbidden('اجازهٔ بارگذاری تصویر عمومی خدمت را ندارید.');
         const cfg = await loadMediaConfig();
         const validated = await validateUploadContent({
           filePath: file.path,
           originalName: file.originalname,
           size: file.size,
-          allowedTypes: cfg.allowedTypes,
+          allowedTypes: purpose === 'story' ? [...cfg.allowedTypes, 'mp4', 'webm'] : cfg.allowedTypes,
           imagePolicy: cfg.policy,
         });
+
+        const screenedDocumentPhoto = ['document', 'profile_document'].includes(purpose) && req.query.documentQuality === 'true' && validated.mime.startsWith('image/');
+        if (screenedDocumentPhoto) {
+          const quality = await checkDocumentPhoto(file.path);
+          if (!quality.ok) throw badRequest(quality.reason ?? 'تصویر مدرک خوانا نیست.');
+        }
+
+        if (purpose === 'service' && !validated.mime.startsWith('image/')) throw badRequest('تصویر خدمت باید فایل تصویری باشد.');
 
         const result = await ingestUpload({
           tempPath: file.path,
@@ -90,6 +104,7 @@ filesRouter.post('/upload', requireAuth, asyncRoute(async (req, res, next) => {
           ok: true,
           data: {
             ...fileShape(result.file),
+            documentQuality: screenedDocumentPhoto ? 'passed' : 'not_checked',
             notes: result.notes,
             // Back-compat aliases used by older clients.
             id: result.file.id,
@@ -250,7 +265,15 @@ filesRouter.get('/:id', requireAuth, asyncRoute(async (req, res) => {
     storageKey = file.preview_storage_key;
     mime = 'image/webp';
   } else if (requested === 'original') {
-    if (!canReadOriginal(file, auth)) throw forbidden('دسترسی به نسخه اصلی این مدرک مجاز نیست.');
+    // A customer reaching this point has already passed the case-scope gate in
+    // loadAuthorizedFile, so the file is theirs in every practical sense: a
+    // document of their own case, a delivered result, a profile document, or a
+    // file of their own conversation. The original of a delivered result
+    // (e.g. a PDF the executor attached) must be downloadable by the customer
+    // it was handed to, not only by the staff member who uploaded it.
+    if (!canReadOriginal(file, auth) && auth.user.kind !== 'customer') {
+      throw forbidden('دسترسی به نسخه اصلی این مدرک مجاز نیست.');
+    }
     storageKey = file.original_storage_key ?? file.storage_key;
     mime = file.original_mime ?? file.mime;
   } else {

@@ -49,6 +49,7 @@ interface EarningRow {
 interface Withdrawal {
   id: string; amount: number; status: string; statusLabel: string; requestedAt: string;
   paidAt: string | null; trackingCode: string | null; decisionNote: string | null; periodStart: string | null;
+  receiptUrl?: string | null;
 }
 
 const STATUS_LABEL: Record<string, string> = {
@@ -166,13 +167,13 @@ export function StaffEarnings() {
 
       {tab === 'performance' && (
         <>
-          <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+          <div className="grid grid-cols-2 gap-3 sm:gap-4 lg:grid-cols-4">
             <StatCard label="تکمیل‌شده امروز" value={faNum(data.performance.completedToday)} tone="emerald" icon={<Coins className="size-5" />} />
             <StatCard label="تکمیل‌شده این هفته" value={faNum(data.performance.completedWeek)} icon={<CalendarRange className="size-5" />} />
             <StatCard label="تکمیل‌شده این ماه" value={faNum(data.performance.completedMonth)} icon={<TrendingUp className="size-5" />} />
             <StatCard label="کل خدمات انجام‌شده" value={faNum(data.performance.completed)} icon={<ReceiptText className="size-5" />} />
           </div>
-          <div className="mt-4 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+          <div className="mt-4 grid grid-cols-2 gap-3 sm:gap-4 lg:grid-cols-4">
             <StatCard label="در حال انجام" value={faNum(data.performance.inProgress)} tone="amber" icon={<Hourglass className="size-5" />} />
             <StatCard label="منتظر پاسخ سازمان" value={faNum(data.performance.awaitingOrganization)} tone="amber" />
             <StatCard label="منتظر پاسخ مشتری" value={faNum(data.performance.awaitingCustomer)} />
@@ -188,7 +189,7 @@ export function StaffEarnings() {
           </Card>
 
           {commission && data.income && (
-            <div className="mt-5 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+            <div className="mt-5 grid grid-cols-2 gap-3 sm:gap-4 lg:grid-cols-4">
               <StatCard label="درآمد امروز" value={rial(data.income.today)} tone="emerald" icon={<Wallet className="size-5" />} />
               <StatCard label="درآمد این ماه" value={rial(data.income.month)} icon={<TrendingUp className="size-5" />} />
               <StatCard label="درآمد قطعی کل" value={rial(data.income.definite)} />
@@ -200,7 +201,7 @@ export function StaffEarnings() {
 
       {tab === 'income' && commission && data.income && data.balance && (
         <>
-          <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+          <div className="grid grid-cols-2 gap-3 sm:gap-4 lg:grid-cols-3">
             <StatCard label="درآمد قطعی" value={rial(data.income.definite)} hint="از پرداخت‌های تأییدشده" />
             <StatCard label="برآورد در انتظار قطعی" value={rial(data.income.pendingEstimate)} tone="amber" hint="پرونده‌های باز؛ قطعی نیست" />
             <StatCard label="قابل برداشت" value={rial(data.balance.available)} tone="emerald" />
@@ -316,6 +317,9 @@ export function StaffEarnings() {
                     ثبت {faDateTime(row.requestedAt)}
                     {row.periodStart ? ` · دوره ${faDate(row.periodStart)}` : ''}
                     {row.trackingCode ? ` · پیگیری ${row.trackingCode}` : ''}
+                    {row.receiptUrl && (
+                      <> · <a className="font-medium text-accent underline" href={row.receiptUrl} target="_blank" rel="noreferrer">رسید پرداخت</a></>
+                    )}
                   </p>
                   {row.decisionNote && <p className="mt-1 text-[11px] text-rose-700">علت: {row.decisionNote}</p>}
                 </div>

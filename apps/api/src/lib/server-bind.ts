@@ -29,10 +29,23 @@ export function isLanFirewallLeaseValid(
 }
 
 /**
- * Windows must never bind a wildcard interface by accident. LAN exposure is
- * opt-in in the installer and only becomes effective while the launcher keeps
- * refreshing a verified firewall lease. Other platforms retain their configured
- * HOST behavior exactly.
+ * Strict LAN mode (opt-in via PISHKAN_LAN_STRICT=true): the original
+ * fail-closed behaviour where a wildcard bind on Windows requires the
+ * launcher's continuously refreshed firewall lease. Simple mode (default)
+ * trusts the installer's explicit LAN_ACCESS choice and treats the firewall
+ * rule as best-effort, so a phone on the office Wi-Fi works regardless of
+ * firewall profiles/elevation — authentication is still always required.
+ */
+export function isLanStrictMode(variables: NodeJS.ProcessEnv = process.env): boolean {
+  return variables.PISHKAN_LAN_STRICT?.trim().toLowerCase() === 'true';
+}
+
+/**
+ * Windows must never bind a wildcard interface by accident. LAN exposure stays
+ * an explicit installer opt-in (HOST=0.0.0.0 + LAN_ACCESS=true). In strict mode
+ * it only becomes effective while the launcher keeps refreshing a verified
+ * firewall lease; in the default simple mode the opt-in alone is enough.
+ * Other platforms retain their configured HOST behavior exactly.
  */
 export function resolveListenHost(
   configuredHost: string,
@@ -42,10 +55,11 @@ export function resolveListenHost(
 ): string {
   if (platform !== 'win32') return configuredHost;
   const normalizedHost = configuredHost.trim().toLowerCase();
+  const lanOptIn = variables.LAN_ACCESS?.trim().toLowerCase() === 'true' && normalizedHost === '0.0.0.0';
+  if (!lanOptIn) return '127.0.0.1';
+  if (!isLanStrictMode(variables)) return '0.0.0.0';
   const port = Number(variables.PISHKAN_LAN_FIREWALL_PORT ?? variables.PORT);
-  const verifiedLanOptIn = variables.LAN_ACCESS?.trim().toLowerCase() === 'true'
-    && variables.PISHKAN_LAN_FIREWALL_VERIFIED?.trim().toLowerCase() === 'true'
-    && normalizedHost === '0.0.0.0'
+  const verifiedLanOptIn = variables.PISHKAN_LAN_FIREWALL_VERIFIED?.trim().toLowerCase() === 'true'
     && isLanFirewallLeaseValid(
       variables.PISHKAN_LAN_FIREWALL_STATUS_FILE,
       variables.PISHKAN_LAN_FIREWALL_TOKEN,
@@ -83,9 +97,10 @@ export function privateLanAddresses(interfaces = os.networkInterfaces()): string
  * advertised and no token/credential is ever part of the URL.
  */
 export function lanAccessInfo(options: {
-  host: string; port: number; platform?: NodeJS.Platform; interfaces?: Record<string, any>;
+  host: string; port: number; platform?: NodeJS.Platform; interfaces?: Record<string, any>; strict?: boolean;
 } = { host: '127.0.0.1', port: 3000 }) {
   const platform = options.platform ?? process.platform;
+  const strict = options.strict ?? isLanStrictMode();
   const exposed = String(options.host ?? '').trim().toLowerCase() === '0.0.0.0';
   const urls = exposed && Number.isInteger(options.port) && options.port > 0 && options.port <= 65535
     ? privateLanAddresses(options.interfaces ?? os.networkInterfaces()).map((address) => `http://${address}:${options.port}`)
@@ -96,10 +111,11 @@ export function lanAccessInfo(options: {
     port: options.port,
     lanEnabled: exposed,
     urls,
-    // Windows additionally requires the verified firewall lease before binding.
-    firewallLeaseRequired: platform === 'win32',
+    mode: strict ? 'strict' : 'simple',
+    // Only strict mode requires the verified firewall lease before binding.
+    firewallLeaseRequired: strict && platform === 'win32',
     note: exposed
-      ? 'این آدرس‌ها فقط در شبکهٔ خصوصی (LAN/Wi‑Fi) همان مکان معتبرند و ورود با نام کاربری الزامی است.'
+      ? 'این آدرس‌ها فقط در شبکهٔ خصوصی (LAN/Wi‑Fi) همان مکان معتبرند و ورود با نام کاربری الزامی است. اگر گوشی وصل نشد، در Pishkan Manager دکمهٔ «باز کردن فایروال برای موبایل» را بزنید.'
       : 'سرویس فقط روی همین رایانه در دسترس است؛ برای دسترسی موبایل، LAN را از مدیر/نصب‌کننده فعال کنید.',
   };
 }

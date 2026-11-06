@@ -5,7 +5,7 @@ import { getBool, getNumber, getString } from '../settings/service.js';
 import { writeAudit } from '../audit/service.js';
 import { logEvent } from '../logging/service.js';
 import {
-  activeContract, commissionAmount, officeRevenueOf, settlementPolicy, settlementWindow,
+  activeContract, commissionAmount, officeRevenueOf, serviceCommissionOverride, settlementPolicy, settlementWindow,
   type SettlementPeriod,
 } from './compensation.js';
 
@@ -45,7 +45,7 @@ export async function contractHistory(userId: string) {
     id: row.id, kind: row.kind, monthlyAmount: Number(row.monthly_amount),
     commissionPercent: Number(row.commission_percent), startsOn: row.starts_on, endsOn: row.ends_on,
     settlementPeriod: row.settlement_period, settlementDays: Number(row.settlement_days),
-    minWithdrawal: Number(row.min_withdrawal), isActive: Boolean(row.is_active),
+    minWithdrawal: Number(row.min_withdrawal), monthlyTarget: row.monthly_target === null || row.monthly_target === undefined ? null : Number(row.monthly_target), isActive: Boolean(row.is_active),
     note: row.note ?? null, createdBy: row.created_by, createdAt: row.created_at,
   }));
 }
@@ -84,34 +84,211 @@ export async function accrueCommission(paymentId: string, reverse = false) {
     const date = paidAt.slice(0, 10);
     const contract = await activeContract(request.assigned_to, date);
     if (!contract || contract.kind !== 'commission') return null;
-    const percent = Math.max(0, Math.min(100, Number(contract.commission_percent)));
+    // A per-service percent (set by the manager for this exact service) wins
+    // over the contract-wide percent.
+    const override = await serviceCommissionOverride(request.assigned_to, request.service_id);
+    const percent = override ?? Math.max(0, Math.min(100, Number(contract.commission_percent)));
     if (percent <= 0) return null;
 
     const invoice = payment.invoice_id
-      ? await one<any>('SELECT total,tax FROM invoices WHERE id=?', [payment.invoice_id])
+      ? await one<any>('SELECT total,tax,purpose FROM invoices WHERE id=?', [payment.invoice_id])
       : null;
+    // Organization fees are pass-through money (insurance premium, duties…),
+    // never office revenue — they must not feed any commission basis.
+    if (invoice?.purpose === 'external_cost') return null;
     const basisSetting = await getString('payroll.commission_basis');
     const officeRevenue = officeRevenueOf(invoice, Number(payment.amount), basisSetting || 'net_of_tax');
     const amount = commissionAmount(officeRevenue, percent);
     if (amount <= 0) return null;
 
-    const policy = await settlementPolicy(request.assigned_to);
-    const window = settlementWindow(policy, paidAt, contract.starts_on);
-    await append({
-      id: id('comp'), operation_key: `commission:${paymentId}:${request.assigned_to}`,
-      user_id: request.assigned_to, contract_id: contract.id, kind: 'commission', amount,
-      basis_amount: officeRevenue, percent, withdrawable_at: window.withdrawableAt,
-      period_start: window.start, period_end: window.end,
-      payment_id: paymentId, request_id: request.id,
-      snapshot: JSON.stringify({
-        contract: { id: contract.id, percent, kind: contract.kind },
-        invoice: invoice ? { total: Number(invoice.total), tax: Number(invoice.tax) } : null,
-        paidAmount: Number(payment.amount), basis: basisSetting || 'net_of_tax',
-        officeRevenue, percent, period: window,
-      }),
-      created_by: 'system', created_at: nowIso(),
-    });
-    return { amount, basis: officeRevenue, percent };
+    // Manager-approved split of this request's commission pool between
+    // several employees. Without shares the whole pool belongs to the
+    // assignee, exactly as before.
+    const shares = await q<any>('SELECT user_id, share_percent FROM request_commission_shares WHERE request_id = ?', [request.id]);
+    const recipients = shares.length
+      ? allocatePool(amount, shares.map((row) => ({ userId: row.user_id, share: Number(row.share_percent) })))
+      : [{ userId: request.assigned_to as string, share: 100, amount }];
+
+    let written = 0;
+    for (const recipient of recipients) {
+      if (recipient.amount <= 0) continue;
+      const ownContract = recipient.userId === request.assigned_to
+        ? contract
+        : await activeContract(recipient.userId, date);
+      const effectiveContract = ownContract?.kind === 'commission' ? ownContract : contract;
+      const policy = await settlementPolicy(recipient.userId);
+      const window = settlementWindow(policy, paidAt, effectiveContract.starts_on);
+      await append({
+        id: id('comp'), operation_key: `commission:${paymentId}:${recipient.userId}`,
+        user_id: recipient.userId, contract_id: effectiveContract.id, kind: 'commission', amount: recipient.amount,
+        basis_amount: officeRevenue,
+        percent: Math.round(percent * recipient.share) / 100,
+        withdrawable_at: window.withdrawableAt,
+        period_start: window.start, period_end: window.end,
+        payment_id: paymentId, request_id: request.id,
+        snapshot: JSON.stringify({
+          contract: { id: contract.id, percent, kind: contract.kind },
+          servicePercentOverride: override,
+          split: shares.length ? { poolAmount: amount, sharePercent: recipient.share } : null,
+          invoice: invoice ? { total: Number(invoice.total), tax: Number(invoice.tax) } : null,
+          paidAmount: Number(payment.amount), basis: basisSetting || 'net_of_tax',
+          officeRevenue, percent, period: window,
+        }),
+        note: shares.length ? 'سهم تقسیم‌شده با تأیید مدیر' : null,
+        created_by: 'system', created_at: nowIso(),
+      });
+      written += 1;
+    }
+    return { amount, basis: officeRevenue, percent, recipients: written };
+  });
+}
+
+/**
+ * Accrue commissions for every confirmed payment of one request.
+ *
+ * accrueCommission runs at payment time, but a customer often pays before any
+ * executor has taken the case (or while a fixed-salary colleague holds it).
+ * Without this sweep that money would never become anyone's income. It is
+ * called whenever an executor takes over a case (claim / assign / auto-assign
+ * / delivery) and it is idempotent: operation keys make every re-run a no-op
+ * for payments already accrued, and the contract/percent are still those in
+ * force on the payment date, so re-running never re-prices history.
+ */
+export async function accrueCommissionsForRequest(requestId: string): Promise<{ checked: number; accrued: number }> {
+  const rows = await q<{ id: string }>(
+    "SELECT id FROM payments WHERE request_id = ? AND status = 'confirmed' ORDER BY paid_at IS NULL, paid_at, id",
+    [requestId],
+  );
+  let accrued = 0;
+  for (const row of rows) {
+    const before = await one<{ c: number }>(
+      "SELECT COUNT(*) AS c FROM compensation_entries WHERE payment_id = ? AND kind = 'commission'", [row.id],
+    );
+    await accrueCommission(row.id);
+    const after = await one<{ c: number }>(
+      "SELECT COUNT(*) AS c FROM compensation_entries WHERE payment_id = ? AND kind = 'commission'", [row.id],
+    );
+    if (Number(after?.c ?? 0) > Number(before?.c ?? 0)) accrued += 1;
+  }
+  return { checked: rows.length, accrued };
+}
+
+/**
+ * Office-wide reconciliation for commissions missed before the sweep existed
+ * (or missed by any future payment path). Only requests that currently have
+ * an executor and at least one confirmed payment without a commission entry
+ * are visited; everything stays idempotent, so the manager can re-run it any
+ * time and it will only ever fill real gaps.
+ */
+export async function reconcileCommissions(actor: { id: string; name: string }) {
+  const rows = await q<{ request_id: string }>(
+    `SELECT DISTINCT p.request_id FROM payments p
+     JOIN requests r ON r.id = p.request_id
+     WHERE p.status = 'confirmed' AND p.request_id IS NOT NULL AND r.assigned_to IS NOT NULL
+       AND NOT EXISTS (
+         SELECT 1 FROM compensation_entries ce WHERE ce.payment_id = p.id AND ce.kind = 'commission'
+       )`,
+  );
+  let accruedPayments = 0;
+  for (const row of rows) {
+    const result = await accrueCommissionsForRequest(row.request_id);
+    accruedPayments += result.accrued;
+  }
+  const summary = { checkedRequests: rows.length, accruedPayments };
+  await writeAudit({
+    actorId: actor.id, actorName: actor.name, action: 'payroll.commissions_reconcile',
+    entityType: 'compensation', after: summary,
+  });
+  await logEvent({
+    level: 'INFO', category: 'payment', action: 'payroll.commissions_reconcile', result: 'success',
+    actorId: actor.id, actorName: actor.name, message: `بازبینی کمیسیون‌ها: ${rows.length} پرونده، ${accruedPayments} پرداخت ثبت شد.`,
+    details: summary,
+  });
+  return summary;
+}
+
+/**
+ * Split a commission pool by integer percents (summing to 100) without ever
+ * losing or inventing a rial: floor everyone, then give the remainder to the
+ * largest share.
+ */
+export function allocatePool(pool: number, shares: { userId: string; share: number }[]) {
+  const sorted = [...shares].sort((a, b) => b.share - a.share);
+  const result = sorted.map((row) => ({ ...row, amount: Math.floor((pool * row.share) / 100) }));
+  let remainder = pool - result.reduce((sum, row) => sum + row.amount, 0);
+  for (const row of result) {
+    if (remainder <= 0) break;
+    row.amount += remainder;
+    remainder = 0;
+  }
+  return result;
+}
+
+/** Current commission split of a request + whether it is frozen by accrual. */
+export async function requestShares(requestId: string) {
+  const rows = await q<any>(
+    `SELECT s.user_id, s.share_percent, s.note, u.full_name AS staff_name
+     FROM request_commission_shares s JOIN users u ON u.id = s.user_id
+     WHERE s.request_id = ? ORDER BY s.share_percent DESC`,
+    [requestId],
+  );
+  const accrued = await one<{ c: number }>(
+    "SELECT COUNT(*) AS c FROM compensation_entries WHERE request_id = ? AND kind = 'commission'",
+    [requestId],
+  );
+  return {
+    locked: Number(accrued?.c ?? 0) > 0,
+    shares: rows.map((row) => ({
+      userId: row.user_id, staffName: row.staff_name,
+      sharePercent: Number(row.share_percent), note: row.note ?? null,
+    })),
+  };
+}
+
+/**
+ * Replace a request's commission split. Money that is already recorded is
+ * never redistributed retroactively — once a commission entry exists for the
+ * request, corrections must go through explicit adjustment entries.
+ */
+export async function setRequestShares(
+  requestId: string,
+  items: { userId: string; sharePercent: number; note?: string | null }[],
+  actor: { id: string; name: string },
+) {
+  return tx(async () => {
+    const request = await one<any>('SELECT id FROM requests WHERE id = ?', [requestId]);
+    if (!request) throw notFound('درخواست یافت نشد.');
+    const accrued = await one<{ c: number }>(
+      "SELECT COUNT(*) AS c FROM compensation_entries WHERE request_id = ? AND kind = 'commission'",
+      [requestId],
+    );
+    if (Number(accrued?.c ?? 0) > 0) {
+      throw conflict('سهم این پرونده قبلاً در دفتر درآمد ثبت شده است؛ برای اصلاح از اصلاحیه استفاده کنید.');
+    }
+    if (items.length > 10) throw badRequest('حداکثر ۱۰ نفر می‌توانند در سهم یک پرونده شریک باشند.');
+    const seen = new Set<string>();
+    let total = 0;
+    for (const item of items) {
+      if (seen.has(item.userId)) throw badRequest('هر کارمند فقط یک سهم می‌تواند داشته باشد.');
+      seen.add(item.userId);
+      if (!Number.isInteger(item.sharePercent) || item.sharePercent < 1 || item.sharePercent > 100) {
+        throw badRequest('سهم هر نفر باید عدد صحیح بین ۱ تا ۱۰۰ باشد.');
+      }
+      total += item.sharePercent;
+      const user = await one<any>("SELECT id FROM users WHERE id = ? AND kind IN ('staff','admin') AND status = 'active'", [item.userId]);
+      if (!user) throw badRequest('یکی از افراد انتخاب‌شده کارمند فعال نیست.');
+    }
+    if (items.length && total !== 100) throw badRequest('مجموع سهم‌ها باید دقیقاً ۱۰۰ درصد شود.');
+    const ts = nowIso();
+    await run('DELETE FROM request_commission_shares WHERE request_id = ?', [requestId]);
+    for (const item of items) {
+      await run(
+        `INSERT INTO request_commission_shares (request_id, user_id, share_percent, note, created_by, created_at)
+         VALUES (?, ?, ?, ?, ?, ?)`,
+        [requestId, item.userId, item.sharePercent, item.note ?? null, actor.id, ts],
+      );
+    }
+    return requestShares(requestId);
   });
 }
 
@@ -140,6 +317,7 @@ export interface ContractInput {
   settlementPeriod?: SettlementPeriod;
   settlementDays?: number;
   minWithdrawal?: number;
+  monthlyTarget?: number | null;
   note?: string;
 }
 
@@ -163,12 +341,13 @@ export async function createContract(input: ContractInput, actorId: string, acto
     await run(
       `INSERT INTO compensation_contracts
          (id,user_id,kind,monthly_amount,commission_percent,starts_on,ends_on,created_by,created_at,
-          settlement_period,settlement_days,min_withdrawal,rules,is_active,note,updated_at)
-       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+          settlement_period,settlement_days,min_withdrawal,monthly_target,rules,is_active,note,updated_at)
+       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
       [
         contractId, user.id, input.kind, input.monthlyAmount, input.commissionPercent,
         input.startsOn, input.endsOn ?? null, actorId, now,
         input.settlementPeriod ?? 'monthly', input.settlementDays ?? 0, input.minWithdrawal ?? 0,
+        input.kind === 'commission' && input.monthlyTarget ? Math.max(0, Math.round(input.monthlyTarget)) : null,
         '{}', 1, input.note ?? null, now,
       ],
     );

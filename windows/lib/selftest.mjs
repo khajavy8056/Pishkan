@@ -254,21 +254,26 @@ test('شناسه‌های قانون فایروال به نصب محدود و پ
   assert.match(first, /^PishkanLAN_[a-f0-9]{16}$/);
 });
 
-test('اسکریپت فایروال فقط Private/LocalSubnet را مجاز و Public/Domain را مسدود می‌کند', () => {
+test('اسکریپت فایروال: یک قانون اجازهٔ محدود (همهٔ پروفایل‌ها + LocalSubnet)، بدون ردّ به‌خاطر قوانین دیگر', () => {
   const firewall = readFileSync(path.join(MODULE_DIR, 'lan-firewall.ps1'), 'utf8').replace(/^\uFEFF/, '');
-  assert.match(firewall, /-Profile Private -Protocol TCP -LocalPort \$port -RemoteAddress LocalSubnet/);
-  assert.match(firewall, /-Profile Public,Domain -Protocol TCP -LocalPort \$port -RemoteAddress Any/);
-  assert.match(firewall, /DefaultInboundAction -ne 'Block'/);
-  assert.match(firewall, /Find-BroadAllowRule/);
-  assert.match(firewall, /function Test-ExactProfileSet/);
-  assert.match(firewall, /Test-ExactProfileSet \$Rule\.Profile \$Profile/);
+  // The office Wi-Fi is often categorised Public; the narrow scope is the
+  // exact port + this install's program + LocalSubnet, not the profile name.
+  assert.match(firewall, /-Profile Domain,Private,Public/);
+  assert.match(firewall, /-RemoteAddress LocalSubnet/);
+  assert.match(firewall, /-LanAllow/);
+  assert.match(firewall, /Test-CoversAllProfiles/);
   assert.match(firewall, /function Test-ExactPort/);
   assert.match(firewall, /Test-ExactPort \$portFilter\.LocalPort \$Port/);
   assert.match(firewall, /function Test-ExactValueSet/);
-  assert.match(firewall, /Test-ExactValueSet \$addressFilter\.RemoteAddress \$RemoteAddress/);
+  assert.match(firewall, /Test-ExactValueSet \$addressFilter\.RemoteAddress 'LocalSubnet'/);
   assert.match(firewall, /Rule\.EdgeTraversalPolicy -ne 'Block'/);
-  assert.match(firewall, /Test-RuleShape \$block 'Block' 'Public,Domain'/);
   assert.match(firewall, /-EdgeTraversalPolicy Block/);
+  // The classic killer — Windows' own node.exe BLOCK rule — gets neutralised
+  // instead of vetoing the setup the way the old strict script did.
+  assert.match(firewall, /Find-BlockerRules/);
+  assert.match(firewall, /Disable-NetFirewallRule/);
+  // A pre-existing broad allow rule must never again abort the whole setup.
+  assert.doesNotMatch(firewall, /if \(\$conflict\) \{ throw/);
   assert.doesNotMatch(firewall, /Set-NetFirewallProfile/);
 });
 
@@ -277,7 +282,7 @@ test('ناظر LAN نحو JavaScript معتبر دارد', () => {
   assert.equal(guard.status, 0, guard.stderr || guard.stdout);
 });
 
-test('installer, manager و API فقط پس از opt-in و تأیید Firewall به LAN bind می‌کنند', () => {
+test('installer، manager و API: LAN با انتخاب نصاب فعال می‌شود؛ گیت سخت فایروال فقط در حالت سخت‌گیرانه', () => {
   const installer = readFileSync(path.join(MODULE_DIR, 'installer.mjs'), 'utf8');
   const manager = readFileSync(path.join(MODULE_DIR, 'manager.mjs'), 'utf8');
   const lanGuard = readFileSync(path.join(MODULE_DIR, 'lan-guard.mjs'), 'utf8');
@@ -288,10 +293,14 @@ test('installer, manager و API فقط پس از opt-in و تأیید Firewall �
   assert.match(installer, /ZARINPAL_CALLBACK_BASE_URL/);
   assert.match(installer, /runLanFirewall\('ensure'/);
   assert.match(manager, /runLanFirewall\('ensure'/);
+  // Simple-mode LAN bind must never again be held hostage by the firewall
+  // report: it follows the install opt-in, and only strict mode fail-closes.
+  assert.match(manager, /const LAN_STRICT =/);
+  assert.match(manager, /effectiveLan = true;\n\s+if \(!firewall\.ok\)/);
   assert.match(manager, /launchLanGuard/);
   assert.match(manager, /PISHKAN_LAN_FIREWALL_STATUS_FILE/);
   assert.match(manager, /PISHKAN_LAN_FIREWALL_TOKEN/);
-  assert.match(manager, /PISHKAN_LAN_FIREWALL_VERIFIED: LAN_ACCESS \? 'true' : 'false'/);
+  assert.match(manager, /PISHKAN_LAN_FIREWALL_VERIFIED: effectiveLan \? 'true' : 'false'/);
   assert.match(lanGuard, /runLanFirewall\('status'/);
   assert.match(lanGuard, /writeLease\(false/);
   assert.match(lanGuard, /stopOwnedServer/);
@@ -302,6 +311,86 @@ test('installer, manager و API فقط پس از opt-in و تأیید Firewall �
   assert.match(manager, /Unhandled manager failure/);
   assert.match(apiGate, /platform !== 'win32'\) return configuredHost/);
   assert.match(apiGate, /PISHKAN_LAN_FIREWALL_VERIFIED/);
+});
+
+test('حساب مدیر کل نصاب تضمینی است: ساخت/به‌روزرسانی با --upsert و ورود واقعی در آزمون نهایی', () => {
+  const installer = readFileSync(path.join(MODULE_DIR, 'installer.mjs'), 'utf8');
+  const verify = readFileSync(path.join(MODULE_DIR, 'verify.mjs'), 'utf8');
+  const createAdmin = readFileSync(path.join(MODULE_DIR, '..', '..', 'apps', 'api', 'src', 'cli', 'create-admin.ts'), 'utf8');
+  const seed = readFileSync(path.join(MODULE_DIR, '..', '..', 'apps', 'api', 'src', 'modules', 'catalog', 'seed.ts'), 'utf8');
+  // The installer must never again «succeed» while the typed admin credentials
+  // do not work (the old create-only-if-no-admin behaviour).
+  assert.match(installer, /create-admin\.js', '--username', username, '--stdin', '--upsert'/);
+  assert.match(installer, /account updated/);
+  assert.match(installer, /username-taken/);
+  assert.match(installer, /PISHKAN_ADMIN_PASS: adminPass/);
+  assert.match(createAdmin, /upsertInstallerAdmin/);
+  assert.match(createAdmin, /username-taken/);
+  // Password is used verbatim from stdin (no trim) so it hashes what was typed.
+  assert.doesNotMatch(createAdmin, /split\(\/\\r\?\\n\/\)\[0\]\.trim\(\)/);
+  assert.match(seed, /export async function upsertInstallerAdmin/);
+  assert.match(seed, /status: 'conflict'/);
+  // Core verification performs a real login with the supplied credentials.
+  assert.match(verify, /'admin-login'/);
+  assert.match(verify, /loginAs\('admin', ADMIN_USER, ADMIN_PASS\)/);
+  // The customer and staff entrances are separate doors; verification must
+  // knock on the right one (staff door for admin/expert, customer door for
+  // the customer actor) and the installer must tell the human the staff URL.
+  assert.match(verify, /\/api\/auth\/staff\/login/);
+  assert.match(verify, /\/api\/auth\/customer\/login/);
+  assert.doesNotMatch(verify, /request\('\/api\/auth\/login'/);
+  assert.match(installer, /adminLoginUrl: `http:\/\/127\.0\.0\.1:\$\{config\.port\}\/login-admin`/);
+});
+
+test('پنجره نصب اطلاعات مدیر کل را واقعاً به موتور می‌رساند و نصب بدون مدیر موفق گزارش نمی‌شود', () => {
+  const gui = readFileSync(path.join(MODULE_DIR, 'installer-gui.ps1'), 'utf8').replace(/^\uFEFF/, '');
+  const installer = readFileSync(path.join(MODULE_DIR, 'installer.mjs'), 'utf8');
+  const consoleInstaller = readFileSync(path.join(MODULE_DIR, 'setup-console.mjs'), 'utf8');
+  // Root-cause regression lock: in PowerShell `admin = { ... }` is a
+  // scriptblock, not a hashtable — ConvertTo-Json then never delivered the
+  // typed username/password to the engine and every GUI install silently
+  // skipped creating the super admin. The job must use `@{ ... }`.
+  assert.ok(gui.includes('    admin = @{'), 'job.admin باید hashtable با @{} باشد');
+  assert.ok(!/^\s*admin = \{/m.test(gui), 'admin = {} (scriptblock) نباید برگردد');
+  // Clean install is wired end-to-end (GUI checkbox + console question + engine).
+  assert.match(gui, /cleanInstallCheckBox/);
+  assert.match(gui, /cleanInstall = \[bool\]\$cleanInstallCheckBox\.Checked/);
+  assert.match(consoleInstaller, /cleanInstall/);
+  assert.match(installer, /function validateJobShape/);
+  assert.match(installer, /countExistingAdmins/);
+  assert.match(installer, /هیچ حساب مدیر کلی وجود ندارد/);
+  assert.match(installer, /stepClean/);
+  assert.match(installer, /previous-install-/);
+  // Validation must run before the destructive clean step.
+  assert.ok(installer.indexOf('validateJobShape(job);') < installer.indexOf('await stepClean(job);'));
+});
+
+await testAsync('installer dry-run: admin بدشکل رد می‌شود و نصب تمیز در dry-run داده‌ای را جابه‌جا نمی‌کند', async () => {
+  const root = path.join(tmp, 'installer-clean-dry');
+  fs.mkdirSync(path.join(root, '.data'), { recursive: true });
+  fs.writeFileSync(envFilePath(root), 'PORT=45910\nDB_DRIVER=sqlite\n', 'utf8');
+  const fakeDb = path.join(root, '.data', 'pishkan-windows.sqlite');
+  fs.writeFileSync(fakeDb, 'previous-install-marker', 'utf8');
+  fs.writeFileSync(path.join(root, 'package.json'), '{"name":"dry-run-root"}\n', 'utf8');
+
+  const runDry = (job) => spawnSync(process.execPath, [
+    path.join(MODULE_DIR, 'installer.mjs'), '--root', root, '--dry-run', '--json-lines', '--job-stdin',
+  ], { input: JSON.stringify(job), encoding: 'utf8', timeout: 60_000 });
+
+  // A string admin is the exact scriptblock-bug signature: fail fast.
+  const malformed = runDry({ port: 45910, lanAccess: false, admin: 'fullName = x; username = admin' });
+  assert.notEqual(malformed.status, 0, malformed.stdout || malformed.stderr);
+  assert.match(`${malformed.stdout}\n${malformed.stderr}`, /به‌درستی نرسیده است/);
+
+  // Clean-install in dry-run must not move or delete anything.
+  const clean = runDry({
+    port: 45910, lanAccess: false, cleanInstall: true,
+    admin: { fullName: 'مدیر', username: 'admin', password: 'Whatever#12345' },
+  });
+  assert.equal(clean.status, 0, clean.stderr || clean.stdout);
+  assert.equal(fs.readFileSync(fakeDb, 'utf8'), 'previous-install-marker');
+  const quarantines = fs.readdirSync(path.join(root, '.data')).filter((name) => name.startsWith('previous-install-'));
+  assert.equal(quarantines.length, 0, 'dry-run نباید پوشه قرنطینه بسازد');
 });
 
 await testAsync('installer dry-run persists opt-in LAN exactly and never touches Windows Firewall', async () => {
@@ -319,6 +408,76 @@ await testAsync('installer dry-run persists opt-in LAN exactly and never touches
     assert.equal(settings.LAN_ACCESS, enabled ? 'true' : 'false');
     assert.equal(settings.HOST, enabled ? '0.0.0.0' : '127.0.0.1');
     assert.equal(settings.ZARINPAL_CALLBACK_BASE_URL, '');
+  }
+});
+
+test('شروع Manager هرگز به‌خاطر LAN قفل نمی‌شود و دلیل توقف دیده می‌شود', () => {
+  const manager = readFileSync(path.join(MODULE_DIR, 'manager.mjs'), 'utf8');
+  const gui = readFileSync(path.join(MODULE_DIR, 'manager-gui.ps1'), 'utf8').replace(/^\uFEFF/, '');
+  // LAN failure falls back to loopback instead of refusing to run.
+  assert.match(manager, /effectiveLan/);
+  assert.match(manager, /lanWarning/);
+  // A same-root server whose state file was lost is adopted, not «foreign».
+  assert.match(manager, /discoverListenerPid/);
+  assert.match(manager, /adopted: true/);
+  // The error log (stderr) is where boot fatals live; logs must merge it.
+  assert.match(manager, /readTailLines\(errorLogFile\(ROOT\)/);
+  assert.match(manager, /lastErrorTail/);
+  // GUI: async manager calls (no frozen window), PS5.1 stderr trap defused,
+  // and the log pane refreshes while stopped so the reason is visible.
+  assert.match(gui, /function Invoke-ManagerAsync/);
+  assert.match(gui, /\$ErrorActionPreference = 'Continue'/);
+  assert.doesNotMatch(gui, /\$autoRefresh\.Checked -and \$status\.running/);
+});
+
+await testAsync('manager: بایند LAN از انتخاب نصاب پیروی می‌کند و خرابی فایروال فقط هشدار می‌شود', async () => {
+  if (process.platform === 'win32') {
+    skipped.push('manager LAN bind: روی Windows واقعی فایروال ممکن است سالم باشد؛ مسیر bind در Linux اثبات می‌شود.');
+    return;
+  }
+  const repoRoot = path.join(MODULE_DIR, '..', '..');
+  if (!fs.existsSync(path.join(repoRoot, 'apps', 'api', 'dist', 'index.js'))) {
+    skipped.push('manager LAN bind: خروجی ساخت API (apps/api/dist) در این محیط وجود ندارد.');
+    return;
+  }
+  const root = path.join(tmp, 'manager-fallback');
+  fs.mkdirSync(path.join(root, 'apps', 'api'), { recursive: true });
+  fs.mkdirSync(path.join(root, '.data', 'uploads'), { recursive: true });
+  fs.mkdirSync(path.join(root, '.data', 'backups'), { recursive: true });
+  fs.symlinkSync(path.join(repoRoot, 'apps', 'api', 'dist'), path.join(root, 'apps', 'api', 'dist'), 'junction');
+  fs.symlinkSync(path.join(repoRoot, 'apps', 'api', 'migrations'), path.join(root, 'apps', 'api', 'migrations'), 'junction');
+  fs.writeFileSync(path.join(root, 'package.json'), '{"name":"manager-fallback"}\n', 'utf8');
+  const port = await findFreePort(46100);
+  assert.ok(port, 'پورت آزاد برای آزمون پیدا نشد');
+  fs.writeFileSync(envFilePath(root), [
+    'NODE_ENV=development',
+    'DB_DRIVER=sqlite',
+    `SQLITE_FILE=${path.join(root, '.data', 'pishkan-windows.sqlite')}`,
+    'HOST=0.0.0.0',
+    'LAN_ACCESS=true',
+    `PORT=${port}`,
+    'COOKIE_SECURE=false',
+    'APP_ENCRYPTION_KEY=0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef',
+    `UPLOAD_DIR=${path.join(root, '.data', 'uploads')}`,
+    `BACKUP_DIR=${path.join(root, '.data', 'backups')}`,
+    'AUTH_LOGIN_RATE_LIMIT=60',
+  ].join('\n'), 'utf8');
+  const runManager = (cmd) => spawnSync(process.execPath, [
+    path.join(MODULE_DIR, 'manager.mjs'), cmd, '--root', root, '--json',
+  ], { encoding: 'utf8', timeout: 120_000 });
+  const payload = (r) => JSON.parse(String(r.stdout).split('\n').find((l) => l.startsWith('RESULT_JSON:')).slice(12));
+  try {
+    const started = payload(runManager('start'));
+    assert.equal(started.ok, true, started.message);
+    // The field bug this guards: a failed firewall rule used to silently pin
+    // the server to loopback, so phones could never connect. Simple mode now
+    // binds the LAN because the install opted in; the firewall is a warning.
+    assert.equal(started.lanAccess, true, 'بایند LAN باید از انتخاب نصاب پیروی کند، نه از نتیجهٔ فایروال');
+    assert.ok(started.lanWarning, 'هشدار فایروال باید در نتیجه باشد');
+    const st = payload(runManager('status'));
+    assert.equal(st.running, true, 'سرویس باید روی loopback پاسخ‌گو باشد');
+  } finally {
+    runManager('stop');
   }
 });
 

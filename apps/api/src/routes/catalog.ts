@@ -12,7 +12,7 @@ import {
 import { hasPermission } from '../lib/permissions.js';
 import { getBool, getNumber } from '../modules/settings/service.js';
 import { writeAudit } from '../modules/audit/service.js';
-import { notifyUser } from '../modules/notifications/service.js';
+import { notifyRole, notifyUser } from '../modules/notifications/service.js';
 import { createInvoice, voidInvoice } from '../modules/accounting/service.js';
 import { addEvent, createRequest, getRequest } from '../modules/requests/service.js';
 import { id } from '../lib/crypto.js';
@@ -92,6 +92,7 @@ const serviceSchema = z.object({
     description: z.string().max(1000).optional(),
     role: z.string().max(60).optional(),
     requiresDocument: z.boolean().optional(),
+    kind: z.enum(['action', 'waiting_customer', 'waiting_organization', 'followup', 'delivery']).optional(),
   })).optional(),
   coverage: z.enum(['nationwide','cities']).optional(),
   cityIds: z.array(z.string()).max(2000).optional(),
@@ -107,6 +108,13 @@ const serviceSchema = z.object({
   paymentMethods: z.array(z.enum(['online', 'wallet'])).optional(),
   tags: z.array(z.string().max(40)).max(20).optional(),
   contactNotice: z.string().max(500).nullable().optional(),
+  hasExternalCosts: z.boolean().optional(),
+    requiresManagerApproval: z.boolean().optional(),
+  externalCostsNote: z.string().max(1000).nullable().optional(),
+  externalCostItems: z.array(z.object({
+    title: z.string().min(2).max(200),
+    amount: z.number().min(0).max(10_000_000_000),
+  })).max(20).optional(),
   isPublished: z.boolean().optional(),
   acceptingRequests: z.boolean().optional(),
   needsReview: z.boolean().optional(),
@@ -214,11 +222,23 @@ catalogRouter.post('/custom-services', requirePermission('services.create'), asy
       description: z.string().max(500).optional(),
       role: z.string().max(60).optional(),
       requiresDocument: z.boolean().optional(),
+      kind: z.enum(['action', 'waiting_customer', 'waiting_organization', 'followup', 'delivery']).optional(),
     })).optional(),
     form: z.array(formFieldSchema).optional(),
     message: z.string().max(1000).optional(),
     expiryHours: z.number().int().min(1).max(720).optional(),
     createInvoice: z.boolean().optional(),
+    hasExternalCosts: z.boolean().optional(),
+    requiresManagerApproval: z.boolean().optional(),
+    externalCostsNote: z.string().max(1000).nullable().optional(),
+    externalCostItems: z.array(z.object({
+      title: z.string().min(2).max(200),
+      amount: z.number().min(0).max(10_000_000_000),
+    })).max(20).optional(),
+    /** Creator takes the case after acceptance instead of the free pool. */
+    assignToCreator: z.boolean().optional(),
+    /** Linked customer intake this offer answers, when converted from one. */
+    customRequestId: z.string().min(3).optional(),
   }).parse(req.body);
 
   const service = await createCustomService(body, { id: req.auth!.user.id, name: req.auth!.user.fullName, ip: req.ip });
@@ -242,10 +262,17 @@ catalogRouter.post('/custom-services', requirePermission('services.create'), asy
 
   const offerId = id('off');
   await run(
-    `INSERT INTO custom_service_offers (id, service_id, customer_id, invoice_id, amount, status, message, expires_at, created_by, created_at)
-     VALUES (?, ?, ?, ?, ?, 'pending', ?, ?, ?, ?)`,
-    [offerId, service.id, body.customerId, invoiceId, amount, body.message ?? null, expiresAt, req.auth!.user.id, nowIso()],
+    `INSERT INTO custom_service_offers (id, service_id, customer_id, invoice_id, amount, status, message, expires_at, created_by, created_at, assign_to_creator)
+     VALUES (?, ?, ?, ?, ?, 'pending', ?, ?, ?, ?, ?)`,
+    [offerId, service.id, body.customerId, invoiceId, amount, body.message ?? null, expiresAt, req.auth!.user.id, nowIso(), body.assignToCreator ? 1 : 0],
   );
+  if (body.customRequestId) {
+    await run(
+      `UPDATE custom_requests SET status = 'priced', offer_id = ?, handled_by = ?, updated_at = ?
+       WHERE id = ? AND customer_id = ? AND status = 'pending'`,
+      [offerId, req.auth!.user.id, nowIso(), body.customRequestId, body.customerId],
+    );
+  }
 
   await notifyUser(body.customerId, {
     title: 'پیشنهاد خدمت اختصاصی',
@@ -273,6 +300,7 @@ catalogRouter.get('/offers', asyncRoute(async (req, res) => {
   ok(res, rows.map((r) => ({
     id: r.id,
     serviceId: r.service_id,
+    serviceSlug: r.slug,
     title: r.title,
     description: r.description,
     customerName: r.customer_name,
@@ -322,6 +350,22 @@ catalogRouter.post('/offers/:id/accept', asyncRoute(async (req, res) => {
       requestId: request.id, type: 'system', message: 'مشتری پیشنهاد خدمت اختصاصی را تأیید کرد.',
       actorId: req.auth!.user.id, actorName: req.auth!.user.fullName,
     });
+    if (offer.assign_to_creator && offer.created_by && request.assignedTo !== offer.created_by) {
+      // The defining expert chose to run this case themselves; only skip the
+      // pool when they are still an active staff account.
+      const creator = await one<any>("SELECT id FROM users WHERE id = ? AND kind IN ('staff','admin') AND status = 'active'", [offer.created_by]);
+      if (creator) {
+        const { assignRequest } = await import('../modules/requests/service.js');
+        await assignRequest(request.id, offer.created_by, { id: 'system', name: 'واگذاری به کارشناس تعریف‌کننده' }).catch(() => undefined);
+        const { notifyUser: notifyCreator } = await import('../modules/notifications/service.js');
+        await notifyCreator(offer.created_by, {
+          title: 'پروندهٔ اختصاصی به شما واگذار شد',
+          body: `${service.title} — مشتری پیشنهاد شما را تأیید کرد و انجام آن با شماست.`,
+          kind: 'success',
+          link: `/staff/requests/${request.id}`,
+        }).catch(() => undefined);
+      }
+    }
   }
   return { expired: false as const, request };
   });
@@ -364,6 +408,98 @@ catalogRouter.post('/offers/:id/decline', asyncRoute(async (req, res) => {
 }));
 
 /** Public catalogue for logged-in customers (includes their private services). */
+/* ------------------- customer-initiated custom requests ------------------- */
+
+const CUSTOM_REQUEST_LABELS: Record<string, string> = {
+  pending: 'در دست بررسی', priced: 'قیمت‌گذاری شده', rejected: 'رد شده', cancelled: 'لغوشده',
+};
+
+function mapCustomRequest(r: any) {
+  return {
+    id: r.id, customerId: r.customer_id, customerName: r.customer_name ?? null,
+    customerMobile: r.customer_mobile ?? null,
+    title: r.title, description: r.description, status: r.status,
+    statusLabel: CUSTOM_REQUEST_LABELS[r.status] ?? r.status,
+    staffNote: r.staff_note, offerId: r.offer_id,
+    createdAt: r.created_at, updatedAt: r.updated_at,
+  };
+}
+
+/** A customer describes a need that is not in the public catalogue. */
+catalogRouter.post('/custom-requests', asyncRoute(async (req, res) => {
+  if (req.auth!.user.kind !== 'customer') throw forbidden('ثبت درخواست اختصاصی از پنل مشتری انجام می‌شود.');
+  if (!(await getBool('services.allow_custom_services'))) {
+    throw badRequest('درخواست خدمت اختصاصی در حال حاضر فعال نیست.');
+  }
+  const body = z.object({
+    title: z.string().trim().min(3).max(200),
+    description: z.string().trim().min(10).max(4000),
+  }).parse(req.body);
+  const requestId = id('cur');
+  const now = nowIso();
+  await run(
+    `INSERT INTO custom_requests (id, customer_id, title, description, status, created_at, updated_at)
+     VALUES (?, ?, ?, ?, 'pending', ?, ?)`,
+    [requestId, req.auth!.user.id, body.title, body.description, now, now],
+  );
+  await notifyRole(['super_admin', 'manager', 'service_expert'], {
+    title: 'درخواست اختصاصی تازه از مشتری',
+    body: `${req.auth!.user.fullName}: «${body.title}» — در بخش خدمت اختصاصی آن را قیمت‌گذاری کنید.`,
+    kind: 'info',
+    link: '/staff/custom-services',
+    idempotencyKey: `custom-request:${requestId}`,
+  }).catch(() => undefined);
+  created(res, mapCustomRequest({
+    id: requestId, customer_id: req.auth!.user.id, title: body.title, description: body.description,
+    status: 'pending', staff_note: null, offer_id: null, created_at: now, updated_at: now,
+  }));
+}));
+
+catalogRouter.get('/custom-requests', asyncRoute(async (req, res) => {
+  const auth = req.auth!;
+  if (auth.user.kind === 'customer') {
+    const rows = await q<any>(
+      'SELECT * FROM custom_requests WHERE customer_id = ? ORDER BY created_at DESC LIMIT 100',
+      [auth.user.id],
+    );
+    return ok(res, rows.map(mapCustomRequest));
+  }
+  if (!hasPermission(auth.permissions, 'services.create') && !officeScope(auth)) throw forbidden();
+  const rows = await q<any>(
+    `SELECT cr.*, u.full_name AS customer_name, u.mobile AS customer_mobile
+     FROM custom_requests cr JOIN users u ON u.id = cr.customer_id
+     ORDER BY CASE cr.status WHEN 'pending' THEN 0 ELSE 1 END, cr.created_at DESC LIMIT 200`,
+  );
+  ok(res, rows.map(mapCustomRequest));
+}));
+
+catalogRouter.post('/custom-requests/:id/reject', requirePermission('services.create'), asyncRoute(async (req, res) => {
+  const body = z.object({ note: z.string().trim().min(3).max(1000) }).parse(req.body);
+  const row = await one<any>('SELECT * FROM custom_requests WHERE id = ?', [param(req, 'id')]);
+  if (!row) throw notFound('درخواست اختصاصی یافت نشد.');
+  if (row.status !== 'pending') throw conflict('این درخواست قبلاً تعیین تکلیف شده است.');
+  await run(
+    `UPDATE custom_requests SET status = 'rejected', staff_note = ?, handled_by = ?, updated_at = ? WHERE id = ?`,
+    [body.note, req.auth!.user.id, nowIso(), row.id],
+  );
+  await notifyUser(row.customer_id, {
+    title: 'نتیجهٔ بررسی درخواست اختصاصی شما',
+    body: `«${row.title}»: ${body.note}`,
+    kind: 'warning', link: '/app/offers',
+    idempotencyKey: `custom-request-rejected:${row.id}`,
+  }).catch(() => undefined);
+  ok(res, mapCustomRequest({ ...row, status: 'rejected', staff_note: body.note }));
+}));
+
+catalogRouter.post('/custom-requests/:id/cancel', asyncRoute(async (req, res) => {
+  if (req.auth!.user.kind !== 'customer') throw forbidden();
+  const row = await one<any>('SELECT * FROM custom_requests WHERE id = ? AND customer_id = ?', [param(req, 'id'), req.auth!.user.id]);
+  if (!row) throw notFound('درخواست اختصاصی یافت نشد.');
+  if (row.status !== 'pending') throw conflict('فقط درخواست در دست بررسی قابل لغو است.');
+  await run(`UPDATE custom_requests SET status = 'cancelled', updated_at = ? WHERE id = ?`, [nowIso(), row.id]);
+  ok(res, mapCustomRequest({ ...row, status: 'cancelled' }));
+}));
+
 catalogRouter.get('/mine', asyncRoute(async (req, res) => {
   const result = await listServices({ onlyPublic: true, customerId: req.auth!.user.id, pageSize: 100 });
   ok(res, result.items.filter((s) => s.isCustom));

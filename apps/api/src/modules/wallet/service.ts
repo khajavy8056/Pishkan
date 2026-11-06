@@ -212,7 +212,10 @@ export async function moveMoney(input: MoveInput) {
     const prior = await one<any>('SELECT * FROM wallet_transactions WHERE idempotency_key = ?', [input.idempotencyKey]);
     if (prior) return { transaction: mapTransaction(prior), applied: false as const };
   }
-  const wallet = await ensureWallet(input.customerId);
+  const initialWallet = await ensureWallet(input.customerId);
+  // Lock and reread before recording before/after balances or enforcing caps.
+  await run('UPDATE wallets SET balance=balance WHERE id=?', [initialWallet.id]);
+  const wallet = (await one<WalletRow>('SELECT * FROM wallets WHERE id=?', [initialWallet.id]))!;
   if (input.requireActive !== false && wallet.status !== 'active') throw conflict('کیف پول این مشتری مسدود است.');
 
   const before = Number(wallet.balance);

@@ -23,3 +23,6 @@ apps/web/ios/
 .env.windows.local.bak-*
 windows/PishkanSetup.exe
 windows/*.exe
+
+# Android signing key backup — NEVER commit (user keeps offline copies)
+apps/mobile/signing-backup/

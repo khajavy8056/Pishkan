@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { Link } from 'react-router-dom';
+import { Link, useSearchParams } from 'react-router-dom';
 import { Search, ArrowLeft, Clock } from 'lucide-react';
 import clsx from 'clsx';
 import { AppShell, PageHeader } from '../../components/shell';
@@ -10,10 +10,17 @@ import { rial } from '../../lib/format';
 
 export function CustomerServices() {
   const { site } = useSite();
+  const [params] = useSearchParams();
   const [services, setServices] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
-  const [query, setQuery] = useState('');
-  const [category, setCategory] = useState('');
+  const [query, setQuery] = useState(params.get('q') ?? '');
+  const [category, setCategory] = useState(params.get('category') ?? '');
+
+  // Header search and dashboard tiles deep-link here with ?q= / ?category=.
+  useEffect(() => {
+    setQuery(params.get('q') ?? '');
+    setCategory(params.get('category') ?? '');
+  }, [params]);
 
   useEffect(() => {
     const timer = setTimeout(() => {
@@ -54,7 +61,10 @@ export function CustomerServices() {
               <span className="flex items-center gap-1 text-navy-500"><Clock className="size-3.5" /> {formatDuration(service.estimatedMinutes, service.estimatedDays)}</span>
               <span className="font-semibold text-navy-900">{rial(service.finalFee)}</span>
             </div>
-            <Link to={`/services/${service.slug}`}
+            {service.hasExternalCosts && (
+              <p className="mt-1 text-[10px] text-sky-800">+ احتمال هزینهٔ سازمانی جداگانه در حین انجام</p>
+            )}
+            <Link to={`/app/services/${service.slug}`}
               className={clsx('btn-sm mt-3 w-full', service.acceptingRequests ? 'btn-primary' : 'btn-ghost pointer-events-none opacity-60')}>
               {service.acceptingRequests ? 'ثبت درخواست' : 'موقتاً غیرفعال'}
               <ArrowLeft className="size-3.5" />
