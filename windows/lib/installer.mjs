@@ -562,22 +562,17 @@ function expectedPackageCount() {
   }).length;
 }
 
-async function stepDependencies() {
+async function stepDependencies({ forceClean = false, recovery = false } = {}) {
   const nodeModules = path.join(ROOT, 'node_modules');
   const expected = expectedPackageCount();
   if (SKIP_DEPS) {
     stepEvent('deps', 'دانلود وابستگی‌ها', 'skip', { message: 'با درخواست کاربر رد شد' });
     return;
   }
+  // A package count cannot prove that this version's dependencies are present.
+  // Always let npm reconcile the workspace and lockfile, including build-time
+  // dependencies; reuse the npm cache/tree on repairs rather than deleting it.
   const installed = countInstalledPackages(nodeModules);
-  // Optional platform-specific packages are absent from node_modules by design,
-  // so a small shortfall against the lockfile is expected and not a re-install.
-  if (installed > 0 && (expected === 0 || installed >= expected * 0.85)) {
-    stepEvent('deps', 'دانلود وابستگی‌ها', 'ok', {
-      message: `${installed} بسته از قبل نصب بود · ${formatBytes(dirSizeBytes(nodeModules))}`,
-    });
-    return;
-  }
   if (DRY_RUN) {
     stepEvent('deps', 'دانلود وابستگی‌ها', 'skip', { message: 'حالت آزمایشی (dry-run)' });
     return;
@@ -589,15 +584,17 @@ async function stepDependencies() {
   // which is not enough for 670 packages on a slow line. These flags make npm
   // keep trying instead of failing the whole installation.
   const npmNetwork = [
-    '--no-audit', '--no-fund', '--loglevel=error',
+    '--no-audit', '--no-fund', '--loglevel=error', '--include=dev', '--include=optional', '--ignore-scripts=false',
     '--fetch-retries=5', '--fetch-retry-mintimeout=5000', '--fetch-retry-maxtimeout=120000',
     '--fetch-timeout=300000',
   ];
-  let mode = hasLock ? 'ci' : 'install';
+  // `npm ci` is appropriate on a fresh install (or one explicit recovery);
+  // on an existing install, npm install preserves and repairs the tree/cache.
+  let mode = hasLock && (forceClean || installed === 0) ? 'ci' : 'install';
   let npmArgs = [mode, ...npmNetwork];
   const attempts = 3;
   stepEvent('deps', 'دانلود وابستگی‌ها', 'running', {
-    message: `${hasLock ? 'npm ci' : 'npm install'} · ${expected || '?'} بسته`,
+    message: `${recovery ? 'بازسازی وابستگی‌های ناقص' : 'بررسی و همگام‌سازی وابستگی‌ها'} · npm ${mode} · ${expected || '?'} بسته`,
     stepProgress: 1,
   });
 
@@ -609,7 +606,7 @@ async function stepDependencies() {
         append: false,
         message: `${done}${expected ? ` از ${expected}` : ''} بسته · ${formatBytes(dirSizeBytes(nodeModules))}`,
         stepProgress: Math.round(ratio * 100),
-        progress: Math.round(completedWeight + (WEIGHTS.deps ?? 0) * ratio),
+        progress: recovery ? completedWeight : Math.round(completedWeight + (WEIGHTS.deps ?? 0) * ratio),
       });
     }, 900);
 
@@ -624,8 +621,19 @@ async function stepDependencies() {
     const extracted = countInstalledPackages(nodeModules);
 
     if (result.code === 0) {
+      // Verify the installed dependency graph instead of assuming a successful
+      // npm exit or a large folder means the workspace is complete.
+      const validation = await runProcess(npmCommand, ['ls', '--all', '--include=dev', '--include=optional', '--parseable', '--loglevel=error'], {
+        shell: process.platform === 'win32', timeoutMs: 5 * 60 * 1000,
+      });
+      if (validation.code !== 0) {
+        throw Object.assign(new Error(`بررسی وابستگی‌ها ناموفق بود: ${tail(validation.stderr || validation.stdout, 12)}`), {
+          step: 'deps', command: 'npm ls --all --include=dev --include=optional', exitCode: validation.code,
+          output: tail(validation.stderr || validation.stdout, 40),
+        });
+      }
       stepEvent('deps', 'دانلود وابستگی‌ها', 'ok', {
-        message: `${extracted} بسته · ${formatBytes(dirSizeBytes(nodeModules))}`,
+        message: `${extracted} بسته بررسی و همگام شد · ${formatBytes(dirSizeBytes(nodeModules))}`,
         stepProgress: 100,
       });
       return;
@@ -663,6 +671,10 @@ async function stepDependencies() {
   }
 }
 
+function buildOutputForError(result) {
+  return [result.stderr, result.stdout].filter(Boolean).join('\n');
+}
+
 async function stepBuild() {
   if (SKIP_BUILD) {
     stepEvent('build', 'ساخت نسخه اجرایی', 'skip', { message: 'با درخواست کاربر رد شد' });
@@ -674,18 +686,31 @@ async function stepBuild() {
     return;
   }
   stepEvent('build', 'ساخت نسخه اجرایی', 'running', { message: 'API در حال ساخت است', stepProgress: 10 });
+  let repairedDependencies = false;
   for (const [index, workspace] of ['apps/api', 'apps/web'].entries()) {
-    const result = await runProcess(npmCommand, ['run', 'build', '--workspace', workspace], {
+    const build = () => runProcess(npmCommand, ['run', 'build', '--workspace', workspace], {
       shell: process.platform === 'win32',
       timeoutMs: 30 * 60 * 1000,
       onLine: (line) => {
         if (/error/i.test(line)) log(line.slice(0, 300), 'warn');
       },
     });
+    let result = await build();
+    // npm's dependency graph can still look valid when files inside a package
+    // are damaged. For missing-module build failures only, do one clean rebuild
+    // of node_modules and retry. Never override an explicit --skip-deps.
+    const buildOutput = `${result.stdout}\n${result.stderr}`;
+    if (result.code !== 0 && !SKIP_DEPS && !repairedDependencies && fs.existsSync(path.join(ROOT, 'package-lock.json')) &&
+        /TS2307: Cannot find module|TS7016: Could not find a declaration file|MODULE_NOT_FOUND|ERR_MODULE_NOT_FOUND|Cannot find package|Could not resolve/i.test(buildOutput)) {
+      repairedDependencies = true;
+      log('بسته‌ای در زمان ساخت پیدا نشد؛ وابستگی‌ها یک‌بار از نو نصب و ساخت دوباره اجرا می‌شود. داده‌ها و پایگاه داده دست‌نخورده می‌مانند.', 'warn');
+      await stepDependencies({ forceClean: true, recovery: true });
+      result = await build();
+    }
     if (result.code !== 0) {
-      throw Object.assign(new Error(`ساخت ${workspace} ناموفق بود: ${tail(result.stderr || result.stdout, 12)}`), {
+      throw Object.assign(new Error(`ساخت ${workspace} ناموفق بود: ${tail(buildOutputForError(result), 12)}`), {
         step: 'build', command: `npm run build --workspace ${workspace}`, exitCode: result.code,
-        output: tail(result.stderr || result.stdout, 40),
+        output: tail(buildOutputForError(result), 40),
       });
     }
     stepEvent('build', 'ساخت نسخه اجرایی', 'running', {

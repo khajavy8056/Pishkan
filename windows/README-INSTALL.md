@@ -37,6 +37,10 @@
 | `assets/pishkan.ico` | Generated icon (script: `lib/make-icon.mjs`). |
 | `manifest/windows.manifest.json` | Version, requirements, isolation guarantees. |
 
+## Dependency repair regression test
+
+`npm run test:windows:deps` copies the project and installed dependency tree to a temporary fixture and runs the actual installer, builds, SQLite and service verification. It needs Node 22, an existing `node_modules`, sufficient disk space and registry access or a warm npm cache. It does not validate the Windows GUI or firewall.
+
 ## Commands (no GUI)
 
 ```bat
@@ -57,7 +61,7 @@ node windows\lib\verify.mjs --mode core --url http://127.0.0.1:3000 --env .env.w
 | Node.js (absent or too old) | Installs it: `winget` (official `OpenJS.NodeJS.LTS`) → official MSI from nodejs.org verified against `SHASUMS256.txt` |
 | npm | Ships with Node; a damaged install is repaired by reinstalling Node.js |
 | Administrator rights | Only for the machine-wide Node.js MSI — Windows shows one UAC prompt, the rest runs unprivileged |
-| npm packages (~670) | `npm ci` with 3 retries, network-friendly flags, and an automatic `npm install` fallback when the lock file drifted |
+| npm packages (~670) | Fresh tree: `npm ci`; existing tree: `npm install`, followed by `npm ls`. On a missing-module build failure, one clean `npm ci` and build retry. Network access or a populated cache may be needed. |
 
 This happens in `PishkanSetup.cmd` before the window opens, again inside the window
 («بررسی سیستم» / «نصب»), and on the `/console` path. No manual download step.
