@@ -1,3 +1,6 @@
+import 'dart:convert';
+
+import 'package:flutter/services.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:pishkan_app/models/models.dart';
@@ -5,7 +8,12 @@ import 'package:pishkan_app/widgets/category_card.dart';
 
 void main() {
   test('bundled category art is distinct and manager images take precedence', () {
-    expect(categoryArtAssets.length, 10);
+    expect(categoryArtAssets.length, 15);
+    expect(categoryArtAssets.keys.toSet(), {
+      'insurance-health', 'companies-institutions', 'subsidy-welfare', 'vehicle-services',
+      'tax-services', 'judicial-services', 'exams-employment', 'housing-land', 'banking-services',
+      'police-services', 'university-students', 'business-licenses', 'school-services', 'consulting', 'other-services',
+    });
     expect(categoryArtAssets.values.toSet().length, categoryArtAssets.length);
     final category = ServiceCategory.fromJson({
       'slug': 'housing-land', 'title': 'مسکن و زمین',
@@ -16,6 +24,16 @@ void main() {
     expect(categoryRemoteImage(oldDefault), isEmpty);
     final iconFallback = ServiceCategory.fromJson({'slug': 'new-category', 'icon': '/uploads/public/icon.webp'});
     expect(categoryRemoteImage(iconFallback), '/uploads/public/icon.webp');
+  });
+
+  testWidgets('all default categories bundle different readable image files', (tester) async {
+    final distinct = <String>{};
+    for (final path in categoryArtAssets.values) {
+      final bytes = await rootBundle.load(path);
+      expect(bytes.lengthInBytes, greaterThan(100));
+      distinct.add(base64Encode(bytes.buffer.asUint8List(bytes.offsetInBytes, bytes.lengthInBytes)));
+    }
+    expect(distinct.length, categoryArtAssets.length);
   });
 
   testWidgets('category card renders real RTL title and accepts a tap', (tester) async {
@@ -33,13 +51,13 @@ void main() {
   });
 
   testWidgets('new categories use a vector fallback and support dark surfaces', (tester) async {
-    final category = ServiceCategory.fromJson({'slug': 'school-services', 'title': 'خدمات دانش‌آموزی'});
+    final category = ServiceCategory.fromJson({'slug': 'new-identity-category', 'title': 'کارت ملی'});
     await tester.pumpWidget(MaterialApp(theme: ThemeData.dark(), home: Scaffold(body: SizedBox(
       width: 160, height: 110, child: CategoryCard(category: category, onTap: () {}),
     ))));
     await tester.pumpAndSettle();
-    expect(find.byIcon(Icons.backpack_rounded), findsOneWidget);
-    expect(find.text('خدمات دانش‌آموزی'), findsOneWidget);
+    expect(find.byIcon(Icons.badge_rounded), findsOneWidget);
+    expect(find.text('کارت ملی'), findsOneWidget);
     expect(tester.takeException(), isNull);
   });
 }

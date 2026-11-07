@@ -19,6 +19,11 @@ const categoryArtAssets = <String, String>{
   'housing-land': 'assets/category_art/housing-land.webp',
   'banking-services': 'assets/category_art/banking-services.webp',
   'police-services': 'assets/category_art/police-services.webp',
+  'university-students': 'assets/category_art/university-students.webp',
+  'business-licenses': 'assets/category_art/business-licenses.webp',
+  'school-services': 'assets/category_art/school-services.webp',
+  'consulting': 'assets/category_art/consulting.webp',
+  'other-services': 'assets/category_art/other-services.webp',
 };
 
 String categoryRemoteImage(ServiceCategory category) {
@@ -52,7 +57,7 @@ class CategoryArtImage extends StatelessWidget {
   }
 
   Widget _icon(ServiceArtwork art) {
-    // The remaining/new categories receive a relevant vector, never a random
+    // New or unavailable categories receive a relevant vector, never a random
     // photo from an unrelated category.
     final icon = switch (category.slug) {
       'university-students' => Icons.school_rounded,
