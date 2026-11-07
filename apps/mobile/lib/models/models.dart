@@ -92,6 +92,7 @@ class ServiceCategory {
         title = _str(json['title']),
         icon = _str(json['icon']),
         color = _str(json['color']),
+        image = _str(json['image']),
         serviceCount = _num(json['serviceCount']).toInt();
 
   final String id;
@@ -99,6 +100,7 @@ class ServiceCategory {
   final String title;
   final String icon;
   final String color;
+  final String image;
   final int serviceCount;
 }
 

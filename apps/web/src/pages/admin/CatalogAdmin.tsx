@@ -193,6 +193,9 @@ export function AdminServices() {
             <Field label="عنوان" required><Input value={catModal.title} onChange={(e) => setCatModal({ ...catModal, title: e.target.value })} /></Field>
             <Field label="شناسه (slug)" hint="حروف لاتین، برای نشانی صفحه استفاده می‌شود."><Input value={catModal.slug} onChange={(e) => setCatModal({ ...catModal, slug: e.target.value })} dir="ltr" className="text-left" /></Field>
             <Field label="توضیح"><Textarea value={catModal.description ?? ''} onChange={(e) => setCatModal({ ...catModal, description: e.target.value })} /></Field>
+            <Field label="نشانی تصویر پس‌زمینه" hint="نشانی عمومی تصویر یا فایل بارگذاری‌شده را وارد کنید."><Input value={catModal.image ?? ''} onChange={(e) => setCatModal({ ...catModal, image: e.target.value })} dir="ltr" className="text-left" /></Field>
+            <Field label="نشانی آیکون" hint="نشانی عمومی تصویر آیکون"><Input value={catModal.icon ?? ''} onChange={(e) => setCatModal({ ...catModal, icon: e.target.value })} dir="ltr" className="text-left" /></Field>
+            <Field label="رنگ دسته" hint="برای نمونه #2563EB"><Input value={catModal.color ?? ''} onChange={(e) => setCatModal({ ...catModal, color: e.target.value })} dir="ltr" className="text-left" /></Field>
             <Field label="ترتیب نمایش"><Input type="number" value={catModal.sortOrder ?? 0} onChange={(e) => setCatModal({ ...catModal, sortOrder: Number(e.target.value) })} /></Field>
             <Switch checked={Boolean(catModal.isActive)} onChange={(v) => setCatModal({ ...catModal, isActive: v })} label="دسته فعال است" />
           </div>
@@ -265,7 +268,6 @@ export function AdminServiceEditor() {
     try {
       const result = await api.upload<{data:{url:string;isPublic:boolean}}>('/api/files/upload', file, {purpose:'service', public:true});
       if (!result.data.isPublic || !result.data.url) throw new Error('تصویر عمومی ذخیره نشد.');
-      if (field === 'icon' && result.data.url.length > 60) throw new Error('نشانی آیکون بیش از حد مجاز طولانی است.');
       set({[field]: result.data.url});
       notify('تصویر بارگذاری شد؛ برای ثبت نهایی خدمت را ذخیره کنید.', 'success');
     } catch (err) { notify(err instanceof Error ? err.message : 'بارگذاری تصویر ناموفق بود.', 'error'); }

@@ -10,11 +10,13 @@ import 'package:image_picker/image_picker.dart';
 import '../core/service_icons.dart';
 import '../core/stages.dart';
 import '../core/theme.dart';
+import '../services/notifier.dart' show AppPrefs;
 import '../models/models.dart';
 import '../screens/document_camera.dart';
 import '../services/services.dart';
 
 Future<void> playAppSound(String kind) async {
+  if (!await AppPrefs.soundsEnabled()) return;
   try { await const MethodChannel('ir.pishkan.app/sounds').invokeMethod<void>('play', {'kind': kind}); } catch (_) { /* optional platform feedback */ }
 }
 

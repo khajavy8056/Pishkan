@@ -16,6 +16,10 @@ import 'services.dart';
 class AppPrefs {
   static const _notificationsKey = 'pishkan.pref.notifications';
   static const _biometricKey = 'pishkan.pref.biometric';
+  static const _soundsKey = 'pishkan.pref.sounds';
+
+  static Future<bool> soundsEnabled() async => (await SharedPreferences.getInstance()).getBool(_soundsKey) ?? true;
+  static Future<void> setSoundsEnabled(bool value) async { await (await SharedPreferences.getInstance()).setBool(_soundsKey, value); }
 
   static Future<bool> notificationsEnabled() async {
     final prefs = await SharedPreferences.getInstance();
@@ -50,6 +54,7 @@ class AppNotificationEvent {
     required this.kind,
     this.progress,
     this.stageLabel = '',
+    this.eventType = '',
   });
 
   final String id;
@@ -59,6 +64,10 @@ class AppNotificationEvent {
   final String kind;
   final double? progress; // 0..1 for case stage notifications
   final String stageLabel;
+  final String eventType;
+
+  bool get isDocumentApproval => eventType == 'document_approved';
+  bool get isDocumentRejection => eventType == 'document_rejected';
 
   bool get isStory => link == '/app/stories';
   bool get isMessage => link.contains('messages') || link.contains('support') || link.startsWith('chat:') || title.contains('پیام') || title.contains('یادداشت');
@@ -68,9 +77,12 @@ class AppNotificationEvent {
   /// account-scoped key as a tag avoids persistent hash collisions and lets
   /// request stages replace one another without swallowing invoices/messages.
   String notificationTag(String server, String userId) {
-    final entity = requestId != null && !isMessage && !isInvoice && !isStory
-        ? 'request:${requestId!}'
-        : 'event:$id';
+    final entity = isDocumentApproval && requestId != null
+        ? 'request:${requestId!}:document-approvals'
+        : isDocumentRejection ? 'event:$id'
+        : requestId != null && !isMessage && !isInvoice && !isStory
+            ? 'request:${requestId!}:stage'
+            : 'event:$id';
     return 'pishkan:$server:$userId:$entity';
   }
   String? get requestId {
@@ -101,6 +113,11 @@ class AppNotificationEvent {
       _ => PishkanColors.primary,
     };
   }
+}
+
+String notificationRevisionKey(Map<String, dynamic> item) {
+  final revision = asNum(item['revision']).toInt();
+  return '${asStr(item['id'])}:${revision < 1 ? 1 : revision}';
 }
 
 const _seenIdsKey = 'pishkan.notif.seenIds';
@@ -190,7 +207,7 @@ class NotifierService {
     // First ever successful poll: record everything as "already known" so a
     // fresh install is not flooded with historical notifications.
     if (!(prefs.getBool(baselineKey) ?? false)) {
-      await prefs.setString(seenKey, jsonEncode(items.map((n) => asStr(n['id'])).toList()));
+      await prefs.setString(seenKey, jsonEncode(items.map(notificationRevisionKey).toList()));
       await prefs.setBool(baselineKey, true);
       return const [];
     }
@@ -200,8 +217,13 @@ class NotifierService {
       seenList = (jsonDecode(prefs.getString(seenKey) ?? '[]') as List).map((e) => e.toString()).toList();
     } catch (_) {}
     final seen = seenList.toSet();
-
-    final fresh = items.where((n) => !seen.contains(asStr(n['id'])) && asStr(n['readAt']).isEmpty).toList();
+    // Old app versions stored just the ID; treat that as revision 1 only.
+    bool alreadySeen(Map<String, dynamic> n) {
+      final id = asStr(n['id']);
+      final revision = asNum(n['revision']).toInt();
+      return seen.contains(notificationRevisionKey(n)) || (revision <= 1 && seen.contains(id));
+    }
+    final fresh = items.where((n) => !alreadySeen(n) && asStr(n['readAt']).isEmpty).toList();
     if (fresh.isEmpty) {
       await _remember(prefs, items, seenKey);
       return const [];
@@ -225,6 +247,7 @@ class NotifierService {
         body: asStr(item['body']),
         link: link,
         kind: asStr(item['kind']),
+        eventType: asStr(item['eventType']),
       );
       final request = event.requestId == null ? null : requestsById[event.requestId];
       if (request != null) {
@@ -237,6 +260,7 @@ class NotifierService {
           kind: event.kind,
           progress: progress.fraction,
           stageLabel: progress.currentLabel,
+          eventType: event.eventType,
         ));
       } else {
         events.add(event);
@@ -259,7 +283,7 @@ class NotifierService {
     try {
       previous = (jsonDecode(prefs.getString(seenKey) ?? '[]') as List).map((e) => e.toString()).toList();
     } catch (_) {}
-    final merged = <String>{...items.map((n) => asStr(n['id'])), ...previous}.toList();
+    final merged = <String>{...items.map(notificationRevisionKey), ...previous}.toList();
     await prefs.setString(seenKey, jsonEncode(merged.take(300).toList()));
   }
 
@@ -288,6 +312,7 @@ class NotifierService {
   static Future<void> _showSystem(AppNotificationEvent event) async {
     final tag = event.notificationTag(session.serverUrl, session.userId);
     final notificationId = await _notificationId(tag);
+    final soundsEnabled = await AppPrefs.soundsEnabled();
     final (channelId, channelName, channelDescription, sound) = switch ((event.isStory, event.isMessage, event.isInvoice, event.requestId != null)) {
       (true, _, _, _) => (_storiesChannel, 'استوری و اطلاعیه‌ها', 'استوری تازه و اطلاعیه‌های دفتر', 'notice_soft'),
       (_, true, _, _) => (_messagesChannel, 'پیام‌ها', 'پاسخ‌های گفتگو و تیکت پشتیبانی', 'message_soft'),
@@ -300,7 +325,7 @@ class NotifierService {
         ? event.body
         : '${event.body.isEmpty ? '' : '${event.body}\n'}مرحلهٔ فعلی: ${event.stageLabel} (٪${faDigits(progressValue)})';
     final details = AndroidNotificationDetails(
-      channelId,
+      soundsEnabled ? channelId : '${channelId}_silent',
       channelName,
       channelDescription: channelDescription,
       importance: Importance.high,
@@ -308,7 +333,9 @@ class NotifierService {
       icon: 'ic_stat_pishkan',
       largeIcon: const DrawableResourceAndroidBitmap('ic_notif_large'),
       tag: tag,
-      sound: RawResourceAndroidNotificationSound(sound),
+      playSound: soundsEnabled,
+      sound: soundsEnabled ? RawResourceAndroidNotificationSound(sound) : null,
+      onlyAlertOnce: event.isDocumentApproval,
       color: PishkanColors.primary,
       showProgress: event.progress != null,
       maxProgress: 100,

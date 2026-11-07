@@ -79,7 +79,7 @@ const serviceSchema = z.object({
   summary: z.string().max(300).optional(),
   description: z.string().max(8000).optional(),
   image: z.string().max(500).nullable().optional(),
-  icon: z.string().max(60).nullable().optional(),
+  icon: z.string().max(500).nullable().optional(),
   form: z.array(formFieldSchema).optional(),
   documents: z.array(z.object({
     key: z.string().min(2).max(41).optional(),
@@ -125,7 +125,7 @@ catalogRouter.post('/categories', requirePermission('categories.create'), asyncR
   const body = z.object({
     title: z.string().min(2).max(120),
     description: z.string().max(500).optional(),
-    icon: z.string().max(60).optional(),
+    icon: z.string().max(500).optional(),
     color: z.string().max(20).optional(),
     image: z.string().max(500).optional(),
     sortOrder: z.number().int().min(0).max(10000).optional(),
@@ -138,7 +138,7 @@ catalogRouter.patch('/categories/:id', requirePermission('categories.edit'), asy
   const body = z.object({
     title: z.string().min(2).max(120).optional(),
     description: z.string().max(500).optional(),
-    icon: z.string().max(60).optional(),
+    icon: z.string().max(500).optional(),
     color: z.string().max(20).optional(),
     image: z.string().max(500).optional(),
     sortOrder: z.number().int().optional(),

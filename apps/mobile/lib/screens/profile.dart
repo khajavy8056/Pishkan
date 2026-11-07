@@ -31,6 +31,7 @@ class ProfileTab extends StatefulWidget {
 class _ProfileTabState extends State<ProfileTab> {
   String _version = '';
   bool _notificationsOn = true;
+  bool _soundsOn = true;
   bool _biometricOn = false;
   bool _biometricAvailable = false;
 
@@ -46,11 +47,13 @@ class _ProfileTabState extends State<ProfileTab> {
 
   Future<void> _loadPrefs() async {
     final notifications = await AppPrefs.notificationsEnabled();
+    final sounds = await AppPrefs.soundsEnabled();
     final biometric = await AppPrefs.biometricEnabled();
     final available = await BiometricAuth.isAvailable();
     if (!mounted) return;
     setState(() {
       _notificationsOn = notifications;
+      _soundsOn = sounds;
       _biometricOn = biometric;
       _biometricAvailable = available;
     });
@@ -144,6 +147,17 @@ class _ProfileTabState extends State<ProfileTab> {
                   onChanged: (value) async {
                     await AppPrefs.setNotificationsEnabled(value);
                     if (mounted) setState(() => _notificationsOn = value);
+                  },
+                ),
+                const Divider(height: 1),
+                SwitchListTile(
+                  secondary: const Icon(Icons.volume_up_outlined, color: PishkanColors.primary),
+                  title: const Text('صدای اعلان‌ها و تعاملات', style: TextStyle(fontWeight: FontWeight.w700, fontSize: 13.5)),
+                  subtitle: const Text('صدای اعلان و بازخوردهای برنامه را کنترل کنید', style: TextStyle(fontSize: 11.5)),
+                  value: _soundsOn,
+                  onChanged: (value) async {
+                    await AppPrefs.setSoundsEnabled(value);
+                    if (mounted) setState(() => _soundsOn = value);
                   },
                 ),
                 const Divider(height: 1),

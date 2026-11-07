@@ -2,6 +2,13 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:pishkan_app/models/models.dart';
 
 void main() {
+  test('category reads managed artwork', () {
+    final category = ServiceCategory.fromJson({'title': 'دسته', 'image': '/uploads/public/c.webp', 'icon': '/uploads/public/i.webp', 'color': '#123456'});
+    expect(category.image, '/uploads/public/c.webp');
+    expect(category.icon, '/uploads/public/i.webp');
+    expect(category.color, '#123456');
+  });
+
   group('CatalogService', () {
     test('parses the public DTO and mirrors web price math', () {
       final service = CatalogService.fromJson({

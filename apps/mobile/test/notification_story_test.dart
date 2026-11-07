@@ -17,6 +17,18 @@ void main() {
     expect(stage.notificationTag('https://office', 'u1'), isNot(stage.notificationTag('https://other', 'u1')));
   });
 
+  test('document approvals update one tag without replacing rejection or stage notices', () {
+    AppNotificationEvent event(String id, String type) => AppNotificationEvent(
+      id: id, link: '/app/requests/r1', title: 'مدرک', body: '', kind: 'success', eventType: type);
+    final tag = event('a', 'document_approved').notificationTag('server', 'user');
+    expect(event('b', 'document_approved').notificationTag('server', 'user'), tag);
+    expect(event('c', 'document_rejected').notificationTag('server', 'user'), isNot(tag));
+    expect(event('c', 'document_rejected').notificationTag('server', 'user'), isNot(event('d', 'document_rejected').notificationTag('server', 'user')));
+    expect(event('e', '').notificationTag('server', 'user'), isNot(tag));
+    expect(notificationRevisionKey({'id': 'a', 'revision': 2}), 'a:2');
+    expect(notificationRevisionKey({'id': 'a'}), 'a:1');
+  });
+
   testWidgets('story edge navigation skips empty groups and final completion returns home', (tester) async {
     final groups = [
       StoryGroup.fromJson({'title': 'empty', 'items': []}),

@@ -50,6 +50,13 @@ describe('service catalogue', () => {
       .set('Cookie', admin.cookie)
       .send({ title: 'خدمات آزمایشی', description: 'دسته تست' });
     expect(category.status).toBe(201);
+    const longIcon = `/uploads/public/${'a'.repeat(85)}.webp`;
+    await request(server).patch(`/api/catalog/categories/${category.body.data.id}`).set('Cookie', admin.cookie)
+      .send({ icon: longIcon, image: '/uploads/public/category.webp', color: '#3a4b5c' }).expect(200);
+    const publicCategories = await request(server).get('/api/public/categories').expect(200);
+    expect(publicCategories.body.data.find((item: any) => item.id === category.body.data.id)).toMatchObject({
+      icon: longIcon, image: '/uploads/public/category.webp', color: '#3a4b5c',
+    });
 
     const service = await request(server)
       .post('/api/catalog/services')

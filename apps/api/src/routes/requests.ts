@@ -13,7 +13,7 @@ import {
 import { getServiceById } from '../modules/catalog/service.js';
 import { one, q } from '../db/index.js';
 import { documentTypeLabel, reuseDocumentInRequest } from '../modules/documents/service.js';
-import { notifyUser } from '../modules/notifications/service.js';
+import { notifyDocumentApproval, notifyUser } from '../modules/notifications/service.js';
 import { param } from '../http/params.js';
 import { writeAudit } from '../modules/audit/service.js';
 
@@ -415,14 +415,17 @@ requestsRouter.post('/:id/documents/:docId/review', requirePermission('documents
   if(doc.kind==='staff'&&!officeScope(req.auth!))throw forbidden('تأیید فایل نتیجه فقط توسط مدیریت مجاز است.');
   const review = await reviewDocument(param(req, 'docId'), body.decision, body.note, { id: req.auth!.user.id, name: req.auth!.user.fullName, ip: req.ip });
   if (doc.kind === 'customer' && doc.status !== body.decision) {
-    await notifyUser(request.customerId, {
-      title: 'مدرک شما بررسی شد',
-      body: `مدرک پرونده ${request.trackingCode}: ${body.decision === 'approved' ? 'تأیید شد' : 'نیازمند اصلاح است'}`,
-      kind: body.decision === 'approved' ? 'success' : 'warning',
-      link: `/app/requests/${request.id}`,
-      idempotencyKey: `document-review:${review.eventId}`,
-      sms: { eventCode: 'document_status', variables: { tracking_code: request.trackingCode, document_status: body.decision === 'approved' ? 'تأیید شد' : 'نیازمند اصلاح است' } },
-    }).catch(() => undefined);
+    if (body.decision === 'approved') {
+      await notifyDocumentApproval(request.customerId, request.id, request.trackingCode, review.eventId).catch(() => undefined);
+    } else {
+      await notifyUser(request.customerId, {
+        title: 'مدرک نیاز به اصلاح دارد',
+        body: `یکی از مدارک پرونده ${request.trackingCode} رد شد؛ برای مشاهده دلیل و ارسال مجدد، پرونده را باز کنید.`,
+        kind: 'warning', link: `/app/requests/${request.id}`, eventType: 'document_rejected',
+        idempotencyKey: `document-review:${review.eventId}`,
+        sms: { eventCode: 'document_status', variables: { tracking_code: request.trackingCode, document_status: 'نیازمند اصلاح است' } },
+      }).catch(() => undefined);
+    }
   }
   ok(res, await safeRequest(req, param(req, 'id')));
 }));

@@ -124,14 +124,16 @@ class _ServicesCatalogTabState extends State<ServicesCatalogTab> {
       children: [
         for (final category in _categories)
           Builder(builder: (context) {
-            final art = artworkFor(explicitIcon: category.icon, title: category.title, slug: category.slug);
+            final art = artworkForCategory(category);
             return InkWell(
               borderRadius: BorderRadius.circular(20),
               onTap: () { setState(() { _categorySlug = category.slug; _services = []; }); _loadServices(); },
               child: ClipRRect(
                 borderRadius: BorderRadius.circular(20),
                 child: Stack(fit: StackFit.expand, children: [
-                  if (art.imageUrl.isNotEmpty)
+                  if (category.image.isNotEmpty)
+                    AuthImage(url: category.image)
+                  else if (art.imageUrl.isNotEmpty)
                     AuthImage(url: art.imageUrl)
                   else if (art.assetPath.isNotEmpty)
                     Image.asset(art.assetPath, fit: BoxFit.cover)

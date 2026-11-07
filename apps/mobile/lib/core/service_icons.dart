@@ -72,6 +72,14 @@ ServiceArtwork artworkFor({String explicitIcon = '', String title = '', String s
   return ServiceArtwork(icon, color, imageUrl: imageUrl, assetPath: photo == null ? '' : 'assets/service_art/$photo.webp');
 }
 
+/// Honour a category's configured icon and colour without trusting malformed hex.
+ServiceArtwork artworkForCategory(ServiceCategory category) {
+  final base = artworkFor(explicitIcon: category.icon, title: category.title, slug: category.slug);
+  final hex = category.color.trim().replaceFirst('#', '');
+  final parsed = RegExp(r'^[0-9a-fA-F]{6}$').hasMatch(hex) ? int.tryParse(hex, radix: 16) : null;
+  return ServiceArtwork(base.icon, parsed == null ? base.color : Color(0xFF000000 | parsed), imageUrl: base.imageUrl, assetPath: base.assetPath);
+}
+
 ServiceArtwork artworkForService(CatalogService service) => artworkFor(
   explicitIcon: service.icon,
   title: service.title,

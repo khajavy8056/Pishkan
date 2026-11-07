@@ -1,4 +1,4 @@
-import { q, run, one, nowIso } from '../../db/index.js';
+import { q, run, one, tx, nowIso } from '../../db/index.js';
 import { id } from '../../lib/crypto.js';
 import { getBool } from '../settings/service.js';
 import { sendEventNotificationSms } from '../sms/provider.js';
@@ -14,20 +14,22 @@ export interface NotifyInput {
   /** Also ring the user's subscribed devices (Web Push). */
   push?: boolean;
   email?: boolean;
+  /** Stable machine-readable category, independent of localized text. */
+  eventType?: string;
 }
 
 /** Persist the in-app notice first; an SMS failure never drops the notice. */
 export async function notifyUser(userId: string, input: NotifyInput): Promise<void> {
   const notificationId = id('ntf');
-  const params = [notificationId, userId, input.title, input.body ?? null, input.kind ?? 'info', input.link ?? null, nowIso(), input.idempotencyKey ?? null];
+  const params = [notificationId, userId, input.title, input.body ?? null, input.kind ?? 'info', input.link ?? null, nowIso(), input.idempotencyKey ?? null, input.eventType ?? null];
   const inserted = input.idempotencyKey
     ? await run(
-      `INSERT INTO notifications (id, user_id, title, body, kind, link, created_at, dedupe_key)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?) ON CONFLICT(dedupe_key) DO NOTHING`, params,
+      `INSERT INTO notifications (id, user_id, title, body, kind, link, created_at, dedupe_key, event_type)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?) ON CONFLICT(dedupe_key) DO NOTHING`, params,
     )
     : await run(
-      `INSERT INTO notifications (id, user_id, title, body, kind, link, created_at, dedupe_key)
-       VALUES (?, ?, ?, ?, ?, ?, ?, NULL)`, params.slice(0, 7),
+      `INSERT INTO notifications (id, user_id, title, body, kind, link, created_at, dedupe_key, event_type)
+       VALUES (?, ?, ?, ?, ?, ?, ?, NULL, ?)`, [...params.slice(0, 7), input.eventType ?? null],
     );
   if (!inserted.changes) return;
 
@@ -59,6 +61,23 @@ export async function notifyUser(userId: string, input: NotifyInput): Promise<vo
   }
 }
 
+/** Atomic, idempotent approval aggregation per customer and request. */
+export async function notifyDocumentApproval(userId: string, requestId: string, trackingCode: string, eventId: string): Promise<void> {
+  const key = `document-approvals:${userId}:${requestId}`;
+  await tx(async (db) => {
+    const now = nowIso();
+    const recorded = await db.run(`INSERT INTO notification_aggregation_events (event_id, notification_key, created_at)
+      VALUES (?, ?, ?) ON CONFLICT(event_id) DO NOTHING`, [eventId, key, now]);
+    if (!recorded.changes) return;
+    await db.run(`INSERT INTO notifications (id, user_id, title, body, kind, link, created_at, dedupe_key, event_type, revision)
+      VALUES (?, ?, ?, ?, 'success', ?, ?, ?, 'document_approved', 1)
+      ON CONFLICT(dedupe_key) DO UPDATE SET
+        body = CAST(notifications.revision + 1 AS TEXT) || ' مدرک از پرونده ' || ? || ' تأیید شد.',
+        revision = notifications.revision + 1, created_at = excluded.created_at, read_at = NULL`,
+    [id('ntf'), userId, 'مدارک پرونده تأیید شد', `۱ مدرک از پرونده ${trackingCode} تأیید شد.`, `/app/requests/${requestId}`, now, key, trackingCode]);
+  });
+}
+
 export async function notifyRole(roleCodes: string[], input: NotifyInput): Promise<void> {
   const placeholders = roleCodes.map(() => '?').join(',');
   const users = await q<{ id: string }>(
@@ -85,7 +104,7 @@ export async function listNotifications(userId: string, options: { unreadOnly?: 
     unread: Number(unread?.c ?? 0),
     items: rows.map((r) => ({
       id: r.id, title: r.title, body: r.body, kind: r.kind, link: r.link,
-      readAt: r.read_at, createdAt: r.created_at,
+      readAt: r.read_at, createdAt: r.created_at, eventType: r.event_type ?? null, revision: Number(r.revision ?? 1),
     })),
   };
 }

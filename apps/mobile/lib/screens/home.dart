@@ -379,7 +379,7 @@ class _HomeTabState extends State<HomeTab> {
         separatorBuilder: (_, _) => const SizedBox(width: 9),
         itemBuilder: (context, index) {
           final category = _categories[index];
-          final art = artworkFor(explicitIcon: category.icon, title: category.title, slug: category.slug);
+          final art = artworkForCategory(category);
           return SizedBox(width: 105, child: SoftCard(
             padding: const EdgeInsets.all(9),
             onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => ServicesCatalogTab(initialCategorySlug: category.slug, showBack: true))),

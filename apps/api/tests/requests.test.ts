@@ -461,6 +461,11 @@ describe('request lifecycle', () => {
     const approvedFront = await request(server).post(`/api/requests/${requestId}/documents/${front.id}/review`)
       .set('Cookie', admin.cookie).send({ decision: 'approved', note: 'هر دو سمت بررسی شد.' }).expect(200);
     expect(approvedFront.body.data.documents.find((document: any) => document.id === front.id).reviewHistory).toHaveLength(1);
+    const firstNotes = await request(server).get('/api/customers/me/notifications?limit=100').set('Cookie', customer.cookie).expect(200);
+    const approvalNotice = firstNotes.body.data.find((note: any) => note.eventType === 'document_approved' && note.link === `/app/requests/${requestId}`);
+    expect(approvalNotice).toMatchObject({ revision: 1, readAt: null });
+    await request(server).post('/api/customers/me/notifications/read').set('Cookie', customer.cookie).send({ id: approvalNotice.id }).expect(200);
+
     const blockedEarly = await request(server).patch(`/api/requests/${requestId}/status`).set('Cookie', admin.cookie).send({ status: 'ready' });
     expect(blockedEarly.status).toBe(409);
     expect(blockedEarly.body.error.message).toContain('مدارک');
@@ -483,6 +488,13 @@ describe('request lifecycle', () => {
     await request(server).patch(`/api/requests/${requestId}/status`).set('Cookie', admin.cookie).send({ status: 'ready' }).expect(409);
     await request(server).post(`/api/requests/${requestId}/documents/${replacement.id}/review`)
       .set('Cookie', admin.cookie).send({ decision: 'approved', note: 'نسخه جایگزین بررسی شد.' }).expect(200);
+
+    const finalNotes = await request(server).get('/api/customers/me/notifications?limit=100').set('Cookie', customer.cookie).expect(200);
+    const approvals = finalNotes.body.data.filter((note: any) => note.eventType === 'document_approved' && note.link === `/app/requests/${requestId}`);
+    expect(approvals).toHaveLength(1);
+    expect(approvals[0]).toMatchObject({ id: approvalNotice.id, revision: 2, readAt: null });
+    expect(approvals[0].body).toContain('2 مدرک');
+    expect(finalNotes.body.data.filter((note: any) => note.eventType === 'document_rejected' && note.link === `/app/requests/${requestId}`)).toHaveLength(1);
 
     customerView = await request(server).get(`/api/requests/${requestId}`).set('Cookie', customer.cookie).expect(200);
     expect(customerView.body.data.documents.find((document: any) => document.id === back.id).status).toBe('rejected');
