@@ -46,7 +46,7 @@ class CategoryArtImage extends StatelessWidget {
     final url = categoryRemoteImage(category);
     if (url.isEmpty) return fallback();
     return CachedNetworkImage(
-      imageUrl: api.absolute(url), httpHeaders: api.authHeaders(url), fit: BoxFit.cover,
+      imageUrl: ApiClient.instance.absolute(url), httpHeaders: ApiClient.instance.authHeaders(url), fit: BoxFit.cover,
       placeholder: (_, _) => fallback(), errorWidget: (_, _, _) => fallback(),
     );
   }
