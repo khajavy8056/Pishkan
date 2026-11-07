@@ -131,7 +131,7 @@ class _ServicesCatalogTabState extends State<ServicesCatalogTab> {
               child: ClipRRect(
                 borderRadius: BorderRadius.circular(20),
                 child: Stack(fit: StackFit.expand, children: [
-                  if (category.image.isNotEmpty)
+                  if (category.image.isNotEmpty && !category.image.toLowerCase().split('?').first.endsWith('.svg'))
                     AuthImage(url: category.image)
                   else if (art.imageUrl.isNotEmpty)
                     AuthImage(url: art.imageUrl)

@@ -280,6 +280,7 @@ class RequestDocument {
         status = _str(json['status']),
         reviewNote = _str(json['reviewNote']),
         requirementKey = _str(json['requirementKey']),
+        replacesDocumentId = _str(json['replacesDocumentId']),
         file = _map(json['file']);
 
   final String id;
@@ -288,6 +289,7 @@ class RequestDocument {
   final String status;
   final String reviewNote;
   final String requirementKey;
+  final String replacesDocumentId;
   final Map<String, dynamic> file;
 
   String get fileId => _str(file['id']);

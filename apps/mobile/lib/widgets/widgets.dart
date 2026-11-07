@@ -541,37 +541,12 @@ class StageTimeline extends StatelessWidget {
 bool shouldScreenDocumentPhoto(String title, {String type = ''}) =>
     type != 'personal_photo' && !title.contains('عکس پرسنلی') && !title.contains('عکس شخصی');
 
-/// Explicit consent and a user-selected type; storing the file does not imply
-/// approval. A failure here must not undo the already uploaded request file.
-Future<void> offerSaveProfileDocument(BuildContext context, String fileId, String title) async {
-  final save = await confirmDialog(context, 'ذخیره در مدارک پروفایل؟',
-      'می‌خواهید این مدرک برای استفاده بعدی در پروفایل شما ذخیره شود؟ مدرک تا بررسی کارشناس تأییدشده نیست.', confirmLabel: 'انتخاب نوع و ذخیره');
-  if (!save || !context.mounted) return;
+/// Store only an explicitly mapped profile document; never guess from a title.
+Future<void> saveMappedProfileDocument(BuildContext context, String fileId, String title, String documentType) async {
+  if (documentType.isEmpty || documentType == 'other') return;
   try {
-    final result = await fetchMyDocuments();
-    if (!context.mounted) return;
-    final types = asMapList(result['types']);
-    if (types.isEmpty) {
-      showSnack(context, 'نوع مدرک برای ذخیره در پروفایل موجود نیست.', error: true);
-      return;
-    }
-    final type = await showModalBottomSheet<String>(
-      context: context,
-      isScrollControlled: true,
-      builder: (ctx) => SafeArea(child: SizedBox(
-        height: MediaQuery.sizeOf(ctx).height * .65,
-        child: Column(children: [
-          const Padding(padding: EdgeInsets.all(16), child: Text('نوع مدرک را انتخاب کنید', style: TextStyle(fontWeight: FontWeight.w800))),
-          Expanded(child: ListView(children: [
-            for (final item in types)
-              ListTile(title: Text(asStr(item['label'])), onTap: () => Navigator.pop(ctx, asStr(item['code']))),
-          ])),
-        ]),
-      )),
-    );
-    if (type == null || type.isEmpty || !context.mounted) return;
-    await api.postData('/api/documents/mine', body: {'fileId': fileId, 'docType': type, 'title': title});
-    if (context.mounted) showSnack(context, 'مدرک در پروفایل ذخیره شد و در انتظار بررسی است.');
+    await api.postData('/api/documents/mine', body: {'fileId': fileId, 'docType': documentType, 'title': title});
+    if (context.mounted) showSnack(context, 'مدرک در پروفایل ثبت شد و در انتظار تأیید است.');
   } catch (_) {
     if (context.mounted) showSnack(context, 'ذخیره در پروفایل انجام نشد؛ فایل درخواست همچنان موجود است.', error: true);
   }

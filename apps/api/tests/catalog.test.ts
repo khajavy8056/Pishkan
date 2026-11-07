@@ -13,6 +13,17 @@ describe('service catalogue', () => {
     expect(services.body.meta.total).toBe(193);
   });
 
+  it('serves distinct individual default art and preserves admin custom artwork', async () => {
+    const server = await app();
+    const slugs = ['social-security-receipt', 'fuel-card-registration', 'marriage-loan-registration'];
+    const images = await Promise.all(slugs.map(async slug => (await request(server).get(`/api/public/services/${slug}`).expect(200)).body.data.image));
+    expect(new Set(images).size).toBe(3);
+    expect(images.every(image => image.startsWith('/images/services/individual/') && image.endsWith('.webp'))).toBe(true);
+    const { resolveServiceArtwork } = await import('../src/modules/catalog/default-artwork.js');
+    expect(resolveServiceArtwork(slugs[0], '/uploads/public/admin.webp')).toBe('/uploads/public/admin.webp');
+    expect(resolveServiceArtwork(slugs[0], '/images/services/insurance.png')).toBe(images[0]);
+  });
+
   it('includes a dynamic form, documents and workflow for each service', async () => {
     const server = await app();
     const res = await request(server).get('/api/public/services?pageSize=5');

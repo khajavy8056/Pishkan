@@ -1,3 +1,4 @@
+import { INDIVIDUAL_SERVICE_ARTWORK } from './default-artwork.js';
 import { one, q, run, nowIso, jsonStringify, jsonParse } from '../../db/index.js';
 import { id, hashPassword, verifyPassword } from '../../lib/crypto.js';
 import { DEFAULT_ROLES, allPermissions } from '../../lib/permissions.js';
@@ -79,7 +80,7 @@ export async function seedCatalog(log: (m: string) => void = () => undefined) {
        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?, ?, ?, ?, ?, 1, 1, 0, ?, 1, ?, ?, ?)`,
       [
         id('svc'), categoryId, svc.slug, svc.title, svc.summary, svc.description, DEFAULT_SERVICE_ICONS[svc.slug] ?? svc.icon,
-        SEED_CATEGORIES.find((category) => category.slug === svc.category)?.image?.replace('/images/categories/', '/images/services/').replace(/\.svg$/, '.png') ?? null,
+        INDIVIDUAL_SERVICE_ARTWORK[svc.slug]?.image ?? SEED_CATEGORIES.find((category) => category.slug === svc.category)?.image?.replace('/images/categories/', '/images/services/').replace(/\.svg$/, '.png') ?? null,
         jsonStringify(svc.form), jsonStringify(svc.documents), jsonStringify(svc.workflow),
         svc.baseFee, svc.estimatedDays, svc.estimatedDays * 1440, jsonStringify(svc.paymentMethods ?? ['online', 'wallet']),
         jsonStringify(svc.tags), searchText,

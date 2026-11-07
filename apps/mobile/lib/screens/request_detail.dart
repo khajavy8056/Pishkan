@@ -89,13 +89,13 @@ class _RequestDetailScreenState extends State<RequestDetailScreen> with WidgetsB
     });
   }
 
-  Future<void> _uploadForRequirement(String requirementKey, String title) async {
+  Future<void> _uploadForRequirement(DocumentRequirement requirement) async {
     final file = await pickDocumentFile(context);
     if (file == null) return;
     await _guard(() async {
-      final fileId = await uploadOne(file, documentQuality: shouldScreenDocumentPhoto(title));
-      await addRequestDocument(widget.requestId, fileId: fileId, title: title, requirementKey: requirementKey);
-      if (mounted) await offerSaveProfileDocument(context, fileId, title);
+      final fileId = await uploadOne(file, documentQuality: shouldScreenDocumentPhoto(requirement.title, type: requirement.documentType));
+      await addRequestDocument(widget.requestId, fileId: fileId, title: requirement.title, requirementKey: requirement.key);
+      if (mounted) await saveMappedProfileDocument(context, fileId, requirement.title, requirement.documentType);
     }, success: 'مدرک ارسال شد.');
   }
 
@@ -105,8 +105,8 @@ class _RequestDetailScreenState extends State<RequestDetailScreen> with WidgetsB
       final items = (docs['items'] as List).cast<Map<String, dynamic>>();
       final matching = items.where((doc) {
         final type = asStr(doc['docType']).isEmpty ? asStr(doc['type']) : asStr(doc['docType']);
-        final statusOk = ['approved', 'verified', ''].contains(asStr(doc['status']));
-        return (requirement.documentType.isEmpty || type == requirement.documentType) && statusOk;
+        final statusOk = asStr(doc['status']) == 'approved' && asStr(doc['validity']) != 'expired';
+        return requirement.documentType.isNotEmpty && requirement.documentType != 'other' && type == requirement.documentType && statusOk;
       }).toList();
       if (!mounted) return;
       if (matching.isEmpty) {
@@ -129,7 +129,9 @@ class _RequestDetailScreenState extends State<RequestDetailScreen> with WidgetsB
           ]),
         ),
       );
-      if (chosen == null) return;
+      if (chosen == null || !mounted) return;
+      final confirmed = await confirmDialog(context, 'استفاده از مدرک پروفایل؟', 'مدرک تأییدشده به این پرونده پیوست می‌شود و نیاز به تأیید مجدد ندارد.', confirmLabel: 'تأیید و استفاده');
+      if (!confirmed) return;
       await reuseProfileDocument(widget.requestId, customerDocumentId: asStr(chosen['id']), requirementKey: requirement.key);
       if (mounted) showSnack(context, 'مدرک پروفایل به پرونده پیوست شد.');
     });
@@ -379,13 +381,15 @@ class _RequestDetailScreenState extends State<RequestDetailScreen> with WidgetsB
   }
 
   Widget _requirementBlock(DocumentRequirement requirement, List<RequestDocument> docs) {
-    final rejected = docs.where((d) => d.status == 'rejected').toList();
-    final needsUpload = docs.isEmpty || rejected.isNotEmpty;
+    final replacedIds = docs.map((d) => d.replacesDocumentId).where((id) => id.isNotEmpty).toSet();
+    final active = docs.where((d) => !replacedIds.contains(d.id)).toList();
+    final rejected = active.where((d) => d.status == 'rejected').toList();
+    final needsUpload = active.isEmpty || rejected.isNotEmpty;
     return Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
       Row(children: [
         Expanded(child: Text(requirement.title, style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 13.5))),
         StatusChip(
-          label: docs.isEmpty ? (requirement.required ? 'ارسال نشده' : 'اختیاری') : rejected.isNotEmpty ? 'نیازمند اصلاح' : 'ارسال شده',
+          label: active.isEmpty ? (requirement.required ? 'ارسال نشده' : 'اختیاری') : rejected.isNotEmpty ? 'نیازمند اصلاح' : active.any((d) => d.status == 'pending') ? 'در انتظار بررسی' : 'تأیید شده',
           status: docs.isEmpty ? 'unpaid' : rejected.isNotEmpty ? 'rejected' : 'approved',
         ),
       ]),
@@ -396,7 +400,7 @@ class _RequestDetailScreenState extends State<RequestDetailScreen> with WidgetsB
         Row(children: [
           Expanded(
             child: OutlinedButton.icon(
-              onPressed: _busy ? null : () => _uploadForRequirement(requirement.key, requirement.title),
+              onPressed: _busy ? null : () => _uploadForRequirement(requirement),
               icon: const Icon(Icons.cloud_upload_outlined),
               label: Text(rejected.isNotEmpty ? 'بارگذاری جایگزین' : 'بارگذاری مدرک'),
             ),

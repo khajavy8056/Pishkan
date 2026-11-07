@@ -15,7 +15,7 @@ import { faNum, rial } from '../../lib/format';
 import { useAuth } from '../../lib/auth';
 import { formatDuration, STEP_KIND_LABELS, type FormField, type WorkflowStep, type WorkflowStepKind } from '../../lib/site';
 
-interface DocItem { key: string; title: string; required: boolean; note?: string }
+interface DocItem { key: string; title: string; required: boolean; note?: string; documentType?: string }
 
 const DURATION_UNITS = [
   { value: 'minute', label: 'دقیقه', factor: 1 },
@@ -485,6 +485,15 @@ export function AdminServiceEditor() {
                         <Trash2 className="size-3.5" />
                       </Button>
                     </div>
+                    <Field label="نوع مدرک متعلق به خود مشتری برای استفاده از پروفایل" hint="فقط وقتی این مدرک دقیقاً متعلق به خود مشتری است انتخاب کنید؛ برای شخص دیگر یا فایل موقت خالی بگذارید.">
+                      <select className="w-full rounded-xl border border-slate-300 bg-white px-3 py-2 text-sm" value={doc.documentType ?? ''} onChange={(e) => updateDoc(index, { documentType: e.target.value || undefined })}>
+                        <option value="">غیرفعال / مدرک پرونده‌ای</option>
+                        <option value="national_card">کارت ملی</option><option value="birth_certificate">شناسنامه</option>
+                        <option value="passport">گذرنامه</option><option value="residence_permit">مجوز اقامت</option>
+                        <option value="insurance_card">کارت بیمه</option><option value="business_license">پروانه کسب</option>
+                        <option value="utility_bill">قبض نشانی</option><option value="personal_photo">عکس پرسنلی</option><option value="bank_card">کارت بانکی</option>
+                      </select>
+                    </Field>
                     <Input value={doc.note ?? ''} onChange={(e) => updateDoc(index, { note: e.target.value })} placeholder="توضیح برای مشتری (اختیاری)" />
                   </div>
                 ))}

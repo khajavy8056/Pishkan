@@ -301,8 +301,7 @@ export async function reuseDocumentInRequest(input: {
   title?: string;
   actor: { id: string; name: string };
 }): Promise<ReuseResult> {
-  const config = await loadMediaConfig();
-  if (config.requireReuseConfirmation && !input.confirm) {
+  if (!input.confirm) {
     throw badRequest('برای استفاده دوباره از مدرک، تأیید صریح مشتری لازم است.');
   }
 
@@ -316,7 +315,7 @@ export async function reuseDocumentInRequest(input: {
     if (doc.customer_id !== input.customerId) throw forbidden('این مدرک به حساب شما تعلق ندارد.');
     if (doc.status === 'rejected') throw conflict('این مدرک رد شده است و باید مدرک جدید بارگذاری شود.');
     if (doc.status !== 'approved') throw conflict('این مدرک هنوز تأیید نشده است و نمی‌توان آن را در پرونده استفاده کرد.');
-    if (validityState(doc.expires_at) === 'expired') {
+    if (doc.expires_at && (Number.isNaN(Date.parse(doc.expires_at)) || validityState(doc.expires_at) === 'expired')) {
       throw conflict('اعتبار این مدرک به پایان رسیده است؛ لطفاً مدرک تازه بارگذاری کنید.');
     }
 
@@ -340,6 +339,13 @@ export async function reuseDocumentInRequest(input: {
     if (input.requirementKey && !validRequirementKeys.has(input.requirementKey)) throw badRequest('شناسه مدرک با فرم زمان ثبت درخواست سازگار نیست.');
     const selectedRequirement = serviceDocuments.find((document: any, index: number) => String(document?.key || `document_${index + 1}`) === input.requirementKey);
     const selectedFileField = fileFields.find((field: any) => `field:${String(field.key)}` === input.requirementKey);
+    if (!selectedRequirement?.documentType || selectedRequirement.documentType !== doc.doc_type || doc.doc_type === 'other') {
+      throw badRequest('نوع این مدرک پروفایل برای نیازمندی انتخاب‌شده توسط مدیر تعریف نشده یا سازگار نیست.');
+    }
+    const file = await getFile(doc.file_id);
+    if (!file || file.owner_id !== input.customerId || file.is_public || (!file.mime.startsWith('image/') && file.mime !== 'application/pdf')) {
+      throw conflict('فایل مدرک پروفایل معتبر یا در دسترس نیست.');
+    }
     const title = selectedRequirement?.title ?? selectedFileField?.label ?? (input.title?.trim() || doc.title || documentTypeLabel(doc.doc_type));
 
     const duplicate = await db.one<any>(
@@ -361,10 +367,9 @@ export async function reuseDocumentInRequest(input: {
 
     const requestDocumentId = id('doc');
     const now = nowIso();
-    const nextStatus = 'under_review';
     await db.run(
       `INSERT INTO request_documents (id, request_id, file_id, title, kind, status, created_at, customer_document_id, document_type, expires_at, requirement_key, replaces_document_id)
-       VALUES (?, ?, ?, ?, 'customer', 'pending', ?, ?, ?, ?, ?, ?)`,
+       VALUES (?, ?, ?, ?, 'customer', 'approved', ?, ?, ?, ?, ?, ?)`,
       [requestDocumentId, input.requestId, doc.file_id, title, now, doc.id, doc.doc_type, doc.expires_at, input.requirementKey ?? null, replacesDocumentId],
     );
     await db.run(
@@ -374,16 +379,10 @@ export async function reuseDocumentInRequest(input: {
         `مدرک «${title}» از مدارک پروفایل با تأیید مشتری به پرونده پیوست شد.`,
         JSON.stringify({ fileId: doc.file_id, customerDocumentId: doc.id, requirementKey: input.requirementKey ?? null, replacesDocumentId }), now],
     );
-    // deriveBucket maps under_review to waiting_organization unconditionally;
-    // keep the denormalised bucket in step without importing the requests module.
-    await db.run("UPDATE requests SET status = ?, work_bucket = 'waiting_organization', updated_at = ? WHERE id = ?", [nextStatus, now, input.requestId]);
-    if (nextStatus !== currentRequest.status) {
-      await db.run(
-        `INSERT INTO request_events (id, request_id, actor_id, actor_name, type, message, from_status, to_status, visible_to_customer, created_at)
-         VALUES (?, ?, ?, ?, 'status', ?, ?, ?, 1, ?)`,
-        [id('evt'), input.requestId, input.actor.id, input.actor.name, 'مدرک جدید برای بررسی ارسال شد؛ پرونده دوباره در صف بازبینی قرار گرفت.', currentRequest.status, nextStatus, now],
-      );
-    }
+    // Reconcile only an already waiting/reviewing case; never send an approved
+    // archive document back for review or reset an unrelated workflow stage.
+    const { reconcileAfterDocumentReview } = await import('../requests/service.js');
+    await reconcileAfterDocumentReview(input.requestId, input.actor);
     await db.run('UPDATE customer_documents SET request_id = COALESCE(request_id, ?), updated_at = ? WHERE id = ?', [input.requestId, now, doc.id]);
     await writeAudit({
       actorId: input.actor.id, actorName: input.actor.name, action: 'customer_document.reuse',

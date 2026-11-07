@@ -9,7 +9,7 @@ import {
 import { DocumentViewer, FileSummary, FileThumbnail, bytes, type MediaFile } from '../../components/documents';
 import { api, ApiFailure } from '../../lib/api';
 import { faDate, faNum } from '../../lib/format';
-import { availableRequestDocumentRequirements, defaultRequestDocumentRequirementKey, requestDocumentRequirements } from '../../lib/request-documents';
+import { availableRequestDocumentRequirements, requestDocumentRequirements } from '../../lib/request-documents';
 
 interface CustomerDocument {
   id: string;
@@ -145,7 +145,7 @@ export function CustomerDocuments() {
       const result = await api.get<{ data: any }>(`/api/requests/${requestId}`);
       if (reuseRequestLoadId.current !== requestId) return;
       setReuseRequest(result.data);
-      setReuseRequirementKey(defaultRequestDocumentRequirementKey(result.data));
+      setReuseRequirementKey(availableRequestDocumentRequirements(result.data).find(item => item.documentType && item.documentType === reuse?.docType)?.key ?? '');
     } catch (err) {
       if (reuseRequestLoadId.current === requestId) notify(err instanceof ApiFailure ? err.message : 'خطا در دریافت الزامات پرونده', 'error');
     } finally {
@@ -156,7 +156,7 @@ export function CustomerDocuments() {
   const submitReuse = async () => {
     if (!reuse) return;
     if (!reuseRequestId || !reuseRequest) { notify('پرونده مقصد را انتخاب کنید.', 'error'); return; }
-    if (requestDocumentRequirements(reuseRequest).length && !availableRequestDocumentRequirements(reuseRequest).some((item) => item.key === reuseRequirementKey)) {
+    if (!availableRequestDocumentRequirements(reuseRequest).some((item) => item.key === reuseRequirementKey && item.documentType && item.documentType === reuse.docType)) {
       notify('نیازمندی‌ای که برای این مدرک انتخاب شده دیگر قابل پیوست نیست.', 'error'); return;
     }
     if (!reuseConfirm) { notify('تأیید استفاده دوباره از مدرک الزامی است.', 'error'); return; }
@@ -182,7 +182,7 @@ export function CustomerDocuments() {
     pending: documents.filter((document) => document.status === 'pending').length,
   }), [documents]);
   const reuseRequirements = requestDocumentRequirements(reuseRequest);
-  const availableReuseRequirements = availableRequestDocumentRequirements(reuseRequest);
+  const availableReuseRequirements = availableRequestDocumentRequirements(reuseRequest).filter(item => item.documentType && item.documentType === reuse?.docType);
 
   return (
     <AppShell variant="customer">
@@ -359,7 +359,7 @@ export function CustomerDocuments() {
           <div className="flex gap-2">
             <Button variant="ghost" onClick={() => setReuse(null)}>انصراف</Button>
             <Button loading={busy} onClick={submitReuse}
-              disabled={!reuseRequestId || !reuseRequest || reuseRequestLoading || !reuseConfirm || (reuseRequirements.length > 0 && !availableReuseRequirements.some((item) => item.key === reuseRequirementKey))}>
+              disabled={!reuseRequestId || !reuseRequest || reuseRequestLoading || !reuseConfirm || reuse?.status !== 'approved' || !availableReuseRequirements.some((item) => item.key === reuseRequirementKey)}>
               پیوست به پرونده
             </Button>
           </div>

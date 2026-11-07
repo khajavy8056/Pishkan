@@ -4,6 +4,8 @@ import { normalizePersian, scoreDocument, slugify } from '../../lib/text.js';
 import { badRequest, conflict, notFound } from '../../http/errors.js';
 import { getBool, getString } from '../settings/service.js';
 import { writeAudit } from '../audit/service.js';
+import { resolveServiceArtwork } from './default-artwork.js';
+import { DOCUMENT_TYPES } from '../documents/service.js';
 import type { FormField, WorkflowStep } from './seed-data.js';
 
 export interface ServiceRow {
@@ -42,6 +44,7 @@ export interface ServiceDocumentRequirement {
   title: string;
   required: boolean;
   note?: string;
+  documentType?: string;
 }
 
 /** A known-in-advance organization fee shown separately from our own fee. */
@@ -92,6 +95,7 @@ function normalizedDocuments(value: unknown): ServiceDocumentRequirement[] {
     title: String(item?.title ?? ''),
     required: Boolean(item?.required),
     ...(item?.note ? { note: String(item.note) } : {}),
+    ...(typeof item?.documentType === 'string' && item.documentType !== 'other' && DOCUMENT_TYPES.some(type => type.code === item.documentType) ? { documentType: item.documentType } : {}),
   }));
 }
 
@@ -153,7 +157,7 @@ export function mapService(row: ServiceRow & { category_title?: string | null; c
     title: row.title,
     summary: row.summary ?? '',
     description: row.description ?? '',
-    image: row.image,
+    image: resolveServiceArtwork(row.slug, row.image),
     icon: row.icon,
     categoryId: row.category_id,
     categoryTitle: row.category_title ?? null,
@@ -430,13 +434,15 @@ function validateDocuments(docs: unknown): ServiceDocumentRequirement[] {
   if (!Array.isArray(docs)) throw badRequest('فهرست مدارک باید آرایه باشد.');
   const seen = new Set<string>();
   return docs.map((raw, i) => {
-    const doc = raw as { key?: string; title?: string; required?: boolean; note?: string };
+    const doc = raw as { key?: string; title?: string; required?: boolean; note?: string; documentType?: string };
     if (!doc?.title || String(doc.title).trim().length < 2) throw badRequest(`عنوان مدرک ${i + 1} الزامی است.`);
     const key = String(doc.key ?? `document_${i + 1}`).trim();
     if (!/^[a-zA-Z][a-zA-Z0-9_]{1,40}$/.test(key)) throw badRequest(`شناسه مدرک شماره ${i + 1} نامعتبر است.`);
     if (seen.has(key)) throw badRequest(`شناسه مدرک «${key}» تکراری است.`);
     seen.add(key);
-    return { key, title: String(doc.title).trim(), required: Boolean(doc.required), note: doc.note ? String(doc.note).trim().slice(0, 300) : undefined };
+    const documentType = doc.documentType || undefined;
+    if (documentType && (documentType === 'other' || !DOCUMENT_TYPES.some(type => type.code === documentType))) throw badRequest(`نوع مدرک پروفایل شماره ${i + 1} نامعتبر است.`);
+    return { key, title: String(doc.title).trim(), required: Boolean(doc.required), note: doc.note ? String(doc.note).trim().slice(0, 300) : undefined, ...(documentType ? { documentType } : {}) };
   });
 }
 

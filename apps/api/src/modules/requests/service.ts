@@ -10,6 +10,7 @@ import { writeAudit } from '../audit/service.js';
 import { assertWalletUsable } from '../wallet/service.js';
 import { settleInvoiceWithWallet } from '../payments/service.js';
 import { logEvent } from '../logging/service.js';
+import { reuseDocumentInRequest, reviewCustomerDocument } from '../documents/service.js';
 import { toPersianDigits } from '../../lib/text.js';
 
 import { requireCompleteProfile, requireCoverage, validNationalId } from '../profiles/service.js';
@@ -429,7 +430,7 @@ export interface CreateRequestInput {
   paymentMethod?: string;
   priority?: string;
   note?: string;
-  documentIds?: { fileId: string; title?: string; requirementKey?: string }[];
+  documentIds?: { fileId?: string; customerDocumentId?: string; confirmReuse?: boolean; title?: string; requirementKey?: string }[];
   existingInvoiceId?: string;
   idempotencyKey?: string;
   discountCode?: string;
@@ -444,7 +445,7 @@ function canonicalJson(value: unknown): string {
   return JSON.stringify(value) ?? 'null';
 }
 
-type RequestDocumentAttachment = { fileId: string; title: string; requirementKey: string | null };
+type RequestDocumentAttachment = { fileId?: string; customerDocumentId?: string; confirmReuse?: boolean; title: string; requirementKey: string | null };
 
 function documentAttachmentsForSubmission(
   service: ServiceDTO,
@@ -459,13 +460,15 @@ function documentAttachmentsForSubmission(
   const seenFiles = new Set<string>();
 
   for (const document of submitted ?? []) {
+    if (Boolean(document.fileId) === Boolean(document.customerDocumentId)) { errors.push({ field: 'documents', message: 'یک فایل یا مدرک پروفایل انتخاب کنید.' }); continue; }
+    const identity = document.fileId ?? `profile:${document.customerDocumentId}`;
     const key = document.requirementKey?.trim();
     if (!key) {
       if (requirements.length) errors.push({ field: 'documents', message: 'برای هر مدرک، شناسهٔ مدرک موردنیاز را انتخاب کنید.' });
       else {
-        if (seenFiles.has(document.fileId)) errors.push({ field: 'documents', message: 'یک فایل را نمی‌توان بیش از یک‌بار پیوست کرد.' });
-        seenFiles.add(document.fileId);
-        attachments.push({ fileId: document.fileId, title: document.title?.trim() || 'مدرک تکمیلی', requirementKey: null });
+        if (seenFiles.has(identity)) errors.push({ field: 'documents', message: 'یک فایل را نمی‌توان بیش از یک‌بار پیوست کرد.' });
+        seenFiles.add(identity);
+        attachments.push({ fileId: document.fileId, customerDocumentId: document.customerDocumentId, confirmReuse: document.confirmReuse, title: document.title?.trim() || 'مدرک تکمیلی', requirementKey: null });
       }
       continue;
     }
@@ -475,10 +478,10 @@ function documentAttachmentsForSubmission(
       continue;
     }
     if (seenKeys.has(key)) errors.push({ field: `documents.${key}`, message: `مدرک «${requirement.title}» بیش از یک‌بار انتخاب شده است.` });
-    if (seenFiles.has(document.fileId)) errors.push({ field: `documents.${key}`, message: 'یک فایل را نمی‌توان برای چند مدرک استفاده کرد.' });
+    if (seenFiles.has(identity)) errors.push({ field: `documents.${key}`, message: 'یک فایل را نمی‌توان برای چند مدرک استفاده کرد.' });
     seenKeys.add(key);
-    seenFiles.add(document.fileId);
-    attachments.push({ fileId: document.fileId, title: requirement.title, requirementKey: key });
+    seenFiles.add(identity);
+    attachments.push({ fileId: document.fileId, customerDocumentId: document.customerDocumentId, confirmReuse: document.confirmReuse, title: requirement.title, requirementKey: key });
   }
 
   for (const requirement of requirements) {
@@ -502,6 +505,7 @@ function documentAttachmentsForSubmission(
 
 async function assertCustomerDocumentFiles(attachments: RequestDocumentAttachment[], customerId: string) {
   for (const [index, attachment] of attachments.entries()) {
+    if (attachment.customerDocumentId) continue; // validated under lock when linked inside the request transaction
     const file = await one<any>('SELECT id, owner_id, mime, is_public FROM files WHERE id = ?', [attachment.fileId]);
     const field = attachment.requirementKey?.startsWith('field:')
       ? attachment.requirementKey.slice('field:'.length)
@@ -748,10 +752,15 @@ export async function createRequest(input: CreateRequestInput, actor?: { id: str
   });
 
   await run('UPDATE requests SET urgent_fee=? WHERE id=?',[urgentFee,requestId]);
-  for (const document of documentAttachments) {
-    await attachDocument(requestId, document.fileId, document.title,
+  for (const document of documentAttachments.filter(item => !item.customerDocumentId)) {
+    await attachDocument(requestId, document.fileId!, document.title,
       { id: actor?.id ?? input.customerId, name: actor?.name ?? customer.full_name }, 'customer',
       { ownerId: input.customerId, requirementKey: document.requirementKey });
+  }
+  for (const document of documentAttachments.filter(item => item.customerDocumentId)) {
+    await reuseDocumentInRequest({ documentId: document.customerDocumentId!, requestId, customerId: input.customerId,
+      confirm: document.confirmReuse === true, requirementKey: document.requirementKey,
+      actor: { id: input.customerId, name: actor?.name ?? customer.full_name } });
   }
 
   const assignedTo = await autoAssign(requestId);
@@ -1381,6 +1390,17 @@ export async function reviewDocument(
     if (!changed.changes) throw conflict('این مدرک هم‌زمان توسط کاربر دیگری بررسی شد.');
     await run(`INSERT INTO document_reviews (id, request_document_id, customer_document_id, decision, note, reviewer_id, reviewer_name, created_at)
       VALUES (?, ?, NULL, ?, ?, ?, ?, ?)`, [id('drev'), documentId, decision, cleanNote, actor.id, actor.name, ts]);
+    // If this exact customer file was saved under the explicitly configured
+    // profile type, the expert's decision applies to that same copy as well.
+    if (doc.kind === 'customer' && doc.requirement_key && !doc.customer_document_id) {
+      const snapshot = jsonParse<any>(request.snapshot, {});
+      const requirement = (snapshot?.service?.documents ?? []).find((item: any) => item.key === doc.requirement_key);
+      if (requirement?.documentType && requirement.documentType !== 'other') {
+        const archive = await one<any>(`SELECT id FROM customer_documents WHERE customer_id=? AND file_id=? AND doc_type=? AND status='pending'`,
+          [request.customer_id, doc.file_id, requirement.documentType]);
+        if (archive) await reviewCustomerDocument(archive.id, decision, cleanNote ?? undefined, actor);
+      }
+    }
     const eventId = await addEvent({
       requestId: doc.request_id, type: 'document', actorId: actor.id, actorName: actor.name,
       message: decision === 'approved' ? 'مدرک تأیید شد.' : `مدرک رد شد: ${cleanNote}`,

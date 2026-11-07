@@ -543,7 +543,7 @@ export function CustomerRequestDetail() {
     setRequirementKey(defaultRequestDocumentRequirementKey(request));
     try {
       const res = await api.get<{ data: any[] }>('/api/documents/mine');
-      setProfileDocs(res.data.filter((doc) => doc.validity !== 'expired' && doc.status !== 'rejected'));
+      setProfileDocs(res.data.filter((doc) => doc.validity !== 'expired' && doc.status === 'approved'));
     } catch (err) {
       notify(err instanceof ApiFailure ? err.message : 'خطا در دریافت مدارک پروفایل', 'error');
       setProfileDocs([]);
@@ -555,6 +555,8 @@ export function CustomerRequestDetail() {
     if (requestDocumentRequirements(request).length && !availableRequestDocumentRequirements(request).some((item) => item.key === requirementKey)) {
       notify('نیازمندی‌ای که برای این مدرک انتخاب شده دیگر قابل پیوست نیست.', 'error'); return;
     }
+    const requirement = availableRequestDocumentRequirements(request).find((item) => item.key === requirementKey);
+    if (!requirement?.documentType || !profileDocs.some(doc => doc.id === reuseDocId && doc.docType === requirement.documentType)) { notify('مدرک انتخاب‌شده با نوع نیازمندی سازگار نیست.', 'error'); return; }
     if (!reuseConfirm) { notify('تأیید استفاده از مدرک الزامی است.', 'error'); return; }
     setUploading(true);
     try {
@@ -868,16 +870,16 @@ export function CustomerRequestDetail() {
             <Field label="مدرک موردنیاز پرونده" required>
               <Select
                 value={requirementKey}
-                onChange={(event) => setRequirementKey(event.target.value)}
+                onChange={(event) => { setRequirementKey(event.target.value); setReuseDocId(''); }}
                 options={[
                   { value: '', label: 'انتخاب مدرک موردنیاز' },
-                  ...availableDocumentRequirements.map((item) => ({ value: item.key, label: item.title })),
+                  ...availableDocumentRequirements.filter((item) => item.documentType).map((item) => ({ value: item.key, label: item.title })),
                 ]}
               />
               {availableDocumentRequirements.length === 0 && <p className="mt-1 text-[10px] text-navy-500">نیازمندی قابل پیوست جدیدی وجود ندارد.</p>}
             </Field>
           )}
-          {profileDocs.map((doc) => (
+          {profileDocs.filter((doc) => doc.docType === availableDocumentRequirements.find(item => item.key === requirementKey)?.documentType).map((doc) => (
             <label key={doc.id} className={clsx('flex cursor-pointer items-center gap-2 rounded-xl border p-2 text-xs',
               reuseDocId === doc.id ? 'border-brand-500 bg-brand-50/50' : 'border-navy-100')}>
               <input type="radio" name="profile-doc" className="size-4" checked={reuseDocId === doc.id}

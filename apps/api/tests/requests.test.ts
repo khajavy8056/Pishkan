@@ -556,14 +556,18 @@ describe('request lifecycle', () => {
     const server = await app();
     const serviceResponse = await request(server).post('/api/catalog/services').set('Cookie', admin.cookie).send({
       title: 'خدمت با استفاده دوباره از پروفایل', slug: 'profile-reuse-request-replacement', baseFee: 40000,
-      paymentMethods: ['online'], form: [], documents: [{ key: 'identity_front', title: 'مدرک هویتی', required: true }], workflow: [],
+      paymentMethods: ['online'], form: [], documents: [{ key: 'identity_front', title: 'مدرک هویتی', required: true, documentType: 'national_card' }], workflow: [],
     }).expect(201);
     const created = await request(server).post('/api/requests').set('Cookie', customer.cookie)
       .send(await requestInput(server, customer, serviceResponse.body.data, { paymentMethod: 'online' })).expect(201);
     const requestId = created.body.data.id;
     const rejected = created.body.data.documents.find((document: any) => document.requirementKey === 'identity_front');
+    const savedFirst = await request(server).post('/api/documents/mine').set('Cookie', customer.cookie)
+      .send({ fileId: rejected.file.id, docType: 'national_card' }).expect(201);
     await request(server).post(`/api/requests/${requestId}/documents/${rejected.id}/review`).set('Cookie', admin.cookie)
       .send({ decision: 'rejected', note: 'تصویر مدرک باید دوباره بررسی شود.' }).expect(200);
+    const archiveAfterReview = await request(server).get('/api/documents/mine').set('Cookie', customer.cookie).expect(200);
+    expect(archiveAfterReview.body.data.find((item: any) => item.id === savedFirst.body.data.id).status).toBe('rejected');
 
     const profileFile = await uploadRequestFixture(server, customer, 'approved-profile-identity', 'profile_document');
     const profileDocument = await request(server).post('/api/documents/mine').set('Cookie', customer.cookie)
@@ -583,11 +587,37 @@ describe('request lifecycle', () => {
     const replacement = requestAfterReuse.body.data.documents.find((document: any) => document.customerDocumentId === profileDocument.body.data.id);
     expect(replacement.requirementKey).toBe('identity_front');
     expect(replacement.replacesDocumentId).toBe(rejected.id);
+    expect(replacement.status).toBe('approved');
     await request(server).post(`/api/requests/${requestId}/documents/${replacement.id}/review`).set('Cookie', admin.cookie)
-      .send({ decision: 'approved', note: 'مدرک جایگزین تأیید شد.' }).expect(200);
+      .send({ decision: 'approved', note: 'تأیید تکراری' }).expect(409);
     expect((await request(server).get(`/api/requests/${requestId}`).set('Cookie', customer.cookie).expect(200)).body.data.status).toBe('in_progress');
     await request(server).patch(`/api/requests/${requestId}/status`).set('Cookie', admin.cookie).send({ status: 'ready' }).expect(200);
     await request(server).patch(`/api/requests/${requestId}/status`).set('Cookie', admin.cookie).send({ status: 'completed' }).expect(200);
+
+    const mismatchedService = await request(server).post('/api/catalog/services').set('Cookie', admin.cookie).send({
+      title: 'خدمت ناسازگار مدرک', baseFee: 0, form: [], workflow: [],
+      documents: [{ key: 'passport', title: 'گذرنامه', required: true, documentType: 'passport' }],
+    }).expect(201);
+    const mismatched = await request(server).post('/api/requests').set('Cookie', customer.cookie).send({
+      serviceId: mismatchedService.body.data.id, formData: {}, paymentMethod: 'online',
+      documentIds: [{ customerDocumentId: profileDocument.body.data.id, requirementKey: 'passport', confirmReuse: true }],
+    });
+    expect(mismatched.status).toBe(400);
+
+    const payload = { serviceId: serviceResponse.body.data.id, formData: {}, paymentMethod: 'online',
+      documentIds: [{ customerDocumentId: profileDocument.body.data.id, requirementKey: 'identity_front', confirmReuse: true }] };
+    const noConsent = await request(server).post('/api/requests').set('Cookie', customer.cookie)
+      .send({ ...payload, documentIds: [{ ...payload.documentIds[0], confirmReuse: false }] });
+    expect(noConsent.status).toBe(400);
+    const foreign = await request(server).post('/api/requests').set('Cookie', admin.cookie)
+      .send({ ...payload, customerId: profileDocument.body.data.customerId });
+    expect(foreign.status).toBe(403);
+    const fromArchive = await request(server).post('/api/requests').set('Cookie', customer.cookie)
+      .set('Idempotency-Key', 'profile-reuse-request-test-001').send(payload).expect(201);
+    expect(fromArchive.body.data.documents[0]).toMatchObject({ customerDocumentId: profileDocument.body.data.id, status: 'approved' });
+    const repeat = await request(server).post('/api/requests').set('Cookie', customer.cookie)
+      .set('Idempotency-Key', 'profile-reuse-request-test-001').send(payload).expect(201);
+    expect(repeat.body.data.id).toBe(fromArchive.body.data.id);
   });
 
   it('records free service as not-required without an invoice or paid status', async () => {

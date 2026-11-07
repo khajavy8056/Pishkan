@@ -86,6 +86,7 @@ const serviceSchema = z.object({
     title: z.string().min(2).max(200),
     required: z.boolean().default(false),
     note: z.string().max(300).optional(),
+    documentType: z.string().max(40).optional(),
   })).optional(),
   workflow: z.array(z.object({
     title: z.string().min(2).max(200),

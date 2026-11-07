@@ -31,7 +31,7 @@ class _RequestFormScreenState extends State<RequestFormScreen> {
 
   final _formKey = GlobalKey<DynamicFormState>();
   final Map<String, dynamic> _values = {};
-  final Map<String, ({String fileId, String name, bool checked})> _requirementFiles = {};
+  final Map<String, ({String fileId, String name, bool checked, String profileId})> _requirementFiles = {};
   final Map<String, String> _requirementErrors = {};
   final Set<String> _uploading = {};
   final _discountCode = TextEditingController();
@@ -46,6 +46,7 @@ class _RequestFormScreenState extends State<RequestFormScreen> {
   String? _quoteError;
   bool _submitting = false;
   bool _loadingAutofill = false;
+  List<Map<String, dynamic>> _profileDocs = [];
   String _createdRequestId = '';
   String _createdTrackingCode = '';
 
@@ -60,6 +61,40 @@ class _RequestFormScreenState extends State<RequestFormScreen> {
     super.initState();
     _paymentMethod = _allowedMethods.first;
     _refreshQuote();
+    _loadProfileDocs();
+  }
+
+  Future<void> _loadProfileDocs() async {
+    try {
+      final result = await fetchMyDocuments();
+      if (mounted) setState(() => _profileDocs = asMapList(result['items']));
+    } catch (_) { /* Upload remains available when the archive is offline. */ }
+  }
+
+  List<Map<String, dynamic>> _matchingDocs(DocumentRequirement requirement) => _profileDocs.where((doc) =>
+    requirement.documentType.isNotEmpty && requirement.documentType != 'other' &&
+    asStr(doc['docType']) == requirement.documentType && asStr(doc['status']) == 'approved' &&
+    asStr(doc['validity']) != 'expired').toList();
+
+  Future<void> _chooseProfileDoc(DocumentRequirement requirement) async {
+    final docs = _matchingDocs(requirement);
+    final selected = await showModalBottomSheet<Map<String, dynamic>>(
+      context: context, builder: (ctx) => SafeArea(child: Column(mainAxisSize: MainAxisSize.min, children: [
+        const Padding(padding: EdgeInsets.all(16), child: Text('انتخاب مدرک تأییدشده پروفایل', style: TextStyle(fontWeight: FontWeight.w800))),
+        Flexible(child: ListView(shrinkWrap: true, children: [for (final doc in docs) ListTile(
+          title: Text(asStr(doc['title'])), subtitle: Text('تأییدشده · ${faDate(doc['createdAt'])}'),
+          onTap: () => Navigator.pop(ctx, doc),
+        )])),
+      ])),
+    );
+    if (selected == null || !mounted) return;
+    final consent = await confirmDialog(context, 'استفاده از مدرک پروفایل؟',
+      'مدرک انتخاب‌شده به این پرونده پیوست می‌شود. چون قبلاً تأیید شده، دوباره در انتظار تأیید قرار نمی‌گیرد.', confirmLabel: 'تأیید و استفاده');
+    if (!consent || !mounted) return;
+    setState(() {
+      _requirementErrors.remove(requirement.key);
+      _requirementFiles[requirement.key] = (fileId: '', name: asStr(selected['title']), checked: true, profileId: asStr(selected['id']));
+    });
   }
 
   @override
@@ -102,8 +137,9 @@ class _RequestFormScreenState extends State<RequestFormScreen> {
       final checked = screenPhoto && isPhoto && uploaded['documentQuality'] == 'passed';
       if (screenPhoto && isPhoto && !checked) throw ApiException('سرور هنوز بررسی کیفیت تصویر را پشتیبانی نمی‌کند؛ از دفتر بخواهید سرور را به‌روزرسانی کند.');
       if (mounted) {
-        setState(() => _requirementFiles[requirement.key] = (fileId: fileId, name: name, checked: checked));
-        await offerSaveProfileDocument(context, fileId, requirement.title);
+        setState(() => _requirementFiles[requirement.key] = (fileId: fileId, name: name, checked: checked, profileId: ''));
+        await saveMappedProfileDocument(context, fileId, requirement.title, requirement.documentType);
+        await _loadProfileDocs();
       }
     } on ApiException catch (error) {
       if (mounted) setState(() => _requirementErrors[requirement.key] = error.message);
@@ -170,7 +206,7 @@ class _RequestFormScreenState extends State<RequestFormScreen> {
         documentIds: [
           for (final entry in _requirementFiles.entries)
             {
-              'fileId': entry.value.fileId,
+              if (entry.value.profileId.isNotEmpty) ...{'customerDocumentId': entry.value.profileId, 'confirmReuse': true} else 'fileId': entry.value.fileId,
               'requirementKey': entry.key,
               'title': widget.service.requirements.firstWhere((r) => r.key == entry.key, orElse: () => DocumentRequirement.fromJson({'key': entry.key, 'title': entry.value.name})).title,
             },
@@ -333,8 +369,9 @@ class _RequestFormScreenState extends State<RequestFormScreen> {
         child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
           Text('${requirement.title}${requirement.required ? ' *' : ''}', style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 13)),
           if (requirement.description.isNotEmpty) Text(requirement.description, style: const TextStyle(fontSize: 11.5, color: PishkanColors.mutedText, height: 1.8)),
-          if (uploaded != null) Text(uploaded.checked ? '${uploaded.name} — بررسی اولیه تصویر گذشت؛ در انتظار بررسی کارشناس' : '${uploaded.name} — خوانایی خودکار بررسی نشد؛ در انتظار کارشناس', style: TextStyle(fontSize: 11, color: color)),
+          if (uploaded != null) Text(uploaded.profileId.isNotEmpty ? '${uploaded.name} — تأییدشده در پروفایل' : uploaded.checked ? '${uploaded.name} — بررسی اولیه تصویر گذشت؛ در انتظار بررسی کارشناس' : '${uploaded.name} — خوانایی خودکار بررسی نشد؛ در انتظار کارشناس', style: TextStyle(fontSize: 11, color: color)),
           if (error != null) Text(error, style: const TextStyle(fontSize: 11.5, color: PishkanColors.danger, height: 1.7)),
+          if (_matchingDocs(requirement).isNotEmpty) TextButton.icon(onPressed: busy ? null : () => _chooseProfileDoc(requirement), icon: const Icon(Icons.folder_shared_outlined, size: 18), label: const Text('انتخاب مدرک تأییدشده پروفایل')),
         ]),
       ),
       busy

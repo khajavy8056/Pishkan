@@ -161,7 +161,7 @@ requestsRouter.post('/',
       paymentMethod: z.string().optional(),
       priority: z.enum(['normal', 'high']).optional(),
       discountCode: z.string().max(40).optional(),
-      documentIds: z.array(z.object({ fileId: z.string(), title: z.string().optional(), requirementKey: z.string().min(2).max(80).optional() })).optional(),
+      documentIds: z.array(z.object({ fileId: z.string().min(3).optional(), customerDocumentId: z.string().min(3).optional(), confirmReuse: z.boolean().optional(), title: z.string().optional(), requirementKey: z.string().min(2).max(80).optional() }).refine(d => Boolean(d.fileId) !== Boolean(d.customerDocumentId), 'یک فایل یا مدرک پروفایل انتخاب کنید.')).optional(),
     }).parse(req.body);
 
     const auth = req.auth!;
@@ -171,6 +171,7 @@ requestsRouter.post('/',
     }
     let customerId = auth.user.id;
     if (auth.user.kind !== 'customer') {
+      if (body.documentIds?.some(document => document.customerDocumentId)) throw forbidden('انتخاب مدرک پروفایل و تأیید استفاده فقط توسط خود مشتری مجاز است.');
       if (!hasPermission(auth.permissions, 'requests.create')) throw forbidden();
       if (!body.customerId) throw badRequest('برای ثبت درخواست از طرف مشتری، شناسه مشتری را مشخص کنید.');
       customerId = body.customerId;
