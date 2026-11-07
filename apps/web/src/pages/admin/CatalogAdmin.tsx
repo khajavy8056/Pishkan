@@ -82,8 +82,13 @@ export function AdminServices() {
   const saveCategory = async () => {
     if (!catModal) return;
     try {
-      if (catModal.id) await api.patch(`/api/catalog/categories/${catModal.id}`, catModal);
-      else await api.post('/api/catalog/categories', catModal);
+      const payload = {
+        title: catModal.title, description: catModal.description ?? '',
+        icon: catModal.icon ?? '', color: catModal.color ?? '', image: catModal.image ?? '',
+        sortOrder: Number(catModal.sortOrder ?? 0),
+      };
+      if (catModal.id) await api.patch(`/api/catalog/categories/${catModal.id}`, { ...payload, isActive: Boolean(catModal.isActive) });
+      else await api.post('/api/catalog/categories', payload);
       notify('دسته ذخیره شد.', 'success');
       setCatModal(null);
       load();
