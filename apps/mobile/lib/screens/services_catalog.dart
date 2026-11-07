@@ -7,6 +7,7 @@ import '../core/theme.dart';
 import '../models/models.dart';
 import '../services/services.dart';
 import '../widgets/widgets.dart';
+import '../widgets/category_card.dart';
 import 'service_detail.dart';
 
 /// «خدمات» tab: an image-led category chooser, followed by a service grid. Everything (titles, prices, order) comes
@@ -114,36 +115,19 @@ class _ServicesCatalogTabState extends State<ServicesCatalogTab> {
   }
 
   Widget _categoryGrid() {
+    final textScale = MediaQuery.textScalerOf(context).scale(1).clamp(1.0, 1.6);
     return GridView.count(
       crossAxisCount: 2,
       shrinkWrap: true,
       physics: const NeverScrollableScrollPhysics(),
       mainAxisSpacing: 12,
       crossAxisSpacing: 12,
-      childAspectRatio: 1.18,
+      childAspectRatio: 1.85 / textScale,
       children: [
         for (final category in _categories)
-          Builder(builder: (context) {
-            final art = artworkForCategory(category);
-            return InkWell(
-              borderRadius: BorderRadius.circular(20),
-              onTap: () { setState(() { _categorySlug = category.slug; _services = []; }); _loadServices(); },
-              child: ClipRRect(
-                borderRadius: BorderRadius.circular(20),
-                child: Stack(fit: StackFit.expand, children: [
-                  if (category.image.isNotEmpty && !category.image.toLowerCase().split('?').first.endsWith('.svg'))
-                    AuthImage(url: category.image)
-                  else if (art.imageUrl.isNotEmpty)
-                    AuthImage(url: art.imageUrl)
-                  else if (art.assetPath.isNotEmpty)
-                    Image.asset(art.assetPath, fit: BoxFit.cover)
-                  else
-                    Container(color: art.color.withOpacity(0.25), child: Icon(art.icon, size: 50, color: art.color)),
-                  const DecoratedBox(decoration: BoxDecoration(gradient: LinearGradient(begin: Alignment.topCenter, end: Alignment.bottomCenter, colors: [Colors.transparent, Color(0xD9001935)]))),
-                  Positioned(left: 10, right: 10, bottom: 12, child: Text(category.title, maxLines: 2, overflow: TextOverflow.ellipsis, textAlign: TextAlign.center, style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w800, fontSize: 13))),
-                ]),
-              ),
-            );
+          CategoryCard(category: category, onTap: () {
+            setState(() { _categorySlug = category.slug; _services = []; });
+            _loadServices();
           }),
       ],
     );

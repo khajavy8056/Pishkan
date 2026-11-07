@@ -8,6 +8,7 @@ import '../core/theme.dart';
 import '../models/models.dart';
 import '../services/services.dart';
 import '../widgets/widgets.dart';
+import '../widgets/category_card.dart';
 import 'documents.dart';
 import 'notifications.dart';
 import 'profile.dart';
@@ -379,12 +380,11 @@ class _HomeTabState extends State<HomeTab> {
         separatorBuilder: (_, _) => const SizedBox(width: 9),
         itemBuilder: (context, index) {
           final category = _categories[index];
-          final art = artworkForCategory(category);
           return SizedBox(width: 105, child: SoftCard(
             padding: const EdgeInsets.all(9),
             onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => ServicesCatalogTab(initialCategorySlug: category.slug, showBack: true))),
             child: Column(mainAxisAlignment: MainAxisAlignment.center, children: [
-              IconMedallion(artwork: art, size: 44),
+              ClipRRect(borderRadius: BorderRadius.circular(12), child: SizedBox(width: 54, height: 48, child: CategoryArtImage(category: category))),
               const SizedBox(height: 6),
               Text(category.title, maxLines: 2, overflow: TextOverflow.ellipsis, textAlign: TextAlign.center, style: const TextStyle(fontSize: 10.5, fontWeight: FontWeight.w700, height: 1.35)),
             ]),
