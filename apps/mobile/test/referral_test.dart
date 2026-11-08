@@ -24,7 +24,10 @@ void main() {
   test('a code with no recorded origin is accepted, a foreign origin is not', () async {
     SharedPreferences.setMockInitialValues({});
     // Fresh install, no server configured yet: the code carries no binding.
-    expect(ReferralStore.matchesServer(''), isFalse);
+    // The code box is optional. Leaving it empty used to abort registration
+    // with "belongs to another server", which is why this asserts the opposite.
+    expect(ReferralStore.matchesServer(''), isTrue);
+    expect(ReferralStore.matchesServer('   '), isTrue);
     expect(ReferralStore.matchesServer('anything'), isTrue);
     // Once a code is stored with an origin, only that office may receive it.
     await SessionStore.instance.setServerUrl('https://office.example');

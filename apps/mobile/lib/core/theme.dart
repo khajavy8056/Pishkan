@@ -156,7 +156,12 @@ ThemeData _build(Brightness brightness) {
       focusedBorder: OutlineInputBorder(borderRadius: radius, borderSide: BorderSide(color: brand, width: 1.6)),
       errorBorder: OutlineInputBorder(borderRadius: radius, borderSide: BorderSide(color: dark ? PishkanColors.darkDanger : PishkanColors.danger)),
       labelStyle: TextStyle(color: muted),
-      hintStyle: TextStyle(color: muted.withOpacity(dark ? 0.7 : 1)),
+      // Placeholders in dark mode used to be `mutedText` at 70% opacity, which
+      // blends to about 2.3:1 against the field background -- far below the
+      // 4.5:1 that body text needs, and the reason field hints looked washed
+      // out. The dark palette already carries a proper muted colour at 7.3:1,
+      // so use it instead of fading a light-mode grey.
+      hintStyle: TextStyle(color: dark ? PishkanColors.darkMutedText : PishkanColors.mutedText),
     ),
     elevatedButtonTheme: ElevatedButtonThemeData(
       style: ElevatedButton.styleFrom(

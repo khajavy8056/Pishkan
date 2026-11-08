@@ -42,8 +42,16 @@ void showSuccess(BuildContext context, String message) {
 void showSnack(BuildContext context, String message, {bool error = false}) {
   if (error) unawaited(playAppSound('error'));
   ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-    content: Text(message, style: TextStyle(fontFamily: 'Vazirmatn')),
-    backgroundColor: error ? context.negative : (context.isDark ? PishkanColors.darkSurfaceHigh : PishkanColors.navy),
+    // The theme sets white text on a dark bar, so an error may not simply swap
+    // in a lighter red: white on #F87171 is about 2.8:1 and reads as smeared.
+    // In dark mode keep the dark bar and reach for the red accent instead.
+    content: Text(message, style: TextStyle(
+      fontFamily: 'Vazirmatn',
+      color: error && context.isDark ? PishkanColors.darkDanger : null,
+    )),
+    backgroundColor: error
+        ? (context.isDark ? PishkanColors.darkSurfaceHigh : context.negative)
+        : (context.isDark ? PishkanColors.darkSurfaceHigh : PishkanColors.navy),
     behavior: SnackBarBehavior.floating,
     shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
   ));

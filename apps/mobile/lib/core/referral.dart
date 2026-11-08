@@ -29,17 +29,23 @@ class ReferralStore {
     await prefs.setString('referral.origin', origin);
     await prefs.setInt('referral.time', DateTime.now().millisecondsSinceEpoch);
   }
-  /// A referral code is only safe to *send* to the server that handed it out.
+  /// Whether this referral code may be sent to the currently configured server.
   ///
-  /// When a code was captured from a deep link, `origin` records the office that
-  /// issued it, so a link from another office must be rejected. When no origin
-  /// is known (a link opened while the app had no configured server, or a code
-  /// typed by the customer) the code itself carries no server binding and must
-  /// still be allowed through — otherwise a fresh install could never use an
-  /// invitation.
+  /// The field is **optional** — most customers register without one — so an
+  /// empty value must be allowed through. Returning `false` for it was a real
+  /// bug: leaving the optional box blank aborted registration with "this
+  /// invitation belongs to another server", which has nothing to do with what
+  /// the customer did.
+  ///
+  /// A code is only *bound* to a server when it was captured from a deep link:
+  /// that records `origin`, and a link issued by another office must then be
+  /// rejected instead of silently crediting the wrong one. A typed or
+  /// origin-less code carries no binding and is always allowed, otherwise a
+  /// fresh install could never use an invitation.
   static bool matchesServer(String value) {
-    if (value.isEmpty) return false;
-    if (value != code.value) return true; // not the stored referral: nothing to bind
+    final typed = value.trim();
+    if (typed.isEmpty) return true;       // optional field left blank: nothing to check
+    if (typed != code.value) return true; // not the stored referral: nothing to bind
     if (origin.isEmpty) return true;      // no origin recorded: no binding to enforce
     return sameServerOrigin(SessionStore.instance.serverUrl, origin);
   }
