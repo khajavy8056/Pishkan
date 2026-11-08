@@ -305,10 +305,13 @@ class IconMedallion extends StatelessWidget {
     // A bundled 3D illustration is the service's identity; the glyph is only
     // for services created after this build, which have no asset yet.
     if (artwork?.hasBundledArt == true) {
+      // Bind once: promotion does not reach into the errorBuilder closure,
+      // and `artwork` is a field of this widget rather than a local.
+      final art = artwork!;
       return ClipRRect(
         borderRadius: radius,
         child: Image.asset(
-          artwork!.assetPath,
+          art.assetPath,
           width: size,
           height: size,
           fit: BoxFit.cover,
@@ -317,7 +320,7 @@ class IconMedallion extends StatelessWidget {
           filterQuality: FilterQuality.medium,
           errorBuilder: (_, _, _) => Container(
             width: size, height: size, color: tint.withOpacity(0.11),
-            child: Icon(artwork.icon, color: tint, size: size * 0.52),
+            child: Icon(art.icon, color: tint, size: size * 0.52),
           ),
         ),
       );
