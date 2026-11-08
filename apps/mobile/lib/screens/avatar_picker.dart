@@ -221,7 +221,7 @@ class _PresetTile extends StatelessWidget {
               UserAvatar.presetAsset(preset),
               fit: BoxFit.cover,
               filterQuality: FilterQuality.medium,
-              errorBuilder: (_, _, _) => const ColoredBox(color: Color(0xFFE8F0FF)),
+              errorBuilder: (_, _, _) => ColoredBox(color: context.isDark ? PishkanColors.darkSurfaceHigh : const Color(0xFFE8F0FF)),
             ),
           ),
         ),

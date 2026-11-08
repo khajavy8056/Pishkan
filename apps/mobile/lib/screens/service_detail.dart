@@ -213,7 +213,7 @@ class _ServiceDetailScreenState extends State<ServiceDetailScreen> {
 
     return Container(
       padding: const EdgeInsets.all(5),
-      decoration: BoxDecoration(color: const Color(0xFFEAF1FE), borderRadius: BorderRadius.circular(999)),
+      decoration: BoxDecoration(color: context.isDark ? PishkanColors.darkSurfaceHigh : const Color(0xFFEAF1FE), borderRadius: BorderRadius.circular(999)),
       child: Row(children: [
         tab(0, 'توضیحات'),
         tab(1, 'مدارک موردنیاز'),
@@ -226,7 +226,7 @@ class _ServiceDetailScreenState extends State<ServiceDetailScreen> {
     return Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
       Text(
         service.displayDescription.isNotEmpty ? service.displayDescription : 'توضیحات تکمیلی این خدمت را می‌توانید از کارشناسان دفتر بپرسید.',
-        style: TextStyle(height: 2, fontSize: 13.5, color: Color(0xFF31445E)),
+        style: TextStyle(height: 2, fontSize: 13.5, color: context.ink),
       ),
       const SizedBox(height: 16),
       SoftCard(
@@ -242,11 +242,11 @@ class _ServiceDetailScreenState extends State<ServiceDetailScreen> {
             const SizedBox(height: 8),
             Container(
               padding: const EdgeInsets.all(10),
-              decoration: BoxDecoration(color: const Color(0xFFFFF7E6), borderRadius: BorderRadius.circular(12)),
+              decoration: BoxDecoration(color: context.isDark ? const Color(0x332D1B00) : const Color(0xFFFFF7E6), borderRadius: BorderRadius.circular(12)),
               child: Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                Icon(Icons.info_outline_rounded, size: 17, color: Color(0xFF92400E)),
+                Icon(Icons.info_outline_rounded, size: 17, color: context.isDark ? PishkanColors.darkWarning : const Color(0xFF92400E)),
                 const SizedBox(width: 6),
-                Expanded(child: Text(service.externalCostsNote, style: TextStyle(fontSize: 11.5, color: Color(0xFF92400E), height: 1.8))),
+                Expanded(child: Text(service.externalCostsNote, style: TextStyle(fontSize: 11.5, color: context.isDark ? PishkanColors.darkWarning : const Color(0xFF92400E), height: 1.8))),
               ]),
             ),
           ],

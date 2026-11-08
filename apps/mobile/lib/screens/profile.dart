@@ -200,8 +200,8 @@ class _ProfileTabState extends State<ProfileTab> {
                     UserAvatar(size: 62, withRing: true),
                     Container(
                       padding: const EdgeInsets.all(3),
-                      decoration: const BoxDecoration(color: Colors.white, shape: BoxShape.circle),
-                      child: const Icon(Icons.edit_rounded, size: 13, color: PishkanColors.primary),
+                      decoration: BoxDecoration(color: context.surface, shape: BoxShape.circle),
+                      child: Icon(Icons.edit_rounded, size: 13, color: context.brand),
                     ),
                   ]),
                 ),
@@ -348,7 +348,7 @@ class _ProfileTabState extends State<ProfileTab> {
                   Navigator.pushAndRemoveUntil(context, MaterialPageRoute(builder: (_) => const LoginScreen()), (_) => false);
                 }
               },
-              style: OutlinedButton.styleFrom(foregroundColor: PishkanColors.danger, side: const BorderSide(color: Color(0xFFFECACA))),
+              style: OutlinedButton.styleFrom(foregroundColor: context.negative, side: BorderSide(color: context.negative.withOpacity(0.35))),
               icon: Icon(Icons.logout_rounded),
               label: const Text('خروج از حساب کاربری'),
             ),

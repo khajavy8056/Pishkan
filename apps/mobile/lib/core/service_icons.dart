@@ -128,9 +128,18 @@ ServiceArtwork artworkForCategory(ServiceCategory category) {
   final base = artworkFor(explicitIcon: category.icon, title: category.title, slug: category.slug);
   final hex = category.color.trim().replaceFirst('#', '');
   final parsed = RegExp(r'^[0-9a-fA-F]{6}$').hasMatch(hex) ? int.tryParse(hex, radix: 16) : null;
+  final tint = parsed == null ? base.color : Color(0xFF000000 | parsed);
+  if (base.imageUrl.isNotEmpty) {
+    return ServiceArtwork(base.icon, tint, imageUrl: base.imageUrl);
+  }
+  if (!bundledCategoryArt.contains(category.slug)) {
+    // A category the manager added after this build: ask the server for its
+    // own picture instead of pointing at an asset that is not in the APK.
+    return ServiceArtwork(base.icon, tint, imageUrl: fallbackArtworkUrl(category.slug, category: true));
+  }
   return ServiceArtwork(
     base.icon,
-    parsed == null ? base.color : Color(0xFF000000 | parsed),
+    tint,
     imageUrl: base.imageUrl,
     assetPath: 'assets/category_art/${category.slug}.webp',
   );

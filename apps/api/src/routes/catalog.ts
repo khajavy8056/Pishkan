@@ -17,8 +17,65 @@ import { createInvoice, voidInvoice } from '../modules/accounting/service.js';
 import { addEvent, createRequest, getRequest } from '../modules/requests/service.js';
 import { id } from '../lib/crypto.js';
 import { param } from '../http/params.js';
+import type { Request, Response } from 'express';
+import { renderArtworkPng } from '../modules/catalog/artwork-render.js';
 
 export const catalogRouter = Router();
+
+/* ---------------------------- generated artwork --------------------------- */
+
+/**
+ * `GET /api/catalog/artwork/:file` and `/category/:file`
+ *
+ * A service or category created after the current APK was cut has no bundled
+ * picture, so the app asks here and gets a WebP drawn from the slug itself
+ * (see `artwork-render.ts`). Deliberately **before** `requireAuth`: the same
+ * URL is used by the web panel and by <img> tags, and the picture contains
+ * nothing but a colour and a generic glyph — no customer data.
+ *
+ * Cached hard: the bytes for a slug never change, so a phone fetches each one
+ * once, ever.
+ */
+const ARTWORK_MAX_AGE = 'public, max-age=31536000, immutable';
+
+async function sendArtwork(req: Request, res: Response, category: boolean) {
+  const raw = String(req.params.file ?? '');
+  const match = /^([a-z0-9][a-z0-9-]{0,79})\.webp$/.exec(raw);
+  if (!match) {
+    res.status(404).end();
+    return;
+  }
+  const slug = match[1];
+  const row = await one<{ title: string; categorySlug: string | null }>(
+    category
+      ? 'SELECT title, slug AS categorySlug FROM service_categories WHERE slug = ?'
+      : `SELECT s.title AS title, c.slug AS categorySlug
+           FROM services s LEFT JOIN service_categories c ON c.id = s.category_id
+          WHERE s.slug = ?`,
+    [slug],
+  );
+  // Fail loudly rather than drawing art for a slug the catalogue does not
+  // have: otherwise a typo silently produces a plausible-looking tile.
+  if (!row) {
+    res.status(404).end();
+    return;
+  }
+  const png = await renderArtworkPng({
+    slug,
+    title: row.title ?? '',
+    categorySlug: row.categorySlug ?? '',
+    category,
+    size: 320,
+  });
+  res.setHeader('Content-Type', 'image/webp');
+  res.setHeader('Cache-Control', ARTWORK_MAX_AGE);
+  res.setHeader('X-Content-Type-Options', 'nosniff');
+  res.end(png);
+}
+
+catalogRouter.get('/artwork/category/:file', asyncRoute(async (req, res) => sendArtwork(req, res, true)));
+catalogRouter.get('/artwork/:file', asyncRoute(async (req, res) => sendArtwork(req, res, false)));
+
 catalogRouter.use(requireAuth);
 catalogRouter.post('/cities', requirePermission('services.edit'), asyncRoute(async (req,res) => {
   const body=z.object({name:z.string().min(2).max(80),province:z.string().min(2).max(80)}).parse(req.body);

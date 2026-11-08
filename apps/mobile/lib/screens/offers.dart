@@ -167,7 +167,7 @@ class _OffersScreenState extends State<OffersScreen> {
                                   Expanded(
                                     child: OutlinedButton.icon(
                                       onPressed: () => _decline(offer),
-                                      style: OutlinedButton.styleFrom(foregroundColor: PishkanColors.danger, side: const BorderSide(color: Color(0xFFFECACA))),
+                                      style: OutlinedButton.styleFrom(foregroundColor: context.negative, side: BorderSide(color: context.negative.withOpacity(0.35))),
                                       icon: const Icon(Icons.close_rounded),
                                       label: const Text('رد پیشنهاد'),
                                     ),

@@ -230,7 +230,7 @@ class _RequestDetailScreenState extends State<RequestDetailScreen> with WidgetsB
                     Expanded(
                       child: OutlinedButton.icon(
                         onPressed: _busy ? null : _cancel,
-                        style: OutlinedButton.styleFrom(foregroundColor: PishkanColors.danger, side: const BorderSide(color: Color(0xFFFECACA))),
+                        style: OutlinedButton.styleFrom(foregroundColor: context.negative, side: BorderSide(color: context.negative.withOpacity(0.35))),
                         icon: const Icon(Icons.cancel_outlined),
                         label: const Text('لغو درخواست'),
                       ),
