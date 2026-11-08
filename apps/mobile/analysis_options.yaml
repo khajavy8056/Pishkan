@@ -1,54 +1,10 @@
 include: package:flutter_lints/flutter.yaml
 
+linter:
+  rules:
+    avoid_print: true
+    prefer_single_quotes: false
+
 analyzer:
-  exclude:
-    - test/**
-    - lib/app.dart
-    - lib/main.dart
-    - lib/core/api.dart
-    - lib/core/biometric.dart
-    - lib/core/env.dart
-    - lib/core/cache.dart
-    - lib/core/format.dart
-    - lib/core/bundled_art.dart
-    - lib/core/home_navigation.dart
-    - lib/core/referral.dart
-    - lib/core/session.dart
-    - lib/core/stages.dart
-    - lib/core/service_icons.dart
-    - lib/core/theme.dart
-    - lib/core/theme_mode.dart
-    - lib/models/models.dart
-    - lib/screens/avatar_picker.dart
-    - lib/screens/document_camera.dart
-    - lib/screens/documents.dart
-    - lib/screens/home.dart
-    - lib/screens/my_discounts.dart
-    - lib/screens/notification_route.dart
-    - lib/screens/home_shell.dart
-    - lib/screens/login.dart
-    - lib/screens/notifications.dart
-    - lib/screens/offers.dart
-    - lib/screens/referrals.dart
-    - lib/screens/payments.dart
-    - lib/screens/profile.dart
-    - lib/screens/request_detail.dart
-    - lib/screens/request_form.dart
-    - lib/screens/requests.dart
-    - lib/screens/server_setup.dart
-    - lib/screens/service_detail.dart
-    - lib/screens/services_catalog.dart
-    - lib/screens/story_viewer.dart
-    - lib/screens/splash.dart
-    - lib/screens/stories_archive.dart
-    - lib/screens/support.dart
-    - lib/screens/wallet.dart
-    - lib/services/notifier.dart
-    - lib/services/services.dart
-    - lib/widgets/category_card.dart
-    - lib/widgets/dynamic_form.dart
-    - lib/widgets/avatar.dart
-    - lib/widgets/widgets.dart
   errors:
     deprecated_member_use: ignore
-
