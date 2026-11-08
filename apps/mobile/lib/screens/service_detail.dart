@@ -3,6 +3,7 @@ import 'package:flutter/services.dart';
 
 import '../core/format.dart';
 import '../core/service_icons.dart';
+import '../core/motion.dart';
 import '../core/theme.dart';
 import '../models/models.dart';
 import '../services/services.dart';
@@ -53,11 +54,19 @@ class _ServiceDetailScreenState extends State<ServiceDetailScreen> {
             delegate: SliverChildListDelegate([
               _tabBar(),
               const SizedBox(height: 14),
-              switch (_tab) {
-                0 => _description(),
-                1 => _documents(),
-                _ => _qa(),
-              },
+              // Tabs cross-fade: switching between توضیحات و مدارک reads as one
+              // panel changing its contents, not as the page reloading.
+              SoftSwitcher(
+                duration: PishkanMotion.quick,
+                child: KeyedSubtree(
+                  key: ValueKey(_tab),
+                  child: switch (_tab) {
+                    0 => _description(),
+                    1 => _documents(),
+                    _ => _qa(),
+                  },
+                ),
+              ),
             ]),
           ),
         ),
@@ -78,7 +87,12 @@ class _ServiceDetailScreenState extends State<ServiceDetailScreen> {
         Positioned.fill(
           child: hasBanner
               ? AuthImage(url: service.bannerUrl, fit: BoxFit.cover)
-              : useLocalArt ? _illustrationBackdrop(localArt) : _bannerArt(art),
+              // The landing half of the list's Hero: same tag, so the tile the
+              // customer tapped expands into this header.
+              : Hero(
+                  tag: 'service-art-${service.slug}',
+                  child: useLocalArt ? _illustrationBackdrop(localArt) : _bannerArt(art),
+                ),
         ),
         SafeArea(
           child: Padding(

@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import '../core/api.dart';
 import '../core/format.dart';
 import '../core/stages.dart';
+import '../core/motion.dart';
 import '../core/theme.dart';
 import '../models/models.dart';
 import '../services/services.dart';
@@ -137,7 +138,7 @@ class _RequestsTabState extends State<RequestsTab> {
         ),
         Expanded(
           child: _loading
-              ? const LoadingView()
+              ? const _RequestListSkeleton()
               : _error != null
                   ? ErrorView(message: _error!, onRetry: _load)
                   : _items.isEmpty
@@ -148,8 +149,14 @@ class _RequestsTabState extends State<RequestsTab> {
                             padding: const EdgeInsets.fromLTRB(16, 8, 16, 20),
                             itemCount: _items.length + (_items.length < _total ? 1 : 0),
                             separatorBuilder: (_, _) => const SizedBox(height: 10),
+                            // The first six cards rise in sequence; later ones
+                            // appear at once, since a wave on every scroll
+                            // would turn into lag rather than polish.
                             itemBuilder: (context, index) => index < _items.length
-                                ? _card(_items[index])
+                                ? RevealOnMount(
+                                    delay: Duration(milliseconds: index < 6 ? index * 45 : 0),
+                                    child: _card(_items[index]),
+                                  )
                                 : Center(child: TextButton(onPressed: _loadingMore ? null : _loadMore, child: Text(_loadingMore ? 'در حال دریافت…' : 'نمایش درخواست‌های بیشتر'))),
                           ),
                         ),
@@ -204,6 +211,34 @@ class _RequestsTabState extends State<RequestsTab> {
           ]),
         ],
       ]),
+    );
+  }
+}
+
+/// Placeholder cards shaped like a real request row, so the list keeps its
+/// rhythm while loading and nothing shifts when the data lands.
+class _RequestListSkeleton extends StatelessWidget {
+  const _RequestListSkeleton();
+
+  @override
+  Widget build(BuildContext context) {
+    return ListView.separated(
+      padding: const EdgeInsets.fromLTRB(16, 8, 16, 20),
+      physics: const NeverScrollableScrollPhysics(),
+      itemCount: 5,
+      separatorBuilder: (_, _) => const SizedBox(height: 10),
+      itemBuilder: (context, index) => SoftCard(
+        child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+          const Row(children: [
+            Expanded(child: ShimmerBox(height: 14, width: 150)),
+            ShimmerBox(height: 22, width: 68, radius: 11),
+          ]),
+          const SizedBox(height: 12),
+          const ShimmerBox(height: 11, width: 190),
+          const SizedBox(height: 8),
+          ShimmerBox(height: 11, width: index.isEven ? 130 : 168),
+        ]),
+      ),
     );
   }
 }

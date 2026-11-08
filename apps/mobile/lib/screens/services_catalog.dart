@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import '../core/api.dart';
 import '../core/format.dart';
 import '../core/service_icons.dart';
+import '../core/motion.dart';
 import '../core/theme.dart';
 import '../models/models.dart';
 import '../services/services.dart';
@@ -144,17 +145,20 @@ class _ServicesCatalogTabState extends State<ServicesCatalogTab> {
       children: [
         for (final service in _services)
           GestureDetector(
-            onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => ServiceDetailScreen(service: service))),
+            onTap: () => Navigator.push(context, fadeThroughRoute(ServiceDetailScreen(service: service))),
             child: Column(children: [
-              Container(
-                padding: const EdgeInsets.all(9),
-                decoration: BoxDecoration(
-                  color: context.surface,
-                  shape: BoxShape.circle,
-                  boxShadow: const [BoxShadow(color: Color(0x100B1F3A), blurRadius: 12, offset: Offset(0, 5))],
-                  border: Border.all(color: artworkForService(service).color.withOpacity(0.14)),
+              Hero(
+                tag: 'service-art-${service.slug}',
+                child: Container(
+                  padding: const EdgeInsets.all(9),
+                  decoration: BoxDecoration(
+                    color: context.surface,
+                    shape: BoxShape.circle,
+                    boxShadow: const [BoxShadow(color: Color(0x100B1F3A), blurRadius: 12, offset: Offset(0, 5))],
+                    border: Border.all(color: artworkForService(service).color.withOpacity(0.14)),
+                  ),
+                  child: IconMedallion(artwork: artworkForService(service), size: 44, glyphBadge: true),
                 ),
-                child: IconMedallion(artwork: artworkForService(service), size: 44),
               ),
               const SizedBox(height: 7),
               Flexible(
@@ -237,9 +241,12 @@ class _ServiceSearchScreenState extends State<ServiceSearchScreen> {
                           Padding(
                             padding: const EdgeInsets.only(bottom: 10),
                             child: SoftCard(
-                              onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => ServiceDetailScreen(service: service))),
+                              onTap: () => Navigator.push(context, fadeThroughRoute(ServiceDetailScreen(service: service))),
                               child: Row(children: [
-                                IconMedallion(artwork: artworkForService(service), size: 50),
+                                Hero(
+                                  tag: 'service-art-${service.slug}',
+                                  child: IconMedallion(artwork: artworkForService(service), size: 50),
+                                ),
                                 const SizedBox(width: 12),
                                 Expanded(
                                   child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [

@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 
+import '../core/motion.dart';
 import '../core/theme.dart';
 import '../core/home_navigation.dart';
 import '../services/notifier.dart';
@@ -151,7 +152,13 @@ class _HomeShellState extends State<HomeShell> with WidgetsBindingObserver {
       },
       child: Scaffold(
         body: Stack(children: [
-          IndexedStack(index: _index, children: pages),
+          // The tabs cross-fade rather than snapping. KeyedSubtree gives the
+          // switcher a distinct child per tab, which is what makes it animate
+          // at all -- an IndexedStack alone looks identical frame to frame.
+          SoftSwitcher(
+            duration: PishkanMotion.quick,
+            child: KeyedSubtree(key: ValueKey(_index), child: IndexedStack(index: _index, children: pages)),
+          ),
           _banner(),
         ]),
         bottomNavigationBar: Container(
@@ -196,9 +203,33 @@ class _HomeShellState extends State<HomeShell> with WidgetsBindingObserver {
             borderRadius: BorderRadius.circular(16),
           ),
           child: Column(mainAxisSize: MainAxisSize.min, children: [
-            Icon(active ? activeIcon : icon, color: active ? PishkanColors.primary : context.inkMuted, size: 24),
+            // A small spring on the glyph plus a growing dot: the tap is
+            // acknowledged by the icon itself, not only by the background.
+            AnimatedScale(
+              scale: active ? 1.1 : 1,
+              duration: PishkanMotion.quick,
+              curve: PishkanMotion.spring,
+              child: Icon(active ? activeIcon : icon, color: active ? PishkanColors.primary : context.inkMuted, size: 24),
+            ),
             const SizedBox(height: 2),
-            Text(label, style: TextStyle(fontSize: 11, fontWeight: active ? FontWeight.w800 : FontWeight.w500, color: active ? PishkanColors.primary : context.inkMuted)),
+            AnimatedDefaultTextStyle(
+              duration: PishkanMotion.quick,
+              curve: PishkanMotion.enter,
+              style: TextStyle(
+                fontSize: 11,
+                fontWeight: active ? FontWeight.w800 : FontWeight.w500,
+                color: active ? PishkanColors.primary : context.inkMuted,
+              ),
+              child: Text(label),
+            ),
+            AnimatedContainer(
+              duration: PishkanMotion.quick,
+              curve: PishkanMotion.enter,
+              margin: const EdgeInsets.only(top: 3),
+              width: active ? 4 : 0,
+              height: 4,
+              decoration: BoxDecoration(color: PishkanColors.primary, borderRadius: BorderRadius.circular(2)),
+            ),
           ]),
         ),
       ),

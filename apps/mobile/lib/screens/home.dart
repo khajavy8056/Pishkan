@@ -4,6 +4,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import '../core/format.dart';
 import '../core/service_icons.dart';
 import '../core/stages.dart';
+import '../core/motion.dart';
 import '../core/theme.dart';
 import '../models/models.dart';
 import '../services/services.dart';
@@ -149,11 +150,16 @@ class _HomeTabState extends State<HomeTab> {
               _storyRail(),
             ],
             const SizedBox(height: 20),
-            _hero(),
+            RevealOnMount(delay: const Duration(milliseconds: 60), child: _hero()),
             const SizedBox(height: 20),
-            _sectionTitle('دسترسی سریع'),
-            const SizedBox(height: 10),
-            _quickAccess(),
+            RevealOnMount(
+              delay: const Duration(milliseconds: 130),
+              child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+                _sectionTitle('دسترسی سریع'),
+                const SizedBox(height: 10),
+                _quickAccess(),
+              ]),
+            ),
             if (_categories.isNotEmpty) ...[
               const SizedBox(height: 20),
               _sectionTitle('دسته‌بندی خدمات', action: 'مشاهده همه', onAction: () => widget.onOpenTab(1)),
@@ -353,8 +359,9 @@ class _HomeTabState extends State<HomeTab> {
   Widget _quickAccess() {
     Widget tile(IconData icon, Color bg, Color fg, String label, VoidCallback onTap) {
       return Expanded(
-        child: GestureDetector(
+        child: PressableScale(
           onTap: onTap,
+          scale: 0.94,
           child: Container(
             padding: const EdgeInsets.symmetric(vertical: 16, horizontal: 4),
             decoration: BoxDecoration(color: bg, borderRadius: BorderRadius.circular(22)),
@@ -424,8 +431,18 @@ class _HomeTabState extends State<HomeTab> {
 
   Widget _popularServices() {
     if (_services.isEmpty) {
+      // A skeleton shaped like the real grid: the page keeps its layout while
+      // the network catches up, so nothing jumps when the tiles arrive.
       return _loadingServices
-          ? const Center(child: Padding(padding: EdgeInsets.all(24), child: CircularProgressIndicator()))
+          ? GridView.count(
+              crossAxisCount: 4,
+              shrinkWrap: true,
+              physics: const NeverScrollableScrollPhysics(),
+              mainAxisSpacing: 14,
+              crossAxisSpacing: 10,
+              childAspectRatio: 0.8,
+              children: [for (var i = 0; i < 8; i++) const _ServiceTileSkeleton()],
+            )
           :  SoftCard(child: Text('اتصال به سامانه برقرار نیست؛ برای مشاهدهٔ خدمات اتصال شبکه را بررسی کنید.', style: TextStyle(color: context.inkMuted, fontSize: 13, height: 1.8)));
     }
     final items = _popular;
@@ -439,12 +456,17 @@ class _HomeTabState extends State<HomeTab> {
       children: [
         for (final service in items)
           GestureDetector(
-            onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => ServiceDetailScreen(service: service))),
+            onTap: () => Navigator.push(context, fadeThroughRoute(ServiceDetailScreen(service: service))),
             child: Column(children: [
-              Container(
-                padding: const EdgeInsets.all(7),
-                decoration: BoxDecoration(color: context.surface, shape: BoxShape.circle, boxShadow: [BoxShadow(color: Color(0x100B1F3A), blurRadius: 10, offset: Offset(0, 4))]),
-                child: IconMedallion(artwork: artworkForService(service), size: 40),
+              // Same tag as the detail banner: the picture the customer tapped
+              // is the one that expands, so the two screens are visibly linked.
+              Hero(
+                tag: 'service-art-${service.slug}',
+                child: Container(
+                  padding: const EdgeInsets.all(7),
+                  decoration: BoxDecoration(color: context.surface, shape: BoxShape.circle, boxShadow: const [BoxShadow(color: Color(0x100B1F3A), blurRadius: 10, offset: Offset(0, 4))]),
+                  child: IconMedallion(artwork: artworkForService(service), size: 40, glyphBadge: true),
+                ),
               ),
               const SizedBox(height: 6),
               Flexible(
@@ -461,7 +483,7 @@ class _HomeTabState extends State<HomeTab> {
     return Padding(
       padding: const EdgeInsets.only(bottom: 10),
       child: SoftCard(
-        onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => RequestDetailScreen(requestId: request.id))),
+        onTap: () => Navigator.push(context, fadeThroughRoute(RequestDetailScreen(requestId: request.id))),
         child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
           Row(children: [
             Expanded(child: Text(request.serviceTitle, maxLines: 1, overflow: TextOverflow.ellipsis, style: TextStyle(fontWeight: FontWeight.w800, fontSize: 13.5, color: context.ink))),
@@ -515,4 +537,20 @@ class _HomeTabState extends State<HomeTab> {
         decoration: const BoxDecoration(gradient: PishkanColors.brandGradient),
         child: const Icon(Icons.campaign_rounded, color: Colors.white, size: 30),
       );
+}
+
+/// One cell of the popular-services grid while it loads.
+class _ServiceTileSkeleton extends StatelessWidget {
+  const _ServiceTileSkeleton();
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(children: [
+      ShimmerBox(width: 54, height: 54, radius: 27),
+      const SizedBox(height: 8),
+      const ShimmerBox(width: 44, height: 9, radius: 5),
+      const SizedBox(height: 4),
+      const ShimmerBox(width: 28, height: 9, radius: 5),
+    ]);
+  }
 }

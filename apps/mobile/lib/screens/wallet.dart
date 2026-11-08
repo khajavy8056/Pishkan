@@ -4,6 +4,7 @@ import 'package:url_launcher/url_launcher.dart';
 
 import '../core/api.dart';
 import '../core/format.dart';
+import '../core/motion.dart';
 import '../core/theme.dart';
 import '../models/models.dart';
 import '../services/services.dart';
@@ -142,7 +143,16 @@ class _WalletScreenState extends State<WalletScreen> with WidgetsBindingObserver
                       Text('موجودی فعلی', style: TextStyle(color: Colors.white70, fontSize: 12.5)),
                     ]),
                     const SizedBox(height: 8),
-                    Text(faMoney(asNum(wallet['balance'])), style: TextStyle(color: Colors.white, fontSize: 26, fontWeight: FontWeight.w800)),
+                    // Counts up once on arrival: the balance is the single
+                    // number this screen exists for.
+                    CountUpText(
+                      asNum(wallet['balance']),
+                      duration: const Duration(milliseconds: 850),
+                      builder: (context, value) => Text(
+                        faMoney(value),
+                        style: const TextStyle(color: Colors.white, fontSize: 26, fontWeight: FontWeight.w800),
+                      ),
+                    ),
                     const SizedBox(height: 14),
                     SizedBox(
                       width: double.infinity,
