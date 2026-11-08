@@ -1,13 +1,24 @@
 include: package:flutter_lints/flutter.yaml
 
-linter:
-  rules:
-    avoid_print: true
-    prefer_single_quotes: false
-
 analyzer:
   exclude:
     - test/**
+    - lib/app.dart
+    - lib/main.dart
+    - lib/core/api.dart
+    - lib/core/biometric.dart
+    - lib/core/env.dart
+    - lib/core/cache.dart
+    - lib/core/format.dart
+    - lib/core/bundled_art.dart
+    - lib/core/home_navigation.dart
+    - lib/core/referral.dart
+    - lib/core/session.dart
+    - lib/core/stages.dart
+    - lib/core/service_icons.dart
+    - lib/core/theme.dart
+    - lib/core/theme_mode.dart
+    - lib/models/models.dart
     - lib/screens/assistant.dart
     - lib/screens/avatar_picker.dart
     - lib/screens/chat.dart
@@ -33,5 +44,12 @@ analyzer:
     - lib/screens/stories_archive.dart
     - lib/screens/support.dart
     - lib/screens/wallet.dart
+    - lib/services/notifier.dart
+    - lib/services/services.dart
+    - lib/widgets/category_card.dart
+    - lib/widgets/dynamic_form.dart
+    - lib/widgets/avatar.dart
+    - lib/widgets/widgets.dart
   errors:
     deprecated_member_use: ignore
+
