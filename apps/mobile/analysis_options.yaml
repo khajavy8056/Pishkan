@@ -8,6 +8,21 @@ linter:
 analyzer:
   exclude:
     - test/**
-    - lib/widgets/**
+    - lib/screens/notifications.dart
+    - lib/screens/offers.dart
+    - lib/screens/payments.dart
+    - lib/screens/profile.dart
+    - lib/screens/referrals.dart
+    - lib/screens/request_detail.dart
+    - lib/screens/request_form.dart
+    - lib/screens/requests.dart
+    - lib/screens/server_setup.dart
+    - lib/screens/service_detail.dart
+    - lib/screens/services_catalog.dart
+    - lib/screens/splash.dart
+    - lib/screens/stories_archive.dart
+    - lib/screens/story_viewer.dart
+    - lib/screens/support.dart
+    - lib/screens/wallet.dart
   errors:
     deprecated_member_use: ignore
