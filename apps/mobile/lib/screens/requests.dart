@@ -154,7 +154,9 @@ class _RequestsTabState extends State<RequestsTab> {
                             // would turn into lag rather than polish.
                             itemBuilder: (context, index) => index < _items.length
                                 ? RevealOnMount(
-                                    delay: Duration(milliseconds: index < 6 ? index * 45 : 0),
+                                    // Only the rows already on screen stagger.
+                                    enabled: index < 6,
+                                    delay: Duration(milliseconds: index * 45),
                                     child: _card(_items[index]),
                                   )
                                 : Center(child: TextButton(onPressed: _loadingMore ? null : _loadMore, child: Text(_loadingMore ? 'در حال دریافت…' : 'نمایش درخواست‌های بیشتر'))),
@@ -196,9 +198,11 @@ class _RequestsTabState extends State<RequestsTab> {
             padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 7),
             decoration: BoxDecoration(color: context.caution.withOpacity(context.isDark ? 0.14 : 0.10), borderRadius: BorderRadius.circular(10)),
             child: Row(children: [
-              const Icon(Icons.priority_high_rounded, size: 16, color: PishkanColors.warning),
+              Icon(Icons.priority_high_rounded, size: 16, color: context.caution),
               const SizedBox(width: 6),
-              const Expanded(child: Text('این پرونده منتظر اقدام شماست؛ وارد شوید و مورد خواسته‌شده را کامل کنید.', style: TextStyle(fontSize: 11, color: Color(0xFF92400E)))),
+              // context.caution, not a fixed brown: on a dark surface a dark
+              // brown note is all but unreadable.
+              Expanded(child: Text('این پرونده منتظر اقدام شماست؛ وارد شوید و مورد خواسته‌شده را کامل کنید.', style: TextStyle(fontSize: 11, color: context.caution))),
             ]),
           ),
         ],

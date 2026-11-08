@@ -141,7 +141,7 @@ class DynamicFormState extends State<DynamicForm> {
           Expanded(
             child: Text.rich(TextSpan(children: [
               TextSpan(text: field.label, style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 13.5)),
-              if (field.required) const TextSpan(text: ' *', style: TextStyle(color: Color(0xFFDC2626), fontWeight: FontWeight.w700)),
+              if (field.required) TextSpan(text: ' *', style: TextStyle(color: context.negative, fontWeight: FontWeight.w700)),
             ])),
           ),
         ]),
@@ -151,7 +151,7 @@ class DynamicFormState extends State<DynamicForm> {
       ? const SizedBox.shrink()
       : Padding(
           padding: const EdgeInsets.only(top: 5),
-          child: Text(field.help, style: const TextStyle(fontSize: 11.5, color: Color(0xFF64748B), height: 1.7)),
+          child: Text(field.help, style: TextStyle(fontSize: 11.5, color: context.inkMuted, height: 1.7)),
         );
 
   Widget _fieldWidget(FormFieldDef field) {

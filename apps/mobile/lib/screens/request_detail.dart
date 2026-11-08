@@ -262,7 +262,7 @@ class _RequestDetailScreenState extends State<RequestDetailScreen> with WidgetsB
           Container(
             padding: const EdgeInsets.all(10),
             decoration: BoxDecoration(color: context.negative.withOpacity(context.isDark ? 0.16 : 0.09), borderRadius: BorderRadius.circular(12)),
-            child: Text('علت رد: ${detail.rejectedReason}', style: const TextStyle(color: Color(0xFF991B1B), fontSize: 12, height: 1.8)),
+            child: Text('علت رد: ${detail.rejectedReason}', style: TextStyle(color: context.negative, fontSize: 12, height: 1.8)),
           ),
         ],
       ]),

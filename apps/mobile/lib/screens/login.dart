@@ -252,7 +252,7 @@ class _LoginScreenState extends State<LoginScreen> {
             Container(
               padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 9),
               decoration: BoxDecoration(color: context.caution.withOpacity(context.isDark ? 0.14 : 0.10), borderRadius: BorderRadius.circular(12)),
-              child: Text(widget.lockMessage, textAlign: TextAlign.center, style: const TextStyle(fontSize: 12, color: Color(0xFF92400E))),
+              child: Text(widget.lockMessage, textAlign: TextAlign.center, style: TextStyle(fontSize: 12, color: context.caution)),
             ),
           ],
           const SizedBox(height: 20),

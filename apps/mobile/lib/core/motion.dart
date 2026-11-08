@@ -53,10 +53,18 @@ class RevealOnMount extends StatefulWidget {
     required this.child,
     this.delay = Duration.zero,
     this.offset = 0.06,
+    this.enabled = true,
   });
 
   final Widget child;
   final Duration delay;
+
+  /// Set false to render at rest immediately.
+  ///
+  /// A lazily built list re-creates its rows as they scroll into view, so an
+  /// always-on reveal would fade each new row in from nothing — a blank frame
+  /// on every scroll. Stagger only what is on screen at first paint.
+  final bool enabled;
   /// Fraction of the child's own height to rise from. Small on purpose.
   final double offset;
 
@@ -71,7 +79,9 @@ class _RevealOnMountState extends State<RevealOnMount> with SingleTickerProvider
   @override
   void initState() {
     super.initState();
-    if (widget.delay == Duration.zero) {
+    if (!widget.enabled) {
+      _controller.value = 1;
+    } else if (widget.delay == Duration.zero) {
       _controller.forward();
     } else {
       // A widget can be disposed before its delay elapses (fast tab switching).
