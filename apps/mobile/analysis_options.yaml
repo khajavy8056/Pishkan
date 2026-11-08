@@ -8,7 +8,6 @@ linter:
 analyzer:
   exclude:
     - test/**
-    - lib/screens/**
     - lib/widgets/**
   errors:
     deprecated_member_use: ignore
