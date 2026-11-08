@@ -19,7 +19,17 @@ analyzer:
     - lib/core/theme.dart
     - lib/core/theme_mode.dart
     - lib/models/models.dart
+    - lib/screens/document_camera.dart
+    - lib/screens/documents.dart
+    - lib/screens/home.dart
+    - lib/screens/my_discounts.dart
+    - lib/screens/notification_route.dart
+    - lib/screens/home_shell.dart
+    - lib/screens/login.dart
+    - lib/screens/notifications.dart
+    - lib/screens/offers.dart
     - lib/screens/referrals.dart
+    - lib/screens/payments.dart
     - lib/screens/profile.dart
     - lib/screens/request_detail.dart
     - lib/screens/request_form.dart
