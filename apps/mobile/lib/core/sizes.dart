@@ -73,6 +73,16 @@ class Sizes {
   /// Gap between a card's own rows.
   double get cardGap => s(10);
 
+  /// Space a scrolling body needs under its last item so the floating nav pill
+  /// does not sit on top of it.
+  ///
+  /// The pill is drawn over the body (the page shows through around it), so
+  /// without this the final card ends up underneath it. Measured from the pill
+  /// itself rather than guessed: tab padding + icon + label + the pill's own
+  /// margin, plus the device's gesture inset.
+  double navPillClearance(BuildContext context) =>
+      s(62) + MediaQuery.paddingOf(context).bottom + s(16);
+
   /// Category grid: two columns, fixed by the reference design.
   double get categoryArt => s(104);
   double get categoryArtSmall => s(78);

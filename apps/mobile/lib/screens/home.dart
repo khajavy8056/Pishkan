@@ -119,33 +119,16 @@ class _HomeTabState extends State<HomeTab> {
   Widget build(BuildContext context) {
     final sizes = context.sizes;
     final brand = _config?.brandName.isNotEmpty == true ? _config!.brandName : 'پیشخوان آرنا';
-    return Scaffold(
-      // The reference puts the greeting and the search field on the blue sweep
-      // and lets the content start on a white surface. That is one header over
-      // one list, not a coloured bar sitting above a grey page, so the two
-      // halves are painted by the same scroll view and move together.
-      backgroundColor: context.surface,
-      body: Stack(children: [
-        Positioned(
-          top: 0,
-          left: 0,
-          right: 0,
-          child: BrandBackdrop(
-            height: MediaQuery.paddingOf(context).top + sizes.s(126),
-            child: Column(children: [
-              _header(brand, unread: widget.unreadCount),
-              _searchBar(),
-            ]),
-          ),
-        ),
-        RefreshIndicator(
-          onRefresh: _load,
-          edgeOffset: MediaQuery.paddingOf(context).top + sizes.s(60),
-          child: ListView(
-            // The header is painted behind the list, so the list starts below
-            // it and simply scrolls up over the blue.
-            padding: EdgeInsets.fromLTRB(sizes.gutter, MediaQuery.paddingOf(context).top + sizes.s(120), sizes.gutter, sizes.s(24)),
-            children: [
+    return HeaderScaffold(
+      header: Column(children: [
+        _header(brand, unread: widget.unreadCount),
+        _searchBar(),
+      ]),
+      body: RefreshIndicator(
+        onRefresh: _load,
+        child: ListView(
+          padding: EdgeInsets.fromLTRB(sizes.gutter, sizes.s(16), sizes.gutter, sizes.navPillClearance(context)),
+          children: [
               if (asMap((session.user ?? const {})['profileState'])['complete'] == false) ...[
                 SoftCard(
                   onTap: () async {
@@ -211,10 +194,10 @@ class _HomeTabState extends State<HomeTab> {
                     if (_groups[i].items.isNotEmpty) _noticeCard(i, _groups[i]),
                 ],
               ]),
-            ],
-          ),
+
+          ],
         ),
-      ]),
+      ),
     );
   }
 

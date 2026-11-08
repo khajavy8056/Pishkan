@@ -218,34 +218,27 @@ class _ProfileTabState extends State<ProfileTab> {
         final name = asStr(user['fullName']).isEmpty ? 'کاربر پیشخوان' : asStr(user['fullName']);
         final mobile = asStr(user['mobile']);
         final sizes = context.sizes;
-        final topInset = MediaQuery.paddingOf(context).top;
-        return Scaffold(
-          backgroundColor: context.surface,
-          body: Stack(children: [
-            Positioned(
-              top: 0, left: 0, right: 0,
-              child: BrandBackdrop(
-                height: topInset + sizes.s(210),
-                child: Column(children: [
-                  ScreenHeading(
-                    title: 'پروفایل',
-                    trailing: FloatingIconButton(
-                      icon: Icons.dark_mode_outlined,
-                      label: 'ظاهر برنامه',
-                      onTap: () => showThemePicker(context),
-                    ),
-                  ),
-                  SizedBox(height: sizes.s(6)),
-                  // The face sits centred on the blue, as in the reference,
-                  // with the name under it -- not in a card of its own, which
-                  // used to make the top of this screen look like a second
-                  // app bar stacked on the first.
-                  _identity(name, mobile, user),
-                ]),
+        return HeaderScaffold(
+          headerHeight: MediaQuery.paddingOf(context).top + sizes.s(210),
+          header: Column(children: [
+            ScreenHeading(
+              title: 'پروفایل',
+              trailing: FloatingIconButton(
+                icon: Icons.dark_mode_outlined,
+                label: 'ظاهر برنامه',
+                onTap: () => showThemePicker(context),
               ),
             ),
+            SizedBox(height: sizes.s(6)),
+            // The face sits centred on the blue, as in the reference, with the
+            // name under it -- not in a card of its own, which used to make the
+            // top of this screen look like a second app bar stacked on the
+            // first.
+            _identity(name, mobile, user),
+          ]),
+          body: 
             ListView(
-              padding: EdgeInsets.fromLTRB(sizes.gutter, topInset + sizes.s(196), sizes.gutter, sizes.s(96)),
+              padding: EdgeInsets.fromLTRB(sizes.gutter, sizes.s(16), sizes.gutter, sizes.navPillClearance(context)),
               children: [
             const SectionTitle(title: 'دستیار و پشتیبانی'),
             SoftCard(
@@ -395,7 +388,6 @@ class _ProfileTabState extends State<ProfileTab> {
             Center(child: Text('اپلیکیشن مشتریان پیشخوان · نسخهٔ ${faDigits(_version)}', style: TextStyle(fontSize: 11, color: context.inkMuted))),
               ],
             ),
-          ]),
         );
       },
     );

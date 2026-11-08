@@ -6,6 +6,7 @@ import 'package:url_launcher/url_launcher.dart';
 import '../core/api.dart';
 import '../core/format.dart';
 import '../core/service_icons.dart';
+import '../core/sizes.dart';
 import '../core/theme.dart';
 import '../models/models.dart';
 import '../services/services.dart';
@@ -261,8 +262,12 @@ class _RequestFormScreenState extends State<RequestFormScreen> {
             },
           ]),
         ),
-        _actionBar(),
       ]),
+      // The bar belongs in the Scaffold's own slot: as the last child of a
+      // Column it did not move when the keyboard opened, so the "ثبت نهایی"
+      // button ended up under the keyboard on the last step -- where it is the
+      // only way forward.
+      bottomNavigationBar: _actionBar(),
     );
   }
 
@@ -523,18 +528,20 @@ class _RequestFormScreenState extends State<RequestFormScreen> {
 
   Widget _actionBar() {
     if (_step == 3) {
+      final sizes = context.sizes;
       return Container(
-        padding: const EdgeInsets.fromLTRB(16, 10, 16, 16),
-        decoration: BoxDecoration(color: context.surface, borderRadius: BorderRadius.vertical(top: Radius.circular(24)), boxShadow: [BoxShadow(color: Color(0x140B1F3A), blurRadius: 18, offset: Offset(0, -5))]),
+        padding: EdgeInsets.fromLTRB(sizes.gutter, sizes.s(10), sizes.gutter, sizes.s(12)),
+        decoration: BoxDecoration(color: context.surface, borderRadius: BorderRadius.vertical(top: Radius.circular(sizes.s(24))), boxShadow: [BoxShadow(color: const Color(0x140B1F3A), blurRadius: sizes.s(18), offset: Offset(0, -sizes.s(5)))]),
         child: SafeArea(
           top: false,
           child: PlushButton(label: 'بازگشت به خانه', icon: Icons.home_rounded, onPressed: () => Navigator.of(context).popUntil((route) => route.isFirst)),
         ),
       );
     }
+    final sizes = context.sizes;
     return Container(
-      padding: const EdgeInsets.fromLTRB(16, 10, 16, 16),
-      decoration: BoxDecoration(color: context.surface, borderRadius: BorderRadius.vertical(top: Radius.circular(24)), boxShadow: [BoxShadow(color: Color(0x140B1F3A), blurRadius: 18, offset: Offset(0, -5))]),
+      padding: EdgeInsets.fromLTRB(sizes.gutter, sizes.s(10), sizes.gutter, sizes.s(12)),
+      decoration: BoxDecoration(color: context.surface, borderRadius: BorderRadius.vertical(top: Radius.circular(sizes.s(24))), boxShadow: [BoxShadow(color: const Color(0x140B1F3A), blurRadius: sizes.s(18), offset: Offset(0, -sizes.s(5)))]),
       child: SafeArea(
         top: false,
         child: Row(children: [

@@ -249,3 +249,49 @@ class FloatingIconButton extends StatelessWidget {
     );
   }
 }
+
+/// A screen built as: pinned blue header on top, scrolling white panel below.
+///
+/// The alternative -- painting the header behind the list and padding the list
+/// down past it -- looks identical at rest and breaks on scroll. The list is
+/// clipped to its own box, so anything in the header slides away with the
+/// content: on the home page that meant the avatar, the assistant button and
+/// the notification bell stopped being reachable the moment you scrolled, which
+/// reads as "the buttons do nothing". Keeping the header as a sibling above the
+/// list also keeps its hit testing intact.
+class HeaderScaffold extends StatelessWidget {
+  const HeaderScaffold({
+    super.key,
+    required this.header,
+    required this.body,
+    this.headerHeight,
+  });
+
+  /// Drawn on the blue sweep; must render its own SafeArea padding.
+  final Widget header;
+  /// The scrolling area. Give it a bottom padding that clears the nav pill.
+  final Widget body;
+  final double? headerHeight;
+
+  @override
+  Widget build(BuildContext context) {
+    final sizes = context.sizes;
+    return Scaffold(
+      backgroundColor: context.canvas,
+      body: Column(children: [
+        BrandBackdrop(
+          height: headerHeight ?? MediaQuery.paddingOf(context).top + sizes.s(126),
+          child: header,
+        ),
+        Expanded(
+          child: ClipRRect(
+            // Rounded top corners so the blue and the content meet on a curve
+            // rather than a hard cut.
+            borderRadius: BorderRadius.vertical(top: Radius.circular(sizes.s(26))),
+            child: ColoredBox(color: context.surface, child: body),
+          ),
+        ),
+      ]),
+    );
+  }
+}

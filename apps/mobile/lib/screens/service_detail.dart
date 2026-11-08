@@ -4,6 +4,7 @@ import 'package:flutter/services.dart';
 import '../core/format.dart';
 import '../core/service_icons.dart';
 import '../core/motion.dart';
+import '../core/sizes.dart';
 import '../core/theme.dart';
 import '../models/models.dart';
 import '../services/services.dart';
@@ -71,7 +72,11 @@ class _ServiceDetailScreenState extends State<ServiceDetailScreen> {
           ),
         ),
       ]),
-      bottomSheet: _actionBar(),
+      // A bottomNavigationBar, not a bottomSheet: the sheet did not take the
+      // device's gesture inset into account, so on a phone with a nav bar the
+      // "ثبت درخواست" button sat underneath the system buttons. This also lets
+      // the bar shrink away when the keyboard opens instead of overlapping it.
+      bottomNavigationBar: _actionBar(),
     );
   }
 
@@ -346,25 +351,29 @@ class _ServiceDetailScreenState extends State<ServiceDetailScreen> {
   }
 
   Widget _actionBar() {
+    final sizes = context.sizes;
     final open = service.acceptingRequests;
     return Container(
-      padding: const EdgeInsets.fromLTRB(16, 10, 16, 16),
+      padding: EdgeInsets.fromLTRB(sizes.gutter, sizes.s(10), sizes.gutter, sizes.s(12)),
       decoration: BoxDecoration(
         color: context.surface,
         borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
         boxShadow: [BoxShadow(color: Color(0x140B1F3A), blurRadius: 18, offset: Offset(0, -5))],
       ),
+      // minimum: the inset is added to whatever SafeArea reserves, so the bar
+      // grows with the device instead of hiding behind it.
       child: SafeArea(
         top: false,
+        minimum: EdgeInsets.only(bottom: MediaQuery.viewPaddingOf(context).bottom > 0 ? 0 : sizes.s(4)),
         child: Row(children: [
           Expanded(
             flex: 4,
             child: Column(crossAxisAlignment: CrossAxisAlignment.start, mainAxisSize: MainAxisSize.min, children: [
-              Text('قیمت نهایی', style: TextStyle(fontSize: 11, color: context.inkMuted)),
-              Text(service.computedTotal > 0 ? faMoney(service.computedTotal) : 'توافقی', style: TextStyle(fontWeight: FontWeight.w800, fontSize: 15, color: context.ink)),
+              Text('قیمت نهایی', style: TextStyle(fontSize: sizes.micro, color: context.inkMuted)),
+              Text(service.computedTotal > 0 ? faMoney(service.computedTotal) : 'توافقی', style: TextStyle(fontWeight: FontWeight.w800, fontSize: sizes.subtitle, color: context.ink)),
             ]),
           ),
-          const SizedBox(width: 10),
+          SizedBox(width: sizes.s(10)),
           Expanded(
             flex: 6,
             child: PlushButton(

@@ -73,57 +73,45 @@ class _ServicesCatalogTabState extends State<ServicesCatalogTab> {
   @override
   Widget build(BuildContext context) {
     final sizes = context.sizes;
-    final topInset = MediaQuery.paddingOf(context).top;
-    return Scaffold(
-      backgroundColor: context.surface,
-      // Same blue sweep and floating pill as the home page, so the two tabs read
-      // as one app rather than two screens that happen to share a palette.
-      body: Stack(children: [
-        Positioned(
-          top: 0, left: 0, right: 0,
-          child: BrandBackdrop(
-            height: topInset + sizes.s(124),
-            child: Column(children: [
-              ScreenHeading(title: 'خدمات', onBack: widget.showBack ? () => Navigator.pop(context) : null),
-              _searchPill(),
-            ]),
-          ),
-        ),
-        RefreshIndicator(
-          onRefresh: _loadAll,
-          edgeOffset: topInset + sizes.s(60),
-          child: ListView(
-            padding: EdgeInsets.fromLTRB(sizes.gutter, topInset + sizes.s(118), sizes.gutter, sizes.s(96)),
-            children: [
-              if (_categorySlug.isEmpty && _categories.isNotEmpty) ...[
-                const SectionTitle(title: 'دسته‌بندی خدمات'),
-                _categoryGrid(),
-              ] else ...[
-                if (_categorySlug.isNotEmpty)
-                  Align(
-                    alignment: Alignment.centerRight,
-                    child: TextButton.icon(
-                      onPressed: () { setState(() { _categorySlug = ''; _services = []; }); _loadServices(); },
-                      icon: Icon(Icons.arrow_forward_rounded, size: sizes.s(18)),
-                      label: const Text('همه دسته‌بندی‌ها'),
-                    ),
-                  ),
-                if (_loading && _services.isEmpty)
-                  const Padding(padding: EdgeInsets.symmetric(vertical: 60), child: Center(child: CircularProgressIndicator()))
-                else if (_error != null && _services.isEmpty)
-                  Padding(padding: const EdgeInsets.symmetric(vertical: 40), child: ErrorView(message: _error!, onRetry: _loadAll))
-                else if (_services.isEmpty)
-                  const Padding(
-                    padding: EdgeInsets.symmetric(vertical: 40),
-                    child: EmptyView(icon: Icons.grid_off_rounded, title: 'خدمتی در این دسته نیست', hint: 'دستهٔ دیگری را انتخاب کنید یا اتصال را بررسی و صفحه را به پایین بکشید.'),
-                  )
-                else
-                  _grid(),
-              ],
-            ],
-          ),
-        ),
+    return HeaderScaffold(
+      headerHeight: MediaQuery.paddingOf(context).top + sizes.s(124),
+      header: Column(children: [
+        ScreenHeading(title: 'خدمات', onBack: widget.showBack ? () => Navigator.pop(context) : null),
+        _searchPill(),
       ]),
+      body: RefreshIndicator(
+        onRefresh: _loadAll,
+        child: ListView(
+          padding: EdgeInsets.fromLTRB(sizes.gutter, sizes.s(16), sizes.gutter, sizes.navPillClearance(context)),
+          children: [
+            if (_categorySlug.isEmpty && _categories.isNotEmpty) ...[
+              const SectionTitle(title: 'دسته‌بندی خدمات'),
+              _categoryGrid(),
+            ] else ...[
+              if (_categorySlug.isNotEmpty)
+                Align(
+                  alignment: Alignment.centerRight,
+                  child: TextButton.icon(
+                    onPressed: () { setState(() { _categorySlug = ''; _services = []; }); _loadServices(); },
+                    icon: Icon(Icons.arrow_forward_rounded, size: sizes.s(18)),
+                    label: const Text('همه دسته‌بندی‌ها'),
+                  ),
+                ),
+              if (_loading && _services.isEmpty)
+                const Padding(padding: EdgeInsets.symmetric(vertical: 60), child: Center(child: CircularProgressIndicator()))
+              else if (_error != null && _services.isEmpty)
+                Padding(padding: const EdgeInsets.symmetric(vertical: 40), child: ErrorView(message: _error!, onRetry: _loadAll))
+              else if (_services.isEmpty)
+                const Padding(
+                  padding: EdgeInsets.symmetric(vertical: 40),
+                  child: EmptyView(icon: Icons.grid_off_rounded, title: 'خدمتی در این دسته نیست', hint: 'دستهٔ دیگری را انتخاب کنید یا اتصال را بررسی و صفحه را به پایین بکشید.'),
+                )
+              else
+                _grid(),
+            ],
+          ],
+        ),
+      ),
     );
   }
 
