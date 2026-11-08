@@ -290,13 +290,45 @@ class ErrorView extends StatelessWidget {
 /// A service pictogram, with a photo backdrop where available. An explicitly
 /// uploaded icon takes precedence; no catalog text is rendered as emoji.
 class IconMedallion extends StatelessWidget {
-  const IconMedallion({super.key, this.artwork, this.size = 52, this.color});
+  const IconMedallion({super.key, this.artwork, this.size = 52, this.color, this.glyphBadge = false});
   final ServiceArtwork? artwork;
   final double size;
   final Color? color;
 
+  /// Draws the service's own glyph as a small seal on the picture's corner.
+  ///
+  /// The illustration says what a service is about; the glyph names it. Since
+  /// every bundled service owns a different glyph, two entries that happen to
+  /// share a subject are still told apart at a glance.
+  final bool glyphBadge;
+
   @override
   Widget build(BuildContext context) {
+    final core = _art();
+    if (!glyphBadge) return core;
+    final tint = color ?? artwork?.color ?? PishkanColors.primary;
+    return Stack(clipBehavior: Clip.none, children: [
+      core,
+      Positioned(
+        right: -2,
+        bottom: -2,
+        child: Container(
+          width: size * 0.40,
+          height: size * 0.40,
+          decoration: BoxDecoration(
+            color: context.surface,
+            shape: BoxShape.circle,
+            border: Border.all(color: tint.withOpacity(0.20)),
+            boxShadow: const [BoxShadow(color: Color(0x1A0B1F3A), blurRadius: 6, offset: Offset(0, 2))],
+          ),
+          child: Icon(artwork?.icon ?? Icons.grid_view_rounded, size: size * 0.24, color: tint),
+        ),
+      ),
+    ]);
+  }
+
+  /// The picture itself, without the seal.
+  Widget _art() {
     final tint = color ?? artwork?.color ?? PishkanColors.primary;
     final radius = BorderRadius.circular(size * 0.30);
     if (artwork?.imageUrl.isNotEmpty == true) {
