@@ -37,6 +37,81 @@ customersRouter.post('/me/notifications/read', asyncRoute(async (req, res) => {
 }));
 
 /** Reusable profile records (kept separately from submitted requests). */
+/* --------------------------------- avatar --------------------------------- */
+
+/**
+ * The customer's face.
+ *
+ * The app shipped a picker that PUT a preset here, but these routes never
+ * existed: every tap hit the 404 handler and showed "مسیر درخواستی وجود
+ * ندارد", and nothing was stored. Both halves are needed -- `photoUrl` from an
+ * uploaded image and `preset` for the 24 illustrations.
+ */
+const PRESET_COUNT = 24;
+
+function avatarState(row: { avatar_preset: number | null; avatar_file_id: string | null } | null) {
+  return {
+    preset: Number(row?.avatar_preset ?? 0),
+    photoUrl: row?.avatar_file_id ? `/api/files/${row.avatar_file_id}` : '',
+    presetCount: PRESET_COUNT,
+  };
+}
+
+async function readAvatar(userId: string) {
+  return one<{ avatar_preset: number | null; avatar_file_id: string | null }>(
+    'SELECT avatar_preset, avatar_file_id FROM users WHERE id = ?',
+    [userId],
+  );
+}
+
+customersRouter.get('/me/avatar', asyncRoute(async (req, res) => {
+  ok(res, avatarState(await readAvatar(req.auth!.user.id)));
+}));
+
+customersRouter.put('/me/avatar/preset', asyncRoute(async (req, res) => {
+  const body = z.object({
+    preset: z.number().int().min(1).max(PRESET_COUNT),
+    gender: z.enum(['male', 'female', '']).optional(),
+  }).parse(req.body);
+
+  const userId = req.auth!.user.id;
+  await run('UPDATE users SET avatar_preset = ?, avatar_file_id = NULL, updated_at = ? WHERE id = ?',
+    [body.preset, nowIso(), userId]);
+  // Keep the profile (and so the app's cached user) in step with the change.
+  if (body.gender) await run('UPDATE users SET updated_at = ? WHERE id = ?', [nowIso(), userId]);
+
+  await writeAudit({
+    actorId: userId, action: 'customer.avatar.preset', entityType: 'user', entityId: userId,
+    after: { preset: body.preset },
+  }).catch(() => undefined);
+  ok(res, avatarState(await readAvatar(userId)));
+}));
+
+customersRouter.put('/me/avatar/photo', asyncRoute(async (req, res) => {
+  const body = z.object({ fileId: z.string().min(4).max(80) }).parse(req.body);
+  const userId = req.auth!.user.id;
+
+  // Only a file this customer uploaded may become their face.
+  const file = await one<{ id: string; owner_id: string | null }>(
+    'SELECT id, owner_id FROM files WHERE id = ?', [body.fileId],
+  ).catch(() => null);
+  if (!file) throw notFound('فایل انتخاب‌شده پیدا نشد.');
+  if (file.owner_id && file.owner_id !== userId) throw forbidden('این فایل متعلق به شما نیست.');
+
+  await run('UPDATE users SET avatar_file_id = ?, updated_at = ? WHERE id = ?', [file.id, nowIso(), userId]);
+  await writeAudit({
+    actorId: userId, action: 'customer.avatar.photo', entityType: 'user', entityId: userId,
+    after: { fileId: file.id },
+  }).catch(() => undefined);
+  ok(res, avatarState(await readAvatar(userId)));
+}));
+
+customersRouter.delete('/me/avatar/photo', asyncRoute(async (req, res) => {
+  const userId = req.auth!.user.id;
+  await run('UPDATE users SET avatar_file_id = NULL, updated_at = ? WHERE id = ?', [nowIso(), userId]);
+  ok(res, avatarState(await readAvatar(userId)));
+}));
+
 customersRouter.get('/me/records', asyncRoute(async (req, res) => {
   const rows = await q<any>('SELECT * FROM customer_records WHERE customer_id = ? ORDER BY updated_at DESC', [req.auth!.user.id]);
   ok(res, rows.map((r) => ({ id: r.id, key: r.key, label: r.label, value: r.value, updatedAt: r.updated_at })));

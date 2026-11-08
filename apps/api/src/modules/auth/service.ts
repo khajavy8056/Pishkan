@@ -31,6 +31,7 @@ export interface UserRow {
   national_id: string | null;
   status: string;
   avatar_file_id: string | null;
+  avatar_preset: number | null;
   mfa_secret: string | null;
   mfa_enabled: number;
   must_change_password: number;
@@ -116,6 +117,13 @@ export function publicUser(user: UserRow) {
     mustChangePassword: Boolean(user.must_change_password),
     lastLoginAt: user.last_login_at,
     createdAt: user.created_at,
+    // The app needs both halves of the face: an uploaded photo wins, and the
+    // preset is what it draws when there is none. Neither was ever sent, which
+    // is why every customer showed the same fallback face.
+    avatar: {
+      preset: Number(user.avatar_preset ?? 0),
+      photoUrl: user.avatar_file_id ? `/api/files/${user.avatar_file_id}` : '',
+    },
   };
 }
 

@@ -194,12 +194,10 @@ class _HomeShellState extends State<HomeShell> with WidgetsBindingObserver {
     return Expanded(
       child: GestureDetector(
         behavior: HitTestBehavior.opaque,
-        onTap: () {
-          // A soft tick on the main navigation, never on repeat-taps of the
-          // tab that is already open.
-          if (index != _index) unawaited(playAppSound('tap'));
-          selectTab(index);
-        },
+        // No sound here. A tick on every tab press is the one piece of
+        // feedback people actively dislike: it fires dozens of times a
+        // session and cannot be turned off without muting notifications too.
+        onTap: () => selectTab(index),
         child: AnimatedContainer(
           duration: const Duration(milliseconds: 180),
           padding: const EdgeInsets.symmetric(vertical: 7),

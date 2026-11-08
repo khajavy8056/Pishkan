@@ -357,18 +357,39 @@ class _HomeTabState extends State<HomeTab> {
   }
 
   Widget _quickAccess() {
-    Widget tile(IconData icon, Color bg, Color fg, String label, VoidCallback onTap) {
+    // The four tiles used to be filled with a light pastel and labelled with
+    // `context.ink`, which in dark mode is near-white: 1.06:1 contrast, i.e.
+    // the text was invisible. The tint now rides on a theme surface instead of
+    // replacing it, so the label is always drawn on the same background it was
+    // designed for.
+    Widget tile(IconData icon, Color tint, String label, VoidCallback onTap) {
       return Expanded(
         child: PressableScale(
           onTap: onTap,
           scale: 0.94,
           child: Container(
-            padding: const EdgeInsets.symmetric(vertical: 16, horizontal: 4),
-            decoration: BoxDecoration(color: bg, borderRadius: BorderRadius.circular(22)),
-            child: Column(children: [
-              Container(padding: const EdgeInsets.all(10), decoration: BoxDecoration(color: context.isDark ? PishkanColors.darkSurfaceHigh : Colors.white, shape: BoxShape.circle), child: Icon(icon, color: fg, size: 24)),
+            padding: const EdgeInsets.symmetric(vertical: 14, horizontal: 4),
+            decoration: BoxDecoration(
+              color: context.isDark ? PishkanColors.darkSurfaceHigh : tint.withOpacity(0.30),
+              borderRadius: BorderRadius.circular(22),
+              border: Border.all(color: tint.withOpacity(context.isDark ? 0.38 : 0.30)),
+            ),
+            child: Column(mainAxisSize: MainAxisSize.min, children: [
+              Container(
+                padding: const EdgeInsets.all(10),
+                decoration: BoxDecoration(
+                  color: tint.withOpacity(context.isDark ? 0.22 : 0.16),
+                  shape: BoxShape.circle,
+                ),
+                child: Icon(icon, color: context.isDark ? tint : tint, size: 22),
+              ),
               const SizedBox(height: 8),
-              Text(label, textAlign: TextAlign.center, style: TextStyle(fontSize: 11.5, fontWeight: FontWeight.w700, color: context.ink)),
+              Text(
+                label,
+                textAlign: TextAlign.center,
+                maxLines: 2,
+                style: TextStyle(fontSize: 11, fontWeight: FontWeight.w700, height: 1.4, color: context.ink),
+              ),
             ]),
           ),
         ),
@@ -376,13 +397,13 @@ class _HomeTabState extends State<HomeTab> {
     }
 
     return Row(children: [
-      tile(Icons.add_circle_outline_rounded, PishkanColors.pastelGreen, const Color(0xFF16A34A), 'ثبت درخواست جدید', () => widget.onOpenTab(1)),
+      tile(Icons.add_circle_outline_rounded, const Color(0xFF22C55E), 'ثبت درخواست جدید', () => widget.onOpenTab(1)),
       const SizedBox(width: 10),
-      tile(Icons.assignment_outlined, PishkanColors.pastelViolet, const Color(0xFF7C3AED), 'پیگیری درخواست', () => widget.onOpenTab(2)),
+      tile(Icons.assignment_outlined, const Color(0xFF8B5CF6), 'پیگیری درخواست', () => widget.onOpenTab(2)),
       const SizedBox(width: 10),
-      tile(Icons.folder_open_rounded, PishkanColors.pastelBlue, PishkanColors.primary, 'مدارک من', () => Navigator.push(context, MaterialPageRoute(builder: (_) => const DocumentsScreen()))),
+      tile(Icons.folder_open_rounded, const Color(0xFF3B82F6), 'مدارک من', () => Navigator.push(context, fadeThroughRoute(const DocumentsScreen()))),
       const SizedBox(width: 10),
-      tile(Icons.headset_mic_rounded, PishkanColors.pastelOrange, const Color(0xFFF97316), 'پشتیبانی', () => Navigator.push(context, MaterialPageRoute(builder: (_) => const SupportTab()))),
+      tile(Icons.headset_mic_rounded, const Color(0xFFF97316), 'پشتیبانی', () => Navigator.push(context, fadeThroughRoute(const SupportTab()))),
     ]);
   }
 

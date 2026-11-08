@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 
 import '../core/api.dart';
 import '../core/service_icons.dart';
+import '../core/motion.dart';
 import '../core/theme.dart';
 import '../models/models.dart';
 
@@ -92,9 +93,19 @@ class CategoryCard extends StatelessWidget {
     final color = artworkForCategory(category).color;
     final dark = Theme.of(context).brightness == Brightness.dark;
     final textColor = dark ? Colors.white : PishkanColors.navy;
+    // One source of truth for the card's own colours. The artwork was fading
+    // into a second, separately hardcoded copy of the last stop; when the two
+    // drifted apart a visible seam appeared across the picture.
+    final tints = dark
+        ? const [Color(0xFF142B4D), Color(0xFF263C62)]
+        : <Color>[const Color(0xFFF6FAFF), Color.alphaBlend(color.withOpacity(.12), const Color(0xFFEAF2FF))];
+    final fadeTo = tints[1];
     return Semantics(
       button: true, label: category.title,
-      child: Material(
+      child: PressableScale(
+        onTap: onTap,
+        scale: 0.96,
+        child: Material(
         color: Colors.transparent,
         child: InkWell(
           onTap: onTap,
@@ -102,9 +113,7 @@ class CategoryCard extends StatelessWidget {
           child: Ink(
             decoration: BoxDecoration(
               borderRadius: BorderRadius.circular(20),
-              gradient: LinearGradient(colors: dark
-                ? [const Color(0xFF142B4D), const Color(0xFF263C62)]
-                : [const Color(0xFFF6FAFF), Color.alphaBlend(color.withOpacity(.12), const Color(0xFFEAF2FF))]),
+              gradient: LinearGradient(colors: tints),
               border: Border.all(color: dark ? Colors.white24 : Colors.white, width: 1.4),
               boxShadow: [BoxShadow(color: color.withOpacity(dark ? .12 : .16), blurRadius: 14, offset: const Offset(0, 5))],
             ),
@@ -115,7 +124,7 @@ class CategoryCard extends StatelessWidget {
                   child: CategoryArtImage(category: category)),
                 Positioned(left: constraints.maxWidth * .40, top: 0, bottom: 0, width: constraints.maxWidth * .20,
                   child: DecoratedBox(decoration: BoxDecoration(gradient: LinearGradient(colors: [
-                    Colors.transparent, dark ? const Color(0xFF263C62) : Color.alphaBlend(color.withOpacity(.12), const Color(0xFFEAF2FF)),
+                    Colors.transparent, fadeTo,
                   ])))),
                 Positioned(right: 9, top: 5, bottom: 5, width: constraints.maxWidth * .43,
                   child: Align(alignment: Alignment.centerRight, child: Text(category.title,
@@ -131,6 +140,7 @@ class CategoryCard extends StatelessWidget {
               ])),
             ),
           ),
+        ),
         ),
       ),
     );
