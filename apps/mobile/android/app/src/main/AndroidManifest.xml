@@ -5,7 +5,10 @@
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS"/>
     <!-- Optional fingerprint/face unlock (local_auth). -->
     <uses-permission android:name="android.permission.USE_BIOMETRIC"/>
-    <!-- Lets scheduled background notification checks survive reboots. -->
+    <!-- Lets scheduled background notification checks come back after a
+         reboot. WorkManager enables its own BOOT_COMPLETED receiver as soon as
+         a task is enqueued, so declaring one here would be both redundant and
+         a way to wake the app on every boot for nothing. -->
     <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED"/>
     <!-- Background checks are polling, so the device must be allowed to wake
          for them; without WAKE_LOCK the scheduled pass can be cut short. -->
@@ -56,19 +59,6 @@
         <meta-data
             android:name="flutterEmbedding"
             android:value="2" />
-        <!-- WorkManager's own reschedule hook. Without this, a periodic task
-             registered before a reboot does not come back on its own, which is
-             how notifications went quiet after the phone restarted. -->
-        <receiver
-            android:name="androidx.work.impl.background.systemalarm.RescheduleReceiver"
-            android:enabled="true"
-            android:exported="false">
-            <intent-filter>
-                <action android:name="android.intent.action.BOOT_COMPLETED"/>
-                <action android:name="android.intent.action.TIME_SET"/>
-                <action android:name="android.intent.action.TIMEZONE_CHANGED"/>
-            </intent-filter>
-        </receiver>
     </application>
     <queries>
         <intent>
