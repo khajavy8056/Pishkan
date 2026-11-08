@@ -471,6 +471,9 @@ class _HomeTabState extends State<HomeTab> {
 
   Widget _categoryRail() {
     final sizes = context.sizes;
+    // Grow the tile with the customer's text-size setting; a fixed 88px row
+    // clips the label once the system font is turned up.
+    final textScale = MediaQuery.textScalerOf(context).scale(1).clamp(1.0, 1.6);
     // Two columns of landscape cards, as in the reference. The old rail was a
     // 120px-tall horizontal strip: the fourth card was always half-cut and the
     // customer had to discover that it scrolled sideways to see the rest.
@@ -493,7 +496,7 @@ class _HomeTabState extends State<HomeTab> {
     return Column(children: [
       for (var i = 0; i < items.length; i += 2) ...[
         if (i > 0) SizedBox(height: sizes.gap),
-        SizedBox(height: sizes.s(88), child: row(i)),
+        SizedBox(height: sizes.s(88) * textScale, child: row(i)),
       ],
     ]);
   }

@@ -152,12 +152,16 @@ class _ServicesCatalogTabState extends State<ServicesCatalogTab> {
 
   Widget _categoryGrid() {
     final sizes = context.sizes;
+    // The card is a fixed-height landscape tile, so the row has to grow with
+    // the customer's text-size setting or the label clips at the bottom. The
+    // old grid handled this with a text-scaled aspect ratio; fixed heights
+    // need the scale applied directly.
     final textScale = MediaQuery.textScalerOf(context).scale(1).clamp(1.0, 1.6);
     return Column(children: [
       for (var i = 0; i < _categories.length; i += 2) ...[
         if (i > 0) SizedBox(height: sizes.gap),
         SizedBox(
-          height: sizes.s(88),
+          height: sizes.s(88) * textScale,
           child: Row(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
             Expanded(child: CategoryCard(category: _categories[i], onTap: () => _openCategory(_categories[i]))),
             SizedBox(width: sizes.gap),
@@ -265,13 +269,12 @@ class _ServiceSearchScreenState extends State<ServiceSearchScreen> {
     final term = _query.text.trim();
     final items = _all.where((service) => term.isEmpty || service.title.contains(term) || service.slug.contains(term) || service.description.contains(term) || service.subtitle.contains(term)).toList();
     final sizes = context.sizes;
-    final topInset = MediaQuery.paddingOf(context).top;
     return Scaffold(
       backgroundColor: context.surface,
       appBar: AppBar(title: const Text('جستجوی خدمت')),
       body: Column(children: [
         Padding(
-          padding: const EdgeInsets.fromLTRB(16, 8, 16, 10),
+          padding: EdgeInsets.fromLTRB(sizes.gutter, sizes.s(8), sizes.gutter, sizes.s(10)),
           child: TextField(
             controller: _query,
             autofocus: true,
@@ -287,11 +290,11 @@ class _ServiceSearchScreenState extends State<ServiceSearchScreen> {
               : items.isEmpty
                   ? const EmptyView(icon: Icons.search_off_rounded, title: 'خدمتی پیدا نشد', hint: 'عبارت دیگری را امتحان کنید یا از کارشناس بپرسید.')
                   : ListView(
-                      padding: const EdgeInsets.fromLTRB(16, 4, 16, 16),
+                      padding: EdgeInsets.fromLTRB(sizes.gutter, sizes.s(4), sizes.gutter, sizes.s(16)),
                       children: [
                         for (final service in items)
                           Padding(
-                            padding: const EdgeInsets.only(bottom: 10),
+                            padding: EdgeInsets.only(bottom: sizes.gap),
                             child: SoftCard(
                               onTap: () => Navigator.push(context, fadeThroughRoute(ServiceDetailScreen(service: service))),
                               child: Row(children: [
