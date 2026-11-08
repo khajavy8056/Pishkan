@@ -132,14 +132,26 @@ ThemeData _build(Brightness brightness) {
     canvasColor: canvas,
     fontFamily: 'Vazirmatn',
     splashFactory: InkSparkle.splashFactory,
+    // Sub-screens (documents, payments, support, the detail pages) keep a
+    // normal AppBar; the four main tabs paint their own blue sweep. This makes
+    // the AppBar a solid slice of that same gradient rather than a flat strip
+    // of canvas, so opening a sub-screen does not drop the customer out of the
+    // brand. Primary is dark enough for white title and icon text in both
+    // modes: 5.2:1 on light, 6.9:1 on the lifted dark brand.
     appBarTheme: AppBarTheme(
-      backgroundColor: canvas,
+      // Not `brand`: in dark mode brand is the lifted #5AA0FF, and white on
+      // that is 2.7:1. The deep navy of the gradient's dark end carries white
+      // at 14:1 and still belongs to the same header.
+      backgroundColor: dark ? PishkanColors.darkGradient.colors.first : brand,
       surfaceTintColor: Colors.transparent,
       elevation: 0,
+      scrolledUnderElevation: 0,
       centerTitle: false,
-      systemOverlayStyle: dark ? SystemUiOverlayStyle.light : SystemUiOverlayStyle.dark,
-      titleTextStyle: TextStyle(fontFamily: 'Vazirmatn', fontSize: 18, fontWeight: FontWeight.w700, color: ink),
-      iconTheme: IconThemeData(color: ink),
+      foregroundColor: Colors.white,
+      systemOverlayStyle: SystemUiOverlayStyle.light,
+      titleTextStyle: const TextStyle(fontFamily: 'Vazirmatn', fontSize: 17, fontWeight: FontWeight.w700, color: Colors.white),
+      iconTheme: const IconThemeData(color: Colors.white),
+      actionsIconTheme: const IconThemeData(color: Colors.white),
     ),
     cardTheme: CardThemeData(
       color: surface,
