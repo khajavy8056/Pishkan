@@ -139,11 +139,16 @@ class _HomeShellState extends State<HomeShell> with WidgetsBindingObserver {
 
   @override
   Widget build(BuildContext context) {
+    // HeroMode is not optional here. IndexedStack keeps every tab alive, and
+    // Flutter collects Hero widgets from the whole subtree -- so the same
+    // service shown by both the home tab and the catalog would register one
+    // tag twice and throw during a page transition. Disabling heroes on the
+    // hidden tabs keeps exactly one live copy, the visible one.
     final pages = <Widget>[
-      HomeTab(onOpenTab: selectTab, unreadCount: _unread, onNotificationsChanged: _refreshUnread),
-      const ServicesCatalogTab(),
-      const RequestsTab(),
-      const ProfileTab(),
+      HeroMode(enabled: _index == 0, child: HomeTab(onOpenTab: selectTab, unreadCount: _unread, onNotificationsChanged: _refreshUnread)),
+      HeroMode(enabled: _index == 1, child: const ServicesCatalogTab()),
+      HeroMode(enabled: _index == 2, child: const RequestsTab()),
+      HeroMode(enabled: _index == 3, child: const ProfileTab()),
     ];
     return PopScope(
       canPop: _index == 0,

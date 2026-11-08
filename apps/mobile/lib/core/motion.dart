@@ -118,8 +118,15 @@ class SoftSwitcher extends StatelessWidget {
       duration: duration ?? PishkanMotion.standard,
       switchInCurve: PishkanMotion.enter,
       switchOutCurve: PishkanMotion.exit,
+      // Explicit fade: AnimatedSwitcher's default transition is a *scale*, and
+      // scaling a whole page reads as a pop. A cross-fade is the calm version.
+      transitionBuilder: (child, animation) => FadeTransition(opacity: animation, child: child),
+      // The stack must accept the incoming child's own size rather than
+      // forcing it to fill: this widget wraps a full-screen tab body in one
+      // place and a short tab panel inside a scrolling list in another, so
+      // `StackFit.expand` would stretch the panel and shift the page.
       layoutBuilder: (current, previous) => Stack(
-        alignment: Alignment.topCenter,
+        alignment: Alignment.topLeft,
         children: [...previous, if (current != null) current],
       ),
       child: child,
