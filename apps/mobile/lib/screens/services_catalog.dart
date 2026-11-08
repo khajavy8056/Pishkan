@@ -222,3 +222,100 @@ class _ServicesCatalogTabState extends State<ServicesCatalogTab> {
     );
   }
 }
+
+class ServiceSearchScreen extends StatefulWidget {
+  const ServiceSearchScreen({super.key});
+
+  @override
+  State<ServiceSearchScreen> createState() => _ServiceSearchScreenState();
+}
+
+class _ServiceSearchScreenState extends State<ServiceSearchScreen> {
+  final _query = TextEditingController();
+  List<CatalogService> _all = [];
+  bool _loaded = false;
+  String? _error;
+
+  @override
+  void initState() {
+    super.initState();
+    _load();
+  }
+
+  Future<void> _load() async {
+    setState(() { _loaded = false; _error = null; });
+    try {
+      final services = await fetchServices();
+      if (mounted) setState(() { _all = services; _loaded = true; });
+    } on ApiException catch (error) {
+      if (mounted) setState(() { _error = error.message; _loaded = true; });
+    } catch (_) {
+      if (mounted) setState(() { _error = 'دریافت خدمات انجام نشد.'; _loaded = true; });
+    }
+  }
+
+  @override
+  void dispose() {
+    _query.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final term = _query.text.trim();
+    final items = _all.where((service) => term.isEmpty || service.title.contains(term) || service.slug.contains(term) || service.description.contains(term) || service.subtitle.contains(term)).toList();
+    final sizes = context.sizes;
+    final topInset = MediaQuery.paddingOf(context).top;
+    return Scaffold(
+      backgroundColor: context.surface,
+      appBar: AppBar(title: const Text('جستجوی خدمت')),
+      body: Column(children: [
+        Padding(
+          padding: const EdgeInsets.fromLTRB(16, 8, 16, 10),
+          child: TextField(
+            controller: _query,
+            autofocus: true,
+            onChanged: (_) => setState(() {}),
+            decoration: const InputDecoration(hintText: 'مثلاً تعویض پلاک، گذرنامه…', prefixIcon: Icon(Icons.search_rounded)),
+          ),
+        ),
+        Expanded(
+          child: !_loaded
+              ? const Center(child: CircularProgressIndicator())
+              : _error != null
+                  ? ErrorView(message: _error!, onRetry: _load)
+              : items.isEmpty
+                  ? const EmptyView(icon: Icons.search_off_rounded, title: 'خدمتی پیدا نشد', hint: 'عبارت دیگری را امتحان کنید یا از کارشناس بپرسید.')
+                  : ListView(
+                      padding: const EdgeInsets.fromLTRB(16, 4, 16, 16),
+                      children: [
+                        for (final service in items)
+                          Padding(
+                            padding: const EdgeInsets.only(bottom: 10),
+                            child: SoftCard(
+                              onTap: () => Navigator.push(context, fadeThroughRoute(ServiceDetailScreen(service: service))),
+                              child: Row(children: [
+                                Hero(
+                                  tag: 'service-art-${service.slug}',
+                                  child: IconMedallion(artwork: artworkForService(service), size: 50),
+                                ),
+                                const SizedBox(width: 12),
+                                Expanded(
+                                  child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                                    Text(service.title, style: TextStyle(fontWeight: FontWeight.w800, fontSize: 13.5, color: context.ink)),
+                                    if (service.categoryTitle.isNotEmpty) Text(service.categoryTitle, style: TextStyle(fontSize: 11, color: context.inkMuted)),
+                                  ]),
+                                ),
+                                if (service.computedTotal > 0) Text(faMoney(service.computedTotal), style: TextStyle(fontSize: 11, fontWeight: FontWeight.w700, color: PishkanColors.primary)),
+                                const SizedBox(width: 4),
+                                Icon(Icons.chevron_left_rounded, color: context.inkMuted),
+                              ]),
+                            ),
+                          ),
+                      ],
+                    ),
+        ),
+      ]),
+    );
+  }
+}

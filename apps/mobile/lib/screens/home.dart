@@ -220,7 +220,6 @@ class _HomeTabState extends State<HomeTab> {
 
   Widget _header(String brand, {required int unread}) {
     final sizes = context.sizes;
-    final name = asStr((session.user ?? const {})['fullName']);
     return Padding(
       padding: EdgeInsets.fromLTRB(sizes.gutter, sizes.s(4), sizes.gutter, sizes.s(2)),
       child: Row(children: [
@@ -646,7 +645,7 @@ class _ServiceTileSkeleton extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Column(children: [
-      ShimmerBox(width: 54, height: 54, radius: 27),
+      const ShimmerBox(width: 54, height: 54, radius: 27),
       const SizedBox(height: 8),
       const ShimmerBox(width: 44, height: 9, radius: 5),
       const SizedBox(height: 4),

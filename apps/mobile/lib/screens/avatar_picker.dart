@@ -2,7 +2,6 @@ import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
 
 import '../core/api.dart';
-import '../core/format.dart';
 import '../core/motion.dart';
 import '../core/sizes.dart';
 import '../core/theme.dart';
