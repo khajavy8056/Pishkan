@@ -4,6 +4,8 @@ import '../core/api.dart';
 import '../core/format.dart';
 import '../core/stages.dart';
 import '../core/motion.dart';
+import '../core/sizes.dart';
+import '../widgets/screen_header.dart';
 import '../core/theme.dart';
 import '../models/models.dart';
 import '../services/services.dart';
@@ -112,57 +114,67 @@ class _RequestsTabState extends State<RequestsTab> {
 
   @override
   Widget build(BuildContext context) {
+    final sizes = context.sizes;
+    final topInset = MediaQuery.paddingOf(context).top;
     return Scaffold(
-      appBar: AppBar(title: const Text('درخواست‌های من')),
-      body: Column(children: [
-        SizedBox(
-          height: 46,
-          child: ListView(
-            scrollDirection: Axis.horizontal,
-            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 2),
-            children: [
-              for (final (value, label) in _filters)
-                Padding(
-                  padding: const EdgeInsetsDirectional.only(end: 8),
-                  child: ChoiceChip(
-                    label: Text(label, style: TextStyle(color: context.ink, fontWeight: FontWeight.w600)),
-                    selected: _bucket == value,
-                    onSelected: (_) {
-                      setState(() { _bucket = value; _items = const []; _total = 0; _loadingMore = false; });
-                      _load();
-                    },
-                  ),
-                ),
-            ],
+      backgroundColor: context.surface,
+      body: Stack(children: [
+        Positioned(
+          top: 0, left: 0, right: 0,
+          child: BrandBackdrop(
+            height: topInset + sizes.s(116),
+            child: ScreenHeading(title: 'درخواست‌های من', subtitle: 'وضعیت پرونده‌ها را از همین‌جا پیگیری کنید'),
           ),
         ),
-        Expanded(
-          child: _loading
-              ? const _RequestListSkeleton()
-              : _error != null
-                  ? ErrorView(message: _error!, onRetry: _load)
-                  : _items.isEmpty
-                      ? const EmptyView(icon: Icons.folder_open_rounded, title: 'درخواستی اینجا نیست', hint: 'وقتی خدمتی را ثبت کنید، پرونده‌اش را همین‌جا می‌بینید و مرحله‌به‌مرحله پیگیرش می‌شوید.')
-                      : RefreshIndicator(
-                          onRefresh: _load,
-                          child: ListView.separated(
-                            padding: const EdgeInsets.fromLTRB(16, 8, 16, 20),
-                            itemCount: _items.length + (_items.length < _total ? 1 : 0),
-                            separatorBuilder: (_, _) => const SizedBox(height: 10),
-                            // The first six cards rise in sequence; later ones
-                            // appear at once, since a wave on every scroll
-                            // would turn into lag rather than polish.
-                            itemBuilder: (context, index) => index < _items.length
-                                ? RevealOnMount(
-                                    // Only the rows already on screen stagger.
-                                    enabled: index < 6,
-                                    delay: Duration(milliseconds: index * 45),
-                                    child: _card(_items[index]),
-                                  )
-                                : Center(child: TextButton(onPressed: _loadingMore ? null : _loadMore, child: Text(_loadingMore ? 'در حال دریافت…' : 'نمایش درخواست‌های بیشتر'))),
+        Column(children: [
+          SizedBox(height: topInset + sizes.s(96)),
+          SizedBox(
+            height: sizes.s(44),
+            child: ListView(
+              scrollDirection: Axis.horizontal,
+              padding: EdgeInsets.symmetric(horizontal: sizes.gutter, vertical: sizes.s(2)),
+              children: [
+                for (final (value, label) in _filters)
+                  Padding(
+                    padding: EdgeInsetsDirectional.only(end: sizes.s(8)),
+                    child: ChoiceChip(
+                      label: Text(label, style: TextStyle(color: context.ink, fontWeight: FontWeight.w600, fontSize: sizes.caption)),
+                      selected: _bucket == value,
+                      onSelected: (_) {
+                        setState(() { _bucket = value; _items = const []; _total = 0; _loadingMore = false; });
+                        _load();
+                      },
+                    ),
+                  ),
+              ],
+            ),
+          ),
+          Expanded(
+            child: _loading
+                ? const _RequestListSkeleton()
+                : _error != null
+                    ? ErrorView(message: _error!, onRetry: _load)
+                    : _items.isEmpty
+                        ? const EmptyView(icon: Icons.folder_open_rounded, title: 'درخواستی اینجا نیست', hint: 'وقتی خدمتی را ثبت کنید، پرونده‌اش را همین‌جا می‌بینید و مرحله‌به‌مرحله پیگیرش می‌شوید.')
+                        : RefreshIndicator(
+                            onRefresh: _load,
+                            child: ListView.separated(
+                              // The floating nav pill sits over the list, so the
+                              // last card needs room to clear it.
+                              padding: EdgeInsets.fromLTRB(sizes.gutter, sizes.s(8), sizes.gutter, sizes.s(96)),
+                              itemCount: _items.length + (_items.length < _total ? 1 : 0),
+                              separatorBuilder: (_, _) => SizedBox(height: sizes.gap),
+                              itemBuilder: (context, index) => index < _items.length
+                                  ? RevealOnMount(
+                                      enabled: index < 6,
+                                      delay: Duration(milliseconds: index * 45),
+                                      child: _card(_items[index]),
+                                    )
+                                  : Center(child: TextButton(onPressed: _loadingMore ? null : _loadMore, child: Text(_loadingMore ? 'در حال دریافت…' : 'نمایش درخواست‌های بیشتر'))),
+                            ),
                           ),
-                        ),
-        ),
+          ),
+        ]),
       ]),
     );
   }
@@ -170,7 +182,7 @@ class _RequestsTabState extends State<RequestsTab> {
   Widget _card(ServiceRequestSummary request) {
     return SoftCard(
       onTap: () async {
-        await Navigator.push(context, MaterialPageRoute(builder: (_) => RequestDetailScreen(requestId: request.id)));
+        await Navigator.push(context, fadeThroughRoute(RequestDetailScreen(requestId: request.id)));
         _load();
       },
       child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [

@@ -256,3 +256,47 @@ class _ShimmerBoxState extends State<ShimmerBox> with SingleTickerProviderStateM
     );
   }
 }
+
+/// Staggers a group of children so they arrive one after another instead of
+/// all at once.
+///
+/// `RevealOnMount` alone only helps when each section is wrapped by hand, which
+/// is how the home page ended up with two animated blocks and six static ones.
+/// Wrapping the whole column in this makes every section participate, with a
+/// single number controlling the rhythm.
+///
+/// Each child is offset by [step]; after [maxStagger] the offsets stop growing,
+/// because a fourteen-section page would otherwise leave the last block waiting
+/// two seconds, which reads as broken rather than elegant.
+class StaggeredReveal extends StatelessWidget {
+  const StaggeredReveal({
+    super.key,
+    required this.children,
+    this.step = const Duration(milliseconds: 55),
+    this.maxStagger = const Duration(milliseconds: 340),
+    this.enabled = true,
+  });
+
+  final List<Widget> children;
+  final Duration step;
+  final Duration maxStagger;
+  final bool enabled;
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        for (var i = 0; i < children.length; i++)
+          RevealOnMount(
+            enabled: enabled,
+            delay: Duration(
+              milliseconds: (step.inMilliseconds * i)
+                  .clamp(0, maxStagger.inMilliseconds),
+            ),
+            child: children[i],
+          ),
+      ],
+    );
+  }
+}

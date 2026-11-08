@@ -5,6 +5,8 @@ import '../core/format.dart';
 import '../core/service_icons.dart';
 import '../core/stages.dart';
 import '../core/motion.dart';
+import '../core/sizes.dart';
+import '../widgets/screen_header.dart';
 import '../core/theme.dart';
 import '../models/models.dart';
 import '../services/services.dart';
@@ -115,160 +117,202 @@ class _HomeTabState extends State<HomeTab> {
 
   @override
   Widget build(BuildContext context) {
+    final sizes = context.sizes;
     final brand = _config?.brandName.isNotEmpty == true ? _config!.brandName : 'پیشخوان آرنا';
     return Scaffold(
-      body: SafeArea(
-        child: RefreshIndicator(
-          onRefresh: _load,
-          child: ListView(padding: const EdgeInsets.fromLTRB(16, 10, 16, 20), children: [
-            _header(brand),
-            if (asMap((session.user ?? const {})['profileState'])['complete'] == false) ...[
-              const SizedBox(height: 14),
-              SoftCard(
-                onTap: () async {
-                  await Navigator.push(context, MaterialPageRoute(builder: (_) => const EditProfileScreen()));
-                  if (mounted) setState(() {});
-                },
-                child:  Row(children: [
-                  Icon(Icons.person_pin_circle_outlined, color: PishkanColors.warning),
-                  SizedBox(width: 10),
-                  Expanded(child: Text('برای ثبت درخواست، مشخصات و شهر خود را تکمیل کنید.', style: TextStyle(fontSize: 12, color: context.ink))),
-                  Icon(Icons.chevron_left_rounded),
-                ]),
-              ),
-            ],
-            const SizedBox(height: 14),
-            _searchBar(),
-            if (_groups.isNotEmpty && (_config == null || _config!.storiesEnabled)) ...[
-              const SizedBox(height: 20),
-              _sectionTitle('استوری‌ها و اطلاعیه‌ها', action: 'مشاهده همه', onAction: () async {
-                await Navigator.push(context, MaterialPageRoute(builder: (_) => const StoriesArchiveScreen()));
-                widget.onNotificationsChanged();
-                _load();
-              }),
-              const SizedBox(height: 10),
-              _storyRail(),
-            ],
-            const SizedBox(height: 20),
-            RevealOnMount(delay: const Duration(milliseconds: 60), child: _hero()),
-            const SizedBox(height: 20),
-            RevealOnMount(
-              delay: const Duration(milliseconds: 130),
-              child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
-                _sectionTitle('دسترسی سریع'),
-                const SizedBox(height: 10),
-                _quickAccess(),
-              ]),
-            ),
-            if (_categories.isNotEmpty) ...[
-              const SizedBox(height: 20),
-              _sectionTitle('دسته‌بندی خدمات', action: 'مشاهده همه', onAction: () => widget.onOpenTab(1)),
-              const SizedBox(height: 10),
-              _categoryRail(),
-            ],
-            const SizedBox(height: 20),
-            _sectionTitle('خدمات محبوب', action: 'مشاهده همه', onAction: () => widget.onOpenTab(1)),
-            const SizedBox(height: 12),
-            _popularServices(),
-            if (_achievements.isNotEmpty && _achievements['show'] != false && '${_achievements['show']}' != 'false' && asMap(_achievements['stats']).isNotEmpty) ...[
-              const SizedBox(height: 20),
-              _sectionTitle('پیشخوان در یک نگاه'),
-              const SizedBox(height: 10),
-              _achievementCard(),
-            ],
-            if (_recent.isNotEmpty) ...[
-              const SizedBox(height: 20),
-              _sectionTitle('آخرین درخواست‌های شما', action: 'مشاهده همه', onAction: () => widget.onOpenTab(2)),
-              const SizedBox(height: 10),
-              for (final request in _recent.take(3)) _recentCard(request),
-            ],
-            if (_groups.isNotEmpty) ...[
-              const SizedBox(height: 20),
-              _sectionTitle('اطلاعیه‌ها'),
-              const SizedBox(height: 10),
-              for (var i = 0; i < _groups.length && i < 3; i++)
-                if (_groups[i].items.isNotEmpty) _noticeCard(i, _groups[i]),
-            ],
-          ]),
+      // The reference puts the greeting and the search field on the blue sweep
+      // and lets the content start on a white surface. That is one header over
+      // one list, not a coloured bar sitting above a grey page, so the two
+      // halves are painted by the same scroll view and move together.
+      backgroundColor: context.surface,
+      body: Stack(children: [
+        Positioned(
+          top: 0,
+          left: 0,
+          right: 0,
+          child: BrandBackdrop(
+            height: MediaQuery.paddingOf(context).top + sizes.s(126),
+            child: Column(children: [
+              _header(brand, unread: widget.unreadCount),
+              _searchBar(),
+            ]),
+          ),
         ),
-      ),
+        RefreshIndicator(
+          onRefresh: _load,
+          edgeOffset: MediaQuery.paddingOf(context).top + sizes.s(60),
+          child: ListView(
+            // The header is painted behind the list, so the list starts below
+            // it and simply scrolls up over the blue.
+            padding: EdgeInsets.fromLTRB(sizes.gutter, MediaQuery.paddingOf(context).top + sizes.s(120), sizes.gutter, sizes.s(24)),
+            children: [
+              if (asMap((session.user ?? const {})['profileState'])['complete'] == false) ...[
+                SoftCard(
+                  onTap: () async {
+                    await Navigator.push(context, fadeThroughRoute(const EditProfileScreen()));
+                    if (mounted) setState(() {});
+                  },
+                  child: Row(children: [
+                    Icon(Icons.person_pin_circle_outlined, color: PishkanColors.warning, size: sizes.s(22)),
+                    SizedBox(width: sizes.s(10)),
+                    Expanded(child: Text('برای ثبت درخواست، مشخصات و شهر خود را تکمیل کنید.', style: TextStyle(fontSize: sizes.caption, color: context.ink))),
+                    Icon(Icons.chevron_left_rounded, size: sizes.s(20), color: context.inkMuted),
+                  ]),
+                ),
+                SizedBox(height: sizes.gap),
+              ],
+              // Everything below the header arrives in one wave. The two
+              // hand-placed RevealOnMounts that used to sit here covered only
+              // the hero and the quick-access row, so eight of the ten sections
+              // just appeared, which is what made the page read as static.
+              StaggeredReveal(step: const Duration(milliseconds: 55), children: [
+                if (_groups.isNotEmpty && (_config == null || _config!.storiesEnabled)) ...[
+                  _sectionTitle('استوری‌ها و اطلاعیه‌ها', action: 'مشاهده همه', onAction: () async {
+                    await Navigator.push(context, fadeThroughRoute(const StoriesArchiveScreen()));
+                    widget.onNotificationsChanged();
+                    _load();
+                  }),
+                  SizedBox(height: sizes.s(8)),
+                  _storyRail(),
+                  SizedBox(height: sizes.s(18)),
+                ],
+                _hero(),
+                SizedBox(height: sizes.s(20)),
+                _sectionTitle('دسترسی سریع'),
+                SizedBox(height: sizes.s(8)),
+                _quickAccess(),
+                if (_categories.isNotEmpty) ...[
+                  SizedBox(height: sizes.s(20)),
+                  _sectionTitle('دسته‌بندی خدمات', action: 'مشاهده همه', onAction: () => widget.onOpenTab(1)),
+                  SizedBox(height: sizes.s(8)),
+                  _categoryRail(),
+                ],
+                SizedBox(height: sizes.s(20)),
+                _sectionTitle('خدمات محبوب', action: 'مشاهده همه', onAction: () => widget.onOpenTab(1)),
+                SizedBox(height: sizes.s(10)),
+                _popularServices(),
+                if (_achievements.isNotEmpty && _achievements['show'] != false && '${_achievements['show']}' != 'false' && asMap(_achievements['stats']).isNotEmpty) ...[
+                  SizedBox(height: sizes.s(20)),
+                  _sectionTitle('پیشخوان در یک نگاه'),
+                  SizedBox(height: sizes.s(8)),
+                  _achievementCard(),
+                ],
+                if (_recent.isNotEmpty) ...[
+                  SizedBox(height: sizes.s(20)),
+                  _sectionTitle('آخرین درخواست‌های شما', action: 'مشاهده همه', onAction: () => widget.onOpenTab(2)),
+                  SizedBox(height: sizes.s(8)),
+                  ..._recent.take(3).map(_recentCard),
+                ],
+                if (_groups.isNotEmpty) ...[
+                  SizedBox(height: sizes.s(20)),
+                  _sectionTitle('اطلاعیه‌ها'),
+                  SizedBox(height: sizes.s(8)),
+                  for (var i = 0; i < _groups.length && i < 3; i++)
+                    if (_groups[i].items.isNotEmpty) _noticeCard(i, _groups[i]),
+                ],
+              ]),
+            ],
+          ),
+        ),
+      ]),
     );
   }
 
-  Widget _header(String brand) {
-    final user = session.user ?? const {};
-    final name = asStr(user['fullName']);
-    return Row(children: [
-      // The same face as the profile, from the server-assigned preset.
-      UserAvatar(size: 46),
-      const SizedBox(width: 10),
-      Expanded(
-        child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-          Text(_firstName.isEmpty ? 'سلام! 👋' : 'سلام، $_firstName! 👋', style: TextStyle(fontWeight: FontWeight.w800, fontSize: 15.5, color: context.ink)),
-          Text(brand, style: TextStyle(color: context.inkMuted, fontSize: 11.5)),
-        ]),
-      ),
-      IconButton(
-        tooltip: 'دستیار هوشمند',
-        onPressed: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const AssistantScreen())),
-        icon: Container(
-          padding: const EdgeInsets.all(7),
-          decoration: BoxDecoration(
-            shape: BoxShape.circle,
-            gradient: PishkanColors.brandGradient,
-            boxShadow: [BoxShadow(color: PishkanColors.primary.withOpacity(0.32), blurRadius: 10, offset: const Offset(0, 4))],
-          ),
-          child: const Icon(Icons.auto_awesome_rounded, size: 18, color: Colors.white),
+  Widget _header(String brand, {required int unread}) {
+    final sizes = context.sizes;
+    final name = asStr((session.user ?? const {})['fullName']);
+    return Padding(
+      padding: EdgeInsets.fromLTRB(sizes.gutter, sizes.s(4), sizes.gutter, sizes.s(2)),
+      child: Row(children: [
+        UserAvatar(size: sizes.s(46)),
+        SizedBox(width: sizes.s(10)),
+        Expanded(
+          child: Column(crossAxisAlignment: CrossAxisAlignment.start, mainAxisSize: MainAxisSize.min, children: [
+            Text(
+              _firstName.isEmpty ? 'سلام! 👋' : 'سلام، $_firstName! 👋',
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: TextStyle(fontWeight: FontWeight.w800, fontSize: sizes.subtitle, color: Colors.white, height: 1.4),
+            ),
+            Text(brand, maxLines: 1, overflow: TextOverflow.ellipsis,
+                style: TextStyle(color: Colors.white.withOpacity(0.84), fontSize: sizes.caption)),
+          ]),
         ),
-      ),
-      IconButton(
-        tooltip: 'اعلان‌ها',
-        onPressed: () async {
-          await Navigator.push(context, MaterialPageRoute(builder: (_) => const NotificationsScreen()));
-          widget.onNotificationsChanged();
-        },
-        icon: Badge(
-          isLabelVisible: widget.unreadCount > 0,
-          label: Text(faDigits('${widget.unreadCount}')),
-          child: const Icon(Icons.notifications_none_rounded, size: 27),
+        FloatingIconButton(
+          icon: Icons.auto_awesome_rounded,
+          label: 'دستیار هوشمند',
+          onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const AssistantScreen())),
         ),
-      ),
-    ]);
+        SizedBox(width: sizes.s(7)),
+        FloatingIconButton(
+          icon: Icons.notifications_none_rounded,
+          label: 'اعلان‌ها',
+          badge: unread,
+          onTap: () async {
+            await Navigator.push(context, MaterialPageRoute(builder: (_) => const NotificationsScreen()));
+            widget.onNotificationsChanged();
+          },
+        ),
+      ]),
+    );
   }
 
   Widget _searchBar() {
-    return GestureDetector(
-      onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const ServiceSearchScreen())),
-      child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 13),
-        decoration: BoxDecoration(
+    final sizes = context.sizes;
+    return Padding(
+      padding: EdgeInsets.fromLTRB(sizes.gutter, sizes.s(8), sizes.gutter, 0),
+      child: Semantics(
+        button: true,
+        label: 'جستجوی خدمات',
+        child: Material(
           color: context.surface,
-          borderRadius: BorderRadius.circular(999),
-          boxShadow: const [BoxShadow(color: Color(0x120B1F3A), blurRadius: 12, offset: Offset(0, 4))],
+          borderRadius: BorderRadius.circular(PishkanMetrics.radiusPill),
+          clipBehavior: Clip.antiAlias,
+          child: InkWell(
+            onTap: () => Navigator.push(context, fadeThroughRoute(const ServiceSearchScreen())),
+            child: Padding(
+              padding: EdgeInsets.symmetric(horizontal: sizes.s(16), vertical: sizes.s(12)),
+              child: Row(children: [
+                Icon(Icons.search_rounded, color: context.inkMuted, size: sizes.s(21)),
+                SizedBox(width: sizes.s(8)),
+                Text('جستجوی خدمات…', style: TextStyle(color: context.inkMuted, fontSize: sizes.body)),
+              ]),
+            ),
+          ),
         ),
-        child:  Row(children: [
-          Icon(Icons.search_rounded, color: context.inkMuted),
-          SizedBox(width: 8),
-          Text('جستجو در خدمات…', style: TextStyle(color: context.inkMuted, fontSize: 13)),
-        ]),
       ),
     );
   }
 
   Widget _sectionTitle(String title, {String? action, VoidCallback? onAction}) {
-    return Row(children: [
-      Text(title, style: TextStyle(fontWeight: FontWeight.w800, fontSize: 15, color: context.ink)),
-      const Spacer(),
-      if (action != null)
-        InkWell(
-          onTap: onAction,
-          child: Row(children: [
-            Text(action, style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w700, color: PishkanColors.primary)),
-            const SizedBox(width: 2),
-            const Icon(Icons.chevron_left_rounded, size: 18, color: PishkanColors.primary),
-          ]),
+    final sizes = context.sizes;
+    return Padding(
+      padding: EdgeInsets.symmetric(vertical: sizes.s(2)),
+      child: Row(children: [
+        // The small brand tick the reference uses to mark a section, so the
+        // title is anchored rather than floating.
+        Container(
+          width: sizes.s(4),
+          height: sizes.s(16),
+          margin: EdgeInsetsDirectional.only(end: sizes.s(7)),
+          decoration: BoxDecoration(color: context.brand, borderRadius: BorderRadius.circular(2)),
         ),
-    ]);
+        Text(title, style: TextStyle(fontWeight: FontWeight.w800, fontSize: sizes.title * 0.86, color: context.ink)),
+        const Spacer(),
+        if (action != null)
+          PressableScale(
+            onTap: onAction,
+            scale: 0.94,
+            child: Padding(
+              padding: EdgeInsets.symmetric(horizontal: sizes.s(6), vertical: sizes.s(4)),
+              child: Row(children: [
+                Text(action, style: TextStyle(fontSize: sizes.caption, fontWeight: FontWeight.w700, color: context.brand)),
+                Icon(Icons.chevron_left_rounded, size: sizes.s(17), color: context.brand),
+              ]),
+            ),
+          ),
+      ]),
+    );
   }
 
   String _groupCover(StoryGroup group) {
@@ -357,75 +401,110 @@ class _HomeTabState extends State<HomeTab> {
   }
 
   Widget _quickAccess() {
-    // The four tiles used to be filled with a light pastel and labelled with
-    // `context.ink`, which in dark mode is near-white: 1.06:1 contrast, i.e.
-    // the text was invisible. The tint now rides on a theme surface instead of
-    // replacing it, so the label is always drawn on the same background it was
-    // designed for.
-    Widget tile(IconData icon, Color tint, String label, VoidCallback onTap) {
-      return Expanded(
-        child: PressableScale(
-          onTap: onTap,
-          scale: 0.94,
-          child: Container(
-            padding: const EdgeInsets.symmetric(vertical: 14, horizontal: 4),
-            decoration: BoxDecoration(
-              color: context.isDark ? PishkanColors.darkSurfaceHigh : tint.withOpacity(0.30),
-              borderRadius: BorderRadius.circular(22),
-              border: Border.all(color: tint.withOpacity(context.isDark ? 0.38 : 0.30)),
-            ),
-            child: Column(mainAxisSize: MainAxisSize.min, children: [
-              Container(
-                padding: const EdgeInsets.all(10),
-                decoration: BoxDecoration(
-                  color: tint.withOpacity(context.isDark ? 0.22 : 0.16),
-                  shape: BoxShape.circle,
-                ),
-                child: Icon(icon, color: context.isDark ? tint : tint, size: 22),
-              ),
-              const SizedBox(height: 8),
-              Text(
-                label,
-                textAlign: TextAlign.center,
-                maxLines: 2,
-                style: TextStyle(fontSize: 11, fontWeight: FontWeight.w700, height: 1.4, color: context.ink),
-              ),
-            ]),
+    final sizes = context.sizes;
+    // The reference uses a 2x2 block, not a row of four. Four tiles across a
+    // 360px screen leaves each one about 76px wide, which cannot hold a Persian
+    // label like «ثبت درخواست جدید» without wrapping to three lines and
+    // squeezing the icon. Two across gives each tile room and the block reads
+    // at a glance.
+    //
+    // Colours come in pairs: the deeper shade fills the icon square, and the
+    // lighter one is the glyph. Drawing a mid-tone glyph on a tint of itself
+    // left violet at 2.5:1 and blue at 2.7:1 in dark mode -- visible, but not
+    // comfortably, and the first thing to disappear in sunlight.
+    Widget tile(IconData icon, Color deep, Color bright, String label, VoidCallback onTap) {
+      final dark = context.isDark;
+      final accent = dark ? bright : deep;
+      return PressableScale(
+        onTap: onTap,
+        scale: 0.95,
+        child: Container(
+          padding: EdgeInsets.symmetric(vertical: sizes.s(12), horizontal: sizes.s(10)),
+          decoration: BoxDecoration(
+            // The tint rides on the theme surface rather than replacing it, so
+            // the label is always drawn on the background it was designed for.
+            // Filling with a light pastel made this 1.06:1 in dark mode.
+            color: dark
+                ? Color.alphaBlend(deep.withOpacity(0.16), PishkanColors.darkSurface)
+                : Color.alphaBlend(deep.withOpacity(0.10), Colors.white),
+            borderRadius: BorderRadius.circular(sizes.s(20)),
+            border: Border.all(color: deep.withOpacity(dark ? 0.30 : 0.22)),
           ),
+          child: Row(children: [
+            Container(
+              width: sizes.s(38),
+              height: sizes.s(38),
+              decoration: BoxDecoration(
+                color: dark
+                    ? Color.alphaBlend(deep.withOpacity(0.30), PishkanColors.darkSurface)
+                    : Color.alphaBlend(deep.withOpacity(0.16), Colors.white),
+                borderRadius: BorderRadius.circular(sizes.s(13)),
+              ),
+              child: Icon(icon, color: accent, size: sizes.s(21)),
+            ),
+            SizedBox(width: sizes.s(9)),
+            Expanded(
+              child: Text(
+                label,
+                maxLines: 2,
+                overflow: TextOverflow.ellipsis,
+                style: TextStyle(fontSize: sizes.caption, fontWeight: FontWeight.w700, height: 1.45, color: context.ink),
+              ),
+            ),
+          ]),
         ),
       );
     }
 
-    return Row(children: [
-      tile(Icons.add_circle_outline_rounded, const Color(0xFF22C55E), 'ثبت درخواست جدید', () => widget.onOpenTab(1)),
-      const SizedBox(width: 10),
-      tile(Icons.assignment_outlined, const Color(0xFF8B5CF6), 'پیگیری درخواست', () => widget.onOpenTab(2)),
-      const SizedBox(width: 10),
-      tile(Icons.folder_open_rounded, const Color(0xFF3B82F6), 'مدارک من', () => Navigator.push(context, fadeThroughRoute(const DocumentsScreen()))),
-      const SizedBox(width: 10),
-      tile(Icons.headset_mic_rounded, const Color(0xFFF97316), 'پشتیبانی', () => Navigator.push(context, fadeThroughRoute(const SupportTab()))),
+    final tiles = [
+      tile(Icons.add_circle_outline_rounded, const Color(0xFF15803D), const Color(0xFF5EE39B), 'ثبت درخواست جدید', () => widget.onOpenTab(1)),
+      tile(Icons.assignment_outlined, const Color(0xFF7C3AED), const Color(0xFFBFA0FF), 'پیگیری درخواست', () => widget.onOpenTab(2)),
+      tile(Icons.folder_open_rounded, const Color(0xFF2563EB), const Color(0xFF8FBEFF), 'مدارک من', () => Navigator.push(context, fadeThroughRoute(const DocumentsScreen()))),
+      tile(Icons.headset_mic_rounded, const Color(0xFFC2410C), const Color(0xFFFFB27A), 'پشتیبانی', () => Navigator.push(context, fadeThroughRoute(const SupportTab()))),
+    ];
+
+    return Column(children: [
+      Row(children: [Expanded(child: tiles[0]), SizedBox(width: sizes.gap), Expanded(child: tiles[1])]),
+      SizedBox(height: sizes.gap),
+      Row(children: [Expanded(child: tiles[2]), SizedBox(width: sizes.gap), Expanded(child: tiles[3])]),
     ]);
   }
 
   Widget _categoryRail() {
-    return SizedBox(
-      height: 120,
-      child: ListView.separated(
-        scrollDirection: Axis.horizontal,
-        itemCount: _categories.length,
-        separatorBuilder: (_, _) => const SizedBox(width: 9),
-        itemBuilder: (context, index) {
-          final category = _categories[index];
-          return SizedBox(width: 105, child: SoftCard(
-            padding: const EdgeInsets.all(9),
-            onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => ServicesCatalogTab(initialCategorySlug: category.slug, showBack: true))),
-            child: Column(mainAxisAlignment: MainAxisAlignment.center, children: [
-              ClipRRect(borderRadius: BorderRadius.circular(12), child: SizedBox(width: 54, height: 48, child: CategoryArtImage(category: category))),
-              const SizedBox(height: 6),
-              Text(category.title, maxLines: 2, overflow: TextOverflow.ellipsis, textAlign: TextAlign.center, style: const TextStyle(fontSize: 10.5, fontWeight: FontWeight.w700, height: 1.35)),
-            ]),
-          ));
-        },
+    final sizes = context.sizes;
+    // Two columns of landscape cards, as in the reference. The old rail was a
+    // 120px-tall horizontal strip: the fourth card was always half-cut and the
+    // customer had to discover that it scrolled sideways to see the rest.
+    final items = _categories.take(8).toList();
+    Widget row(int index) {
+      final left = index;
+      final right = index + 1;
+      return Row(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Expanded(child: _categoryCell(items[left])),
+          SizedBox(width: sizes.gap),
+          Expanded(
+            child: right < items.length ? _categoryCell(items[right]) : const SizedBox.shrink(),
+          ),
+        ],
+      );
+    }
+
+    return Column(children: [
+      for (var i = 0; i < items.length; i += 2) ...[
+        if (i > 0) SizedBox(height: sizes.gap),
+        SizedBox(height: sizes.s(88), child: row(i)),
+      ],
+    ]);
+  }
+
+  Widget _categoryCell(ServiceCategory category) {
+    return CategoryCard(
+      category: category,
+      onTap: () => Navigator.push(
+        context,
+        fadeThroughRoute(ServicesCatalogTab(initialCategorySlug: category.slug, showBack: true)),
       ),
     );
   }

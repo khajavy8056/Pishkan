@@ -37,6 +37,7 @@ class _ProfileTabState extends State<ProfileTab> {
   String _version = '';
   bool _notificationsOn = true;
   bool _soundsOn = true;
+  bool _uiSoundsOn = false;
   /// Whether Android itself allows this app to post (null = not asked yet).
   bool? _notificationPermission;
   bool _biometricOn = false;
@@ -55,12 +56,14 @@ class _ProfileTabState extends State<ProfileTab> {
   Future<void> _loadPrefs() async {
     final notifications = await AppPrefs.notificationsEnabled();
     final sounds = await AppPrefs.soundsEnabled();
+    final uiSounds = await AppPrefs.uiSoundsEnabled();
     final biometric = await AppPrefs.biometricEnabled();
     final available = await BiometricAuth.isAvailable();
     if (!mounted) return;
     setState(() {
       _notificationsOn = notifications;
       _soundsOn = sounds;
+      _uiSoundsOn = uiSounds;
       _biometricOn = biometric;
       _biometricAvailable = available;
     });
@@ -137,13 +140,25 @@ class _ProfileTabState extends State<ProfileTab> {
               SwitchListTile(
                 contentPadding: EdgeInsets.zero,
                 secondary: const Icon(Icons.volume_up_outlined, color: PishkanColors.primary),
-                title: const Text('صدا', style: TextStyle(fontWeight: FontWeight.w700, fontSize: 13)),
-                subtitle: const Text('صدای اعلان و بازخوردهای لمسی', style: TextStyle(fontSize: 11, height: 1.6)),
+                title: const Text('صدای اعلان', style: TextStyle(fontWeight: FontWeight.w700, fontSize: 13)),
+                subtitle: const Text('صدایی که برای تغییر وضعیت پرونده پخش می‌شود', style: TextStyle(fontSize: 11, height: 1.6)),
                 value: _soundsOn,
                 onChanged: (value) async {
                   await AppPrefs.setSoundsEnabled(value);
                   setSheet(() => _soundsOn = value);
                   if (mounted) setState(() => _soundsOn = value);
+                },
+              ),
+              SwitchListTile(
+                contentPadding: EdgeInsets.zero,
+                secondary: const Icon(Icons.touch_app_outlined, color: PishkanColors.primary),
+                title: const Text('صدای لمس و بازخورد', style: TextStyle(fontWeight: FontWeight.w700, fontSize: 13)),
+                subtitle: const Text('نوای کوتاه هنگام فشردن دکمه‌ها؛ پیش‌فرض خاموش است', style: TextStyle(fontSize: 11, height: 1.6)),
+                value: _uiSoundsOn,
+                onChanged: (value) async {
+                  await AppPrefs.setUiSoundsEnabled(value);
+                  setSheet(() => _uiSoundsOn = value);
+                  if (mounted) setState(() => _uiSoundsOn = value);
                 },
               ),
               const SizedBox(height: 6),
@@ -199,44 +214,36 @@ class _ProfileTabState extends State<ProfileTab> {
         final user = session.user ?? const {};
         final name = asStr(user['fullName']).isEmpty ? 'کاربر پیشخوان' : asStr(user['fullName']);
         final mobile = asStr(user['mobile']);
+        final sizes = context.sizes;
+        final topInset = MediaQuery.paddingOf(context).top;
         return Scaffold(
-          appBar: AppBar(title: const Text('پروفایل')),
-          body: ListView(padding: const EdgeInsets.fromLTRB(16, 10, 16, 28), children: [
-            Container(
-              padding: const EdgeInsets.all(18),
-              decoration: BoxDecoration(gradient: PishkanColors.brandGradient, borderRadius: BorderRadius.circular(24)),
-              child: Row(children: [
-                // The customer's own face (preset illustration or their photo),
-                // tappable straight into the picker.
-                GestureDetector(
-                  onTap: () async {
-                    final changed = await Navigator.push<bool>(context, MaterialPageRoute(builder: (_) => const AvatarPickerScreen()));
-                    if (changed == true) await fetchMe().catchError((_) => <String, dynamic>{});
-                    if (mounted) setState(() {});
-                  },
-                  child: Stack(alignment: Alignment.bottomLeft, children: [
-                    UserAvatar(size: 62, withRing: true),
-                    Container(
-                      padding: const EdgeInsets.all(3),
-                      decoration: BoxDecoration(color: context.surface, shape: BoxShape.circle),
-                      child: Icon(Icons.edit_rounded, size: 13, color: context.brand),
+          backgroundColor: context.surface,
+          body: Stack(children: [
+            Positioned(
+              top: 0, left: 0, right: 0,
+              child: BrandBackdrop(
+                height: topInset + sizes.s(210),
+                child: Column(children: [
+                  ScreenHeading(
+                    title: 'پروفایل',
+                    trailing: FloatingIconButton(
+                      icon: Icons.dark_mode_outlined,
+                      label: 'ظاهر برنامه',
+                      onTap: () => showThemePicker(context),
                     ),
-                  ]),
-                ),
-                const SizedBox(width: 13),
-                Expanded(
-                  child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                    Text(name, style: TextStyle(color: Colors.white, fontWeight: FontWeight.w800, fontSize: 16)),
-                    Text(faMobileSpaced(mobile), style: TextStyle(color: Color(0xFFCFE0FF), fontSize: 12.5)),
-                    if (asStr(user['nationalId']).isNotEmpty) Text('کد ملی ${faDigits(asStr(user['nationalId']))}', style: TextStyle(color: Color(0xFFCFE0FF), fontSize: 11.5)),
-                  ]),
-                ),
-                IconButton(
-                  onPressed: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const EditProfileScreen())),
-                  icon: Icon(Icons.edit_rounded, color: Colors.white),
-                ),
-              ]),
+                  ),
+                  SizedBox(height: sizes.s(6)),
+                  // The face sits centred on the blue, as in the reference,
+                  // with the name under it -- not in a card of its own, which
+                  // used to make the top of this screen look like a second
+                  // app bar stacked on the first.
+                  _identity(name, mobile, user),
+                ]),
+              ),
             ),
+            ListView(
+              padding: EdgeInsets.fromLTRB(sizes.gutter, topInset + sizes.s(196), sizes.gutter, sizes.s(96)),
+              children: [
             const SectionTitle(title: 'دستیار و پشتیبانی'),
             SoftCard(
               padding: const EdgeInsets.symmetric(vertical: 6, horizontal: 8),
@@ -312,12 +319,23 @@ class _ProfileTabState extends State<ProfileTab> {
                 const Divider(height: 1),
                 SwitchListTile(
                   secondary: const Icon(Icons.volume_up_outlined, color: PishkanColors.primary),
-                  title: const Text('صدای اعلان‌ها و تعاملات', style: TextStyle(fontWeight: FontWeight.w700, fontSize: 13.5)),
-                  subtitle: const Text('صدای اعلان و بازخوردهای برنامه را کنترل کنید', style: TextStyle(fontSize: 11.5)),
+                  title: const Text('صدای اعلان', style: TextStyle(fontWeight: FontWeight.w700, fontSize: 13.5)),
+                  subtitle: const Text('صدایی که برای تغییر وضعیت پرونده پخش می‌شود', style: TextStyle(fontSize: 11.5)),
                   value: _soundsOn,
                   onChanged: (value) async {
                     await AppPrefs.setSoundsEnabled(value);
                     if (mounted) setState(() => _soundsOn = value);
+                  },
+                ),
+                const Divider(height: 1),
+                SwitchListTile(
+                  secondary: const Icon(Icons.touch_app_outlined, color: PishkanColors.primary),
+                  title: const Text('صدای لمس و بازخورد', style: TextStyle(fontWeight: FontWeight.w700, fontSize: 13.5)),
+                  subtitle: const Text('نوای کوتاه هنگام فشردن دکمه‌ها؛ پیش‌فرض خاموش است', style: TextStyle(fontSize: 11.5, height: 1.7)),
+                  value: _uiSoundsOn,
+                  onChanged: (value) async {
+                    await AppPrefs.setUiSoundsEnabled(value);
+                    if (mounted) setState(() => _uiSoundsOn = value);
                   },
                 ),
                 const Divider(height: 1),
@@ -372,10 +390,56 @@ class _ProfileTabState extends State<ProfileTab> {
             ),
             const SizedBox(height: 14),
             Center(child: Text('اپلیکیشن مشتریان پیشخوان · نسخهٔ ${faDigits(_version)}', style: TextStyle(fontSize: 11, color: context.inkMuted))),
+              ],
+            ),
           ]),
         );
       },
     );
+  }
+
+  /// The centred face block on the blue backdrop. Tapping the face opens the
+  /// picker, which is the only place the avatar changes.
+  Widget _identity(String name, String mobile, Map<String, dynamic> user) {
+    final sizes = context.sizes;
+    return Column(mainAxisSize: MainAxisSize.min, children: [
+      PressableScale(
+        scale: 0.94,
+        onTap: () async {
+          final changed = await Navigator.push<bool>(context, fadeThroughRoute(const AvatarPickerScreen()));
+          if (changed == true) await fetchMe().catchError((_) => <String, dynamic>{});
+          if (mounted) setState(() {});
+        },
+        child: Stack(alignment: AlignmentDirectional.bottomEnd, children: [
+          UserAvatar(size: sizes.s(72), withRing: true),
+          Container(
+            padding: EdgeInsets.all(sizes.s(4)),
+            decoration: BoxDecoration(color: Colors.white, shape: BoxShape.circle),
+            child: Icon(Icons.edit_rounded, size: sizes.s(12), color: PishkanColors.primary),
+          ),
+        ]),
+      ),
+      SizedBox(height: sizes.s(8)),
+      Text(name,
+          maxLines: 1,
+          overflow: TextOverflow.ellipsis,
+          style: TextStyle(color: Colors.white, fontWeight: FontWeight.w800, fontSize: sizes.subtitle)),
+      SizedBox(height: sizes.s(2)),
+      Row(mainAxisAlignment: MainAxisAlignment.center, children: [
+        Directionality(
+          textDirection: TextDirection.ltr,
+          child: Text(faMobileSpaced(mobile),
+              style: TextStyle(color: Colors.white.withOpacity(0.86), fontSize: sizes.caption, letterSpacing: 0.5)),
+        ),
+        if (asStr(user['nationalId']).isNotEmpty) ...[
+          SizedBox(width: sizes.s(10)),
+          Container(width: 1, height: sizes.s(11), color: Colors.white.withOpacity(0.3)),
+          SizedBox(width: sizes.s(10)),
+          Text('کد ملی ${faDigits(asStr(user['nationalId']))}',
+              style: TextStyle(color: Colors.white.withOpacity(0.86), fontSize: sizes.caption)),
+        ],
+      ]),
+    ]);
   }
 
   Widget _link(IconData icon, String title, String subtitle, VoidCallback onTap, {bool ltr = false}) {

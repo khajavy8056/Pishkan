@@ -71,14 +71,17 @@ customersRouter.get('/me/avatar', asyncRoute(async (req, res) => {
 customersRouter.put('/me/avatar/preset', asyncRoute(async (req, res) => {
   const body = z.object({
     preset: z.number().int().min(1).max(PRESET_COUNT),
+    // Accepted so the client can say which set it is picking from, but not
+    // stored: the account's gender belongs to the profile, not the avatar, and
+    // a second copy here would be the one that goes stale.
     gender: z.enum(['male', 'female', '']).optional(),
   }).parse(req.body);
 
   const userId = req.auth!.user.id;
+  // Choosing a preset clears any uploaded photo, otherwise the photo would keep
+  // winning and the tap would look like it did nothing.
   await run('UPDATE users SET avatar_preset = ?, avatar_file_id = NULL, updated_at = ? WHERE id = ?',
     [body.preset, nowIso(), userId]);
-  // Keep the profile (and so the app's cached user) in step with the change.
-  if (body.gender) await run('UPDATE users SET updated_at = ? WHERE id = ?', [nowIso(), userId]);
 
   await writeAudit({
     actorId: userId, action: 'customer.avatar.preset', entityType: 'user', entityId: userId,

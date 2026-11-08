@@ -17,10 +17,22 @@ import 'services.dart';
 class AppPrefs {
   static const _notificationsKey = 'pishkan.pref.notifications';
   static const _biometricKey = 'pishkan.pref.biometric';
+  /// Notification sound. On by default: a customer waiting on a case wants to
+  /// hear that it moved.
   static const _soundsKey = 'pishkan.pref.sounds';
+  /// In-app feedback ticks (a tap, a saved form). Off by default.
+  ///
+  /// These used to ride the same switch as the notification sound, so anyone
+  /// who found the ticks irritating had to silence their case notifications
+  /// too -- or live with both. They are separate now, and the ticks stay quiet
+  /// until asked for.
+  static const _uiSoundsKey = 'pishkan.pref.uiSounds';
 
   static Future<bool> soundsEnabled() async => (await SharedPreferences.getInstance()).getBool(_soundsKey) ?? true;
   static Future<void> setSoundsEnabled(bool value) async { await (await SharedPreferences.getInstance()).setBool(_soundsKey, value); }
+
+  static Future<bool> uiSoundsEnabled() async => (await SharedPreferences.getInstance()).getBool(_uiSoundsKey) ?? false;
+  static Future<void> setUiSoundsEnabled(bool value) async { await (await SharedPreferences.getInstance()).setBool(_uiSoundsKey, value); }
 
   static Future<bool> notificationsEnabled() async {
     final prefs = await SharedPreferences.getInstance();

@@ -15,13 +15,14 @@ import '../models/models.dart';
 import '../screens/document_camera.dart';
 import '../services/services.dart';
 
-/// Short, soft feedback for meaningful interactions (saved, failed, tapped).
+/// Short, soft tick for in-app interactions (saved, failed, tapped).
 ///
-/// Kinds: `success`, `error`, `tap`. Honours the profile switch; the platform
-/// side simply no-ops if the clip is missing, so this never blocks the UI.
+/// Off unless the customer turns it on: on a service app these fire on almost
+/// every press, and hearing a click dozens of times a session is noise, not
+/// feedback. The *notification* sound is a different switch and stays on.
 Future<void> playAppSound(String kind) async {
   try {
-    if (!await AppPrefs.soundsEnabled()) return;
+    if (!await AppPrefs.uiSoundsEnabled()) return;
     await const MethodChannel('ir.pishkan.app/sounds').invokeMethod<void>('play', {'kind': kind});
   } catch (_) {
     // Feedback is optional; a missing channel must never surface to the user.

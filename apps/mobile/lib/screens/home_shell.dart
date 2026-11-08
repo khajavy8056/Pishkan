@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 
 import '../core/motion.dart';
+import '../core/sizes.dart';
 import '../core/theme.dart';
 import '../core/home_navigation.dart';
 import '../services/notifier.dart';
@@ -166,22 +167,50 @@ class _HomeShellState extends State<HomeShell> with WidgetsBindingObserver {
           ),
           _banner(),
         ]),
-        bottomNavigationBar: Container(
-          decoration: BoxDecoration(
-            color: context.surface,
-            borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
-            boxShadow: [BoxShadow(color: Color(0x140B1F3A), blurRadius: 20, offset: Offset(0, -4))],
-          ),
-          child: SafeArea(
-            top: false,
-            child: Padding(
-              padding: const EdgeInsets.fromLTRB(10, 8, 10, 6),
-              child: Row(children: [
-                _tabItem(0, Icons.home_rounded, Icons.home_outlined, 'خانه'),
-                _tabItem(1, Icons.grid_view_rounded, Icons.grid_view_outlined, 'خدمات'),
-                _tabItem(2, Icons.fact_check_rounded, Icons.fact_check_outlined, 'پیگیری‌ها'),
-                _tabItem(3, Icons.person_rounded, Icons.person_outline_rounded, 'پروفایل'),
-              ]),
+        // A floating white pill that sits above the content instead of a bar
+        // welded to the bottom edge. The reference has it detached with the
+        // page visible underneath, which is what makes the layout feel like one
+        // surface rather than a stack of chrome.
+        extendBody: true,
+        bottomNavigationBar: _navPill(),
+      ),
+    );
+  }
+
+  Widget _navPill() {
+    final sizes = context.sizes;
+    return Padding(
+      padding: EdgeInsets.fromLTRB(sizes.s(14), 0, sizes.s(14), sizes.s(10)),
+      child: DecoratedBox(
+        decoration: BoxDecoration(
+          borderRadius: BorderRadius.circular(sizes.s(26)),
+          boxShadow: [
+            BoxShadow(
+              color: context.isDark ? const Color(0x99000000) : const Color(0x1F0B1F3A),
+              blurRadius: sizes.s(22),
+              offset: Offset(0, sizes.s(8)),
+            ),
+          ],
+        ),
+        child: ClipRRect(
+          borderRadius: BorderRadius.circular(sizes.s(26)),
+          child: Container(
+            decoration: BoxDecoration(
+              color: context.isDark ? PishkanColors.darkSurface : Colors.white,
+              border: Border.all(color: context.hairline),
+              borderRadius: BorderRadius.circular(sizes.s(26)),
+            ),
+            child: SafeArea(
+              top: false,
+              child: Padding(
+                padding: EdgeInsets.symmetric(horizontal: sizes.s(6), vertical: sizes.s(6)),
+                child: Row(children: [
+                  _tabItem(0, Icons.home_rounded, Icons.home_outlined, 'خانه'),
+                  _tabItem(1, Icons.grid_view_rounded, Icons.grid_view_outlined, 'خدمات'),
+                  _tabItem(2, Icons.fact_check_rounded, Icons.fact_check_outlined, 'پیگیری‌ها'),
+                  _tabItem(3, Icons.person_rounded, Icons.person_outline_rounded, 'پروفایل'),
+                ]),
+              ),
             ),
           ),
         ),
@@ -190,50 +219,53 @@ class _HomeShellState extends State<HomeShell> with WidgetsBindingObserver {
   }
 
   Widget _tabItem(int index, IconData activeIcon, IconData icon, String label) {
+    final sizes = context.sizes;
     final active = _index == index;
     return Expanded(
-      child: GestureDetector(
-        behavior: HitTestBehavior.opaque,
-        // No sound here. A tick on every tab press is the one piece of
-        // feedback people actively dislike: it fires dozens of times a
-        // session and cannot be turned off without muting notifications too.
-        onTap: () => selectTab(index),
-        child: AnimatedContainer(
-          duration: const Duration(milliseconds: 180),
-          padding: const EdgeInsets.symmetric(vertical: 7),
-          decoration: BoxDecoration(
-            color: active ? PishkanColors.primary.withOpacity(0.10) : Colors.transparent,
-            borderRadius: BorderRadius.circular(16),
-          ),
-          child: Column(mainAxisSize: MainAxisSize.min, children: [
-            // A small spring on the glyph plus a growing dot: the tap is
-            // acknowledged by the icon itself, not only by the background.
-            AnimatedScale(
-              scale: active ? 1.1 : 1,
-              duration: PishkanMotion.quick,
-              curve: PishkanMotion.spring,
-              child: Icon(active ? activeIcon : icon, color: active ? PishkanColors.primary : context.inkMuted, size: 24),
+      child: Semantics(
+        button: true,
+        selected: active,
+        label: label,
+        child: GestureDetector(
+          behavior: HitTestBehavior.opaque,
+          // No sound here. A tick on every tab press is the one piece of
+          // feedback people actively dislike: it fires dozens of times a
+          // session and cannot be turned off without muting notifications too.
+          onTap: () => selectTab(index),
+          child: AnimatedContainer(
+            duration: PishkanMotion.standard,
+            curve: PishkanMotion.enter,
+            margin: EdgeInsets.symmetric(horizontal: sizes.s(2)),
+            padding: EdgeInsets.symmetric(vertical: sizes.s(8)),
+            decoration: BoxDecoration(
+              // The selected tab is a filled pill, as in the reference. The old
+              // 10%-tint background was almost invisible against white and the
+              // only cue left was the label weight.
+              color: active ? context.brand.withOpacity(0.12) : Colors.transparent,
+              borderRadius: BorderRadius.circular(sizes.s(18)),
             ),
-            const SizedBox(height: 2),
-            AnimatedDefaultTextStyle(
-              duration: PishkanMotion.quick,
-              curve: PishkanMotion.enter,
-              style: TextStyle(
-                fontSize: 11,
-                fontWeight: active ? FontWeight.w800 : FontWeight.w500,
-                color: active ? PishkanColors.primary : context.inkMuted,
+            child: Column(mainAxisSize: MainAxisSize.min, children: [
+              AnimatedScale(
+                scale: active ? 1.06 : 1,
+                duration: PishkanMotion.quick,
+                curve: PishkanMotion.spring,
+                child: Icon(active ? activeIcon : icon,
+                    color: active ? context.brand : context.inkMuted, size: sizes.s(23)),
               ),
-              child: Text(label),
-            ),
-            AnimatedContainer(
-              duration: PishkanMotion.quick,
-              curve: PishkanMotion.enter,
-              margin: const EdgeInsets.only(top: 3),
-              width: active ? 4 : 0,
-              height: 4,
-              decoration: BoxDecoration(color: PishkanColors.primary, borderRadius: BorderRadius.circular(2)),
-            ),
-          ]),
+              SizedBox(height: sizes.s(2)),
+              AnimatedDefaultTextStyle(
+                duration: PishkanMotion.quick,
+                curve: PishkanMotion.enter,
+                style: TextStyle(
+                  fontFamily: 'Vazirmatn',
+                  fontSize: sizes.s(10.5),
+                  fontWeight: active ? FontWeight.w800 : FontWeight.w500,
+                  color: active ? context.brand : context.inkMuted,
+                ),
+                child: Text(label, maxLines: 1, overflow: TextOverflow.ellipsis),
+              ),
+            ]),
+          ),
         ),
       ),
     );

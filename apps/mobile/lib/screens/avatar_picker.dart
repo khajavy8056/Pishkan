@@ -3,6 +3,8 @@ import 'package:image_picker/image_picker.dart';
 
 import '../core/api.dart';
 import '../core/format.dart';
+import '../core/motion.dart';
+import '../core/sizes.dart';
 import '../core/theme.dart';
 import '../models/models.dart';
 import '../services/services.dart';
@@ -68,7 +70,10 @@ class _AvatarPickerScreenState extends State<AvatarPickerScreen> {
         _photoUrl = '';
         _busy = false;
       });
-      await playAppSound('success');
+      // A short beat before closing. Popping on the same frame as the response
+      // meant the customer never saw the ring settle on the face they picked --
+      // the screen just vanished, which reads as "it didn't work".
+      await Future<void>.delayed(const Duration(milliseconds: 420));
       if (mounted) Navigator.pop(context, true);
     } on ApiException catch (error) {
       if (!mounted) return;
@@ -163,8 +168,8 @@ class _AvatarPickerScreenState extends State<AvatarPickerScreen> {
                 crossAxisCount: 4,
                 shrinkWrap: true,
                 physics: const NeverScrollableScrollPhysics(),
-                mainAxisSpacing: 12,
-                crossAxisSpacing: 12,
+                mainAxisSpacing: context.sizes.gap,
+                crossAxisSpacing: context.sizes.gap,
                 children: [
                   for (final preset in presets)
                     _PresetTile(
@@ -206,10 +211,12 @@ class _PresetTile extends StatelessWidget {
       button: true,
       selected: selected,
       label: 'آواتار شماره $preset',
-      child: GestureDetector(
+      child: PressableScale(
+        scale: 0.9,
         onTap: onTap,
         child: AnimatedContainer(
-          duration: const Duration(milliseconds: 140),
+          duration: PishkanMotion.standard,
+          curve: PishkanMotion.spring,
           padding: const EdgeInsets.all(3),
           decoration: BoxDecoration(
             shape: BoxShape.circle,
