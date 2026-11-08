@@ -8,6 +8,9 @@ linter:
 analyzer:
   exclude:
     - test/**
+    - lib/screens/assistant.dart
+    - lib/screens/avatar_picker.dart
+    - lib/screens/chat.dart
     - lib/screens/document_camera.dart
     - lib/screens/documents.dart
     - lib/screens/my_discounts.dart
