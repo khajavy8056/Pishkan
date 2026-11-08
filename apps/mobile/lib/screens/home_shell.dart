@@ -246,7 +246,14 @@ class _HomeShellState extends State<HomeShell> with WidgetsBindingObserver {
       top: event == null ? -160 : MediaQuery.of(context).padding.top + 10,
       left: 14,
       right: 14,
-      child: event == null
+      // Fade as well as slide. Without this the card is fully opaque while it
+      // is still above the screen edge, so it appears to pop rather than
+      // arrive, and the reversed animation looks like a glitch.
+      child: AnimatedOpacity(
+        opacity: event == null ? 0 : 1,
+        duration: PishkanMotion.standard,
+        curve: PishkanMotion.enter,
+        child: event == null
           ? const SizedBox.shrink()
           : GestureDetector(
               onTap: () {
@@ -291,6 +298,7 @@ class _HomeShellState extends State<HomeShell> with WidgetsBindingObserver {
                 ]),
               ),
             ),
+      ),
     );
   }
 }
