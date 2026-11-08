@@ -83,8 +83,10 @@ void main() {
     });
 
     test('bundled WebP photos only replace legacy default banners', () {
+      // A bare category lookup must not borrow another entry's picture; only
+      // the per-slug resolvers attach art.
       final art = artworkFor(categorySlug: 'vehicle-services');
-      expect(art.assetPath, 'assets/service_art/vehicle.webp');
+      expect(art.assetPath, isEmpty);
       expect(isLegacyDefaultServiceImage('/images/services/vehicle.png'), isTrue);
       expect(isLegacyDefaultServiceImage('/uploads/public/my-banner.webp'), isFalse);
       expect(artworkFor(explicitIcon: 'receipt-text', title: 'خدمت ناشناخته').icon, Icons.description_rounded);

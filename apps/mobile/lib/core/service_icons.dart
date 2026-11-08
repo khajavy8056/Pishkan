@@ -32,23 +32,6 @@ class ServiceArtwork {
   bool get isPerServiceArt => largeAssetPath.isNotEmpty;
 }
 
-const _categoryPhotos = <String, String>{
-  'insurance-health': 'insurance',
-  'companies-institutions': 'companies',
-  'subsidy-welfare': 'welfare',
-  'vehicle-services': 'vehicle',
-  'tax-services': 'tax',
-  'judicial-services': 'judicial',
-  'exams-employment': 'exams',
-  'housing-land': 'housing',
-  'banking-services': 'banking',
-  'police-services': 'police',
-  'university-students': 'exams',
-  'school-services': 'exams',
-  'business-licenses': 'companies',
-  'consulting': 'companies',
-};
-
 /// Ordered from specific to broad so e.g. fuel-card is never treated as a car
 /// just because its slug contains "car". All glyphs are vector Material icons.
 const _rules = <(List<String>, IconData, Color)>[
@@ -107,8 +90,10 @@ ServiceArtwork artworkFor({String explicitIcon = '', String title = '', String s
   }
   final explicit = explicitIcon.trim();
   final imageUrl = explicit.startsWith('/uploads/public/') || explicit.startsWith('https://') || explicit.startsWith('http://') ? explicit : '';
-  final photo = _categoryPhotos[categorySlug] ?? _categoryPhotos[slug];
-  return ServiceArtwork(icon, color, imageUrl: imageUrl, assetPath: photo == null ? '' : 'assets/service_art/$photo.webp');
+  // No borrowed photo here: attaching one is the job of the per-slug resolvers
+  // below, which own a file per service. A category lookup that grabbed a
+  // sibling's picture is exactly how two services ended up looking identical.
+  return ServiceArtwork(icon, color, imageUrl: imageUrl);
 }
 
 /// The server draws a deterministic, per-slug illustration for anything that
