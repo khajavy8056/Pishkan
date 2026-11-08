@@ -7,6 +7,14 @@
     <uses-permission android:name="android.permission.USE_BIOMETRIC"/>
     <!-- Lets scheduled background notification checks survive reboots. -->
     <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED"/>
+    <!-- Background checks are polling, so the device must be allowed to wake
+         for them; without WAKE_LOCK the scheduled pass can be cut short. -->
+    <uses-permission android:name="android.permission.WAKE_LOCK"/>
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE"/>
+    <!-- Remind the customer if the OS has put the app to sleep. Requesting the
+         exemption is opt-in and only ever triggered from a button the user
+         presses; the app never asks for it on its own. -->
+    <uses-permission android:name="android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS"/>
 
     <!-- Cleartext stays on because the same APK must reach an office PC over
          the local Wi-Fi (Windows edition). Production servers are expected
@@ -48,6 +56,19 @@
         <meta-data
             android:name="flutterEmbedding"
             android:value="2" />
+        <!-- WorkManager's own reschedule hook. Without this, a periodic task
+             registered before a reboot does not come back on its own, which is
+             how notifications went quiet after the phone restarted. -->
+        <receiver
+            android:name="androidx.work.impl.background.systemalarm.RescheduleReceiver"
+            android:enabled="true"
+            android:exported="false">
+            <intent-filter>
+                <action android:name="android.intent.action.BOOT_COMPLETED"/>
+                <action android:name="android.intent.action.TIME_SET"/>
+                <action android:name="android.intent.action.TIMEZONE_CHANGED"/>
+            </intent-filter>
+        </receiver>
     </application>
     <queries>
         <intent>

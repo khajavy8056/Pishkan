@@ -162,8 +162,26 @@ class _ProfileTabState extends State<ProfileTab> {
                 label: const Text('ارسال اعلان آزمایشی'),
               ),
               const SizedBox(height: 8),
+              // Telling people to go hunting through Settings is not a fix.
+              // This opens the exact page, and says which of the two cases
+              // applies so the outcome is never ambiguous.
+              OutlinedButton.icon(
+                onPressed: () async {
+                  final exempt = await openBatteryOptimisationSettings();
+                  if (!sheetContext.mounted) return;
+                  showSnack(
+                    sheetContext,
+                    exempt
+                        ? 'پیشخوان از قبل بدون محدودیت است؛ صفحهٔ تنظیمات باز شد.'
+                        : 'صفحهٔ تنظیمات باز شد؛ «بدون محدودیت» را انتخاب کنید تا اعلان‌ها بی‌تأخیر برسند.',
+                  );
+                },
+                icon: const Icon(Icons.battery_saver_outlined, size: 18),
+                label: const Text('اجازهٔ اجرا در پس‌زمینه'),
+              ),
+              const SizedBox(height: 6),
               Text(
-                'اگر اعلان‌ها با تأخیر می‌رسند، در تنظیمات گوشی «بهینه‌سازی باتری» را برای پیشخوان روی «بدون محدودیت» بگذارید.',
+                'اندروید برای صرفه‌جویی در باتری، بررسی‌های پس‌زمینه را گاهی ساعت‌ها متوقف می‌کند. با این تنظیم، اعلان‌ها سر وقت می‌رسند.',
                 style: TextStyle(fontSize: 10.5, height: 1.8, color: context.inkMuted),
               ),
             ]),

@@ -1,6 +1,7 @@
 import 'dart:convert';
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:workmanager/workmanager.dart';
@@ -164,8 +165,48 @@ class NotifierService {
         _pendingLaunchPayload = response.payload;
       }
       _ready = true;
+      // Register the channels up front. Android fixes a channel's importance
+      // and sound the first time it is created and silently ignores later
+      // changes, so a channel that only ever appears on the first notification
+      // can end up muted for good. Creating them at start makes the sound a
+      // one-time decision we control instead of a race with the first event.
+      await _createChannels();
     } catch (_) {
       // Leave _ready=false so a later call can retry.
+    }
+  }
+
+  /// Every channel, silent twin included, declared before it is first used.
+  static Future<void> _createChannels() async {
+    final android = _plugin
+        .resolvePlatformSpecificImplementation<AndroidFlutterLocalNotificationsPlugin>();
+    if (android == null) return;
+    const channels = <(String, String, String, String)>[
+      (_requestsChannel, 'تغییرات پرونده‌ها', 'مرحلهٔ تازهٔ درخواست‌ها همراه نوار پیشرفت', 'notice_soft'),
+      (_messagesChannel, 'پیام‌ها', 'پاسخ‌های گفتگو و تیکت پشتیبانی', 'message_soft'),
+      (_storiesChannel, 'استوری و اطلاعیه‌ها', 'استوری تازه و اطلاعیه‌های دفتر', 'notice_soft'),
+      (_invoiceChannel, 'فاکتورها', 'فاکتورها و وضعیت پرداخت', 'invoice_soft'),
+      (_generalChannel, 'اطلاع‌رسانی سامانه', 'اعلان‌های عمومی پیشخوان', 'notice_soft'),
+    ];
+    for (final (id, name, description, sound) in channels) {
+      // With sound (the user has not muted the app) …
+      await android.createNotificationChannel(AndroidNotificationChannel(
+        id,
+        name,
+        description: description,
+        importance: Importance.high,
+        playSound: true,
+        sound: RawResourceAndroidNotificationSound(sound),
+      ));
+      // … and its silent twin, used when the customer turns sounds off. Having
+      // it pre-created means the mute toggle never needs a restart.
+      await android.createNotificationChannel(AndroidNotificationChannel(
+        '${id}_silent',
+        '$name (بی‌صدا)',
+        description: description,
+        importance: Importance.high,
+        playSound: false,
+      ));
     }
   }
 
@@ -409,12 +450,35 @@ Future<void> ensureBackgroundPolling() async {
       'pishkan-notification-poll',
       'pishkanNotificationPoll',
       frequency: const Duration(minutes: 15),
+      // Do not run the moment the app starts: the foreground timer is already
+      // polling, and a burst of requests on open is what made the first
+      // notification late. Two minutes gives the UI time to finish loading.
+      initialDelay: const Duration(minutes: 2),
       constraints: Constraints(networkType: NetworkType.connected),
-      existingWorkPolicy: ExistingPeriodicWorkPolicy.keep,
+      // `update` instead of `keep`: with `keep`, a schedule registered by an
+      // older build survives an upgrade with its old constraints, so a fix to
+      // the polling never reaches a phone that already ran the old version.
+      existingWorkPolicy: ExistingPeriodicWorkPolicy.update,
       backoffPolicy: BackoffPolicy.exponential,
       backoffPolicyDelay: const Duration(minutes: 5),
     );
   } catch (_) {
     // Background polling is an enhancement; the foreground timer still runs.
+  }
+}
+
+/// Open the system page that lets Android treat this app as unrestricted.
+///
+/// Returns true when the app was already exempt (the system page was still
+/// opened, so the choice stays with the customer). Used by the profile screen;
+/// deliberately not called automatically, because quietly asking for a battery
+/// exemption is the kind of thing users rightly resent.
+Future<bool> openBatteryOptimisationSettings() async {
+  try {
+    final exempt = await const MethodChannel('ir.pishkan.app/battery')
+        .invokeMethod<bool>('requestIgnore');
+    return exempt ?? false;
+  } catch (_) {
+    return false;
   }
 }

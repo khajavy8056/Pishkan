@@ -1,7 +1,11 @@
 package ir.pishkan.app
 
+import android.content.Intent
 import android.media.AudioAttributes
 import android.media.SoundPool
+import android.net.Uri
+import android.os.PowerManager
+import android.provider.Settings
 import io.flutter.embedding.android.FlutterFragmentActivity
 import io.flutter.embedding.engine.FlutterEngine
 import io.flutter.plugin.common.MethodChannel
@@ -32,6 +36,33 @@ class MainActivity : FlutterFragmentActivity() {
                     val volume = if (kind == "tap") 0.28f else 0.55f
                     soundIds[kind]?.let { sounds?.play(it, volume, volume, 1, 0, 1f) }
                     result.success(null)
+                } else result.notImplemented()
+            }
+        // Doze can hold the 15-minute background check for hours on some
+        // phones, which reads to the customer as "notifications never arrive".
+        // The OS exposes no way to *query* whether the app is exempt, so the
+        // button opens the right system page and reports whether we are
+        // already exempt.
+        MethodChannel(flutterEngine.dartExecutor.binaryMessenger, "ir.pishkan.app/battery")
+            .setMethodCallHandler { call, result ->
+                if (call.method == "requestIgnore") {
+                    val power = getSystemService(POWER_SERVICE) as PowerManager
+                    val exempt = power.isIgnoringBatteryOptimizations(packageName)
+                    if (exempt) {
+                        // Already unrestricted: there is no dialog to show, so
+                        // open the list where it can be changed back.
+                        startActivity(
+                            Intent(Settings.ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS)
+                                .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                        )
+                    } else {
+                        startActivity(
+                            Intent(Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS)
+                                .setData(Uri.parse("package:$packageName"))
+                                .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                        )
+                    }
+                    result.success(exempt)
                 } else result.notImplemented()
             }
     }
