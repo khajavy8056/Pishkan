@@ -46,6 +46,8 @@ class _LoginScreenState extends State<LoginScreen> {
   final _nationalId = TextEditingController();
   final _newPassword = TextEditingController();
   final _referral = TextEditingController();
+  /// Voluntary, but it decides which default avatar set the account gets.
+  String _gender = '';
 
   void _receiveReferral() { if (mounted) setState(() => _referral.text = ReferralStore.code.value); }
 
@@ -191,14 +193,28 @@ class _LoginScreenState extends State<LoginScreen> {
     await _run(() async {
       final referral = _referral.text.trim();
       if (!ReferralStore.matchesServer(referral)) throw ApiException('این دعوت متعلق به سرور دیگری است. آدرس دفتر را بررسی کنید.');
-      await registerCustomer({
-        'mobile': mobile,
-        'password': _password.text,
-        'fullName': _fullName.text.trim(),
-        if (nationalId.isNotEmpty) 'nationalId': nationalId,
-        if (referral.isNotEmpty) 'referralCode': referral,
-      });
-      if (mounted) _goHome();
+      try {
+        await registerCustomer({
+          'mobile': mobile,
+          'password': _password.text,
+          'fullName': _fullName.text.trim(),
+          if (nationalId.isNotEmpty) 'nationalId': nationalId,
+          if (referral.isNotEmpty) 'referralCode': referral,
+          if (_gender.isNotEmpty) 'gender': _gender,
+        });
+        if (mounted) _goHome();
+      } on PendingRegistration catch (pending) {
+        // The account exists but is not usable yet: this is success with a
+        // message, not an error. Return to the login form with the mobile
+        // filled in so the customer can sign in once the office approves.
+        if (!mounted) return;
+        showSnack(context, pending.message);
+        setState(() {
+          _mode = _Mode.password;
+          _identifier.text = mobile;
+          _password.clear();
+        });
+      }
     });
   }
 
@@ -217,25 +233,25 @@ class _LoginScreenState extends State<LoginScreen> {
             IconButton(
               tooltip: 'تغییر آدرس سرور',
               onPressed: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const ServerSetupScreen(fromProfile: true))),
-              icon: const Icon(Icons.dns_outlined, color: PishkanColors.mutedText),
+              icon: Icon(Icons.dns_outlined, color: context.inkMuted),
             ),
           ]),
           Center(
             child: Container(
               padding: const EdgeInsets.all(10),
-              decoration: const BoxDecoration(color: Colors.white, shape: BoxShape.circle, boxShadow: [BoxShadow(color: Color(0x1A1452D9), blurRadius: 20, offset: Offset(0, 8))]),
+              decoration: BoxDecoration(color: context.surface, shape: BoxShape.circle, boxShadow: [BoxShadow(color: Color(0x1A1452D9), blurRadius: 20, offset: Offset(0, 8))]),
               child: ClipOval(child: Image.asset('assets/icon.png', width: 62, height: 62)),
             ),
           ),
           const SizedBox(height: 12),
-          Center(child: Text(brand, style: const TextStyle(fontSize: 22, fontWeight: FontWeight.w800, color: PishkanColors.navy))),
+          Center(child: Text(brand, style: TextStyle(fontSize: 22, fontWeight: FontWeight.w800, color: context.ink))),
           const SizedBox(height: 4),
-          Center(child: Text(tagline, style: const TextStyle(color: PishkanColors.mutedText, fontSize: 12.5))),
+          Center(child: Text(tagline, style: TextStyle(color: context.inkMuted, fontSize: 12.5))),
           if (widget.lockMessage.isNotEmpty) ...[
             const SizedBox(height: 12),
             Container(
               padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 9),
-              decoration: BoxDecoration(color: const Color(0xFFFFF7E6), borderRadius: BorderRadius.circular(12)),
+              decoration: BoxDecoration(color: context.caution.withOpacity(context.isDark ? 0.14 : 0.10), borderRadius: BorderRadius.circular(12)),
               child: Text(widget.lockMessage, textAlign: TextAlign.center, style: const TextStyle(fontSize: 12, color: Color(0xFF92400E))),
             ),
           ],
@@ -280,7 +296,7 @@ class _LoginScreenState extends State<LoginScreen> {
             borderRadius: BorderRadius.circular(999),
             boxShadow: active ? [BoxShadow(color: PishkanColors.primary.withOpacity(0.35), blurRadius: 10, offset: const Offset(0, 4))] : null,
           ),
-          child: Text(label, textAlign: TextAlign.center, style: TextStyle(fontWeight: FontWeight.w800, fontSize: 14, color: active ? Colors.white : PishkanColors.navy)),
+          child: Text(label, textAlign: TextAlign.center, style: TextStyle(fontWeight: FontWeight.w800, fontSize: 14, color: active ? Colors.white : context.ink)),
         ),
       ),
     );
@@ -301,11 +317,11 @@ class _LoginScreenState extends State<LoginScreen> {
     );
   }
 
-  Widget _orDivider() => const Padding(
+  Widget _orDivider() =>  Padding(
         padding: EdgeInsets.symmetric(vertical: 14),
         child: Row(children: [
           Expanded(child: Divider()),
-          Padding(padding: EdgeInsets.symmetric(horizontal: 10), child: Text('یا', style: TextStyle(color: PishkanColors.mutedText, fontSize: 12))),
+          Padding(padding: EdgeInsets.symmetric(horizontal: 10), child: Text('یا', style: TextStyle(color: context.inkMuted, fontSize: 12))),
           Expanded(child: Divider()),
         ]),
       );
@@ -339,21 +355,21 @@ class _LoginScreenState extends State<LoginScreen> {
           if (config == null || config.otpLogin)
             OutlinedButton.icon(
               onPressed: _busy ? null : () => setState(() => _mode = _Mode.otp),
-              icon: const Icon(Icons.sms_rounded),
+              icon: Icon(Icons.sms_rounded),
               label: const Text('ورود با کد پیامکی'),
             ),
           if (_canBiometric) ...[
             const SizedBox(height: 10),
             OutlinedButton.icon(
               onPressed: _busy ? null : _biometricUnlock,
-              icon: const Icon(Icons.fingerprint_rounded, size: 26),
+              icon: Icon(Icons.fingerprint_rounded, size: 26),
               label: const Text('ورود با اثر انگشت'),
             ),
           ],
           if (config == null || config.registrationOpen) ...[
             const SizedBox(height: 16),
             Row(mainAxisAlignment: MainAxisAlignment.center, children: [
-              const Text('حساب کاربری ندارید؟', style: TextStyle(fontSize: 12.5, color: PishkanColors.mutedText)),
+              Text('حساب کاربری ندارید؟', style: TextStyle(fontSize: 12.5, color: context.inkMuted)),
               TextButton(onPressed: () => setState(() => _mode = _Mode.register), child: const Text('ثبت نام کنید')),
             ]),
           ],
@@ -391,12 +407,23 @@ class _LoginScreenState extends State<LoginScreen> {
           TextField(controller: _nationalId, keyboardType: TextInputType.number, decoration: const InputDecoration(hintText: 'کد ملی (اختیاری)', prefixIcon: Icon(Icons.badge_outlined))),
           const SizedBox(height: 12),
           _passwordField(_password, 'رمز عبور (حداقل ۸ نویسه)'),
+          const SizedBox(height: 14),
+          Text('جنسیت (برای انتخاب آواتار پیش‌فرض — اختیاری)', style: TextStyle(fontSize: 11.5, color: context.inkMuted)),
+          const SizedBox(height: 8),
+          Wrap(spacing: 8, children: [
+            for (final option in const [('female', 'زن'), ('male', 'مرد')])
+              ChoiceChip(
+                label: Text(option.$2),
+                selected: _gender == option.$1,
+                onSelected: (selected) => setState(() => _gender = selected ? option.$1 : ''),
+              ),
+          ]),
           const SizedBox(height: 18),
           PlushButton(label: 'ثبت نام و ورود', arrow: true, loading: _busy, onPressed: _submitRegister),
         ]);
       case _Mode.reset:
         return Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
-          const Text('بازیابی رمز عبور', style: TextStyle(fontWeight: FontWeight.w800, fontSize: 16, color: PishkanColors.navy)),
+          Text('بازیابی رمز عبور', style: TextStyle(fontWeight: FontWeight.w800, fontSize: 16, color: context.ink)),
           const SizedBox(height: 12),
           TextField(controller: _mobile, keyboardType: TextInputType.phone, decoration: const InputDecoration(hintText: 'شماره موبایل', prefixIcon: Icon(Icons.smartphone_rounded))),
           if (_otpSent) ...[

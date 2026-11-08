@@ -71,12 +71,27 @@ class _PaymentsScreenState extends State<PaymentsScreen> with WidgetsBindingObse
     try {
       if (wallet) {
         await payInvoiceWithWallet(asStr(invoice['id']));
+        // The await above can outlive this screen (customer navigates back
+        // while the wallet request is in flight): touching context afterwards
+        // would throw.
+        if (!mounted) return;
         showSnack(context, 'فاکتور از کیف پول پرداخت شد.');
         await _load();
       } else {
         final url = await payInvoiceOnline(asStr(invoice['id']));
         final uri = Uri.tryParse(api.absolute(url));
-        if (uri != null) await launchUrl(uri, mode: LaunchMode.externalApplication);
+        if (uri == null) {
+          if (mounted) showSnack(context, 'آدرس درگاه پرداخت معتبر نیست.', error: true);
+          return;
+        }
+        // External apps are on a *different* origin, so no session header is
+        // involved; launching is safe. Failure to launch is a real error that
+        // used to be swallowed, leaving the customer on a screen where the
+        // "pay" button silently did nothing.
+        final launched = await launchUrl(uri, mode: LaunchMode.externalApplication);
+        if (!launched && mounted) {
+          showSnack(context, 'باز کردن درگاه پرداخت ممکن نشد. مرورگر را بررسی کنید.', error: true);
+        }
       }
     } on ApiException catch (error) {
       if (mounted) showSnack(context, error.message, error: true);
@@ -142,16 +157,16 @@ class _PaymentsScreenState extends State<PaymentsScreen> with WidgetsBindingObse
               Row(children: [
                 Expanded(
                   child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                    Text(asStr(invoice['title']).isEmpty ? 'فاکتور ${faDigits(asStr(invoice['number']))}' : asStr(invoice['title']), style: const TextStyle(fontWeight: FontWeight.w800, fontSize: 13.5)),
-                    Text('شماره ${faDigits(asStr(invoice['number']))} · صدور ${faDate(invoice['issuedAt'])}', style: const TextStyle(fontSize: 11, color: PishkanColors.mutedText)),
+                    Text(asStr(invoice['title']).isEmpty ? 'فاکتور ${faDigits(asStr(invoice['number']))}' : asStr(invoice['title']), style: TextStyle(fontWeight: FontWeight.w800, fontSize: 13.5)),
+                    Text('شماره ${faDigits(asStr(invoice['number']))} · صدور ${faDate(invoice['issuedAt'])}', style: TextStyle(fontSize: 11, color: context.inkMuted)),
                   ]),
                 ),
                 StatusChip(label: isPaid ? 'پرداخت شده' : paid > 0 ? 'پرداخت ناقص' : 'پرداخت نشده', status: isPaid ? 'paid' : 'unpaid'),
               ]),
               const SizedBox(height: 8),
               Row(children: [
-                Text(faMoney(total), style: const TextStyle(fontWeight: FontWeight.w800, fontSize: 14)),
-                if (!isPaid && paid > 0) Text(' (پرداخت‌شده: ${faMoney(paid)})', style: const TextStyle(fontSize: 11, color: PishkanColors.mutedText)),
+                Text(faMoney(total), style: TextStyle(fontWeight: FontWeight.w800, fontSize: 14)),
+                if (!isPaid && paid > 0) Text(' (پرداخت‌شده: ${faMoney(paid)})', style: TextStyle(fontSize: 11, color: context.inkMuted)),
                 const Spacer(),
                 if (requestId.isNotEmpty)
                   TextButton(
@@ -204,10 +219,10 @@ class _PaymentsScreenState extends State<PaymentsScreen> with WidgetsBindingObse
               const SizedBox(width: 11),
               Expanded(
                 child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                  Text(faMoney(asNum(payment['amount'])), style: const TextStyle(fontWeight: FontWeight.w800, fontSize: 13.5)),
+                  Text(faMoney(asNum(payment['amount'])), style: TextStyle(fontWeight: FontWeight.w800, fontSize: 13.5)),
                   Text(
                     '${faDate(payment['paidAt'] ?? payment['createdAt'], withTime: true)}${asStr(payment['trackingCode']).isEmpty && asStr(payment['reference']).isEmpty ? '' : ' · پیگیری ${faDigits(asStr(payment['trackingCode']).isEmpty ? asStr(payment['reference']) : asStr(payment['trackingCode']))}'}',
-                    style: const TextStyle(fontSize: 11, color: PishkanColors.mutedText),
+                    style: TextStyle(fontSize: 11, color: context.inkMuted),
                   ),
                 ]),
               ),

@@ -20,4 +20,20 @@ void main() {
     expect(ReferralStore.code.value, isEmpty);
     expect((await SharedPreferences.getInstance()).getString('referral.code'), isNull);
   });
+
+  test('a code with no recorded origin is accepted, a foreign origin is not', () async {
+    SharedPreferences.setMockInitialValues({});
+    // Fresh install, no server configured yet: the code carries no binding.
+    expect(ReferralStore.matchesServer(''), isFalse);
+    expect(ReferralStore.matchesServer('anything'), isTrue);
+    // Once a code is stored with an origin, only that office may receive it.
+    await SessionStore.instance.setServerUrl('https://office.example');
+    const token = 'zyxwvutsrqponmlkjihgfedcba654321';
+    await ReferralStore.acceptUri(Uri.parse('pishkan://invite?ref=$token&origin=https%3A%2F%2Foffice.example'));
+    await SessionStore.instance.setServerUrl('https://office.example');
+    expect(ReferralStore.matchesServer(token), isTrue);
+    await SessionStore.instance.setServerUrl('http://office.example');
+    expect(ReferralStore.matchesServer(token), isFalse, reason: 'scheme change is a different origin');
+    await ReferralStore.clear();
+  });
 }

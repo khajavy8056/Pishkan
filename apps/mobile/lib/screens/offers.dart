@@ -138,12 +138,12 @@ class _OffersScreenState extends State<OffersScreen> {
                           return SoftCard(
                             child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
                               Row(children: [
-                                Expanded(child: Text(asStr(offer['title']), style: const TextStyle(fontWeight: FontWeight.w800, fontSize: 15, color: PishkanColors.navy))),
+                                Expanded(child: Text(asStr(offer['title']), style: TextStyle(fontWeight: FontWeight.w800, fontSize: 15, color: context.ink))),
                                 StatusChip(label: _statusLabel(offer), status: pending ? 'pending' : asStr(offer['status']) == 'accepted' ? 'approved' : 'expired'),
                               ]),
                               if (asStr(offer['description']).isNotEmpty) ...[
                                 const SizedBox(height: 6),
-                                Text(asStr(offer['description']), style: const TextStyle(fontSize: 12.5, color: PishkanColors.mutedText, height: 1.9)),
+                                Text(asStr(offer['description']), style: TextStyle(fontSize: 12.5, color: context.inkMuted, height: 1.9)),
                               ],
                               if (asStr(offer['message']).isNotEmpty) ...[
                                 const SizedBox(height: 8),

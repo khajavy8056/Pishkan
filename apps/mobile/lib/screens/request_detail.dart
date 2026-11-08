@@ -246,7 +246,7 @@ class _RequestDetailScreenState extends State<RequestDetailScreen> with WidgetsB
     return SoftCard(
       child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
         Row(children: [
-          Expanded(child: Text(detail.serviceTitle, style: const TextStyle(fontWeight: FontWeight.w800, fontSize: 16, color: PishkanColors.navy))),
+          Expanded(child: Text(detail.serviceTitle, style: TextStyle(fontWeight: FontWeight.w800, fontSize: 16, color: context.ink))),
           StatusChip(label: detail.statusLabel, status: detail.status),
         ]),
         const SizedBox(height: 10),
@@ -261,7 +261,7 @@ class _RequestDetailScreenState extends State<RequestDetailScreen> with WidgetsB
           const SizedBox(height: 8),
           Container(
             padding: const EdgeInsets.all(10),
-            decoration: BoxDecoration(color: const Color(0xFFFEE2E2), borderRadius: BorderRadius.circular(12)),
+            decoration: BoxDecoration(color: context.negative.withOpacity(context.isDark ? 0.16 : 0.09), borderRadius: BorderRadius.circular(12)),
             child: Text('علت رد: ${detail.rejectedReason}', style: const TextStyle(color: Color(0xFF991B1B), fontSize: 12, height: 1.8)),
           ),
         ],
@@ -272,9 +272,9 @@ class _RequestDetailScreenState extends State<RequestDetailScreen> with WidgetsB
   Widget _metaRow(IconData icon, String label, String value) => Padding(
         padding: const EdgeInsets.symmetric(vertical: 3),
         child: Row(children: [
-          Icon(icon, size: 16, color: PishkanColors.mutedText),
+          Icon(icon, size: 16, color: context.inkMuted),
           const SizedBox(width: 7),
-          Text(label, style: const TextStyle(fontSize: 12, color: PishkanColors.mutedText)),
+          Text(label, style: TextStyle(fontSize: 12, color: context.inkMuted)),
           const Spacer(),
           Text(value, style: const TextStyle(fontSize: 12.5, fontWeight: FontWeight.w600)),
         ]),
@@ -328,8 +328,8 @@ class _RequestDetailScreenState extends State<RequestDetailScreen> with WidgetsB
       Row(children: [
         Expanded(
           child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-            Text(title, style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 13)),
-            Text('شماره فاکتور ${faDigits(asStr(invoice['number']))}', style: const TextStyle(fontSize: 11, color: PishkanColors.mutedText)),
+            Text(title, style: TextStyle(fontWeight: FontWeight.w700, fontSize: 13)),
+            Text('شماره فاکتور ${faDigits(asStr(invoice['number']))}', style: TextStyle(fontSize: 11, color: context.inkMuted)),
           ]),
         ),
         Text(faMoney(total), style: const TextStyle(fontWeight: FontWeight.w800, fontSize: 13.5)),
@@ -366,7 +366,7 @@ class _RequestDetailScreenState extends State<RequestDetailScreen> with WidgetsB
       SoftCard(
         child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
           if (requirements.isEmpty && detail.documents.isEmpty)
-            const Text('برای این خدمت مدرکی تعریف نشده است.', style: TextStyle(fontSize: 12.5, color: PishkanColors.mutedText)),
+            Text('برای این خدمت مدرکی تعریف نشده است.', style: TextStyle(fontSize: 12.5, color: context.inkMuted)),
           for (var i = 0; i < requirements.length; i++) ...[
             _requirementBlock(requirements[i], byKey[requirements[i].key] ?? const []),
             if (i < requirements.length - 1) const Divider(height: 24),
@@ -387,13 +387,13 @@ class _RequestDetailScreenState extends State<RequestDetailScreen> with WidgetsB
     final needsUpload = active.isEmpty || rejected.isNotEmpty;
     return Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
       Row(children: [
-        Expanded(child: Text(requirement.title, style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 13.5))),
+        Expanded(child: Text(requirement.title, style: TextStyle(fontWeight: FontWeight.w700, fontSize: 13.5))),
         StatusChip(
           label: active.isEmpty ? (requirement.required ? 'ارسال نشده' : 'اختیاری') : rejected.isNotEmpty ? 'نیازمند اصلاح' : active.any((d) => d.status == 'pending') ? 'در انتظار بررسی' : 'تأیید شده',
           status: docs.isEmpty ? 'unpaid' : rejected.isNotEmpty ? 'rejected' : 'approved',
         ),
       ]),
-      if (requirement.description.isNotEmpty) Text(requirement.description, style: const TextStyle(fontSize: 11.5, color: PishkanColors.mutedText, height: 1.8)),
+      if (requirement.description.isNotEmpty) Text(requirement.description, style: TextStyle(fontSize: 11.5, color: context.inkMuted, height: 1.8)),
       for (final doc in docs) _documentRow(doc),
       if (needsUpload) ...[
         const SizedBox(height: 8),
@@ -423,14 +423,14 @@ class _RequestDetailScreenState extends State<RequestDetailScreen> with WidgetsB
       contentPadding: EdgeInsets.zero,
       leading: doc.isImage
           ? ClipRRect(borderRadius: BorderRadius.circular(10), child: SizedBox(width: 44, height: 44, child: AuthImage(url: doc.displayUrl)))
-          : const Icon(Icons.insert_drive_file_outlined, color: PishkanColors.primary, size: 28),
-      title: Text(doc.title, style: const TextStyle(fontSize: 12.5, fontWeight: FontWeight.w600), overflow: TextOverflow.ellipsis),
+          : Icon(Icons.insert_drive_file_outlined, color: PishkanColors.primary, size: 28),
+      title: Text(doc.title, style: TextStyle(fontSize: 12.5, fontWeight: FontWeight.w600), overflow: TextOverflow.ellipsis),
       subtitle: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
         Text(switch (doc.status) {
           'approved' => 'تأییدشده',
           'rejected' => 'رد شده — مدرک جایگزین لازم است',
           _ => 'در انتظار بررسی کارشناس',
-        }, style: TextStyle(fontSize: 11, color: doc.status == 'rejected' ? PishkanColors.danger : PishkanColors.mutedText)),
+        }, style: TextStyle(fontSize: 11, color: doc.status == 'rejected' ? PishkanColors.danger : context.inkMuted)),
         if (doc.reviewNote.isNotEmpty) Text(doc.reviewNote, style: const TextStyle(fontSize: 11, color: PishkanColors.danger, height: 1.7)),
       ]),
       trailing: IconButton(icon: const Icon(Icons.visibility_outlined), onPressed: () => _openDocument(doc)),
@@ -448,15 +448,15 @@ class _RequestDetailScreenState extends State<RequestDetailScreen> with WidgetsB
             Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
               Column(children: [
                 Container(width: 11, height: 11, decoration: BoxDecoration(shape: BoxShape.circle, color: i == 0 ? PishkanColors.primary : const Color(0xFFCBD5E1))),
-                if (i < events.length - 1) Container(width: 2, height: 34, color: const Color(0xFFE2E8F0)),
+                if (i < events.length - 1) Container(width: 2, height: 34, color: context.hairline),
               ]),
               const SizedBox(width: 12),
               Expanded(
                 child: Padding(
                   padding: const EdgeInsets.only(bottom: 14),
                   child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                    Text(asStr(events[i]['message']), style: const TextStyle(fontSize: 12.5, height: 1.7)),
-                    Text(faDate(events[i]['createdAt'], withTime: true), style: const TextStyle(fontSize: 10.5, color: PishkanColors.mutedText)),
+                    Text(asStr(events[i]['message']), style: TextStyle(fontSize: 12.5, height: 1.7)),
+                    Text(faDate(events[i]['createdAt'], withTime: true), style: TextStyle(fontSize: 10.5, color: context.inkMuted)),
                   ]),
                 ),
               ),

@@ -5,10 +5,15 @@ import '../core/api.dart';
 import '../core/biometric.dart';
 import '../core/format.dart';
 import '../core/theme.dart';
+import '../core/theme_mode.dart';
 import '../models/models.dart';
 import '../services/notifier.dart';
 import '../services/services.dart';
+import '../widgets/avatar.dart';
 import '../widgets/widgets.dart';
+import 'assistant.dart';
+import 'avatar_picker.dart';
+import 'chat.dart';
 import 'documents.dart';
 import 'my_discounts.dart';
 import 'referrals.dart';
@@ -32,6 +37,8 @@ class _ProfileTabState extends State<ProfileTab> {
   String _version = '';
   bool _notificationsOn = true;
   bool _soundsOn = true;
+  /// Whether Android itself allows this app to post (null = not asked yet).
+  bool? _notificationPermission;
   bool _biometricOn = false;
   bool _biometricAvailable = false;
 
@@ -71,6 +78,101 @@ class _ProfileTabState extends State<ProfileTab> {
     if (mounted) setState(() => _biometricOn = value);
   }
 
+  /// One place to understand *why* a notification did not arrive, plus a test
+  /// that exercises channel, sound, tray and deep link end to end. Battery
+  /// optimisation is the usual Android culprit for "it worked, then stopped".
+  Future<void> _openNotificationSettings() async {
+    var granted = await NotifierService.permissionGranted();
+    if (mounted) setState(() => _notificationPermission = granted);
+    if (!mounted) return;
+    await showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      showDragHandle: true,
+      builder: (sheetContext) => StatefulBuilder(
+        builder: (sheetContext, setSheet) => SafeArea(
+          child: Padding(
+            padding: const EdgeInsets.fromLTRB(18, 4, 18, 20),
+            child: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+              Text('اعلان‌ها', style: TextStyle(fontWeight: FontWeight.w800, fontSize: 16, color: context.ink)),
+              const SizedBox(height: 4),
+              Text('اعلان‌ها برای مرحلهٔ پرونده، پاسخ کارشناس و اطلاعیه‌های دفتر می‌آیند.', style: TextStyle(fontSize: 12, color: context.inkMuted, height: 1.7)),
+              const SizedBox(height: 14),
+              if (granted == false)
+                Container(
+                  margin: const EdgeInsets.only(bottom: 12),
+                  padding: const EdgeInsets.all(12),
+                  decoration: BoxDecoration(color: PishkanColors.danger.withOpacity(0.08), borderRadius: BorderRadius.circular(14), border: Border.all(color: PishkanColors.danger.withOpacity(0.25))),
+                  child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                    const Text('اجازهٔ اعلان داده نشده است', style: TextStyle(fontWeight: FontWeight.w800, fontSize: 12.5, color: PishkanColors.danger)),
+                    const SizedBox(height: 4),
+                    Text('بدون این اجازه هیچ اعلانی نمایش داده نمی‌شود. با دکمهٔ زیر درخواست اجازه می‌دهیم؛ اگر پنجره نیامد، از تنظیمات گوشی مسیر «برنامه‌ها ← پیشخوان ← اعلان‌ها» را روشن کنید.',
+                        style: TextStyle(fontSize: 11.5, height: 1.75, color: context.ink)),
+                    const SizedBox(height: 8),
+                    PlushButton(
+                      label: 'درخواست اجازهٔ اعلان',
+                      icon: Icons.notifications_active_rounded,
+                      expand: false,
+                      onPressed: () async {
+                        await NotifierService.requestPermission();
+                        final now = await NotifierService.permissionGranted();
+                        setSheet(() => granted = now);
+                        if (mounted) setState(() => _notificationPermission = now);
+                      },
+                    ),
+                  ]),
+                ),
+              SwitchListTile(
+                contentPadding: EdgeInsets.zero,
+                secondary: const Icon(Icons.notifications_active_outlined, color: PishkanColors.primary),
+                title: const Text('دریافت اعلان‌ها', style: TextStyle(fontWeight: FontWeight.w700, fontSize: 13)),
+                subtitle: const Text('خاموش کردن، فقط نمایش اعلان در گوشی را قطع می‌کند؛ پرونده‌ها در برنامه به‌روز می‌مانند.', style: TextStyle(fontSize: 11, height: 1.6)),
+                value: _notificationsOn,
+                onChanged: (value) async {
+                  await AppPrefs.setNotificationsEnabled(value);
+                  setSheet(() => _notificationsOn = value);
+                  if (mounted) setState(() => _notificationsOn = value);
+                },
+              ),
+              SwitchListTile(
+                contentPadding: EdgeInsets.zero,
+                secondary: const Icon(Icons.volume_up_outlined, color: PishkanColors.primary),
+                title: const Text('صدا', style: TextStyle(fontWeight: FontWeight.w700, fontSize: 13)),
+                subtitle: const Text('صدای اعلان و بازخوردهای لمسی', style: TextStyle(fontSize: 11, height: 1.6)),
+                value: _soundsOn,
+                onChanged: (value) async {
+                  await AppPrefs.setSoundsEnabled(value);
+                  setSheet(() => _soundsOn = value);
+                  if (mounted) setState(() => _soundsOn = value);
+                },
+              ),
+              const SizedBox(height: 6),
+              const Divider(height: 1),
+              const SizedBox(height: 12),
+              OutlinedButton.icon(
+                onPressed: () async {
+                  final sent = await NotifierService.showTestNotification();
+                  if (!sheetContext.mounted) return;
+                  showSnack(sheetContext, sent
+                      ? 'اعلان آزمایشی ارسال شد؛ چند ثانیه بعد در نوار اعلان‌ها ببینید.'
+                      : 'ارسال اعلان آزمایشی ممکن نشد؛ اجازهٔ اعلان و باتری را بررسی کنید.',
+                      error: !sent);
+                },
+                icon: const Icon(Icons.science_outlined, size: 18),
+                label: const Text('ارسال اعلان آزمایشی'),
+              ),
+              const SizedBox(height: 8),
+              Text(
+                'اگر اعلان‌ها با تأخیر می‌رسند، در تنظیمات گوشی «بهینه‌سازی باتری» را برای پیشخوان روی «بدون محدودیت» بگذارید.',
+                style: TextStyle(fontSize: 10.5, height: 1.8, color: context.inkMuted),
+              ),
+            ]),
+          ),
+        ),
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     return ListenableBuilder(
@@ -86,23 +188,44 @@ class _ProfileTabState extends State<ProfileTab> {
               padding: const EdgeInsets.all(18),
               decoration: BoxDecoration(gradient: PishkanColors.brandGradient, borderRadius: BorderRadius.circular(24)),
               child: Row(children: [
-                CircleAvatar(
-                  radius: 30,
-                  backgroundColor: Colors.white.withOpacity(0.18),
-                  child: Text(name.isEmpty ? 'پ' : name.substring(0, 1), style: const TextStyle(color: Colors.white, fontSize: 22, fontWeight: FontWeight.w800)),
+                // The customer's own face (preset illustration or their photo),
+                // tappable straight into the picker.
+                GestureDetector(
+                  onTap: () async {
+                    final changed = await Navigator.push<bool>(context, MaterialPageRoute(builder: (_) => const AvatarPickerScreen()));
+                    if (changed == true) await fetchMe().catchError((_) => <String, dynamic>{});
+                    if (mounted) setState(() {});
+                  },
+                  child: Stack(alignment: Alignment.bottomLeft, children: [
+                    UserAvatar(size: 62, withRing: true),
+                    Container(
+                      padding: const EdgeInsets.all(3),
+                      decoration: const BoxDecoration(color: Colors.white, shape: BoxShape.circle),
+                      child: const Icon(Icons.edit_rounded, size: 13, color: PishkanColors.primary),
+                    ),
+                  ]),
                 ),
                 const SizedBox(width: 13),
                 Expanded(
                   child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                    Text(name, style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w800, fontSize: 16)),
-                    Text(faMobileSpaced(mobile), style: const TextStyle(color: Color(0xFFCFE0FF), fontSize: 12.5)),
-                    if (asStr(user['nationalId']).isNotEmpty) Text('کد ملی ${faDigits(asStr(user['nationalId']))}', style: const TextStyle(color: Color(0xFFCFE0FF), fontSize: 11.5)),
+                    Text(name, style: TextStyle(color: Colors.white, fontWeight: FontWeight.w800, fontSize: 16)),
+                    Text(faMobileSpaced(mobile), style: TextStyle(color: Color(0xFFCFE0FF), fontSize: 12.5)),
+                    if (asStr(user['nationalId']).isNotEmpty) Text('کد ملی ${faDigits(asStr(user['nationalId']))}', style: TextStyle(color: Color(0xFFCFE0FF), fontSize: 11.5)),
                   ]),
                 ),
                 IconButton(
                   onPressed: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const EditProfileScreen())),
-                  icon: const Icon(Icons.edit_rounded, color: Colors.white),
+                  icon: Icon(Icons.edit_rounded, color: Colors.white),
                 ),
+              ]),
+            ),
+            const SectionTitle(title: 'دستیار و پشتیبانی'),
+            SoftCard(
+              padding: const EdgeInsets.symmetric(vertical: 6, horizontal: 8),
+              child: Column(children: [
+                _link(Icons.auto_awesome_rounded, 'دستیار هوشمند', 'پیدا کردن خدمت، پاسخ پرسش‌ها و وضعیت پرونده', () => Navigator.push(context, MaterialPageRoute(builder: (_) => const AssistantScreen()))),
+                const Divider(height: 1),
+                _link(Icons.forum_rounded, 'گفت‌وگو با دفتر', 'پیام مستقیم با کارشناس، درون برنامه', () => Navigator.push(context, MaterialPageRoute(builder: (_) => const ChatThreadsScreen()))),
               ]),
             ),
             const SectionTitle(title: 'خدمات مالی'),
@@ -135,19 +258,38 @@ class _ProfileTabState extends State<ProfileTab> {
             SoftCard(
               padding: const EdgeInsets.symmetric(vertical: 4, horizontal: 8),
               child: Column(children: [
-                SwitchListTile(
-                  secondary: Container(
+                ListenableBuilder(
+                  listenable: ThemeController.instance,
+                  builder: (context, _) => ListTile(
+                    leading: Container(
+                      padding: const EdgeInsets.all(9),
+                      decoration: BoxDecoration(color: PishkanColors.primary.withOpacity(0.1), borderRadius: BorderRadius.circular(12)),
+                      child: Icon(ThemeController.instance.mode.icon, color: PishkanColors.primary, size: 20),
+                    ),
+                    title: const Text('ظاهر برنامه', style: TextStyle(fontWeight: FontWeight.w700, fontSize: 13.5)),
+                    subtitle: Text('حالت فعلی: ${ThemeController.instance.mode.label}', style: TextStyle(fontSize: 11.5)),
+                    trailing: Icon(Icons.chevron_left_rounded),
+                    onTap: () => showThemePicker(context),
+                  ),
+                ),
+                const Divider(height: 1),
+                ListTile(
+                  leading: Container(
                     padding: const EdgeInsets.all(9),
                     decoration: BoxDecoration(color: PishkanColors.primary.withOpacity(0.1), borderRadius: BorderRadius.circular(12)),
                     child: const Icon(Icons.notifications_active_outlined, color: PishkanColors.primary, size: 20),
                   ),
-                  title: const Text('اعلان‌های پرونده و پیام‌ها', style: TextStyle(fontWeight: FontWeight.w700, fontSize: 13.5)),
-                  subtitle: const Text('با هر مرحلهٔ تازه و پاسخ کارشناس خبردار شوید', style: TextStyle(fontSize: 11.5, color: PishkanColors.mutedText)),
-                  value: _notificationsOn,
-                  onChanged: (value) async {
-                    await AppPrefs.setNotificationsEnabled(value);
-                    if (mounted) setState(() => _notificationsOn = value);
-                  },
+                  title: const Text('اعلان‌ها', style: TextStyle(fontWeight: FontWeight.w700, fontSize: 13.5)),
+                  subtitle: Text(
+                    !_notificationsOn
+                        ? 'خاموش — هیچ اعلانی نشان داده نمی‌شود'
+                        : _notificationPermission == false
+                            ? 'اجازهٔ اعلان در تنظیمات گوشی داده نشده است'
+                            : 'مرحلهٔ پرونده، پاسخ کارشناس و اطلاعیه‌ها',
+                    style: TextStyle(fontSize: 11.5, color: _notificationPermission == false && _notificationsOn ? PishkanColors.danger : context.inkMuted),
+                  ),
+                  trailing: const Icon(Icons.chevron_left_rounded),
+                  onTap: _openNotificationSettings,
                 ),
                 const Divider(height: 1),
                 SwitchListTile(
@@ -165,10 +307,10 @@ class _ProfileTabState extends State<ProfileTab> {
                   secondary: Container(
                     padding: const EdgeInsets.all(9),
                     decoration: BoxDecoration(color: PishkanColors.primary.withOpacity(0.1), borderRadius: BorderRadius.circular(12)),
-                    child: const Icon(Icons.fingerprint_rounded, color: PishkanColors.primary, size: 20),
+                    child: Icon(Icons.fingerprint_rounded, color: PishkanColors.primary, size: 20),
                   ),
                   title: const Text('ورود با اثر انگشت', style: TextStyle(fontWeight: FontWeight.w700, fontSize: 13.5)),
-                  subtitle: Text(_biometricAvailable ? 'قفل اپ با اثر انگشت یا چهرهٔ همین گوشی' : 'این گوشی حسگر اثر انگشت فعال ندارد', style: const TextStyle(fontSize: 11.5, color: PishkanColors.mutedText)),
+                  subtitle: Text(_biometricAvailable ? 'قفل اپ با اثر انگشت یا چهرهٔ همین گوشی' : 'این گوشی حسگر اثر انگشت فعال ندارد', style: TextStyle(fontSize: 11.5, color: context.inkMuted)),
                   value: _biometricOn,
                   onChanged: _biometricAvailable ? _toggleBiometric : null,
                 ),
@@ -207,11 +349,11 @@ class _ProfileTabState extends State<ProfileTab> {
                 }
               },
               style: OutlinedButton.styleFrom(foregroundColor: PishkanColors.danger, side: const BorderSide(color: Color(0xFFFECACA))),
-              icon: const Icon(Icons.logout_rounded),
+              icon: Icon(Icons.logout_rounded),
               label: const Text('خروج از حساب کاربری'),
             ),
             const SizedBox(height: 14),
-            Center(child: Text('اپلیکیشن مشتریان پیشخوان · نسخهٔ ${faDigits(_version)}', style: const TextStyle(fontSize: 11, color: PishkanColors.mutedText))),
+            Center(child: Text('اپلیکیشن مشتریان پیشخوان · نسخهٔ ${faDigits(_version)}', style: TextStyle(fontSize: 11, color: context.inkMuted))),
           ]),
         );
       },
@@ -225,9 +367,9 @@ class _ProfileTabState extends State<ProfileTab> {
         decoration: BoxDecoration(color: PishkanColors.primary.withOpacity(0.1), borderRadius: BorderRadius.circular(12)),
         child: Icon(icon, color: PishkanColors.primary, size: 20),
       ),
-      title: Text(title, style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 13.5)),
-      subtitle: Text(subtitle, textDirection: ltr ? TextDirection.ltr : null, textAlign: ltr ? TextAlign.right : null, style: const TextStyle(fontSize: 11.5, color: PishkanColors.mutedText), maxLines: 1, overflow: TextOverflow.ellipsis),
-      trailing: const Icon(Icons.chevron_left_rounded, color: PishkanColors.mutedText),
+      title: Text(title, style: TextStyle(fontWeight: FontWeight.w700, fontSize: 13.5)),
+      subtitle: Text(subtitle, textDirection: ltr ? TextDirection.ltr : null, textAlign: ltr ? TextAlign.right : null, style: TextStyle(fontSize: 11.5, color: context.inkMuted), maxLines: 1, overflow: TextOverflow.ellipsis),
+      trailing: Icon(Icons.chevron_left_rounded, color: context.inkMuted),
       onTap: onTap,
     );
   }
@@ -326,7 +468,7 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
       await api.patchData('/api/auth/profile', body: body);
       await fetchMe();
       if (mounted) {
-        showSnack(context, 'مشخصات شما به‌روزرسانی شد.');
+        showSuccess(context, 'مشخصات شما به‌روزرسانی شد.');
         Navigator.pop(context);
       }
     } on ApiException catch (error) {
@@ -372,7 +514,7 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
             const SizedBox(height: 18),
             PlushButton(label: 'ذخیرهٔ تغییرات', icon: Icons.save_rounded, loading: _busy, onPressed: _save),
             const SizedBox(height: 6),
-            const Text('شماره موبایل شناسهٔ ورود شماست و از اینجا تغییر نمی‌کند؛ برای تغییرش با دفتر در تماس باشید.', style: TextStyle(fontSize: 11, color: PishkanColors.mutedText, height: 1.8)),
+            Text('شماره موبایل شناسهٔ ورود شماست و از اینجا تغییر نمی‌کند؛ برای تغییرش با دفتر در تماس باشید.', style: TextStyle(fontSize: 11, color: context.inkMuted, height: 1.8)),
           ]),
         ),
       ]),
@@ -415,7 +557,7 @@ class _ChangePasswordScreenState extends State<ChangePasswordScreen> {
       await api.postData('/api/auth/password/change', body: {'currentPassword': _current.text, 'newPassword': _next.text});
       await logoutServer();
       if (mounted) {
-        showSnack(context, 'رمز عبور تغییر کرد؛ لطفاً با رمز تازه دوباره وارد شوید.');
+        showSuccess(context, 'رمز عبور تغییر کرد؛ لطفاً با رمز تازه دوباره وارد شوید.');
         Navigator.pushAndRemoveUntil(context, MaterialPageRoute(builder: (_) => const LoginScreen()), (_) => false);
       }
     } on ApiException catch (error) {
@@ -489,13 +631,13 @@ class _AboutScreenState extends State<AboutScreen> {
           child: Column(children: [
             Container(
               padding: const EdgeInsets.all(10),
-              decoration: const BoxDecoration(color: Colors.white, shape: BoxShape.circle, boxShadow: [BoxShadow(color: Color(0x1A1452D9), blurRadius: 18, offset: Offset(0, 7))]),
+              decoration: BoxDecoration(color: context.surface, shape: BoxShape.circle, boxShadow: [BoxShadow(color: Color(0x1A1452D9), blurRadius: 18, offset: Offset(0, 7))]),
               child: ClipOval(child: Image.asset('assets/icon.png', width: 64, height: 64)),
             ),
             const SizedBox(height: 12),
-            Text(brand, style: const TextStyle(fontWeight: FontWeight.w800, fontSize: 19, color: PishkanColors.navy)),
+            Text(brand, style: TextStyle(fontWeight: FontWeight.w800, fontSize: 19, color: context.ink)),
             const SizedBox(height: 4),
-            Text(tagline, style: const TextStyle(color: PishkanColors.mutedText, fontSize: 12.5)),
+            Text(tagline, style: TextStyle(color: context.inkMuted, fontSize: 12.5)),
           ]),
         ),
         const SizedBox(height: 20),
@@ -511,22 +653,57 @@ class _AboutScreenState extends State<AboutScreen> {
           child: Column(children: [
             if (phone.isNotEmpty)
               ListTile(
-                leading: const Icon(Icons.call_rounded, color: PishkanColors.primary),
+                leading: Icon(Icons.call_rounded, color: PishkanColors.primary),
                 title: const Text('تلفن تماس دفتر', style: TextStyle(fontWeight: FontWeight.w700, fontSize: 13.5)),
-                subtitle: Text(faMobileSpaced(phone), style: const TextStyle(fontSize: 12, color: PishkanColors.mutedText)),
-                trailing: const Icon(Icons.chevron_left_rounded, color: PishkanColors.mutedText),
+                subtitle: Text(faMobileSpaced(phone), style: TextStyle(fontSize: 12, color: context.inkMuted)),
+                trailing: Icon(Icons.chevron_left_rounded, color: context.inkMuted),
                 onTap: () => _call(phone),
               ),
             ListTile(
-              leading: const Icon(Icons.language_rounded, color: PishkanColors.primary),
+              leading: Icon(Icons.language_rounded, color: PishkanColors.primary),
               title: const Text('نشانی سامانه', style: TextStyle(fontWeight: FontWeight.w700, fontSize: 13.5)),
-              subtitle: Text(session.serverUrl, textDirection: TextDirection.ltr, textAlign: TextAlign.right, style: const TextStyle(fontSize: 11.5, color: PishkanColors.mutedText), maxLines: 1, overflow: TextOverflow.ellipsis),
+              subtitle: Text(session.serverUrl, textDirection: TextDirection.ltr, textAlign: TextAlign.right, style: TextStyle(fontSize: 11.5, color: context.inkMuted), maxLines: 1, overflow: TextOverflow.ellipsis),
             ),
           ]),
         ),
         const SizedBox(height: 18),
-        Center(child: Text('اپلیکیشن مشتریان $brand · نسخهٔ ${faDigits(_version)}', style: const TextStyle(fontSize: 11, color: PishkanColors.mutedText))),
+        Center(child: Text('اپلیکیشن مشتریان $brand · نسخهٔ ${faDigits(_version)}', style: TextStyle(fontSize: 11, color: context.inkMuted))),
       ]),
     );
   }
+}
+
+/// Three-way appearance sheet: auto (follows the phone), light, dark.
+///
+/// Applied immediately — the sheet itself sits inside the rebuilt MaterialApp,
+/// so the customer sees the result before dismissing it.
+Future<void> showThemePicker(BuildContext context) async {
+  final chosen = await showModalBottomSheet<AppThemeMode>(
+    context: context,
+    showDragHandle: true,
+    builder: (ctx) => SafeArea(
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(16, 0, 16, 14),
+        child: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+          const Padding(
+            padding: EdgeInsets.only(bottom: 6),
+            child: Text('ظاهر برنامه', style: TextStyle(fontWeight: FontWeight.w800, fontSize: 15)),
+          ),
+          Text('«هماهنگ با گوشی» با روشن/تاریک شدن خودکار سیستم عوض می‌شود.',
+              style: TextStyle(fontSize: 11.5, color: context.inkMuted, height: 1.7)),
+          const SizedBox(height: 10),
+          for (final mode in AppThemeMode.values)
+            RadioListTile<AppThemeMode>(
+              value: mode,
+              groupValue: ThemeController.instance.mode,
+              contentPadding: EdgeInsets.zero,
+              secondary: Icon(mode.icon),
+              title: Text(mode.label, style: const TextStyle(fontWeight: FontWeight.w600)),
+              onChanged: (value) => Navigator.pop(ctx, value),
+            ),
+        ]),
+      ),
+    ),
+  );
+  if (chosen != null) await ThemeController.instance.set(chosen);
 }

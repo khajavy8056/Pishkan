@@ -3,6 +3,7 @@ import 'package:flutter/services.dart';
 
 import '../core/api.dart';
 import '../core/format.dart';
+import '../core/theme.dart';
 import '../models/models.dart';
 import '../services/services.dart';
 import 'widgets.dart';
@@ -128,7 +129,7 @@ class DynamicFormState extends State<DynamicForm> {
       if (_error != null)
         Container(
           padding: const EdgeInsets.all(12),
-          decoration: BoxDecoration(color: const Color(0xFFFEE2E2), borderRadius: BorderRadius.circular(14)),
+          decoration: BoxDecoration(color: context.negative.withOpacity(context.isDark ? 0.16 : 0.09), borderRadius: BorderRadius.circular(14)),
           child: Text(_error!, style: const TextStyle(color: Color(0xFF991B1B), fontSize: 12.5)),
         ),
     ]);

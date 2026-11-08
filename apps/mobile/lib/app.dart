@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
 
 import 'core/theme.dart';
+import 'core/theme_mode.dart';
 import 'core/referral.dart';
 import 'screens/splash.dart';
 
@@ -54,11 +55,15 @@ class _PishkanAppState extends State<PishkanApp> {
             ),
           ),
         );
-    return MaterialApp(
+    return ListenableBuilder(
+      listenable: ThemeController.instance,
+      builder: (context, _) => MaterialApp(
       title: 'پیشخوان',
       debugShowCheckedModeBanner: false,
       navigatorKey: appNavigatorKey,
       theme: buildPishkanTheme(),
+      darkTheme: buildPishkanDarkTheme(),
+      themeMode: ThemeController.instance.material,
       locale: const Locale('fa', 'IR'),
       supportedLocales: const [Locale('fa', 'IR')],
       localizationsDelegates: const [
@@ -67,6 +72,7 @@ class _PishkanAppState extends State<PishkanApp> {
         GlobalCupertinoLocalizations.delegate,
       ],
       home: const SplashScreen(),
+      ),
     );
   }
 }

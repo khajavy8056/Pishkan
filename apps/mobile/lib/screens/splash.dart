@@ -159,7 +159,7 @@ class _SplashScreenState extends State<SplashScreen> {
           child: Image.asset(
             'assets/splash-office.jpg',
             fit: BoxFit.cover,
-            errorBuilder: (_, _, _) => Container(decoration: const BoxDecoration(gradient: PishkanColors.brandGradient)),
+            errorBuilder: (_, _, _) => Container(decoration: BoxDecoration(gradient: PishkanColors.brandGradient)),
           ),
         ),
         Positioned.fill(
@@ -183,7 +183,7 @@ class _SplashScreenState extends State<SplashScreen> {
               child: ClipOval(child: Image.asset('assets/icon.png', width: 72, height: 72)),
             ),
             const SizedBox(height: 16),
-            Text(_brand, style: const TextStyle(color: PishkanColors.navy, fontSize: 27, fontWeight: FontWeight.w800, shadows: [Shadow(color: Colors.white70, blurRadius: 12)])),
+            Text(_brand, style: TextStyle(color: context.ink, fontSize: 27, fontWeight: FontWeight.w800, shadows: [Shadow(color: Colors.white70, blurRadius: 12)])),
             const SizedBox(height: 5),
             Text(_tagline, style: const TextStyle(color: Color(0xFF274B73), fontSize: 13.5, fontWeight: FontWeight.w600)),
             const Spacer(),

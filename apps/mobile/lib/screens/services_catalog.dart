@@ -78,11 +78,11 @@ class _ServicesCatalogTabState extends State<ServicesCatalogTab> {
             onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const ServiceSearchScreen())),
             child: Container(
               padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 13),
-              decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(999), boxShadow: const [BoxShadow(color: Color(0x120B1F3A), blurRadius: 12, offset: Offset(0, 4))]),
-              child: const Row(children: [
-                Icon(Icons.search_rounded, color: PishkanColors.mutedText),
+              decoration: BoxDecoration(color: context.surface, borderRadius: BorderRadius.circular(999), boxShadow: const [BoxShadow(color: Color(0x120B1F3A), blurRadius: 12, offset: Offset(0, 4))]),
+              child:  Row(children: [
+                Icon(Icons.search_rounded, color: context.inkMuted),
                 SizedBox(width: 8),
-                Text('جستجوی خدمت…', style: TextStyle(color: PishkanColors.mutedText, fontSize: 13)),
+                Text('جستجوی خدمت…', style: TextStyle(color: context.inkMuted, fontSize: 13)),
               ]),
             ),
           ),
@@ -149,7 +149,7 @@ class _ServicesCatalogTabState extends State<ServicesCatalogTab> {
               Container(
                 padding: const EdgeInsets.all(9),
                 decoration: BoxDecoration(
-                  color: Colors.white,
+                  color: context.surface,
                   shape: BoxShape.circle,
                   boxShadow: const [BoxShadow(color: Color(0x100B1F3A), blurRadius: 12, offset: Offset(0, 5))],
                   border: Border.all(color: artworkForService(service).color.withOpacity(0.14)),
@@ -158,10 +158,10 @@ class _ServicesCatalogTabState extends State<ServicesCatalogTab> {
               ),
               const SizedBox(height: 7),
               Flexible(
-                child: Text(service.title, maxLines: 2, overflow: TextOverflow.ellipsis, textAlign: TextAlign.center, style: const TextStyle(fontSize: 11, fontWeight: FontWeight.w700, color: PishkanColors.navy, height: 1.45)),
+                child: Text(service.title, maxLines: 2, overflow: TextOverflow.ellipsis, textAlign: TextAlign.center, style: TextStyle(fontSize: 11, fontWeight: FontWeight.w700, color: context.ink, height: 1.45)),
               ),
               if (service.computedTotal > 0)
-                Text(faMoney(service.computedTotal), style: const TextStyle(fontSize: 10, color: PishkanColors.mutedText)),
+                Text(faMoney(service.computedTotal), style: TextStyle(fontSize: 10, color: context.inkMuted)),
             ]),
           ),
       ],
@@ -243,13 +243,13 @@ class _ServiceSearchScreenState extends State<ServiceSearchScreen> {
                                 const SizedBox(width: 12),
                                 Expanded(
                                   child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                                    Text(service.title, style: const TextStyle(fontWeight: FontWeight.w800, fontSize: 13.5, color: PishkanColors.navy)),
-                                    if (service.categoryTitle.isNotEmpty) Text(service.categoryTitle, style: const TextStyle(fontSize: 11, color: PishkanColors.mutedText)),
+                                    Text(service.title, style: TextStyle(fontWeight: FontWeight.w800, fontSize: 13.5, color: context.ink)),
+                                    if (service.categoryTitle.isNotEmpty) Text(service.categoryTitle, style: TextStyle(fontSize: 11, color: context.inkMuted)),
                                   ]),
                                 ),
-                                if (service.computedTotal > 0) Text(faMoney(service.computedTotal), style: const TextStyle(fontSize: 11, fontWeight: FontWeight.w700, color: PishkanColors.primary)),
+                                if (service.computedTotal > 0) Text(faMoney(service.computedTotal), style: TextStyle(fontSize: 11, fontWeight: FontWeight.w700, color: PishkanColors.primary)),
                                 const SizedBox(width: 4),
-                                const Icon(Icons.chevron_left_rounded, color: PishkanColors.mutedText),
+                                Icon(Icons.chevron_left_rounded, color: context.inkMuted),
                               ]),
                             ),
                           ),

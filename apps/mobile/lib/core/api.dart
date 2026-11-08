@@ -1,4 +1,5 @@
 import 'dart:io';
+import 'dart:typed_data';
 
 import 'package:dio/dio.dart';
 import 'package:flutter/foundation.dart';
@@ -29,6 +30,7 @@ class ApiClient {
   Dio get _client {
     final base = SessionStore.instance.serverUrl;
     if (_dio == null || _dioBase != base) {
+      _dio?.close(force: true);
       _dioBase = base;
       _dio = Dio(BaseOptions(
         baseUrl: base,
@@ -47,6 +49,17 @@ class ApiClient {
       }));
     }
     return _dio!;
+  }
+
+  /// The cached client is bound to one base URL. A draft saved to secure
+  /// storage while this instance was still using another server would otherwise
+  /// be sent to the *old* address (the client is only rebuilt when a public
+  /// request reads `_client` after the switch, and downloads/streams can slip
+  /// in before that).
+  void forgetServer() {
+    _dio?.close(force: true);
+    _dio = null;
+    _dioBase = '';
   }
 
   Map<String, String> authHeaders(String url) {
@@ -91,6 +104,13 @@ class ApiClient {
     await _send(() => _client.delete(path));
   }
 
+  /// DELETE that keeps the payload: several endpoints answer with the new
+  /// state (clearing an avatar returns the avatar it fell back to).
+  Future<dynamic> deletePayload(String path) async {
+    final response = await _send(() => _client.delete(path));
+    return response['data'];
+  }
+
   /// Upload one file to the central secure file store. Returns the file id.
   Future<Map<String, dynamic>> uploadFile(File file, {String purpose = 'document', bool documentQuality = false}) async {
     final name = file.path.split(Platform.pathSeparator).last;
@@ -98,6 +118,19 @@ class ApiClient {
       'file': await MultipartFile.fromFile(file.path, filename: name),
     });
     final response = await _send(() => _client.post('/api/files/upload', data: form, queryParameters: {'purpose': purpose, if (documentQuality) 'documentQuality': 'true'}));
+    final data = response['data'];
+    if (data is Map) return Map<String, dynamic>.from(data);
+    throw ApiException('پاسخ نامعتبر هنگام بارگذاری فایل');
+  }
+
+  /// Upload bytes the app already has in memory (a cropped avatar, a picked
+  /// gallery image) without writing a cache file first.
+  Future<Map<String, dynamic>> uploadBytes(Uint8List bytes, String filename, {String purpose = 'document'}) async {
+    final form = FormData.fromMap({
+      'file': MultipartFile.fromBytes(bytes, filename: filename),
+    });
+    final response = await _send(() => _client.post('/api/files/upload',
+        data: form, queryParameters: {'purpose': purpose}));
     final data = response['data'];
     if (data is Map) return Map<String, dynamic>.from(data);
     throw ApiException('پاسخ نامعتبر هنگام بارگذاری فایل');

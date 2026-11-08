@@ -15,16 +15,35 @@ import '../models/models.dart';
 import '../screens/document_camera.dart';
 import '../services/services.dart';
 
+/// Short, soft feedback for meaningful interactions (saved, failed, tapped).
+///
+/// Kinds: `success`, `error`, `tap`. Honours the profile switch; the platform
+/// side simply no-ops if the clip is missing, so this never blocks the UI.
 Future<void> playAppSound(String kind) async {
-  if (!await AppPrefs.soundsEnabled()) return;
-  try { await const MethodChannel('ir.pishkan.app/sounds').invokeMethod<void>('play', {'kind': kind}); } catch (_) { /* optional platform feedback */ }
+  try {
+    if (!await AppPrefs.soundsEnabled()) return;
+    await const MethodChannel('ir.pishkan.app/sounds').invokeMethod<void>('play', {'kind': kind});
+  } catch (_) {
+    // Feedback is optional; a missing channel must never surface to the user.
+  }
+}
+
+/// A confirmation the customer can hear as well as read.
+void showSuccess(BuildContext context, String message) {
+  unawaited(playAppSound('success'));
+  ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+    content: Text(message, style: TextStyle(fontFamily: 'Vazirmatn')),
+    backgroundColor: context.positive,
+    behavior: SnackBarBehavior.floating,
+    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+  ));
 }
 
 void showSnack(BuildContext context, String message, {bool error = false}) {
   if (error) unawaited(playAppSound('error'));
   ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-    content: Text(message, style: const TextStyle(fontFamily: 'Vazirmatn')),
-    backgroundColor: error ? PishkanColors.danger : PishkanColors.navy,
+    content: Text(message, style: TextStyle(fontFamily: 'Vazirmatn')),
+    backgroundColor: error ? context.negative : (context.isDark ? PishkanColors.darkSurfaceHigh : PishkanColors.navy),
     behavior: SnackBarBehavior.floating,
     shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
   ));
@@ -142,13 +161,20 @@ class SoftCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final dark = context.isDark;
     final card = Container(
       padding: padding,
       decoration: BoxDecoration(
-        color: Colors.white,
+        color: context.surface,
         borderRadius: BorderRadius.circular(22),
-        border: Border.all(color: const Color(0xFFEAF0F8)),
-        boxShadow: const [BoxShadow(color: Color(0x0E0B1F3A), blurRadius: 16, offset: Offset(0, 6))],
+        border: Border.all(color: dark ? PishkanColors.darkBorder : const Color(0xFFEAF0F8)),
+        boxShadow: [
+          BoxShadow(
+            color: dark ? const Color(0x59000000) : const Color(0x0E0B1F3A),
+            blurRadius: 16,
+            offset: const Offset(0, 6),
+          ),
+        ],
       ),
       child: child,
     );
@@ -276,16 +302,32 @@ class IconMedallion extends StatelessWidget {
     if (artwork?.imageUrl.isNotEmpty == true) {
       return ClipRRect(borderRadius: radius, child: AuthImage(url: artwork!.imageUrl, width: size, height: size));
     }
+    // A bundled 3D illustration is the service's identity; the glyph is only
+    // for services created after this build, which have no asset yet.
+    if (artwork?.hasBundledArt == true) {
+      return ClipRRect(
+        borderRadius: radius,
+        child: Image.asset(
+          artwork!.assetPath,
+          width: size,
+          height: size,
+          fit: BoxFit.cover,
+          // A tiny cache footprint: these are ≤160 px and read straight from
+          // the APK, so no network, no decoding stall on scroll.
+          filterQuality: FilterQuality.medium,
+          errorBuilder: (_, _, _) => Container(
+            width: size, height: size, color: tint.withOpacity(0.11),
+            child: Icon(artwork.icon, color: tint, size: size * 0.52),
+          ),
+        ),
+      );
+    }
     return ClipRRect(
       borderRadius: radius,
       child: Container(
         width: size, height: size,
         decoration: BoxDecoration(color: tint.withOpacity(0.11)),
-        child: Stack(fit: StackFit.expand, children: [
-          if (artwork?.assetPath.isNotEmpty == true)
-            Opacity(opacity: 0.25, child: Image.asset(artwork!.assetPath, fit: BoxFit.cover)),
-          Center(child: Icon(artwork?.icon ?? Icons.grid_view_rounded, color: tint, size: size * 0.52)),
-        ]),
+        child: Center(child: Icon(artwork?.icon ?? Icons.grid_view_rounded, color: tint, size: size * 0.52)),
       ),
     );
   }
@@ -302,22 +344,22 @@ class AuthImage extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    if (url.isEmpty) return _placeholder();
+    if (url.isEmpty) return _placeholder(context);
     return CachedNetworkImage(
       imageUrl: api.absolute(url),
       httpHeaders: api.authHeaders(url),
       fit: fit,
       width: width,
       height: height,
-      placeholder: (_, _) => _placeholder(loading: true),
-      errorWidget: (_, _, _) => _placeholder(),
+      placeholder: (_, _) => _placeholder(context, loading: true),
+      errorWidget: (_, _, _) => _placeholder(context),
     );
   }
 
-  Widget _placeholder({bool loading = false}) => Container(
+  Widget _placeholder(BuildContext context, {bool loading = false}) => Container(
         width: width,
         height: height,
-        color: const Color(0xFFEEF2F8),
+        color: context.isDark ? PishkanColors.darkSurfaceHigh : const Color(0xFFEEF2F8),
         alignment: Alignment.center,
         child: loading ? const SizedBox(width: 22, height: 22, child: CircularProgressIndicator(strokeWidth: 2)) : const Icon(Icons.image_not_supported_outlined, color: PishkanColors.mutedText),
       );
@@ -384,7 +426,7 @@ class SectionTitle extends StatelessWidget {
     return Padding(
       padding: const EdgeInsets.fromLTRB(4, 18, 4, 10),
       child: Row(children: [
-        Expanded(child: Text(title, style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w800, color: PishkanColors.navy))),
+        Expanded(child: Text(title, style: TextStyle(fontSize: 16, fontWeight: FontWeight.w800, color: context.ink))),
         if (trailing != null) trailing!,
       ]),
     );

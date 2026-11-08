@@ -29,7 +29,20 @@ class ReferralStore {
     await prefs.setString('referral.origin', origin);
     await prefs.setInt('referral.time', DateTime.now().millisecondsSinceEpoch);
   }
-  static bool matchesServer(String value) => value != code.value || origin.isEmpty || sameServerOrigin(SessionStore.instance.serverUrl, origin);
+  /// A referral code is only safe to *send* to the server that handed it out.
+  ///
+  /// When a code was captured from a deep link, `origin` records the office that
+  /// issued it, so a link from another office must be rejected. When no origin
+  /// is known (a link opened while the app had no configured server, or a code
+  /// typed by the customer) the code itself carries no server binding and must
+  /// still be allowed through — otherwise a fresh install could never use an
+  /// invitation.
+  static bool matchesServer(String value) {
+    if (value.isEmpty) return false;
+    if (value != code.value) return true; // not the stored referral: nothing to bind
+    if (origin.isEmpty) return true;      // no origin recorded: no binding to enforce
+    return sameServerOrigin(SessionStore.instance.serverUrl, origin);
+  }
   static Future<void> clear() async {
     origin = '';
     code.value = '';

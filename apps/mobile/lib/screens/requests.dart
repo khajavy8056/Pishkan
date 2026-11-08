@@ -124,7 +124,7 @@ class _RequestsTabState extends State<RequestsTab> {
                 Padding(
                   padding: const EdgeInsetsDirectional.only(end: 8),
                   child: ChoiceChip(
-                    label: Text(label, style: const TextStyle(color: PishkanColors.navy, fontWeight: FontWeight.w600)),
+                    label: Text(label, style: TextStyle(color: context.ink, fontWeight: FontWeight.w600)),
                     selected: _bucket == value,
                     onSelected: (_) {
                       setState(() { _bucket = value; _items = const []; _total = 0; _loadingMore = false; });
@@ -166,18 +166,18 @@ class _RequestsTabState extends State<RequestsTab> {
       },
       child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
         Row(children: [
-          Expanded(child: Text(request.serviceTitle, style: const TextStyle(fontWeight: FontWeight.w800, fontSize: 14.5, color: PishkanColors.navy))),
+          Expanded(child: Text(request.serviceTitle, style: TextStyle(fontWeight: FontWeight.w800, fontSize: 14.5, color: context.ink))),
           StatusChip(label: request.statusLabel, status: request.needsAction ? 'waiting_customer' : request.status),
         ]),
         const SizedBox(height: 8),
         Row(children: [
-          const Icon(Icons.tag_outlined, size: 15, color: PishkanColors.mutedText),
+          Icon(Icons.tag_outlined, size: 15, color: context.inkMuted),
           const SizedBox(width: 4),
-          Text('کد پیگیری ${faDigits(request.trackingCode)}', style: const TextStyle(fontSize: 11.5, color: PishkanColors.mutedText)),
+          Text('کد پیگیری ${faDigits(request.trackingCode)}', style: TextStyle(fontSize: 11.5, color: context.inkMuted)),
           const SizedBox(width: 12),
-          const Icon(Icons.calendar_month_outlined, size: 15, color: PishkanColors.mutedText),
+          Icon(Icons.calendar_month_outlined, size: 15, color: context.inkMuted),
           const SizedBox(width: 4),
-          Text(faDate(request.createdAt), style: const TextStyle(fontSize: 11.5, color: PishkanColors.mutedText)),
+          Text(faDate(request.createdAt), style: TextStyle(fontSize: 11.5, color: context.inkMuted)),
           const Spacer(),
           Text(faMoney(request.total), style: const TextStyle(fontWeight: FontWeight.w800, fontSize: 12.5, color: PishkanColors.primary)),
         ]),
@@ -187,7 +187,7 @@ class _RequestsTabState extends State<RequestsTab> {
           const SizedBox(height: 10),
           Container(
             padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 7),
-            decoration: BoxDecoration(color: const Color(0xFFFFF7E6), borderRadius: BorderRadius.circular(10)),
+            decoration: BoxDecoration(color: context.caution.withOpacity(context.isDark ? 0.14 : 0.10), borderRadius: BorderRadius.circular(10)),
             child: Row(children: [
               const Icon(Icons.priority_high_rounded, size: 16, color: PishkanColors.warning),
               const SizedBox(width: 6),

@@ -77,26 +77,26 @@ class _StoriesArchiveScreenState extends State<StoriesArchiveScreen> {
           borderRadius: BorderRadius.circular(16),
           child: cover.isNotEmpty
               ? SizedBox(width: 96, height: 80, child: AuthImage(url: cover))
-              : Container(width: 96, height: 80, decoration: const BoxDecoration(gradient: PishkanColors.brandGradient), child: const Icon(Icons.campaign_rounded, color: Colors.white, size: 32)),
+              : Container(width: 96, height: 80, decoration: BoxDecoration(gradient: PishkanColors.brandGradient), child: Icon(Icons.campaign_rounded, color: Colors.white, size: 32)),
         ),
         const SizedBox(width: 12),
         Expanded(
           child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-            Text(group.title, style: const TextStyle(fontWeight: FontWeight.w800, fontSize: 14, color: PishkanColors.navy)),
+            Text(group.title, style: TextStyle(fontWeight: FontWeight.w800, fontSize: 14, color: context.ink)),
             if (first != null && first.title.isNotEmpty)
-              Text(first.title, maxLines: 1, overflow: TextOverflow.ellipsis, style: const TextStyle(fontSize: 12, color: PishkanColors.mutedText)),
+              Text(first.title, maxLines: 1, overflow: TextOverflow.ellipsis, style: TextStyle(fontSize: 12, color: context.inkMuted)),
             if (first != null && first.caption.isNotEmpty)
-              Text(first.caption, maxLines: 2, overflow: TextOverflow.ellipsis, style: const TextStyle(fontSize: 11.5, color: PishkanColors.mutedText, height: 1.7)),
+              Text(first.caption, maxLines: 2, overflow: TextOverflow.ellipsis, style: TextStyle(fontSize: 11.5, color: context.inkMuted, height: 1.7)),
             const SizedBox(height: 4),
             Row(children: [
-              const Icon(Icons.auto_stories_rounded, size: 14, color: PishkanColors.mutedText),
+              Icon(Icons.auto_stories_rounded, size: 14, color: context.inkMuted),
               const SizedBox(width: 4),
-              Text('${faDigits(group.items.length)} استوری', style: const TextStyle(fontSize: 11, color: PishkanColors.mutedText)),
+              Text('${faDigits(group.items.length)} استوری', style: TextStyle(fontSize: 11, color: context.inkMuted)),
               if (first != null && first.createdAt.isNotEmpty) ...[
                 const SizedBox(width: 10),
-                const Icon(Icons.calendar_month_outlined, size: 14, color: PishkanColors.mutedText),
+                Icon(Icons.calendar_month_outlined, size: 14, color: context.inkMuted),
                 const SizedBox(width: 4),
-                Text(faDateNumeric(first.createdAt), style: const TextStyle(fontSize: 11, color: PishkanColors.mutedText)),
+                Text(faDateNumeric(first.createdAt), style: TextStyle(fontSize: 11, color: context.inkMuted)),
               ],
               const Spacer(),
               const Icon(Icons.chevron_left_rounded, color: PishkanColors.primary),

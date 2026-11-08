@@ -4,6 +4,7 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
+import 'api.dart';
 import 'env.dart';
 
 /// Session token and cached user details live in Android's encrypted storage;
@@ -77,6 +78,9 @@ class SessionStore extends ChangeNotifier {
   Future<void> setServerUrl(String url) async {
     _generation++;
     _serverUrl = normalizeBaseUrl(url);
+    // The HTTP client remembers the base URL it was built for; drop it so no
+    // in-flight or cached request can still go to the previous server.
+    ApiClient.instance.forgetServer();
     final prefs = await SharedPreferences.getInstance();
     await prefs.setString(_serverKey, _serverUrl);
     notifyListeners();

@@ -1,16 +1,35 @@
 import 'package:flutter/material.dart';
 
 import '../models/models.dart';
+import 'bundled_art.dart';
 
-/// Native vector pictogram and an optional bundled editorial photograph.
-/// Server-supplied image icons remain authoritative; Unicode emoji from older
-/// catalogs are deliberately not rendered as keyboard glyphs.
+/// Native vector pictogram and an optional bundled editorial illustration.
+///
+/// Three tiers, most specific first:
+///   1. an image the office uploaded or the service itself points at
+///      (`imageUrl`), which always wins because a human chose it;
+///   2. the generated illustration bundled with the app (`assetPath`), which
+///      exists for every seeded service and category;
+///   3. a vector glyph + tint, used for services created from the admin panel
+///      after this build (they have no asset yet) so nothing is ever blank.
+///
+/// The glyph and tint are also the identity used by the generator in
+/// `tools/service-art/build.mjs`, so an admin-created service and its eventual
+/// asset look like the same object.
 class ServiceArtwork {
-  const ServiceArtwork(this.icon, this.color, {this.imageUrl = '', this.assetPath = ''});
+  const ServiceArtwork(this.icon, this.color, {this.imageUrl = '', this.assetPath = '', this.largeAssetPath = ''});
   final IconData icon;
   final Color color;
   final String imageUrl;
   final String assetPath;
+  final String largeAssetPath;
+
+  bool get hasBundledArt => assetPath.isNotEmpty;
+
+  /// True when the picture is the per-entry illustration rather than a shared
+  /// category photo. Used to decide whether a service created after this
+  /// build needs the server's unique artwork instead of a sibling's picture.
+  bool get isPerServiceArt => largeAssetPath.isNotEmpty;
 }
 
 const _categoryPhotos = <String, String>{
@@ -55,10 +74,30 @@ const _rules = <(List<String>, IconData, Color)>[
   (['بازنشستگی', 'مستمری', 'pension'], Icons.elderly_rounded, Color(0xFF0E7490)),
 ];
 
+/// Category base colours, mirrored from the backend catalogue so a service
+/// created while offline still lands on the right hue family.
+const categoryBaseColors = <String, Color>{
+  'insurance-health': Color(0xFF1D4ED8),
+  'companies-institutions': Color(0xFF0B1F3A),
+  'subsidy-welfare': Color(0xFF0E7490),
+  'vehicle-services': Color(0xFFB45309),
+  'tax-services': Color(0xFF7C3AED),
+  'judicial-services': Color(0xFF334155),
+  'exams-employment': Color(0xFF0369A1),
+  'housing-land': Color(0xFF15803D),
+  'banking-services': Color(0xFF1E40AF),
+  'police-services': Color(0xFF0F766E),
+  'university-students': Color(0xFFA21CAF),
+  'business-licenses': Color(0xFFC2410C),
+  'school-services': Color(0xFFDB2777),
+  'consulting': Color(0xFF4D7C0F),
+  'other-services': Color(0xFF475569),
+};
+
 ServiceArtwork artworkFor({String explicitIcon = '', String title = '', String slug = '', String categoryTitle = '', String categorySlug = ''}) {
   final haystack = '$title $slug $categoryTitle $categorySlug'.toLowerCase();
   IconData icon = Icons.description_rounded;
-  Color color = const Color(0xFF2563EB);
+  Color color = categoryBaseColors[categorySlug] ?? categoryBaseColors[categoryTitle] ?? const Color(0xFF2563EB);
   for (final (keywords, candidate, tint) in _rules) {
     if (keywords.any((word) => haystack.contains(word.toLowerCase()))) {
       icon = candidate;
@@ -72,21 +111,53 @@ ServiceArtwork artworkFor({String explicitIcon = '', String title = '', String s
   return ServiceArtwork(icon, color, imageUrl: imageUrl, assetPath: photo == null ? '' : 'assets/service_art/$photo.webp');
 }
 
+/// The server draws a deterministic, per-slug illustration for anything that
+/// was not baked into this release. Two offices (or two services) therefore
+/// never share a picture, and a service created from the admin panel this
+/// morning already has its own art on the phone — no app update needed.
+String fallbackArtworkUrl(String slug, {bool category = false}) {
+  final clean = slug.trim();
+  if (clean.isEmpty) return '';
+  final segment = Uri.encodeComponent(clean);
+  // WebP, not SVG: Flutter's image pipeline decodes bitmaps only.
+  return category ? '/api/catalog/artwork/category/$segment.webp' : '/api/catalog/artwork/$segment.webp';
+}
+
 /// Honour a category's configured icon and colour without trusting malformed hex.
 ServiceArtwork artworkForCategory(ServiceCategory category) {
   final base = artworkFor(explicitIcon: category.icon, title: category.title, slug: category.slug);
   final hex = category.color.trim().replaceFirst('#', '');
   final parsed = RegExp(r'^[0-9a-fA-F]{6}$').hasMatch(hex) ? int.tryParse(hex, radix: 16) : null;
-  return ServiceArtwork(base.icon, parsed == null ? base.color : Color(0xFF000000 | parsed), imageUrl: base.imageUrl, assetPath: base.assetPath);
+  return ServiceArtwork(
+    base.icon,
+    parsed == null ? base.color : Color(0xFF000000 | parsed),
+    imageUrl: base.imageUrl,
+    assetPath: 'assets/category_art/${category.slug}.webp',
+  );
 }
 
-ServiceArtwork artworkForService(CatalogService service) => artworkFor(
-  explicitIcon: service.icon,
-  title: service.title,
-  slug: service.slug,
-  categoryTitle: service.categoryTitle,
-  categorySlug: service.categorySlug,
-);
+ServiceArtwork artworkForService(CatalogService service) {
+  final base = artworkFor(
+    explicitIcon: service.icon,
+    title: service.title,
+    slug: service.slug,
+    categoryTitle: service.categoryTitle,
+    categorySlug: service.categorySlug,
+  );
+  if (base.imageUrl.isNotEmpty) return base;
+  if (!bundledServiceArt.contains(service.slug)) {
+    // Unknown to this build (created from the admin panel after the release):
+    // ask the server for the slug's own picture instead of borrowing the
+    // category photo, which would put two services on the same image.
+    return ServiceArtwork(base.icon, base.color, imageUrl: fallbackArtworkUrl(service.slug));
+  }
+  return ServiceArtwork(
+    base.icon, base.color,
+    imageUrl: base.imageUrl,
+    assetPath: 'assets/service_art/${service.slug}.webp',
+    largeAssetPath: 'assets/service_art/large/${service.slug}.webp',
+  );
+}
 
 /// The previous bundled catalogue used these exact generated category PNGs.
 /// User-uploaded or otherwise customised server banners must always win.

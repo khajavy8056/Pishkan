@@ -20,15 +20,44 @@ class ChatThreadsScreen extends StatefulWidget {
   State<ChatThreadsScreen> createState() => _ChatThreadsScreenState();
 }
 
-class _ChatThreadsScreenState extends State<ChatThreadsScreen> {
+class _ChatThreadsScreenState extends State<ChatThreadsScreen> with WidgetsBindingObserver {
   List<Map<String, dynamic>> _threads = const [];
   bool _loading = true;
   String? _error;
+  Timer? _refreshTimer;
 
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
     _load();
+    // A reply that lands while the list is open should show up without a pull.
+    _refreshTimer = Timer.periodic(const Duration(seconds: 20), (_) => _silentRefresh());
+  }
+
+  @override
+  void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    _refreshTimer?.cancel();
+    super.dispose();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed) _silentRefresh();
+  }
+
+  Future<void> _silentRefresh() async {
+    if (!mounted || _loading) return;
+    try {
+      final threads = await fetchChatThreads();
+      if (!mounted) return;
+      final before = _threads.map((thread) => '${thread['id']}:${thread['lastMessageAt']}:${thread['unread']}').join('|');
+      final after = threads.map((thread) => '${thread['id']}:${thread['lastMessageAt']}:${thread['unread']}').join('|');
+      if (before != after) setState(() => _threads = threads);
+    } catch (_) {
+      // Silent: the list keeps its last good state.
+    }
   }
 
   Future<void> _load() async {
@@ -99,13 +128,13 @@ class _ChatThreadsScreenState extends State<ChatThreadsScreen> {
                               const SizedBox(width: 12),
                               Expanded(
                                 child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                                  Text(asStr(thread['subject']).isEmpty ? 'گفتگو با دفتر' : asStr(thread['subject']), style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 13.5), maxLines: 1, overflow: TextOverflow.ellipsis),
+                                  Text(asStr(thread['subject']).isEmpty ? 'گفتگو با دفتر' : asStr(thread['subject']), style: TextStyle(fontWeight: FontWeight.w700, fontSize: 13.5), maxLines: 1, overflow: TextOverflow.ellipsis),
                                   const SizedBox(height: 3),
-                                  Text(asStr(thread['lastMessage']).isEmpty ? 'بدون پیام' : asStr(thread['lastMessage']), style: const TextStyle(fontSize: 11.5, color: PishkanColors.mutedText), maxLines: 1, overflow: TextOverflow.ellipsis),
+                                  Text(asStr(thread['lastMessage']).isEmpty ? 'بدون پیام' : asStr(thread['lastMessage']), style: TextStyle(fontSize: 11.5, color: context.inkMuted), maxLines: 1, overflow: TextOverflow.ellipsis),
                                 ]),
                               ),
                               Column(crossAxisAlignment: CrossAxisAlignment.end, children: [
-                                Text(faDate(thread['lastMessageAt']), style: const TextStyle(fontSize: 10.5, color: PishkanColors.mutedText)),
+                                Text(faDate(thread['lastMessageAt']), style: TextStyle(fontSize: 10.5, color: context.inkMuted)),
                                 if (unread > 0) ...[
                                   const SizedBox(height: 5),
                                   Container(
@@ -178,7 +207,7 @@ class ChatScreen extends StatefulWidget {
   State<ChatScreen> createState() => _ChatScreenState();
 }
 
-class _ChatScreenState extends State<ChatScreen> {
+class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
   final _input = TextEditingController();
   final _scroll = ScrollController();
   List<Map<String, dynamic>> _messages = const [];
@@ -186,57 +215,110 @@ class _ChatScreenState extends State<ChatScreen> {
   bool _sending = false;
   String? _error;
   Timer? _pollTimer;
+  /// Last message timestamp we already hold; the sync call only asks after it.
+  String _cursor = '';
+  /// Other side's last read time — turns our ticks into double ticks.
+  String _counterpartReadAt = '';
+  bool _typing = false;
+  bool _online = true;
+  Timer? _typingDebounce;
 
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
     _load();
-    // Replies land here while the conversation is open (the office also
-    // raises a notification, but the visible chat should update itself).
-    _pollTimer = Timer.periodic(const Duration(seconds: 15), (_) => _poll());
+    // The office raises a notification too, but a conversation that is open
+    // must update itself — the customer should never have to pull to refresh.
+    _pollTimer = Timer.periodic(const Duration(seconds: 4), (_) => _poll());
   }
 
   @override
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    if (_typing) setTyping(widget.threadId, false).ignore();
+    _typingDebounce?.cancel();
     _pollTimer?.cancel();
     _input.dispose();
     _scroll.dispose();
     super.dispose();
   }
 
-  Future<void> _poll() async {
-    if (!mounted || _sending) return;
-    try {
-      final data = await fetchThread(widget.threadId);
-      if (!mounted) return;
-      final fresh = asMapList(data['messages']);
-      if (fresh.length != _messages.length) {
-        setState(() => _messages = fresh);
-        _jumpToEnd();
-      }
-    } catch (_) {
-      // Polling is silent; the visible list stays as-is on network hiccups.
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed) {
+      _load(silent: true);
     }
   }
 
-  Future<void> _load() async {
+  /// Incremental refresh — only what arrived after our newest message.
+  Future<void> _poll() async {
+    if (!mounted || _sending || _loading) return;
+    if (_cursor.isEmpty) {
+      await _load(silent: true);
+      return;
+    }
+    try {
+      final data = await syncThread(widget.threadId, after: _cursor);
+      if (!mounted) return;
+      final fresh = asMapList(data['messages']);
+      final readAt = asStr(data['counterpartReadAt']);
+      final typing = asBool(data['typing']);
+      if (fresh.isEmpty && readAt == _counterpartReadAt && typing == _typing && _online) return;
+      setState(() {
+        _online = true;
+        _typing = typing;
+        if (readAt.isNotEmpty) _counterpartReadAt = readAt;
+        if (fresh.isNotEmpty) {
+          final known = _messages.map((message) => asStr(message['id'])).toSet();
+          final added = fresh.where((message) => !known.contains(asStr(message['id']))).toList();
+          if (added.isNotEmpty) {
+            _messages = [..._messages, ...added];
+            _cursor = asStr(added.last['createdAt']);
+          }
+        }
+      });
+      if (fresh.isNotEmpty) _jumpToEnd();
+    } catch (_) {
+      // Silent: a dropped poll must not disturb a conversation in progress.
+      if (mounted && _online) setState(() => _online = false);
+    }
+  }
+
+  Future<void> _load({bool silent = false}) async {
     try {
       final data = await fetchThread(widget.threadId);
       if (!mounted) return;
+      final messages = asMapList(data['messages']);
       setState(() {
-        _messages = asMapList(data['messages']);
+        _messages = messages;
+        _cursor = messages.isEmpty ? '' : asStr(messages.last['createdAt']);
         _loading = false;
         _error = null;
+        _online = true;
       });
-      _jumpToEnd();
+      if (!silent) _jumpToEnd();
     } on ApiException catch (error) {
-      if (mounted) {
+      if (mounted && !silent) {
         setState(() {
           _loading = false;
           _error = error.message;
         });
       }
     }
+  }
+
+  /// Announce typing once per burst of keystrokes, then let it expire.
+  void _onComposing(String _) {
+    if (!_typing) {
+      _typing = true;
+      setTyping(widget.threadId, true).ignore();
+    }
+    _typingDebounce?.cancel();
+    _typingDebounce = Timer(const Duration(seconds: 2), () {
+      _typing = false;
+      setTyping(widget.threadId, false).ignore();
+    });
   }
 
   void _jumpToEnd() {
@@ -247,16 +329,57 @@ class _ChatScreenState extends State<ChatScreen> {
 
   Future<void> _send() async {
     final text = _input.text.trim();
-    if (text.isEmpty) return;
-    setState(() => _sending = true);
+    if (text.isEmpty || _sending) return;
+    // Optimistic bubble: the text appears instantly, in the bubble's final
+    // shape with a clock badge, and is swapped for the server copy on success.
+    final localId = 'local-${DateTime.now().microsecondsSinceEpoch}';
+    setState(() {
+      _sending = true;
+      _input.clear();
+      _messages = [
+        ..._messages,
+        {
+          'id': localId,
+          'body': text,
+          'senderRole': 'customer',
+          'createdAt': DateTime.now().toIso8601String(),
+          'pending': true,
+        },
+      ];
+    });
+    _jumpToEnd();
+    _typingDebounce?.cancel();
+    _typing = false;
+    setTyping(widget.threadId, false).ignore();
     try {
       await sendChatMessage(widget.threadId, body: text);
-      _input.clear();
-      await _load();
+      if (!mounted) return;
+      setState(() => _sending = false);
+      // Pull the authoritative copy (id + server timestamp) quietly.
+      await _syncAfterSend(localId);
     } on ApiException catch (error) {
-      if (mounted) showSnack(context, error.message, error: true);
-    } finally {
-      if (mounted) setState(() => _sending = false);
+      if (!mounted) return;
+      setState(() {
+        _sending = false;
+        _messages = _messages.where((message) => asStr(message['id']) != localId).toList();
+      });
+      showSnack(context, error.message, error: true);
+    }
+  }
+
+  /// Replace the optimistic bubble with the stored message.
+  Future<void> _syncAfterSend(String localId) async {
+    try {
+      final data = await syncThread(widget.threadId);
+      if (!mounted) return;
+      final server = asMapList(data['messages']);
+      setState(() {
+        _messages = server;
+        _cursor = server.isEmpty ? '' : asStr(server.last['createdAt']);
+        _online = true;
+      });
+    } catch (_) {
+      // The message is stored even if this read failed; the next poll fixes it.
     }
   }
 
@@ -297,10 +420,17 @@ class _ChatScreenState extends State<ChatScreen> {
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: Text(widget.title, overflow: TextOverflow.ellipsis),
+        title: Column(crossAxisAlignment: CrossAxisAlignment.start, mainAxisSize: MainAxisSize.min, children: [
+          Text(widget.title, overflow: TextOverflow.ellipsis),
+          Text(
+            _typing ? 'در حال نوشتن…' : (_online ? 'گفت‌وگوی زنده با دفتر' : 'تلاش برای اتصال…'),
+            style: TextStyle(fontSize: 11, color: _typing ? PishkanColors.primary : context.inkMuted),
+          ),
+        ]),
         actions: [IconButton(onPressed: _load, icon: const Icon(Icons.refresh_rounded))],
       ),
       body: Column(children: [
+        if (!_online && !_loading && _error == null) _offlineStrip(),
         Expanded(
           child: _loading
               ? const LoadingView()
@@ -311,15 +441,18 @@ class _ChatScreenState extends State<ChatScreen> {
                       : ListView.builder(
                           controller: _scroll,
                           padding: const EdgeInsets.fromLTRB(14, 12, 14, 12),
-                          itemCount: _messages.length,
-                          itemBuilder: (context, index) => _bubble(_messages[index]),
+                          itemCount: _messages.length + (_typing ? 1 : 0),
+                          itemBuilder: (context, index) {
+                            if (index >= _messages.length) return const _TypingIndicator();
+                            return _bubble(_messages[index]);
+                          },
                         ),
         ),
         SafeArea(
           top: false,
           child: Container(
             padding: const EdgeInsets.fromLTRB(10, 8, 10, 10),
-            color: Colors.white,
+            color: context.surface,
             child: Row(children: [
               IconButton(onPressed: _sending ? null : _sendAttachment, icon: const Icon(Icons.attach_file_rounded)),
               Expanded(
@@ -327,6 +460,9 @@ class _ChatScreenState extends State<ChatScreen> {
                   controller: _input,
                   minLines: 1,
                   maxLines: 4,
+                  textInputAction: TextInputAction.send,
+                  onChanged: _onComposing,
+                  onSubmitted: (_) => _send(),
                   decoration: const InputDecoration(hintText: 'پیامتان را بنویسید…'),
                 ),
               ),
@@ -345,6 +481,8 @@ class _ChatScreenState extends State<ChatScreen> {
   Widget _bubble(Map<String, dynamic> message) {
     final mine = asStr(message['senderRole']) == 'customer';
     final file = message['file'] is Map ? asMap(message['file']) : null;
+    final pending = asBool(message['pending']);
+    final readAt = asStr(message['readAt']);
     return Align(
       alignment: mine ? Alignment.centerRight : Alignment.centerLeft,
       child: Container(
@@ -353,22 +491,22 @@ class _ChatScreenState extends State<ChatScreen> {
         padding: const EdgeInsets.fromLTRB(13, 10, 13, 8),
         decoration: BoxDecoration(
           gradient: mine ? PishkanColors.brandGradient : null,
-          color: mine ? null : Colors.white,
+          color: mine ? null : context.surface,
           borderRadius: BorderRadius.only(
             topLeft: const Radius.circular(18),
             topRight: const Radius.circular(18),
             bottomRight: Radius.circular(mine ? 6 : 18),
             bottomLeft: Radius.circular(mine ? 18 : 6),
           ),
-          border: mine ? null : Border.all(color: const Color(0xFFE2E8F0)),
+          border: mine ? null : Border.all(color: context.hairline),
         ),
         child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
           if (!mine && asStr(message['senderName']).isNotEmpty)
             Padding(
               padding: const EdgeInsets.only(bottom: 3),
-              child: Text(asStr(message['senderName']), style: const TextStyle(fontSize: 10.5, fontWeight: FontWeight.w700, color: PishkanColors.primary)),
+              child: Text(asStr(message['senderName']), style: TextStyle(fontSize: 10.5, fontWeight: FontWeight.w700, color: PishkanColors.primary)),
             ),
-          Text(asStr(message['body']), style: TextStyle(fontSize: 13, height: 1.8, color: mine ? Colors.white : const Color(0xFF1E293B))),
+          Text(asStr(message['body']), style: TextStyle(fontSize: 13, height: 1.8, color: mine ? Colors.white : context.ink)),
           if (file != null) ...[
             const SizedBox(height: 8),
             InkWell(
@@ -379,14 +517,85 @@ class _ChatScreenState extends State<ChatScreen> {
                 child: Row(mainAxisSize: MainAxisSize.min, children: [
                   Icon(Icons.insert_drive_file_rounded, size: 18, color: mine ? Colors.white : PishkanColors.primary),
                   const SizedBox(width: 6),
-                  Flexible(child: Text(asStr(file['name']), overflow: TextOverflow.ellipsis, style: TextStyle(fontSize: 11.5, color: mine ? Colors.white : PishkanColors.navy, fontWeight: FontWeight.w600))),
+                  Flexible(child: Text(asStr(file['name']), overflow: TextOverflow.ellipsis, style: TextStyle(fontSize: 11.5, color: mine ? Colors.white : context.ink, fontWeight: FontWeight.w600))),
                 ]),
               ),
             ),
           ],
           const SizedBox(height: 4),
-          Text(faDate(message['createdAt'], withTime: true), style: TextStyle(fontSize: 9.5, color: mine ? Colors.white70 : PishkanColors.mutedText)),
+          Row(mainAxisSize: MainAxisSize.min, children: [
+            Text(faDate(message['createdAt'], withTime: true), style: TextStyle(fontSize: 9.5, color: mine ? Colors.white70 : context.inkMuted)),
+            if (mine) ...[
+              const SizedBox(width: 5),
+              // Clock while the message is on its way, single tick once the
+              // office has it, double tick once they have opened it.
+              if (pending)
+                const Icon(Icons.schedule_rounded, size: 12, color: Colors.white70)
+              else
+                Icon(
+                  readAt.isNotEmpty ? Icons.done_all_rounded : Icons.done_rounded,
+                  size: 13,
+                  color: readAt.isNotEmpty ? const Color(0xFFBBF7D0) : Colors.white70,
+                ),
+            ],
+          ]),
         ]),
+      ),
+    );
+  }
+
+  Widget _offlineStrip() {
+    return Container(
+      width: double.infinity,
+      color: PishkanColors.warning.withOpacity(0.14),
+      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 7),
+      child: Row(mainAxisSize: MainAxisSize.min, children: [
+        const Icon(Icons.cloud_off_rounded, size: 15, color: PishkanColors.warning),
+        const SizedBox(width: 6),
+        Expanded(child: Text('اتصال قطع شد؛ به‌محض برگشتن شبکه پیام‌ها خودکار می‌رسند.', style: TextStyle(fontSize: 11, color: context.ink))),
+      ]),
+    );
+  }
+}
+
+/// Three dots that pulse while the office is typing.
+class _TypingIndicator extends StatefulWidget {
+  const _TypingIndicator();
+  @override
+  State<_TypingIndicator> createState() => _TypingIndicatorState();
+}
+
+class _TypingIndicatorState extends State<_TypingIndicator> with SingleTickerProviderStateMixin {
+  late final AnimationController _controller = AnimationController(vsync: this, duration: const Duration(milliseconds: 900))..repeat();
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Align(
+      alignment: Alignment.centerLeft,
+      child: Container(
+        margin: const EdgeInsets.only(bottom: 8),
+        padding: const EdgeInsets.symmetric(horizontal: 13, vertical: 11),
+        decoration: BoxDecoration(color: context.surface, borderRadius: BorderRadius.circular(16), border: Border.all(color: context.hairline)),
+        child: AnimatedBuilder(
+          animation: _controller,
+          builder: (context, _) => Row(mainAxisSize: MainAxisSize.min, children: [
+            for (var index = 0; index < 3; index += 1)
+              Container(
+                width: 6, height: 6,
+                margin: const EdgeInsets.symmetric(horizontal: 2),
+                decoration: BoxDecoration(
+                  shape: BoxShape.circle,
+                  color: PishkanColors.primary.withOpacity(0.3 + 0.6 * (1 - (((_controller.value - index * 0.18).abs() * 2.4).clamp(0.0, 1.0)))),
+                ),
+              ),
+          ]),
+        ),
       ),
     );
   }

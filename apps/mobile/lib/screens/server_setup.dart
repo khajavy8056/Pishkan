@@ -96,13 +96,13 @@ class _ServerSetupScreenState extends State<ServerSetupScreen> {
           if (!widget.fromProfile) ...[
             Center(child: ClipRRect(borderRadius: BorderRadius.circular(22), child: Image.asset('assets/icon.png', width: 76, height: 76))),
             const SizedBox(height: 16),
-            const Center(child: Text('به پیشخوان خوش آمدید', style: TextStyle(fontSize: 20, fontWeight: FontWeight.w800, color: PishkanColors.navy))),
+            Center(child: Text('به پیشخوان خوش آمدید', style: TextStyle(fontSize: 20, fontWeight: FontWeight.w800, color: context.ink))),
             const SizedBox(height: 8),
-            const Center(
+            Center(
               child: Text(
                 'برای شروع، آدرس سامانهٔ دفتر خودتان را وارد کنید.\nاین آدرس را دفتر پیشخوان به شما می‌دهد.',
                 textAlign: TextAlign.center,
-                style: TextStyle(color: PishkanColors.mutedText, fontSize: 13, height: 1.9),
+                style: TextStyle(color: context.inkMuted, fontSize: 13, height: 1.9),
               ),
             ),
             const SizedBox(height: 22),
@@ -118,23 +118,23 @@ class _ServerSetupScreenState extends State<ServerSetupScreen> {
                 decoration: const InputDecoration(hintText: '192.168.1.10:3000', prefixIcon: Icon(Icons.dns_rounded)),
               ),
               const SizedBox(height: 6),
-              const Text(
+              Text(
                 'نمونه‌ها: روی Wi‑Fi دفتر → 192.168.1.10:3000\nروی اینترنت → https://pishkan.example.ir\nامولاتور اندروید روی همان کامپیوتر → 10.0.2.2:3000',
-                style: TextStyle(fontSize: 11.5, color: PishkanColors.mutedText, height: 1.9),
+                style: TextStyle(fontSize: 11.5, color: context.inkMuted, height: 1.9),
               ),
               const SizedBox(height: 16),
               PlushButton(label: 'اتصال و ادامه', icon: Icons.link_rounded, loading: _checking, onPressed: () => _connect(_controller.text)),
               const SizedBox(height: 10),
-              OutlinedButton.icon(onPressed: _scanQr, icon: const Icon(Icons.qr_code_scanner_rounded), label: const Text('اسکن QR آدرس سرور')),
+              OutlinedButton.icon(onPressed: _scanQr, icon: Icon(Icons.qr_code_scanner_rounded), label: const Text('اسکن QR آدرس سرور')),
             ]),
           ),
           const SizedBox(height: 14),
           Container(
             padding: const EdgeInsets.all(14),
             decoration: BoxDecoration(color: PishkanColors.primary.withOpacity(0.07), borderRadius: BorderRadius.circular(16)),
-            child: const Text(
+            child:  Text(
               'این اپ مستقیم به همان سامانه‌ای وصل می‌شود که نسخهٔ وب دفتر روی آن کار می‌کند؛ حساب کاربری، درخواست‌ها و پرداخت‌های شما دقیقاً همان است که در سایت می‌بینید.',
-              style: TextStyle(fontSize: 12, height: 1.9, color: PishkanColors.navy),
+              style: TextStyle(fontSize: 12, height: 1.9, color: context.ink),
             ),
           ),
         ]),

@@ -67,7 +67,7 @@ class _SupportTabState extends State<SupportTab> {
           await Navigator.push(context, MaterialPageRoute(builder: (_) => const NewTicketScreen()));
           _load();
         },
-        icon: const Icon(Icons.add_rounded),
+        icon: Icon(Icons.add_rounded),
         label: const Text('تیکت جدید'),
       ),
       body: Column(children: [
@@ -79,16 +79,16 @@ class _SupportTabState extends State<SupportTab> {
               Container(
                 padding: const EdgeInsets.all(12),
                 decoration: BoxDecoration(gradient: PishkanColors.brandGradient, borderRadius: BorderRadius.circular(16)),
-                child: const Icon(Icons.chat_rounded, color: Colors.white),
+                child: Icon(Icons.chat_rounded, color: Colors.white),
               ),
               const SizedBox(width: 12),
-              const Expanded(
+              Expanded(
                 child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                  Text('گفتگوی زنده با دفتر', style: TextStyle(fontWeight: FontWeight.w800, fontSize: 14.5, color: PishkanColors.navy)),
-                  Text('برای سؤال‌های سریع؛ کارشناس همان‌جا پاسخ می‌دهد.', style: TextStyle(fontSize: 11.5, color: PishkanColors.mutedText)),
+                  Text('گفتگوی زنده با دفتر', style: TextStyle(fontWeight: FontWeight.w800, fontSize: 14.5, color: context.ink)),
+                  Text('برای سؤال‌های سریع؛ کارشناس همان‌جا پاسخ می‌دهد.', style: TextStyle(fontSize: 11.5, color: context.inkMuted)),
                 ]),
               ),
-              const Icon(Icons.chevron_left_rounded, color: PishkanColors.mutedText),
+              Icon(Icons.chevron_left_rounded, color: context.inkMuted),
             ]),
           ),
         ),
@@ -116,7 +116,7 @@ class _SupportTabState extends State<SupportTab> {
                                 },
                                 child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
                                   Row(children: [
-                                    Expanded(child: Text(asStr(ticket['subject']), style: const TextStyle(fontWeight: FontWeight.w800, fontSize: 13.5), maxLines: 1, overflow: TextOverflow.ellipsis)),
+                                    Expanded(child: Text(asStr(ticket['subject']), style: TextStyle(fontWeight: FontWeight.w800, fontSize: 13.5), maxLines: 1, overflow: TextOverflow.ellipsis)),
                                     StatusChip(label: statusLabel(asStr(ticket['status'])), status: asStr(ticket['status']) == 'waiting_customer' ? 'waiting_customer' : asStr(ticket['status'])),
                                   ]),
                                   const SizedBox(height: 5),
@@ -124,11 +124,11 @@ class _SupportTabState extends State<SupportTab> {
                                     asStr(ticket['lastMessage']).isEmpty ? asStr(ticket['departmentLabel']) : asStr(ticket['lastMessage']),
                                     maxLines: 1,
                                     overflow: TextOverflow.ellipsis,
-                                    style: const TextStyle(fontSize: 11.5, color: PishkanColors.mutedText),
+                                    style: TextStyle(fontSize: 11.5, color: context.inkMuted),
                                   ),
                                   const SizedBox(height: 6),
                                   Row(children: [
-                                    Text('شماره ${faDigits(asStr(ticket['number']))} · ${faDate(ticket['lastMessageAt'])}', style: const TextStyle(fontSize: 10.5, color: PishkanColors.mutedText)),
+                                    Text('شماره ${faDigits(asStr(ticket['number']))} · ${faDate(ticket['lastMessageAt'])}', style: TextStyle(fontSize: 10.5, color: context.inkMuted)),
                                     const Spacer(),
                                     if (unread > 0)
                                       Container(
@@ -223,7 +223,7 @@ class _TicketDetailScreenState extends State<TicketDetailScreen> {
                 padding: const EdgeInsets.fromLTRB(16, 8, 16, 0),
                 child: SoftCard(
                   child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                    Text(asStr(ticket['subject']), style: const TextStyle(fontWeight: FontWeight.w800, fontSize: 14.5, color: PishkanColors.navy)),
+                    Text(asStr(ticket['subject']), style: TextStyle(fontWeight: FontWeight.w800, fontSize: 14.5, color: context.ink)),
                     const SizedBox(height: 6),
                     Wrap(spacing: 8, runSpacing: 6, children: [
                       StatusChip(label: _SupportTabState.statusLabel(asStr(ticket['status'])), status: asStr(ticket['status'])),
@@ -258,14 +258,14 @@ class _TicketDetailScreenState extends State<TicketDetailScreen> {
                           gradient: mine ? PishkanColors.brandGradient : null,
                           color: mine ? null : Colors.white,
                           borderRadius: BorderRadius.circular(18),
-                          border: mine ? null : Border.all(color: const Color(0xFFE2E8F0)),
+                          border: mine ? null : Border.all(color: context.hairline),
                         ),
                         child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
                           if (!mine && asStr(message['senderName']).isNotEmpty)
-                            Padding(padding: const EdgeInsets.only(bottom: 3), child: Text(asStr(message['senderName']), style: const TextStyle(fontSize: 10.5, fontWeight: FontWeight.w700, color: PishkanColors.primary))),
+                            Padding(padding: const EdgeInsets.only(bottom: 3), child: Text(asStr(message['senderName']), style: TextStyle(fontSize: 10.5, fontWeight: FontWeight.w700, color: PishkanColors.primary))),
                           Text(asStr(message['body']), style: TextStyle(fontSize: 13, height: 1.8, color: mine ? Colors.white : const Color(0xFF1E293B))),
                           const SizedBox(height: 4),
-                          Text(faDate(message['createdAt'], withTime: true), style: TextStyle(fontSize: 9.5, color: mine ? Colors.white70 : PishkanColors.mutedText)),
+                          Text(faDate(message['createdAt'], withTime: true), style: TextStyle(fontSize: 9.5, color: mine ? Colors.white70 : context.inkMuted)),
                         ]),
                       ),
                     );
@@ -277,7 +277,7 @@ class _TicketDetailScreenState extends State<TicketDetailScreen> {
                   top: false,
                   child: Container(
                     padding: const EdgeInsets.fromLTRB(10, 8, 10, 10),
-                    color: Colors.white,
+                    color: context.surface,
                     child: Row(children: [
                       Expanded(child: TextField(controller: _reply, minLines: 1, maxLines: 4, decoration: const InputDecoration(hintText: 'پاسخ شما…'))),
                       const SizedBox(width: 6),

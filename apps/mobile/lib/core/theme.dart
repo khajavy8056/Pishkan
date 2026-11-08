@@ -1,7 +1,13 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 
 /// Brand palette shared with the web panels: deep navy → vivid blue, on a
 /// calm grey background with white soft cards and generous radii.
+///
+/// The light palette is the historical one and stays the source of truth for
+/// charts, generated illustrations and the splash. Dark mode is a *derived*
+/// palette (see [PishkanTheme.dark]) rather than a second brand: same hues,
+/// same hierarchy, lifted for contrast on a navy-black canvas.
 abstract final class PishkanColors {
   static const primary = Color(0xFF1F6FEE);
   static const navy = Color(0xFF0B1F3A);
@@ -26,53 +32,136 @@ abstract final class PishkanColors {
   static const pastelViolet = Color(0xFFF0E9FF);
   static const pastelBlue = Color(0xFFE5F0FF);
   static const pastelOrange = Color(0xFFFFF1E4);
+
+  /* ----------------------------- dark palette ----------------------------- */
+
+  /// Canvas behind scrollable content. Not pure black: pure black on OLED
+  /// makes the soft shadows of the 3D cards collapse into the background.
+  static const darkBackground = Color(0xFF0A1526);
+  /// Cards, sheets, inputs — one step above the canvas.
+  static const darkSurface = Color(0xFF12213A);
+  /// A second elevation (chips on cards, list rows inside sheets).
+  static const darkSurfaceHigh = Color(0xFF182C4B);
+  static const darkNavy = Color(0xFF0B1F3A);
+  /// Hairlines and card borders; white at 8-12% reads as a soft rule.
+  static const darkBorder = Color(0x1FFFFFFF);
+  static const darkMutedText = Color(0xFF9DB0CC);
+  static const darkText = Color(0xFFEAF1FF);
+  /// The brand blue is too dark on a navy canvas; lifts to stay ≥ 4.5:1.
+  static const darkPrimary = Color(0xFF5AA0FF);
+  static const darkSuccess = Color(0xFF4ADE80);
+  static const darkWarning = Color(0xFFFBBF24);
+  static const darkDanger = Color(0xFFF87171);
+  static const darkGradient = LinearGradient(
+    colors: [Color(0xFF0F2440), Color(0xFF1B3A6B)],
+    begin: Alignment.topLeft,
+    end: Alignment.bottomRight,
+  );
 }
 
-ThemeData buildPishkanTheme() {
+/// Small palette helper so screens never branch on `Theme.of(context)` twice.
+extension PishkanPalette on BuildContext {
+  bool get isDark => Theme.of(this).brightness == Brightness.dark;
+  /// Surface for a card/list on the current canvas.
+  Color get surface => isDark ? PishkanColors.darkSurface : Colors.white;
+  Color get surfaceHigh => isDark ? PishkanColors.darkSurfaceHigh : Colors.white;
+  Color get canvas => isDark ? PishkanColors.darkBackground : PishkanColors.background;
+  /// Primary text.
+  Color get ink => isDark ? PishkanColors.darkText : PishkanColors.navy;
+  /// Secondary text.
+  Color get inkMuted => isDark ? PishkanColors.darkMutedText : PishkanColors.mutedText;
+  Color get hairline => isDark ? PishkanColors.darkBorder : const Color(0xFFE2E8F0);
+  Color get brand => isDark ? PishkanColors.darkPrimary : PishkanColors.primary;
+  Color get positive => isDark ? PishkanColors.darkSuccess : PishkanColors.success;
+  Color get caution => isDark ? PishkanColors.darkWarning : PishkanColors.warning;
+  Color get negative => isDark ? PishkanColors.darkDanger : PishkanColors.danger;
+}
+
+/// Shared metrics: one radius family and one elevation shadow, so every card
+/// in the app is cut from the same cloth.
+abstract final class PishkanMetrics {
+  static const radiusCard = 22.0;
+  static const radiusField = 18.0;
+  static const radiusPill = 999.0;
+
+  static List<BoxShadow> softShadow(BuildContext context, {double lift = 1}) {
+    final dark = Theme.of(context).brightness == Brightness.dark;
+    return [
+      BoxShadow(
+        color: dark ? const Color(0x66000000) : const Color(0x120B1F3A),
+        blurRadius: 18 * lift,
+        offset: Offset(0, 8 * lift),
+      ),
+    ];
+  }
+}
+
+ThemeData buildPishkanTheme() => _build(Brightness.light);
+
+ThemeData buildPishkanDarkTheme() => _build(Brightness.dark);
+
+ThemeData _build(Brightness brightness) {
+  final dark = brightness == Brightness.dark;
+  final canvas = dark ? PishkanColors.darkBackground : PishkanColors.background;
+  final surface = dark ? PishkanColors.darkSurface : Colors.white;
+  final surfaceHigh = dark ? PishkanColors.darkSurfaceHigh : Colors.white;
+  final ink = dark ? PishkanColors.darkText : PishkanColors.navy;
+  final muted = dark ? PishkanColors.darkMutedText : PishkanColors.mutedText;
+  final hairline = dark ? PishkanColors.darkBorder : const Color(0xFFE2E8F0);
+  final brand = dark ? PishkanColors.darkPrimary : PishkanColors.primary;
+
   final scheme = ColorScheme.fromSeed(
     seedColor: PishkanColors.primary,
-    brightness: Brightness.light,
+    brightness: brightness,
   ).copyWith(
-    primary: PishkanColors.primary,
+    primary: brand,
     secondary: PishkanColors.accent,
-    surface: Colors.white,
+    surface: surface,
+    onSurface: ink,
+    error: dark ? PishkanColors.darkDanger : PishkanColors.danger,
+    outline: hairline,
   );
 
-  const radius = BorderRadius.all(Radius.circular(18));
+  const radius = BorderRadius.all(Radius.circular(PishkanMetrics.radiusField));
 
   return ThemeData(
     useMaterial3: true,
+    brightness: brightness,
     colorScheme: scheme,
-    scaffoldBackgroundColor: PishkanColors.background,
+    scaffoldBackgroundColor: canvas,
+    canvasColor: canvas,
     fontFamily: 'Vazirmatn',
-    appBarTheme: const AppBarTheme(
-      backgroundColor: PishkanColors.background,
+    splashFactory: InkSparkle.splashFactory,
+    appBarTheme: AppBarTheme(
+      backgroundColor: canvas,
       surfaceTintColor: Colors.transparent,
       elevation: 0,
       centerTitle: false,
-      titleTextStyle: TextStyle(fontFamily: 'Vazirmatn', fontSize: 18, fontWeight: FontWeight.w700, color: PishkanColors.navy),
-      iconTheme: IconThemeData(color: PishkanColors.navy),
+      systemOverlayStyle: dark ? SystemUiOverlayStyle.light : SystemUiOverlayStyle.dark,
+      titleTextStyle: TextStyle(fontFamily: 'Vazirmatn', fontSize: 18, fontWeight: FontWeight.w700, color: ink),
+      iconTheme: IconThemeData(color: ink),
     ),
     cardTheme: CardThemeData(
-      color: Colors.white,
+      color: surface,
       elevation: 0,
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(22)),
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(PishkanMetrics.radiusCard)),
       margin: EdgeInsets.zero,
     ),
     inputDecorationTheme: InputDecorationTheme(
       filled: true,
-      fillColor: Colors.white,
+      fillColor: surface,
       contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
-      border: OutlineInputBorder(borderRadius: radius, borderSide: const BorderSide(color: Color(0xFFE2E8F0))),
-      enabledBorder: OutlineInputBorder(borderRadius: radius, borderSide: const BorderSide(color: Color(0xFFE2E8F0))),
-      focusedBorder: OutlineInputBorder(borderRadius: radius, borderSide: const BorderSide(color: PishkanColors.primary, width: 1.6)),
-      errorBorder: OutlineInputBorder(borderRadius: radius, borderSide: const BorderSide(color: PishkanColors.danger)),
-      labelStyle: const TextStyle(color: PishkanColors.mutedText),
+      border: OutlineInputBorder(borderRadius: radius, borderSide: BorderSide(color: hairline)),
+      enabledBorder: OutlineInputBorder(borderRadius: radius, borderSide: BorderSide(color: hairline)),
+      focusedBorder: OutlineInputBorder(borderRadius: radius, borderSide: BorderSide(color: brand, width: 1.6)),
+      errorBorder: OutlineInputBorder(borderRadius: radius, borderSide: BorderSide(color: dark ? PishkanColors.darkDanger : PishkanColors.danger)),
+      labelStyle: TextStyle(color: muted),
+      hintStyle: TextStyle(color: muted.withOpacity(dark ? 0.7 : 1)),
     ),
     elevatedButtonTheme: ElevatedButtonThemeData(
       style: ElevatedButton.styleFrom(
-        backgroundColor: PishkanColors.primary,
-        foregroundColor: Colors.white,
+        backgroundColor: brand,
+        foregroundColor: dark ? PishkanColors.darkNavy : Colors.white,
         elevation: 0,
         minimumSize: const Size(0, 52),
         shape: RoundedRectangleBorder(borderRadius: radius),
@@ -81,40 +170,67 @@ ThemeData buildPishkanTheme() {
     ),
     outlinedButtonTheme: OutlinedButtonThemeData(
       style: OutlinedButton.styleFrom(
-        foregroundColor: PishkanColors.navy,
+        foregroundColor: ink,
         minimumSize: const Size(0, 50),
-        side: const BorderSide(color: Color(0xFFCBD5E1)),
+        side: BorderSide(color: hairline),
         shape: RoundedRectangleBorder(borderRadius: radius),
         textStyle: const TextStyle(fontFamily: 'Vazirmatn', fontWeight: FontWeight.w600, fontSize: 14),
       ),
     ),
     textButtonTheme: TextButtonThemeData(
       style: TextButton.styleFrom(
-        foregroundColor: PishkanColors.primary,
+        foregroundColor: brand,
         textStyle: const TextStyle(fontFamily: 'Vazirmatn', fontWeight: FontWeight.w600, fontSize: 14),
       ),
     ),
     navigationBarTheme: NavigationBarThemeData(
-      backgroundColor: Colors.white,
+      backgroundColor: surface,
       surfaceTintColor: Colors.transparent,
-      indicatorColor: PishkanColors.primary.withOpacity(0.12),
-      labelTextStyle: WidgetStateProperty.all(const TextStyle(fontFamily: 'Vazirmatn', fontSize: 11.5, fontWeight: FontWeight.w600)),
+      indicatorColor: brand.withOpacity(dark ? 0.22 : 0.12),
+      labelTextStyle: WidgetStateProperty.all(TextStyle(fontFamily: 'Vazirmatn', fontSize: 11.5, fontWeight: FontWeight.w600, color: ink)),
+      iconTheme: WidgetStateProperty.resolveWith((states) => IconThemeData(
+        color: states.contains(WidgetState.selected) ? brand : muted,
+      )),
     ),
     chipTheme: ChipThemeData(
-      backgroundColor: Colors.white,
-      selectedColor: PishkanColors.primary.withOpacity(0.14),
-      side: const BorderSide(color: Color(0xFFE2E8F0)),
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(999)),
-      labelStyle: const TextStyle(fontFamily: 'Vazirmatn', fontSize: 12.5, color: PishkanColors.navy),
-      secondaryLabelStyle: const TextStyle(fontFamily: 'Vazirmatn', fontSize: 12.5, color: PishkanColors.navy),
+      backgroundColor: surfaceHigh,
+      selectedColor: brand.withOpacity(dark ? 0.26 : 0.14),
+      side: BorderSide(color: hairline),
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(PishkanMetrics.radiusPill)),
+      labelStyle: TextStyle(fontFamily: 'Vazirmatn', fontSize: 12.5, color: ink),
+      secondaryLabelStyle: TextStyle(fontFamily: 'Vazirmatn', fontSize: 12.5, color: ink),
     ),
     dialogTheme: DialogThemeData(
+      backgroundColor: surface,
+      surfaceTintColor: Colors.transparent,
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(24)),
-      titleTextStyle: const TextStyle(fontFamily: 'Vazirmatn', fontSize: 16, fontWeight: FontWeight.w700, color: PishkanColors.navy),
+      titleTextStyle: TextStyle(fontFamily: 'Vazirmatn', fontSize: 16, fontWeight: FontWeight.w700, color: ink),
+      contentTextStyle: TextStyle(fontFamily: 'Vazirmatn', fontSize: 13, height: 1.8, color: muted),
     ),
-    bottomSheetTheme: const BottomSheetThemeData(
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(24))),
+    bottomSheetTheme: BottomSheetThemeData(
+      backgroundColor: surface,
+      surfaceTintColor: Colors.transparent,
+      shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(24))),
     ),
-    dividerTheme: const DividerThemeData(color: Color(0xFFEDF1F7)),
+    snackBarTheme: SnackBarThemeData(
+      behavior: SnackBarBehavior.floating,
+      backgroundColor: dark ? PishkanColors.darkSurfaceHigh : PishkanColors.navy,
+      contentTextStyle: const TextStyle(fontFamily: 'Vazirmatn', fontSize: 13, color: Colors.white),
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+    ),
+    dividerTheme: DividerThemeData(color: dark ? PishkanColors.darkBorder : const Color(0xFFEDF1F7)),
+    listTileTheme: ListTileThemeData(iconColor: brand, textColor: ink),
+    switchTheme: SwitchThemeData(
+      thumbColor: WidgetStateProperty.resolveWith((states) => states.contains(WidgetState.selected) ? Colors.white : (dark ? PishkanColors.darkMutedText : Colors.white)),
+      trackColor: WidgetStateProperty.resolveWith((states) => states.contains(WidgetState.selected) ? brand : (dark ? PishkanColors.darkSurfaceHigh : const Color(0xFFCBD5E1))),
+      trackOutlineColor: WidgetStateProperty.all(Colors.transparent),
+    ),
+    progressIndicatorTheme: ProgressIndicatorThemeData(color: brand, linearTrackColor: hairline),
+    tooltipTheme: TooltipThemeData(textStyle: const TextStyle(fontFamily: 'Vazirmatn', fontSize: 12)),
+    textTheme: Typography.material2021(platform: TargetPlatform.android).black.apply(fontFamily: 'Vazirmatn').copyWith(
+      bodyMedium: TextStyle(fontSize: 13.5, height: 1.75, color: ink),
+      bodySmall: TextStyle(fontSize: 11.5, height: 1.7, color: muted),
+      titleMedium: TextStyle(fontSize: 15, fontWeight: FontWeight.w700, color: ink),
+    ),
   );
 }

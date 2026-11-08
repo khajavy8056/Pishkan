@@ -48,6 +48,7 @@ class _HomeShellState extends State<HomeShell> with WidgetsBindingObserver {
     WidgetsBinding.instance.addObserver(this);
     session.addListener(_sessionChanged);
     homeNavigationRequests.addListener(_returnHome);
+    homeTabRequests.addListener(_onTabRequest);
     NotifierService.onTapLink = _openLink;
     // Ask for the notification permission once the customer is inside the
     // app (never on the splash, where it could stall first paint).
@@ -57,6 +58,8 @@ class _HomeShellState extends State<HomeShell> with WidgetsBindingObserver {
     if (pending != null && pending.isNotEmpty) {
       WidgetsBinding.instance.addPostFrameCallback((_) => _openLink(pending));
     }
+    // Warm the sound preference so the first tap does not await the disk.
+    AppPrefs.soundsEnabled().ignore();
     _refreshUnread();
     // First check shortly after entering, then every 30s while visible.
     Future<void>.delayed(const Duration(seconds: 4), _poll);
@@ -68,6 +71,7 @@ class _HomeShellState extends State<HomeShell> with WidgetsBindingObserver {
     WidgetsBinding.instance.removeObserver(this);
     session.removeListener(_sessionChanged);
     homeNavigationRequests.removeListener(_returnHome);
+    homeTabRequests.removeListener(_onTabRequest);
     _pollTimer?.cancel();
     _bannerTimer?.cancel();
     if (NotifierService.onTapLink == _openLink) NotifierService.onTapLink = null;
@@ -80,6 +84,13 @@ class _HomeShellState extends State<HomeShell> with WidgetsBindingObserver {
       _poll();
       _refreshUnread();
     }
+  }
+
+  void _onTabRequest() {
+    final index = homeTabRequests.value;
+    if (index == null || !mounted) return;
+    homeTabRequests.value = null;
+    selectTab(index);
   }
 
   void _returnHome() {
@@ -144,8 +155,8 @@ class _HomeShellState extends State<HomeShell> with WidgetsBindingObserver {
           _banner(),
         ]),
         bottomNavigationBar: Container(
-          decoration: const BoxDecoration(
-            color: Colors.white,
+          decoration: BoxDecoration(
+            color: context.surface,
             borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
             boxShadow: [BoxShadow(color: Color(0x140B1F3A), blurRadius: 20, offset: Offset(0, -4))],
           ),
@@ -171,7 +182,12 @@ class _HomeShellState extends State<HomeShell> with WidgetsBindingObserver {
     return Expanded(
       child: GestureDetector(
         behavior: HitTestBehavior.opaque,
-        onTap: () => selectTab(index),
+        onTap: () {
+          // A soft tick on the main navigation, never on repeat-taps of the
+          // tab that is already open.
+          if (index != _index) unawaited(playAppSound('tap'));
+          selectTab(index);
+        },
         child: AnimatedContainer(
           duration: const Duration(milliseconds: 180),
           padding: const EdgeInsets.symmetric(vertical: 7),
@@ -180,9 +196,9 @@ class _HomeShellState extends State<HomeShell> with WidgetsBindingObserver {
             borderRadius: BorderRadius.circular(16),
           ),
           child: Column(mainAxisSize: MainAxisSize.min, children: [
-            Icon(active ? activeIcon : icon, color: active ? PishkanColors.primary : PishkanColors.mutedText, size: 24),
+            Icon(active ? activeIcon : icon, color: active ? PishkanColors.primary : context.inkMuted, size: 24),
             const SizedBox(height: 2),
-            Text(label, style: TextStyle(fontSize: 11, fontWeight: active ? FontWeight.w800 : FontWeight.w500, color: active ? PishkanColors.primary : PishkanColors.mutedText)),
+            Text(label, style: TextStyle(fontSize: 11, fontWeight: active ? FontWeight.w800 : FontWeight.w500, color: active ? PishkanColors.primary : context.inkMuted)),
           ]),
         ),
       ),
@@ -211,9 +227,9 @@ class _HomeShellState extends State<HomeShell> with WidgetsBindingObserver {
               child: Container(
                 padding: const EdgeInsets.fromLTRB(14, 12, 14, 12),
                 decoration: BoxDecoration(
-                  color: Colors.white,
+                  color: context.surface,
                   borderRadius: BorderRadius.circular(20),
-                  border: Border.all(color: const Color(0xFFE3ECF9)),
+                  border: Border.all(color: context.hairline),
                   boxShadow: const [BoxShadow(color: Color(0x2A0B1F3A), blurRadius: 24, offset: Offset(0, 10))],
                 ),
                 child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
@@ -226,11 +242,11 @@ class _HomeShellState extends State<HomeShell> with WidgetsBindingObserver {
                     const SizedBox(width: 10),
                     Expanded(
                       child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                        Text(event.title, maxLines: 1, overflow: TextOverflow.ellipsis, style: const TextStyle(fontWeight: FontWeight.w800, fontSize: 13.5, color: PishkanColors.navy)),
-                        if (event.body.isNotEmpty) Text(event.body, maxLines: 2, overflow: TextOverflow.ellipsis, style: const TextStyle(fontSize: 11.5, color: PishkanColors.mutedText, height: 1.6)),
+                        Text(event.title, maxLines: 1, overflow: TextOverflow.ellipsis, style: TextStyle(fontWeight: FontWeight.w800, fontSize: 13.5, color: context.ink)),
+                        if (event.body.isNotEmpty) Text(event.body, maxLines: 2, overflow: TextOverflow.ellipsis, style: TextStyle(fontSize: 11.5, color: context.inkMuted, height: 1.6)),
                       ]),
                     ),
-                    IconButton(icon: const Icon(Icons.close_rounded, size: 18, color: PishkanColors.mutedText), onPressed: _dismissBanner),
+                    IconButton(icon: Icon(Icons.close_rounded, size: 18, color: context.inkMuted), onPressed: _dismissBanner),
                   ]),
                   if (event.progress != null) ...[
                     const SizedBox(height: 9),

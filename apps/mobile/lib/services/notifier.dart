@@ -309,6 +309,42 @@ class NotifierService {
     }
   }
 
+  /// True when the OS has granted POST_NOTIFICATIONS (Android 13+).
+  /// Older versions always report true. Null when the platform could not tell.
+  static Future<bool?> permissionGranted() async {
+    try {
+      await init();
+      final android = _plugin.resolvePlatformSpecificImplementation<AndroidFlutterLocalNotificationsPlugin>();
+      return await android?.areNotificationsEnabled();
+    } catch (_) {
+      return null;
+    }
+  }
+
+  /// Raise one sample notification so the customer can verify the whole chain
+  /// (channel, sound, tray, deep link) instead of waiting for a real event.
+  static Future<bool> showTestNotification() async {
+    try {
+      await init();
+      final granted = await permissionGranted();
+      if (granted == false) {
+        await requestPermission();
+        if (await permissionGranted() == false) return false;
+      }
+      await _showSystem(AppNotificationEvent(
+        id: 'test-${DateTime.now().millisecondsSinceEpoch}',
+        title: 'اعلان آزمایشی پیشخوان',
+        body: 'اگر این پیام را می‌بینید، اعلان‌ها درست کار می‌کنند.',
+        link: '/app/notifications',
+        kind: 'info',
+        eventType: 'test',
+      ));
+      return true;
+    } catch (_) {
+      return false;
+    }
+  }
+
   static Future<void> _showSystem(AppNotificationEvent event) async {
     final tag = event.notificationTag(session.serverUrl, session.userId);
     final notificationId = await _notificationId(tag);

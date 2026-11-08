@@ -134,7 +134,7 @@ class _DocumentsScreenState extends State<DocumentsScreen> {
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(title: const Text('مدارک پروفایل من')),
-      floatingActionButton: FloatingActionButton.extended(onPressed: _add, icon: const Icon(Icons.add_rounded), label: const Text('افزودن مدرک')),
+      floatingActionButton: FloatingActionButton.extended(onPressed: _add, icon: Icon(Icons.add_rounded), label: const Text('افزودن مدرک')),
       body: _loading
           ? const LoadingView()
           : _error != null
@@ -145,7 +145,7 @@ class _DocumentsScreenState extends State<DocumentsScreen> {
                     child: Container(
                       padding: const EdgeInsets.all(13),
                       decoration: BoxDecoration(color: PishkanColors.primary.withOpacity(0.07), borderRadius: BorderRadius.circular(16)),
-                      child: const Text('مدرک‌های تأییدشده را یک‌بار اینجا نگه دارید؛ در درخواست‌های بعدی بدون بارگذاری دوباره با یک لمس پیوست پرونده می‌شوند.', style: TextStyle(fontSize: 12, height: 1.9, color: PishkanColors.navy)),
+                      child:  Text('مدرک‌های تأییدشده را یک‌بار اینجا نگه دارید؛ در درخواست‌های بعدی بدون بارگذاری دوباره با یک لمس پیوست پرونده می‌شوند.', style: TextStyle(fontSize: 12, height: 1.9, color: context.ink)),
                     ),
                   ),
                   Expanded(
@@ -168,12 +168,12 @@ class _DocumentsScreenState extends State<DocumentsScreen> {
                                     if (mime.startsWith('image/') && fileId.isNotEmpty)
                                       ClipRRect(borderRadius: BorderRadius.circular(12), child: SizedBox(width: 50, height: 50, child: AuthImage(url: '/api/files/$fileId?v=thumb')))
                                     else
-                                      Container(width: 50, height: 50, decoration: BoxDecoration(color: PishkanColors.primary.withOpacity(0.1), borderRadius: BorderRadius.circular(12)), child: const Icon(Icons.description_rounded, color: PishkanColors.primary)),
+                                      Container(width: 50, height: 50, decoration: BoxDecoration(color: PishkanColors.primary.withOpacity(0.1), borderRadius: BorderRadius.circular(12)), child: Icon(Icons.description_rounded, color: PishkanColors.primary)),
                                     const SizedBox(width: 12),
                                     Expanded(
                                       child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                                        Text(asStr(doc['title']).isEmpty ? _typeLabel(asStr(doc['docType']).isEmpty ? asStr(doc['type']) : asStr(doc['docType'])) : asStr(doc['title']), style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 13.5)),
-                                        Text('${_typeLabel(asStr(doc['docType']).isEmpty ? asStr(doc['type']) : asStr(doc['docType']))} · ${faDate(doc['createdAt'])}', style: const TextStyle(fontSize: 11, color: PishkanColors.mutedText)),
+                                        Text(asStr(doc['title']).isEmpty ? _typeLabel(asStr(doc['docType']).isEmpty ? asStr(doc['type']) : asStr(doc['docType'])) : asStr(doc['title']), style: TextStyle(fontWeight: FontWeight.w700, fontSize: 13.5)),
+                                        Text('${_typeLabel(asStr(doc['docType']).isEmpty ? asStr(doc['type']) : asStr(doc['docType']))} · ${faDate(doc['createdAt'])}', style: TextStyle(fontSize: 11, color: context.inkMuted)),
                                         if (asStr(doc['reviewNote']).isNotEmpty) Text(asStr(doc['reviewNote']), style: const TextStyle(fontSize: 11, color: PishkanColors.danger)),
                                       ]),
                                     ),

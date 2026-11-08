@@ -18,16 +18,20 @@ class Env {
 
 /// Normalise whatever the user typed ("192.168.1.10:3000", "office.local",
 /// "https://api.example.ir/") into a clean base URL without a trailing slash.
+///
+/// Only the *origin* is kept. A path, a query or a trailing `#` in the typed
+/// address would otherwise be glued to every API call (`http://host/panel` +
+/// `/api/...` → `http://host/api/...` silently losing `/panel`, or with
+/// Dio's `queryParameters` fighting a query already in the base URL).
 String normalizeBaseUrl(String raw) {
   var value = raw.trim();
   if (value.isEmpty) return value;
   if (!value.startsWith('http://') && !value.startsWith('https://')) {
     value = 'http://$value';
   }
-  while (value.endsWith('/')) {
-    value = value.substring(0, value.length - 1);
-  }
-  return value;
+  final uri = Uri.tryParse(value);
+  if (uri == null || !uri.hasAuthority || uri.host.isEmpty) return '';
+  return '${uri.scheme}://${uri.authority}';
 }
 
 /// Credentials must only be sent to the configured server, never a third-party

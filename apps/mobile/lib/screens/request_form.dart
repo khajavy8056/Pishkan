@@ -279,16 +279,16 @@ class _RequestFormScreenState extends State<RequestFormScreen> {
               alignment: Alignment.center,
               decoration: BoxDecoration(
                 shape: BoxShape.circle,
-                color: i < _step ? PishkanColors.success : i == _step ? PishkanColors.primary : Colors.white,
+                color: i < _step ? PishkanColors.success : i == _step ? PishkanColors.primary : context.surfaceHigh,
                 border: Border.all(color: i <= _step ? Colors.transparent : const Color(0xFFCBD5E1), width: 1.6),
                 boxShadow: i == _step ? [BoxShadow(color: PishkanColors.primary.withOpacity(0.35), blurRadius: 9, offset: const Offset(0, 3))] : null,
               ),
               child: i < _step
-                  ? const Icon(Icons.check_rounded, color: Colors.white, size: 18)
-                  : Text(faDigits('${i + 1}'), style: TextStyle(fontWeight: FontWeight.w800, fontSize: 13, color: i == _step ? Colors.white : PishkanColors.mutedText)),
+                  ? Icon(Icons.check_rounded, color: Colors.white, size: 18)
+                  : Text(faDigits('${i + 1}'), style: TextStyle(fontWeight: FontWeight.w800, fontSize: 13, color: i == _step ? Colors.white : context.inkMuted)),
             ),
             const SizedBox(height: 4),
-            Text(_stepLabels[i], style: TextStyle(fontSize: 10.5, fontWeight: i == _step ? FontWeight.w800 : FontWeight.w500, color: i == _step ? PishkanColors.primary : PishkanColors.mutedText)),
+            Text(_stepLabels[i], style: TextStyle(fontSize: 10.5, fontWeight: i == _step ? FontWeight.w800 : FontWeight.w500, color: i == _step ? PishkanColors.primary : context.inkMuted)),
           ]),
           if (i < 3)
             Expanded(
@@ -311,8 +311,8 @@ class _RequestFormScreenState extends State<RequestFormScreen> {
         const SizedBox(width: 12),
         Expanded(
           child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-            Text(service.title, style: const TextStyle(fontWeight: FontWeight.w800, fontSize: 14, color: PishkanColors.navy)),
-            if (service.durationText.isNotEmpty) Text(faDigits(service.durationText), style: const TextStyle(fontSize: 11, color: PishkanColors.mutedText)),
+            Text(service.title, style: TextStyle(fontWeight: FontWeight.w800, fontSize: 14, color: context.ink)),
+            if (service.durationText.isNotEmpty) Text(faDigits(service.durationText), style: TextStyle(fontSize: 11, color: context.inkMuted)),
           ]),
         ),
         Text(faMoney(_displayTotal), style: const TextStyle(fontWeight: FontWeight.w800, fontSize: 13, color: PishkanColors.primary)),
@@ -325,9 +325,9 @@ class _RequestFormScreenState extends State<RequestFormScreen> {
     return Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
       _serviceChip(),
       const SectionTitle(title: 'اطّلاعات درخواست'),
-      if (service.formFields.isNotEmpty) Align(alignment: Alignment.centerRight, child: TextButton.icon(onPressed: _loadingAutofill ? null : _fillFromProfile, icon: const Icon(Icons.person_outline_rounded), label: Text(_loadingAutofill ? 'در حال دریافت…' : 'استفاده از اطلاعات پروفایل خودم'))),
+      if (service.formFields.isNotEmpty) Align(alignment: Alignment.centerRight, child: TextButton.icon(onPressed: _loadingAutofill ? null : _fillFromProfile, icon: Icon(Icons.person_outline_rounded), label: Text(_loadingAutofill ? 'در حال دریافت…' : 'استفاده از اطلاعات پروفایل خودم'))),
       if (service.formFields.isEmpty)
-        const SoftCard(child: Text('این خدمت فرم اطلاعاتی ندارد؛ مستقیم به مرحلهٔ مدارک بروید.', style: TextStyle(color: PishkanColors.mutedText, fontSize: 13, height: 1.9)))
+        SoftCard(child: Text('این خدمت فرم اطلاعاتی ندارد؛ مستقیم به مرحلهٔ مدارک بروید.', style: TextStyle(color: context.inkMuted, fontSize: 13, height: 1.9)))
       else
         SoftCard(child: DynamicForm(key: _formKey, fields: service.formFields, values: _values)),
     ]);
@@ -338,7 +338,7 @@ class _RequestFormScreenState extends State<RequestFormScreen> {
     return Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
       const SectionTitle(title: 'بارگذاری مدارک'),
       if (service.requirements.isEmpty)
-        const SoftCard(child: Text('این خدمت مدرک از پیش‌تعریف‌شده‌ای ندارد. اگر بعداً مدرکی لازم شد، کارشناس در پرونده اطلاع می‌دهد و از همین اپ ارسالش می‌کنید.', style: TextStyle(color: PishkanColors.mutedText, fontSize: 13, height: 1.9)))
+        SoftCard(child: Text('این خدمت مدرک از پیش‌تعریف‌شده‌ای ندارد. اگر بعداً مدرکی لازم شد، کارشناس در پرونده اطلاع می‌دهد و از همین اپ ارسالش می‌کنید.', style: TextStyle(color: context.inkMuted, fontSize: 13, height: 1.9)))
       else
         SoftCard(
           child: Column(children: [
@@ -349,7 +349,7 @@ class _RequestFormScreenState extends State<RequestFormScreen> {
           ]),
         ),
       const SizedBox(height: 10),
-      const Text('عکس واضح و خوانا از اصل مدرک بفرستید؛ کیفیت پایین، بررسی را عقب می‌اندازد.', textAlign: TextAlign.center, style: TextStyle(fontSize: 11.5, color: PishkanColors.mutedText)),
+      Text('عکس واضح و خوانا از اصل مدرک بفرستید؛ کیفیت پایین، بررسی را عقب می‌اندازد.', textAlign: TextAlign.center, style: TextStyle(fontSize: 11.5, color: context.inkMuted)),
     ]);
   }
 
@@ -367,8 +367,8 @@ class _RequestFormScreenState extends State<RequestFormScreen> {
       const SizedBox(width: 10),
       Expanded(
         child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-          Text('${requirement.title}${requirement.required ? ' *' : ''}', style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 13)),
-          if (requirement.description.isNotEmpty) Text(requirement.description, style: const TextStyle(fontSize: 11.5, color: PishkanColors.mutedText, height: 1.8)),
+          Text('${requirement.title}${requirement.required ? ' *' : ''}', style: TextStyle(fontWeight: FontWeight.w700, fontSize: 13)),
+          if (requirement.description.isNotEmpty) Text(requirement.description, style: TextStyle(fontSize: 11.5, color: context.inkMuted, height: 1.8)),
           if (uploaded != null) Text(uploaded.profileId.isNotEmpty ? '${uploaded.name} — تأییدشده در پروفایل' : uploaded.checked ? '${uploaded.name} — بررسی اولیه تصویر گذشت؛ در انتظار بررسی کارشناس' : '${uploaded.name} — خوانایی خودکار بررسی نشد؛ در انتظار کارشناس', style: TextStyle(fontSize: 11, color: color)),
           if (error != null) Text(error, style: const TextStyle(fontSize: 11.5, color: PishkanColors.danger, height: 1.7)),
           if (_matchingDocs(requirement).isNotEmpty) TextButton.icon(onPressed: busy ? null : () => _chooseProfileDoc(requirement), icon: const Icon(Icons.folder_shared_outlined, size: 18), label: const Text('انتخاب مدرک تأییدشده پروفایل')),
@@ -396,13 +396,13 @@ class _RequestFormScreenState extends State<RequestFormScreen> {
       SoftCard(
         child: Column(children: [
           if (service.formFields.isEmpty)
-            const Align(alignment: Alignment.centerRight, child: Text('اطلاعات فرمی برای این خدمت ثبت نشده است.', style: TextStyle(color: PishkanColors.mutedText, fontSize: 12.5)))
+            Align(alignment: Alignment.centerRight, child: Text('اطلاعات فرمی برای این خدمت ثبت نشده است.', style: TextStyle(color: context.inkMuted, fontSize: 12.5)))
           else
             for (var i = 0; i < service.formFields.length; i++) ...[
               Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                Text(service.formFields[i].label, style: const TextStyle(fontSize: 12, color: PishkanColors.mutedText)),
+                Text(service.formFields[i].label, style: TextStyle(fontSize: 12, color: context.inkMuted)),
                 const SizedBox(width: 12),
-                Expanded(child: Text(_readableValue(service.formFields[i]), textAlign: TextAlign.end, style: const TextStyle(fontSize: 12.5, fontWeight: FontWeight.w700, color: PishkanColors.navy))),
+                Expanded(child: Text(_readableValue(service.formFields[i]), textAlign: TextAlign.end, style: TextStyle(fontSize: 12.5, fontWeight: FontWeight.w700, color: context.ink))),
               ]),
               if (i < service.formFields.length - 1) const Divider(height: 18),
             ],
@@ -491,25 +491,25 @@ class _RequestFormScreenState extends State<RequestFormScreen> {
         child: Container(
           padding: const EdgeInsets.all(24),
           decoration: BoxDecoration(color: PishkanColors.success.withOpacity(0.12), shape: BoxShape.circle),
-          child: const Icon(Icons.check_rounded, size: 56, color: PishkanColors.success),
+          child: Icon(Icons.check_rounded, size: 56, color: PishkanColors.success),
         ),
       ),
       const SizedBox(height: 16),
-      const Center(child: Text('درخواست شما با موفقیت ثبت شد 🎉', style: TextStyle(fontWeight: FontWeight.w800, fontSize: 16.5, color: PishkanColors.navy))),
+      Center(child: Text('درخواست شما با موفقیت ثبت شد 🎉', style: TextStyle(fontWeight: FontWeight.w800, fontSize: 16.5, color: context.ink))),
       const SizedBox(height: 8),
       if (_createdTrackingCode.isNotEmpty)
-        Center(child: Text('کد پیگیری: ${faDigits(_createdTrackingCode)}', style: const TextStyle(fontSize: 13, color: PishkanColors.mutedText))),
+        Center(child: Text('کد پیگیری: ${faDigits(_createdTrackingCode)}', style: TextStyle(fontSize: 13, color: context.inkMuted))),
       const SizedBox(height: 10),
-      const Text(
+      Text(
         'پروندهٔ شما ساخته شد. از این لحظه، هر مرحله‌ای که پرونده جلو برود با اعلان همین اپ خبردار می‌شوید و در بخش «پیگیری‌ها» می‌توانید سیر آن را ببینید.',
         textAlign: TextAlign.center,
-        style: TextStyle(fontSize: 12.5, color: PishkanColors.mutedText, height: 2),
+        style: TextStyle(fontSize: 12.5, color: context.inkMuted, height: 2),
       ),
       const SizedBox(height: 20),
       if (_paymentMethod == 'online' && _createdRequestId.isNotEmpty) ...[
         PlushButton(label: 'پرداخت آنلاین هزینهٔ خدمت', icon: Icons.payment_rounded, onPressed: _payCreatedOnline),
         const SizedBox(height: 10),
-        const Text('رسیدگی کارشناس بعد از پرداخت شروع می‌شود؛ اگر همین حالا پرداخت نکنید، بعداً از داخل پرونده هم می‌توانید پرداخت کنید.', textAlign: TextAlign.center, style: TextStyle(fontSize: 11.5, color: PishkanColors.mutedText, height: 1.9)),
+        Text('رسیدگی کارشناس بعد از پرداخت شروع می‌شود؛ اگر همین حالا پرداخت نکنید، بعداً از داخل پرونده هم می‌توانید پرداخت کنید.', textAlign: TextAlign.center, style: TextStyle(fontSize: 11.5, color: context.inkMuted, height: 1.9)),
         const SizedBox(height: 12),
       ],
       if (_createdRequestId.isNotEmpty)
@@ -525,7 +525,7 @@ class _RequestFormScreenState extends State<RequestFormScreen> {
     if (_step == 3) {
       return Container(
         padding: const EdgeInsets.fromLTRB(16, 10, 16, 16),
-        decoration: const BoxDecoration(color: Colors.white, borderRadius: BorderRadius.vertical(top: Radius.circular(24)), boxShadow: [BoxShadow(color: Color(0x140B1F3A), blurRadius: 18, offset: Offset(0, -5))]),
+        decoration: BoxDecoration(color: context.surface, borderRadius: BorderRadius.vertical(top: Radius.circular(24)), boxShadow: [BoxShadow(color: Color(0x140B1F3A), blurRadius: 18, offset: Offset(0, -5))]),
         child: SafeArea(
           top: false,
           child: PlushButton(label: 'بازگشت به خانه', icon: Icons.home_rounded, onPressed: () => Navigator.of(context).popUntil((route) => route.isFirst)),
@@ -534,7 +534,7 @@ class _RequestFormScreenState extends State<RequestFormScreen> {
     }
     return Container(
       padding: const EdgeInsets.fromLTRB(16, 10, 16, 16),
-      decoration: const BoxDecoration(color: Colors.white, borderRadius: BorderRadius.vertical(top: Radius.circular(24)), boxShadow: [BoxShadow(color: Color(0x140B1F3A), blurRadius: 18, offset: Offset(0, -5))]),
+      decoration: BoxDecoration(color: context.surface, borderRadius: BorderRadius.vertical(top: Radius.circular(24)), boxShadow: [BoxShadow(color: Color(0x140B1F3A), blurRadius: 18, offset: Offset(0, -5))]),
       child: SafeArea(
         top: false,
         child: Row(children: [

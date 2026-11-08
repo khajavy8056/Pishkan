@@ -142,14 +142,14 @@ class _WalletScreenState extends State<WalletScreen> with WidgetsBindingObserver
                       Text('موجودی فعلی', style: TextStyle(color: Colors.white70, fontSize: 12.5)),
                     ]),
                     const SizedBox(height: 8),
-                    Text(faMoney(asNum(wallet['balance'])), style: const TextStyle(color: Colors.white, fontSize: 26, fontWeight: FontWeight.w800)),
+                    Text(faMoney(asNum(wallet['balance'])), style: TextStyle(color: Colors.white, fontSize: 26, fontWeight: FontWeight.w800)),
                     const SizedBox(height: 14),
                     SizedBox(
                       width: double.infinity,
                       child: FilledButton.icon(
                         style: FilledButton.styleFrom(backgroundColor: Colors.white, foregroundColor: PishkanColors.navy),
                         onPressed: _busy ? null : _topup,
-                        icon: const Icon(Icons.add_circle_rounded),
+                        icon: Icon(Icons.add_circle_rounded),
                         label: const Text('افزایش موجودی'),
                       ),
                     ),
@@ -157,7 +157,7 @@ class _WalletScreenState extends State<WalletScreen> with WidgetsBindingObserver
                 ),
                 const SectionTitle(title: 'گردش کیف پول'),
                 if (_transactions.isEmpty)
-                  const SoftCard(child: Text('هنوز تراکنشی ندارید. با اولین شارژ یا پرداخت از کیف، سابقه‌اش این‌جا می‌آید.', style: TextStyle(fontSize: 12.5, color: PishkanColors.mutedText, height: 1.9)))
+                  SoftCard(child: Text('هنوز تراکنشی ندارید. با اولین شارژ یا پرداخت از کیف، سابقه‌اش این‌جا می‌آید.', style: TextStyle(fontSize: 12.5, color: context.inkMuted, height: 1.9)))
                 else
                   SoftCard(
                     padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 6),
@@ -187,8 +187,8 @@ class _WalletScreenState extends State<WalletScreen> with WidgetsBindingObserver
         const SizedBox(width: 11),
         Expanded(
           child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-            Text(asStr(tx['description']).isEmpty ? _typeLabel(asStr(tx['type'])) : asStr(tx['description']), style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 12.5), maxLines: 1, overflow: TextOverflow.ellipsis),
-            Text(faDate(tx['createdAt'], withTime: true), style: const TextStyle(fontSize: 10.5, color: PishkanColors.mutedText)),
+            Text(asStr(tx['description']).isEmpty ? _typeLabel(asStr(tx['type'])) : asStr(tx['description']), style: TextStyle(fontWeight: FontWeight.w600, fontSize: 12.5), maxLines: 1, overflow: TextOverflow.ellipsis),
+            Text(faDate(tx['createdAt'], withTime: true), style: TextStyle(fontSize: 10.5, color: context.inkMuted)),
           ]),
         ),
         Text('${credit ? '+' : '−'} ${faMoney(amount.abs())}', style: TextStyle(fontWeight: FontWeight.w800, fontSize: 12.5, color: credit ? PishkanColors.success : PishkanColors.danger)),

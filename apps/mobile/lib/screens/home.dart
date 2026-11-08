@@ -7,8 +7,10 @@ import '../core/stages.dart';
 import '../core/theme.dart';
 import '../models/models.dart';
 import '../services/services.dart';
+import '../widgets/avatar.dart';
 import '../widgets/widgets.dart';
 import '../widgets/category_card.dart';
+import 'assistant.dart';
 import 'documents.dart';
 import 'notifications.dart';
 import 'profile.dart';
@@ -126,10 +128,10 @@ class _HomeTabState extends State<HomeTab> {
                   await Navigator.push(context, MaterialPageRoute(builder: (_) => const EditProfileScreen()));
                   if (mounted) setState(() {});
                 },
-                child: const Row(children: [
+                child:  Row(children: [
                   Icon(Icons.person_pin_circle_outlined, color: PishkanColors.warning),
                   SizedBox(width: 10),
-                  Expanded(child: Text('برای ثبت درخواست، مشخصات و شهر خود را تکمیل کنید.', style: TextStyle(fontSize: 12, color: PishkanColors.navy))),
+                  Expanded(child: Text('برای ثبت درخواست، مشخصات و شهر خود را تکمیل کنید.', style: TextStyle(fontSize: 12, color: context.ink))),
                   Icon(Icons.chevron_left_rounded),
                 ]),
               ),
@@ -189,23 +191,29 @@ class _HomeTabState extends State<HomeTab> {
 
   Widget _header(String brand) {
     final user = session.user ?? const {};
-    final avatarUrl = asStr(user['avatarUrl']).isEmpty ? asStr(user['avatar']) : asStr(user['avatarUrl']);
     final name = asStr(user['fullName']);
     return Row(children: [
-      if (avatarUrl.isNotEmpty)
-        ClipOval(child: SizedBox(width: 46, height: 46, child: AuthImage(url: avatarUrl)))
-      else
-        CircleAvatar(
-          radius: 23,
-          backgroundColor: PishkanColors.primary.withOpacity(0.12),
-          child: Text(name.isEmpty ? 'پ' : name.substring(0, 1), style: const TextStyle(color: PishkanColors.primary, fontWeight: FontWeight.w800, fontSize: 19)),
-        ),
+      // The same face as the profile, from the server-assigned preset.
+      UserAvatar(size: 46),
       const SizedBox(width: 10),
       Expanded(
         child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-          Text(_firstName.isEmpty ? 'سلام! 👋' : 'سلام، $_firstName! 👋', style: const TextStyle(fontWeight: FontWeight.w800, fontSize: 15.5, color: PishkanColors.navy)),
-          Text(brand, style: const TextStyle(color: PishkanColors.mutedText, fontSize: 11.5)),
+          Text(_firstName.isEmpty ? 'سلام! 👋' : 'سلام، $_firstName! 👋', style: TextStyle(fontWeight: FontWeight.w800, fontSize: 15.5, color: context.ink)),
+          Text(brand, style: TextStyle(color: context.inkMuted, fontSize: 11.5)),
         ]),
+      ),
+      IconButton(
+        tooltip: 'دستیار هوشمند',
+        onPressed: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const AssistantScreen())),
+        icon: Container(
+          padding: const EdgeInsets.all(7),
+          decoration: BoxDecoration(
+            shape: BoxShape.circle,
+            gradient: PishkanColors.brandGradient,
+            boxShadow: [BoxShadow(color: PishkanColors.primary.withOpacity(0.32), blurRadius: 10, offset: const Offset(0, 4))],
+          ),
+          child: const Icon(Icons.auto_awesome_rounded, size: 18, color: Colors.white),
+        ),
       ),
       IconButton(
         tooltip: 'اعلان‌ها',
@@ -228,14 +236,14 @@ class _HomeTabState extends State<HomeTab> {
       child: Container(
         padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 13),
         decoration: BoxDecoration(
-          color: Colors.white,
+          color: context.surface,
           borderRadius: BorderRadius.circular(999),
           boxShadow: const [BoxShadow(color: Color(0x120B1F3A), blurRadius: 12, offset: Offset(0, 4))],
         ),
-        child: const Row(children: [
-          Icon(Icons.search_rounded, color: PishkanColors.mutedText),
+        child:  Row(children: [
+          Icon(Icons.search_rounded, color: context.inkMuted),
           SizedBox(width: 8),
-          Text('جستجو در خدمات…', style: TextStyle(color: PishkanColors.mutedText, fontSize: 13)),
+          Text('جستجو در خدمات…', style: TextStyle(color: context.inkMuted, fontSize: 13)),
         ]),
       ),
     );
@@ -243,7 +251,7 @@ class _HomeTabState extends State<HomeTab> {
 
   Widget _sectionTitle(String title, {String? action, VoidCallback? onAction}) {
     return Row(children: [
-      Text(title, style: const TextStyle(fontWeight: FontWeight.w800, fontSize: 15, color: PishkanColors.navy)),
+      Text(title, style: TextStyle(fontWeight: FontWeight.w800, fontSize: 15, color: context.ink)),
       const Spacer(),
       if (action != null)
         InkWell(
@@ -292,7 +300,7 @@ class _HomeTabState extends State<HomeTab> {
                       : const CircleAvatar(radius: 29, backgroundColor: Color(0xFFE0EAFA), child: Icon(Icons.campaign_rounded, color: PishkanColors.primary)),
                 ),
                 const SizedBox(height: 6),
-                Text(group.title, maxLines: 1, overflow: TextOverflow.ellipsis, textAlign: TextAlign.center, style: TextStyle(fontSize: 11, fontWeight: seen ? FontWeight.w500 : FontWeight.w700, color: PishkanColors.navy)),
+                Text(group.title, maxLines: 1, overflow: TextOverflow.ellipsis, textAlign: TextAlign.center, style: TextStyle(fontSize: 11, fontWeight: seen ? FontWeight.w500 : FontWeight.w700, color: context.ink)),
               ]),
             ),
           );
@@ -351,9 +359,9 @@ class _HomeTabState extends State<HomeTab> {
             padding: const EdgeInsets.symmetric(vertical: 16, horizontal: 4),
             decoration: BoxDecoration(color: bg, borderRadius: BorderRadius.circular(22)),
             child: Column(children: [
-              Container(padding: const EdgeInsets.all(10), decoration: const BoxDecoration(color: Colors.white, shape: BoxShape.circle), child: Icon(icon, color: fg, size: 24)),
+              Container(padding: const EdgeInsets.all(10), decoration: BoxDecoration(color: context.isDark ? PishkanColors.darkSurfaceHigh : Colors.white, shape: BoxShape.circle), child: Icon(icon, color: fg, size: 24)),
               const SizedBox(height: 8),
-              Text(label, textAlign: TextAlign.center, style: const TextStyle(fontSize: 11.5, fontWeight: FontWeight.w700, color: PishkanColors.navy)),
+              Text(label, textAlign: TextAlign.center, style: TextStyle(fontSize: 11.5, fontWeight: FontWeight.w700, color: context.ink)),
             ]),
           ),
         ),
@@ -402,9 +410,9 @@ class _HomeTabState extends State<HomeTab> {
     Widget item(IconData icon, String value, String label) => Expanded(child: Column(children: [
       Icon(icon, color: PishkanColors.primary, size: 21),
       const SizedBox(height: 6),
-      Text(value, textAlign: TextAlign.center, maxLines: 2, overflow: TextOverflow.ellipsis, style: const TextStyle(fontSize: 11.5, fontWeight: FontWeight.w800, color: PishkanColors.navy)),
+      Text(value, textAlign: TextAlign.center, maxLines: 2, overflow: TextOverflow.ellipsis, style: TextStyle(fontSize: 11.5, fontWeight: FontWeight.w800, color: context.ink)),
       const SizedBox(height: 2),
-      Text(label, textAlign: TextAlign.center, maxLines: 2, overflow: TextOverflow.ellipsis, style: const TextStyle(fontSize: 10, color: PishkanColors.mutedText)),
+      Text(label, textAlign: TextAlign.center, maxLines: 2, overflow: TextOverflow.ellipsis, style: TextStyle(fontSize: 10, color: context.inkMuted)),
     ]));
     return SoftCard(child: Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
       item(Icons.verified_user_outlined, 'امن و قابل اعتماد', 'با استانداردهای روز'),
@@ -418,7 +426,7 @@ class _HomeTabState extends State<HomeTab> {
     if (_services.isEmpty) {
       return _loadingServices
           ? const Center(child: Padding(padding: EdgeInsets.all(24), child: CircularProgressIndicator()))
-          : const SoftCard(child: Text('اتصال به سامانه برقرار نیست؛ برای مشاهدهٔ خدمات اتصال شبکه را بررسی کنید.', style: TextStyle(color: PishkanColors.mutedText, fontSize: 13, height: 1.8)));
+          :  SoftCard(child: Text('اتصال به سامانه برقرار نیست؛ برای مشاهدهٔ خدمات اتصال شبکه را بررسی کنید.', style: TextStyle(color: context.inkMuted, fontSize: 13, height: 1.8)));
     }
     final items = _popular;
     return GridView.count(
@@ -435,12 +443,12 @@ class _HomeTabState extends State<HomeTab> {
             child: Column(children: [
               Container(
                 padding: const EdgeInsets.all(7),
-                decoration: const BoxDecoration(color: Colors.white, shape: BoxShape.circle, boxShadow: [BoxShadow(color: Color(0x100B1F3A), blurRadius: 10, offset: Offset(0, 4))]),
+                decoration: BoxDecoration(color: context.surface, shape: BoxShape.circle, boxShadow: [BoxShadow(color: Color(0x100B1F3A), blurRadius: 10, offset: Offset(0, 4))]),
                 child: IconMedallion(artwork: artworkForService(service), size: 40),
               ),
               const SizedBox(height: 6),
               Flexible(
-                child: Text(service.title, maxLines: 2, overflow: TextOverflow.ellipsis, textAlign: TextAlign.center, style: const TextStyle(fontSize: 10.5, fontWeight: FontWeight.w600, color: PishkanColors.navy, height: 1.4)),
+                child: Text(service.title, maxLines: 2, overflow: TextOverflow.ellipsis, textAlign: TextAlign.center, style: TextStyle(fontSize: 10.5, fontWeight: FontWeight.w600, color: context.ink, height: 1.4)),
               ),
             ]),
           ),
@@ -456,11 +464,11 @@ class _HomeTabState extends State<HomeTab> {
         onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => RequestDetailScreen(requestId: request.id))),
         child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
           Row(children: [
-            Expanded(child: Text(request.serviceTitle, maxLines: 1, overflow: TextOverflow.ellipsis, style: const TextStyle(fontWeight: FontWeight.w800, fontSize: 13.5, color: PishkanColors.navy))),
+            Expanded(child: Text(request.serviceTitle, maxLines: 1, overflow: TextOverflow.ellipsis, style: TextStyle(fontWeight: FontWeight.w800, fontSize: 13.5, color: context.ink))),
             StatusChip(label: request.statusLabel, status: request.needsAction ? 'waiting_customer' : request.status),
           ]),
           const SizedBox(height: 5),
-          Text('کد پیگیری ${faDigits(request.trackingCode)} • ${faDateNumeric(request.createdAt)}', style: const TextStyle(fontSize: 11, color: PishkanColors.mutedText)),
+          Text('کد پیگیری ${faDigits(request.trackingCode)} • ${faDateNumeric(request.createdAt)}', style: TextStyle(fontSize: 11, color: context.inkMuted)),
           const SizedBox(height: 10),
           StageProgressBar(progress: progress),
         ]),
@@ -483,13 +491,13 @@ class _HomeTabState extends State<HomeTab> {
           const SizedBox(width: 12),
           Expanded(
             child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-              Text(first.title.isEmpty ? group.title : first.title, maxLines: 2, overflow: TextOverflow.ellipsis, style: const TextStyle(fontWeight: FontWeight.w800, fontSize: 13, color: PishkanColors.navy, height: 1.6)),
-              if (first.caption.isNotEmpty) Text(first.caption, maxLines: 1, overflow: TextOverflow.ellipsis, style: const TextStyle(fontSize: 11, color: PishkanColors.mutedText)),
+              Text(first.title.isEmpty ? group.title : first.title, maxLines: 2, overflow: TextOverflow.ellipsis, style: TextStyle(fontWeight: FontWeight.w800, fontSize: 13, color: context.ink, height: 1.6)),
+              if (first.caption.isNotEmpty) Text(first.caption, maxLines: 1, overflow: TextOverflow.ellipsis, style: TextStyle(fontSize: 11, color: context.inkMuted)),
               const SizedBox(height: 4),
               Row(children: [
-                const Icon(Icons.calendar_month_outlined, size: 14, color: PishkanColors.mutedText),
+                Icon(Icons.calendar_month_outlined, size: 14, color: context.inkMuted),
                 const SizedBox(width: 4),
-                Text(faDateNumeric(first.createdAt), style: const TextStyle(fontSize: 11, color: PishkanColors.mutedText)),
+                Text(faDateNumeric(first.createdAt), style: TextStyle(fontSize: 11, color: context.inkMuted)),
                 const Spacer(),
                 const Text('مشاهده', style: TextStyle(fontSize: 11.5, fontWeight: FontWeight.w700, color: PishkanColors.primary)),
                 const Icon(Icons.chevron_left_rounded, size: 17, color: PishkanColors.primary),

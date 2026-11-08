@@ -120,7 +120,7 @@ class _DocumentCameraScreenState extends State<DocumentCameraScreen> with Widget
         Expanded(child: Padding(padding: const EdgeInsets.all(14), child: ClipRRect(borderRadius: BorderRadius.circular(16), child: Stack(fit: StackFit.expand, children: [
           if (_capture != null) Image.file(_capture!, fit: BoxFit.contain)
           else if (camera != null && camera.value.isInitialized) Center(child: CameraPreview(camera))
-          else Center(child: _error == null ? const CircularProgressIndicator(color: Colors.white) : Text(_error!, textAlign: TextAlign.center, style: const TextStyle(color: Colors.white))),
+          else Center(child: _error == null ? const CircularProgressIndicator(color: Colors.white) : Text(_error!, textAlign: TextAlign.center, style: TextStyle(color: Colors.white))),
           if (_capture == null && camera != null && camera.value.isInitialized)
             IgnorePointer(child: Center(child: Container(width: double.infinity, height: 220, margin: const EdgeInsets.symmetric(horizontal: 16), decoration: BoxDecoration(border: Border.all(color: Colors.white, width: 2), borderRadius: BorderRadius.circular(14))))),
         ])))),

@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:io';
+import 'dart:typed_data';
 
 import 'package:device_info_plus/device_info_plus.dart';
 import 'package:package_info_plus/package_info_plus.dart';
@@ -135,16 +136,32 @@ Future<Map<String, dynamic>> verifyOtp(String mobile, String code, {String purpo
   return _finishAuth(data);
 }
 
+/// Result of a registration attempt that did **not** sign the user in yet.
+///
+/// The account exists, so this is not a failure: the caller must show the
+/// message and send the customer back to the login form — previously the two
+/// cases were raised as an `ApiException`, so the screen rendered them as a red
+/// error and never navigated, leaving the customer stuck on the form.
+class PendingRegistration implements Exception {
+  PendingRegistration(this.message, {required this.requiresApproval});
+  final String message;
+  final bool requiresApproval;
+  @override
+  String toString() => message;
+}
+
 Future<Map<String, dynamic>> registerCustomer(Map<String, dynamic> body) async {
   final data = await api.postData('/api/auth/register', body: body);
   await ReferralStore.clear();
   final map = asMap(data);
   if (asStr(map['token']).isEmpty) {
     // The account was created but needs verification/office approval first.
-    throw ApiException(
-      asBool(map['requiresApproval'])
+    final requiresApproval = asBool(map['requiresApproval']);
+    throw PendingRegistration(
+      requiresApproval
           ? 'حساب شما ساخته شد و در انتظار تأیید دفتر است؛ پس از تأیید با همین رمز وارد شوید.'
           : 'حساب شما ساخته شد؛ برای فعال‌سازی، یک‌بار با کد پیامکی وارد شوید.',
+      requiresApproval: requiresApproval,
     );
   }
   return _finishAuth(data);
@@ -155,6 +172,55 @@ Future<Map<String, dynamic>> fetchMe() async {
   final user = asMap(data);
   if (user.isNotEmpty) await session.updateUser(user);
   return user;
+}
+
+/* -------------------------------- assistant ------------------------------- */
+
+/// Assistant availability and the onboarding copy the office configured.
+Future<Map<String, dynamic>> fetchAssistantInfo() async {
+  return asMap(await api.getData('/api/assistant/info'));
+}
+
+/// Ask the assistant. The server decides what a customer may know: answers come
+/// from the catalogue and from this customer's own cases, never from others.
+Future<Map<String, dynamic>> askAssistant(String message, {List<Map<String, dynamic>> history = const []}) async {
+  final data = await api.postData('/api/assistant/chat', body: {
+    'message': message,
+    'history': history.take(8).toList(),
+  });
+  return asMap(data);
+}
+
+/* --------------------------------- avatars -------------------------------- */
+
+/// The picker catalogue plus the current choice.
+Future<Map<String, dynamic>> fetchAvatarCatalogue() async {
+  return asMap(await api.getData('/api/customers/me/avatar'));
+}
+
+/// Persist a preset choice server-side (survives reinstall and other devices).
+Future<Map<String, dynamic>> chooseAvatarPreset(int preset, {String gender = ''}) async {
+  final data = await api.putData('/api/customers/me/avatar/preset', body: {
+    'preset': preset,
+    if (gender.isNotEmpty) 'gender': gender,
+  });
+  await fetchMe().catchError((_) => <String, dynamic>{});
+  return asMap(data);
+}
+
+/// Use an uploaded image as the face; `fileId` comes from the upload endpoint.
+Future<Map<String, dynamic>> setAvatarPhoto(String fileId) async {
+  final data = await api.putData('/api/customers/me/avatar/photo', body: {'fileId': fileId});
+  await fetchMe().catchError((_) => <String, dynamic>{});
+  return asMap(data);
+}
+
+/// Drop the photo and fall back to the preset. The server answers with the
+/// new avatar state, which is what the picker redraws from.
+Future<Map<String, dynamic>> clearAvatarPhoto() async {
+  final data = await api.deletePayload('/api/customers/me/avatar/photo');
+  await fetchMe().catchError((_) => <String, dynamic>{});
+  return asMap(data);
 }
 
 Future<void> logoutServer() async {
@@ -330,6 +396,12 @@ Future<String> uploadOne(File file, {bool documentQuality = false}) async {
   return asStr(result['id']);
 }
 
+/// Upload an image held in memory (avatar selection) and return its file id.
+Future<String> uploadImageBytes(List<int> bytes, String filename, {String purpose = 'avatar'}) async {
+  final result = await api.uploadBytes(Uint8List.fromList(bytes), filename, purpose: purpose);
+  return asStr(result['id']);
+}
+
 /// ---------- Money: invoices, payments, wallet ----------
 
 Future<List<Map<String, dynamic>>> fetchMyInvoices() async {
@@ -433,6 +505,20 @@ Future<String> openThread({String requestId = '', String subject = '', String me
     if (message.isNotEmpty) 'message': message,
   });
   return asStr(asMap(data)['id']);
+}
+
+/// Incremental sync: new messages after [after], the other side's last read
+/// time, and whether they are typing. One small request per few seconds only
+/// while the conversation is on screen.
+Future<Map<String, dynamic>> syncThread(String threadId, {String after = ''}) async {
+  return asMap(await api.getData('/api/messages/threads/$threadId/sync', query: {
+    if (after.isNotEmpty) 'after': after,
+  }));
+}
+
+/// Best-effort typing presence. Failures are ignored by the caller.
+Future<void> setTyping(String threadId, bool typing) async {
+  await api.postData('/api/messages/threads/$threadId/typing', body: {'typing': typing});
 }
 
 Future<void> sendChatMessage(String threadId, {String body = '', String fileId = ''}) async {

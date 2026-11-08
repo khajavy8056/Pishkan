@@ -67,7 +67,10 @@ class _ServiceDetailScreenState extends State<ServiceDetailScreen> {
   }
 
   Widget _banner(ServiceArtwork art) {
-    final useLocalArt = art.assetPath.isNotEmpty && (service.bannerUrl.isEmpty || isLegacyDefaultServiceImage(service.bannerUrl));
+    // The generated illustration is the default; a banner the office uploaded
+    // (or a real photo URL) always wins, and the tiny legacy PNGs are ignored.
+    final localArt = art.largeAssetPath.isNotEmpty ? art.largeAssetPath : art.assetPath;
+    final useLocalArt = localArt.isNotEmpty && (service.bannerUrl.isEmpty || isLegacyDefaultServiceImage(service.bannerUrl));
     final hasBanner = service.bannerUrl.isNotEmpty && !useLocalArt;
     return SizedBox(
       height: 300,
@@ -75,7 +78,7 @@ class _ServiceDetailScreenState extends State<ServiceDetailScreen> {
         Positioned.fill(
           child: hasBanner
               ? AuthImage(url: service.bannerUrl, fit: BoxFit.cover)
-              : useLocalArt ? Image.asset(art.assetPath, fit: BoxFit.cover) : _bannerArt(art),
+              : useLocalArt ? _illustrationBackdrop(localArt) : _bannerArt(art),
         ),
         SafeArea(
           child: Padding(
@@ -96,16 +99,16 @@ class _ServiceDetailScreenState extends State<ServiceDetailScreen> {
           bottom: 14,
           child: Container(
             padding: const EdgeInsets.fromLTRB(16, 14, 16, 14),
-            decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(22), boxShadow: const [BoxShadow(color: Color(0x1A0B1F3A), blurRadius: 18, offset: Offset(0, 8))]),
+            decoration: BoxDecoration(color: context.surface, borderRadius: BorderRadius.circular(22), boxShadow: const [BoxShadow(color: Color(0x1A0B1F3A), blurRadius: 18, offset: Offset(0, 8))]),
             child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
               Row(children: [
                 IconMedallion(artwork: art, size: 46),
                 const SizedBox(width: 10),
-                Expanded(child: Text(service.title, maxLines: 2, style: const TextStyle(fontWeight: FontWeight.w800, fontSize: 16, color: PishkanColors.navy))),
+                Expanded(child: Text(service.title, maxLines: 2, style: TextStyle(fontWeight: FontWeight.w800, fontSize: 16, color: context.ink))),
               ]),
               if (service.subtitle.isNotEmpty) ...[
                 const SizedBox(height: 6),
-                Text(service.subtitle, maxLines: 2, overflow: TextOverflow.ellipsis, style: const TextStyle(fontSize: 12, color: PishkanColors.mutedText, height: 1.7)),
+                Text(service.subtitle, maxLines: 2, overflow: TextOverflow.ellipsis, style: TextStyle(fontSize: 12, color: context.inkMuted, height: 1.7)),
               ],
               const SizedBox(height: 10),
               Wrap(spacing: 8, runSpacing: 6, children: [
@@ -121,6 +124,35 @@ class _ServiceDetailScreenState extends State<ServiceDetailScreen> {
       ]),
     );
   }
+
+  /// The 3D tile is a square on a studio backdrop; on a 300 px hero it is
+  /// centred over a tinted wash of its own category colour instead of being
+  /// stretched. The wash keeps the header calm in both themes.
+  Widget _illustrationBackdrop(String asset) {
+    return DecoratedBox(
+      decoration: BoxDecoration(
+        gradient: LinearGradient(
+          colors: context.isDark
+              ? [PishkanColors.darkSurfaceHigh, PishkanColors.darkBackground]
+              : [Color.alphaBlend(artTintFor(service).withOpacity(0.16), Colors.white), PishkanColors.background],
+          begin: Alignment.topCenter,
+          end: Alignment.bottomCenter,
+        ),
+      ),
+      child: Center(
+        child: Image.asset(
+          asset,
+          width: 236,
+          height: 236,
+          fit: BoxFit.contain,
+          filterQuality: FilterQuality.medium,
+          errorBuilder: (_, _, _) => _bannerArt(artworkForService(service)),
+        ),
+      ),
+    );
+  }
+
+  Color artTintFor(CatalogService service) => artworkForService(service).color;
 
   Widget _bannerArt(ServiceArtwork art) {
     return DecoratedBox(
@@ -141,6 +173,7 @@ class _ServiceDetailScreenState extends State<ServiceDetailScreen> {
       child: Container(
         padding: const EdgeInsets.all(10),
         decoration: BoxDecoration(color: Colors.white.withOpacity(0.94), shape: BoxShape.circle, boxShadow: const [BoxShadow(color: Color(0x22000000), blurRadius: 10, offset: Offset(0, 4))]),
+        // The disc stays white in both themes, so the glyph stays navy.
         child: Icon(icon, color: PishkanColors.navy, size: iconSize),
       ),
     );
@@ -172,7 +205,7 @@ class _ServiceDetailScreenState extends State<ServiceDetailScreen> {
               borderRadius: BorderRadius.circular(999),
               boxShadow: active ? [BoxShadow(color: PishkanColors.primary.withOpacity(0.3), blurRadius: 8, offset: const Offset(0, 3))] : null,
             ),
-            child: Text(label, textAlign: TextAlign.center, style: TextStyle(fontSize: 12, fontWeight: FontWeight.w800, color: active ? Colors.white : PishkanColors.navy)),
+            child: Text(label, textAlign: TextAlign.center, style: TextStyle(fontSize: 12, fontWeight: FontWeight.w800, color: active ? Colors.white : context.ink)),
           ),
         ),
       );
@@ -193,7 +226,7 @@ class _ServiceDetailScreenState extends State<ServiceDetailScreen> {
     return Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
       Text(
         service.displayDescription.isNotEmpty ? service.displayDescription : 'توضیحات تکمیلی این خدمت را می‌توانید از کارشناسان دفتر بپرسید.',
-        style: const TextStyle(height: 2, fontSize: 13.5, color: Color(0xFF31445E)),
+        style: TextStyle(height: 2, fontSize: 13.5, color: Color(0xFF31445E)),
       ),
       const SizedBox(height: 16),
       SoftCard(
@@ -211,15 +244,15 @@ class _ServiceDetailScreenState extends State<ServiceDetailScreen> {
               padding: const EdgeInsets.all(10),
               decoration: BoxDecoration(color: const Color(0xFFFFF7E6), borderRadius: BorderRadius.circular(12)),
               child: Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                const Icon(Icons.info_outline_rounded, size: 17, color: Color(0xFF92400E)),
+                Icon(Icons.info_outline_rounded, size: 17, color: Color(0xFF92400E)),
                 const SizedBox(width: 6),
-                Expanded(child: Text(service.externalCostsNote, style: const TextStyle(fontSize: 11.5, color: Color(0xFF92400E), height: 1.8))),
+                Expanded(child: Text(service.externalCostsNote, style: TextStyle(fontSize: 11.5, color: Color(0xFF92400E), height: 1.8))),
               ]),
             ),
           ],
           if (service.contactNotice.isNotEmpty) ...[
             const SizedBox(height: 8),
-            Text(service.contactNotice, style: const TextStyle(fontSize: 11.5, color: PishkanColors.mutedText, height: 1.8)),
+            Text(service.contactNotice, style: TextStyle(fontSize: 11.5, color: context.inkMuted, height: 1.8)),
           ],
         ]),
       ),
@@ -230,9 +263,9 @@ class _ServiceDetailScreenState extends State<ServiceDetailScreen> {
     return Padding(
       padding: const EdgeInsets.symmetric(vertical: 5),
       child: Row(children: [
-        Text(label, style: TextStyle(fontWeight: bold ? FontWeight.w800 : FontWeight.w500, color: bold ? PishkanColors.navy : PishkanColors.mutedText, fontSize: 13)),
+        Text(label, style: TextStyle(fontWeight: bold ? FontWeight.w800 : FontWeight.w500, color: bold ? context.ink : context.inkMuted, fontSize: 13)),
         const Spacer(),
-        Text(value, style: TextStyle(fontWeight: FontWeight.w800, fontSize: bold ? 15 : 13, color: bold ? PishkanColors.primary : PishkanColors.navy)),
+        Text(value, style: TextStyle(fontWeight: FontWeight.w800, fontSize: bold ? 15 : 13, color: bold ? PishkanColors.primary : context.ink)),
       ]),
     );
   }
@@ -240,8 +273,8 @@ class _ServiceDetailScreenState extends State<ServiceDetailScreen> {
   Widget _documents() {
     final docs = service.requirements;
     if (docs.isEmpty) {
-      return const SoftCard(
-        child: Text('این خدمت مدرک از پیش‌تعریف‌شده‌ای ندارد؛ هر مدرکی لازم شود، کارشناس در پرونده راهنمایی‌تان می‌کند.', style: TextStyle(height: 1.9, fontSize: 13, color: PishkanColors.mutedText)),
+      return  SoftCard(
+        child: Text('این خدمت مدرک از پیش‌تعریف‌شده‌ای ندارد؛ هر مدرکی لازم شود، کارشناس در پرونده راهنمایی‌تان می‌کند.', style: TextStyle(height: 1.9, fontSize: 13, color: context.inkMuted)),
       );
     }
     return Column(children: [
@@ -254,14 +287,14 @@ class _ServiceDetailScreenState extends State<ServiceDetailScreen> {
                 width: 30,
                 height: 30,
                 alignment: Alignment.center,
-                decoration: const BoxDecoration(color: PishkanColors.primary, shape: BoxShape.circle),
-                child: Text(faDigits('${i + 1}'), style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w800, fontSize: 13)),
+                decoration: BoxDecoration(color: PishkanColors.primary, shape: BoxShape.circle),
+                child: Text(faDigits('${i + 1}'), style: TextStyle(color: Colors.white, fontWeight: FontWeight.w800, fontSize: 13)),
               ),
               const SizedBox(width: 12),
               Expanded(
                 child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                  Text(docs[i].title, style: const TextStyle(fontWeight: FontWeight.w800, fontSize: 13, color: PishkanColors.navy)),
-                  if (docs[i].description.isNotEmpty) Text(docs[i].description, style: const TextStyle(fontSize: 11.5, color: PishkanColors.mutedText, height: 1.7)),
+                  Text(docs[i].title, style: TextStyle(fontWeight: FontWeight.w800, fontSize: 13, color: context.ink)),
+                  if (docs[i].description.isNotEmpty) Text(docs[i].description, style: TextStyle(fontSize: 11.5, color: context.inkMuted, height: 1.7)),
                 ]),
               ),
               if (docs[i].required)
@@ -271,7 +304,7 @@ class _ServiceDetailScreenState extends State<ServiceDetailScreen> {
                   child: const Text('الزامی', style: TextStyle(fontSize: 10.5, fontWeight: FontWeight.w700, color: PishkanColors.danger)),
                 )
               else
-                const Text('اختیاری', style: TextStyle(fontSize: 11, color: PishkanColors.mutedText)),
+                Text('اختیاری', style: TextStyle(fontSize: 11, color: context.inkMuted)),
             ]),
           ),
         ),
@@ -281,13 +314,13 @@ class _ServiceDetailScreenState extends State<ServiceDetailScreen> {
   Widget _qa() {
     return SoftCard(
       child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
-        const Row(children: [
+        Row(children: [
           Icon(Icons.support_agent_rounded, color: PishkanColors.primary),
           SizedBox(width: 8),
-          Text('سوالی دربارهٔ این خدمت دارید؟', style: TextStyle(fontWeight: FontWeight.w800, color: PishkanColors.navy)),
+          Text('سوالی دربارهٔ این خدمت دارید؟', style: TextStyle(fontWeight: FontWeight.w800, color: context.ink)),
         ]),
         const SizedBox(height: 8),
-        const Text('کارشناسان دفتر در ساعات کاری پاسخ‌گوی شما هستند. سؤال‌تان را بپرسید تا پیش از ثبت درخواست، با اطمینان اقدام کنید.', style: TextStyle(height: 1.9, fontSize: 13, color: PishkanColors.mutedText)),
+        Text('کارشناسان دفتر در ساعات کاری پاسخ‌گوی شما هستند. سؤال‌تان را بپرسید تا پیش از ثبت درخواست، با اطمینان اقدام کنید.', style: TextStyle(height: 1.9, fontSize: 13, color: context.inkMuted)),
         const SizedBox(height: 12),
         OutlinedButton.icon(
           onPressed: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const SupportTab())),
@@ -302,8 +335,8 @@ class _ServiceDetailScreenState extends State<ServiceDetailScreen> {
     final open = service.acceptingRequests;
     return Container(
       padding: const EdgeInsets.fromLTRB(16, 10, 16, 16),
-      decoration: const BoxDecoration(
-        color: Colors.white,
+      decoration: BoxDecoration(
+        color: context.surface,
         borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
         boxShadow: [BoxShadow(color: Color(0x140B1F3A), blurRadius: 18, offset: Offset(0, -5))],
       ),
@@ -313,8 +346,8 @@ class _ServiceDetailScreenState extends State<ServiceDetailScreen> {
           Expanded(
             flex: 4,
             child: Column(crossAxisAlignment: CrossAxisAlignment.start, mainAxisSize: MainAxisSize.min, children: [
-              const Text('قیمت نهایی', style: TextStyle(fontSize: 11, color: PishkanColors.mutedText)),
-              Text(service.computedTotal > 0 ? faMoney(service.computedTotal) : 'توافقی', style: const TextStyle(fontWeight: FontWeight.w800, fontSize: 15, color: PishkanColors.navy)),
+              Text('قیمت نهایی', style: TextStyle(fontSize: 11, color: context.inkMuted)),
+              Text(service.computedTotal > 0 ? faMoney(service.computedTotal) : 'توافقی', style: TextStyle(fontWeight: FontWeight.w800, fontSize: 15, color: context.ink)),
             ]),
           ),
           const SizedBox(width: 10),

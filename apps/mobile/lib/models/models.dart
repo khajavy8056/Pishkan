@@ -143,6 +143,19 @@ class DocumentRequirement {
 }
 
 class CatalogService {
+  /// A card for a service the assistant suggested: enough to open the real
+  /// detail screen, which then fetches the full record by slug.
+  CatalogService.fromSuggestion(Map<String, dynamic> suggestion)
+      : this.fromJson({
+          'id': suggestion['id'],
+          'slug': suggestion['slug'],
+          'title': suggestion['title'],
+          'summary': suggestion['summary'],
+          'categoryTitle': suggestion['categoryTitle'],
+          'finalFee': suggestion['fee'],
+          'estimatedDays': suggestion['estimatedDays'],
+        });
+
   CatalogService.fromJson(this.raw)
       : id = _str(raw['id']),
         slug = _str(raw['slug']),
@@ -392,3 +405,9 @@ List<Map<String, dynamic>> asMapList(dynamic value) => _list(value);
 String asStr(dynamic value) => _str(value);
 num asNum(dynamic value) => _num(value);
 bool asBool(dynamic value) => _bool(value);
+
+/// Flat list of strings, e.g. the assistant's `followUpQuestions`.
+List<String> asTextList(dynamic value) {
+  if (value is! List) return const [];
+  return [for (final item in value) if (_str(item).isNotEmpty) _str(item)];
+}
