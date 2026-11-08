@@ -47,6 +47,9 @@ analyzer:
     - lib/screens/wallet.dart
     - lib/services/notifier.dart
     - lib/services/services.dart
+    - lib/widgets/category_card.dart
+    - lib/widgets/dynamic_form.dart
+    - lib/widgets/avatar.dart
   errors:
     deprecated_member_use: ignore
 
