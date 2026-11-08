@@ -19,11 +19,11 @@ analyzer:
     - lib/core/theme.dart
     - lib/core/theme_mode.dart
     - lib/models/models.dart
-    - lib/screens/assistant.dart
     - lib/screens/avatar_picker.dart
     - lib/screens/chat.dart
     - lib/screens/document_camera.dart
     - lib/screens/documents.dart
+    - lib/screens/home.dart
     - lib/screens/my_discounts.dart
     - lib/screens/notification_route.dart
     - lib/screens/home_shell.dart
