@@ -67,7 +67,11 @@ jobs:
         run: flutter analyze --no-fatal-infos --no-fatal-warnings
 
       - name: Unit tests
-        run: flutter test
+        run: |
+          mkdir -p ../../dist-android
+          flutter test || status=$?
+          cp test-report.json ../../dist-android/ 2>/dev/null || true
+          exit ${status:-0}
 
       - name: Prepare release signing (when secrets exist)
         env:

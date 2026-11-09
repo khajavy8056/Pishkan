@@ -1,0 +1,5 @@
+# Machine-readable test output. The CI job's log is not reachable from where
+# this project is developed, so when a test fails the only way to learn *which*
+# one is to leave a file behind that the artifact upload collects.
+file_reporters:
+  json: ../../dist-android/test-report.json
