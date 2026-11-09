@@ -47,10 +47,13 @@ def main(argv: list[str]) -> int:
             if src.suffix.lower() not in {'.png', '.jpg', '.jpeg'}:
                 continue
             out = src.with_suffix('.webp')
-            if out.exists() and not force:
-                # Already compressed on a previous run, but the PNG copy is
-                # still sitting beside it (a re-sync rewrites it). Drop it here
-                # too, or the APK ships both formats of every picture.
+            # Only skip when the WebP is genuinely newer than the picture just
+            # copied in. Testing existence alone was a silent data-loss bug:
+            # the four first services kept the old 160px placeholder art that
+            # merely happened to share their filename, so the new pictures were
+            # "already present" and never built -- and the icons on the phone
+            # were the old blurry squares while the masters sat on disk.
+            if out.exists() and not force and out.stat().st_mtime >= src.stat().st_mtime:
                 src.unlink()
                 skipped += 1
                 continue

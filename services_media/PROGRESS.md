@@ -1,9 +1,18 @@
 # پیشرفت تصاویر خدمت‌ها
 
-- تکمیل‌شده: **3 از 193**
+- تکمیل‌شده (جفت کامل): **3 از 193**
 - شماره‌های آماده: 1, 2, 3
-- هر تصویر: `icons/<slug>.png` و `backdrops/<slug>.png`
-- قالب: `TEMPLATE.md`
-- بعد از افزودن: `python3 tools/sync_service_media.py`
+- نیمه‌کاره: 4
 
-شماره‌گذاری مطابق `manifest.json` است.
+| # | slug | آیکون | بک‌دراپ |
+|---|---|---|---|
+| 1 | `social-security-receipt` | ✓ | ✓ |
+| 2 | `social-security-records-objection` | ✓ | ✓ |
+| 3 | `insurance-history` | ✓ | ✓ |
+| 4 | `salary-deduction-undertaking` | ✓ | · |
+| 5 | `insurance-list-submission` | · | · |
+| 6 | `rural-health-insurance-registration` | · | · |
+| 7 | `payslip-inquiry` | · | · |
+| 8 | `register-llc` | · | · |
+| 9 | `register-jsc` | · | · |
+| 10 | `register-institution` | · | · |

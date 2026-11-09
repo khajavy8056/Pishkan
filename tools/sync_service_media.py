@@ -23,6 +23,7 @@ Usage:
 
 from __future__ import annotations
 
+import json
 import shutil
 import subprocess
 import sys
@@ -44,8 +45,18 @@ TARGETS = {
 
 
 def known_slugs() -> set[str]:
-    """Every service the app knows about, taken from the bundled art."""
-    return {p.stem for p in (ASSETS / 'service_art').glob('*.webp')}
+    """Every service the app knows about.
+
+    Taken from the manifest, not from the bundled art. Deriving it from
+    assets/service_art/*.webp looked tidy but tied the list to the very files
+    being replaced: delete a placeholder to regenerate it and its service
+    stopped being recognised, so the new picture was rejected as "not a
+    service".
+    """
+    manifest = MEDIA / 'manifest.json'
+    if not manifest.exists():
+        return set()
+    return {row['slug'] for row in json.loads(manifest.read_text(encoding='utf-8'))}
 
 
 def main(argv: list[str]) -> int:
