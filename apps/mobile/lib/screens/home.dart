@@ -636,18 +636,22 @@ class _LightWashState extends State<_LightWash> with SingleTickerProviderStateMi
   Widget build(BuildContext context) {
     final sizes = context.sizes;
     final brand = context.brand;
+    // The plate is laid out first and gives the stack its intrinsic height, so
+    // the `Positioned.fill` layers around it always have a box to fill and the
+    // orbs can bleed past the card's edges.
     return Stack(
-      clipBehavior: Clip.none,
-      children: [
-        // The wash sits behind the card and bleeds past its edges, which is
-        // what makes the panel look lit rather than pasted on.
+    clipBehavior: Clip.none,
+    children: [
+      _Plate(child: widget.child),
+        // The orbs sit above the plate but below the glass, so they show
+        // through the translucency rather than washing over the content.
         Positioned.fill(
           child: IgnorePointer(
             child: AnimatedBuilder(
               animation: _drift,
               builder: (context, _) {
                 final t = _drift.value;
-                return Stack(children: [
+                return Stack(clipBehavior: Clip.none, children: [
                   Positioned(
                     top: -sizes.s(28) + t * sizes.s(10),
                     end: -sizes.s(30) - t * sizes.s(8),
@@ -669,25 +673,22 @@ class _LightWashState extends State<_LightWash> with SingleTickerProviderStateMi
             ),
           ),
         ),
-        // A dim navy plate under the glass so white text has a stable floor to
-        // sit on even when the wash is bright behind it.
-        DecoratedBox(
-          decoration: BoxDecoration(
-            borderRadius: BorderRadius.circular(26),
-            gradient: const LinearGradient(
-              begin: AlignmentDirectional.topStart,
-              end: AlignmentDirectional.bottomEnd,
-              colors: [Color(0xE61F6FEE), Color(0xE60B3E8F)],
-            ),
-            boxShadow: [
-              BoxShadow(
-                color: PishkanColors.primary.withOpacity(context.isDark ? 0.22 : 0.30),
-                blurRadius: 22,
-                offset: const Offset(0, 12),
+        // A thin light rim along the top edge, over the glass: the cue that
+        // sells the material.
+        Positioned.fill(
+          child: IgnorePointer(
+            child: DecoratedBox(
+              decoration: BoxDecoration(
+                borderRadius: BorderRadius.circular(26),
+                gradient: LinearGradient(
+                  begin: Alignment.topCenter,
+                  end: Alignment.bottomCenter,
+                  colors: [Colors.white.withOpacity(0.22), Colors.white.withOpacity(0)],
+                  stops: const [0, 0.45],
+                ),
               ),
-            ],
+            ),
           ),
-          child: widget.child,
         ),
       ],
     );
@@ -703,6 +704,42 @@ class _LightWashState extends State<_LightWash> with SingleTickerProviderStateMi
           shape: BoxShape.circle,
           gradient: RadialGradient(colors: [color, color.withOpacity(0)]),
         ),
+      ),
+    );
+  }
+}
+
+/// The opaque base of the welcome panel.
+///
+/// Kept as its own widget so the panel's height comes from the *content*, which
+/// is what lets the light orbs and the rim be `Positioned.fill` layers around
+/// it instead of guessing a height.
+class _Plate extends StatelessWidget {
+  const _Plate({required this.child});
+
+  final Widget child;
+
+  @override
+  Widget build(BuildContext context) {
+    return DecoratedBox(
+      decoration: BoxDecoration(
+        borderRadius: BorderRadius.circular(26),
+        gradient: const LinearGradient(
+          begin: AlignmentDirectional.topStart,
+          end: AlignmentDirectional.bottomEnd,
+          colors: [Color(0xE61F6FEE), Color(0xE60B3E8F)],
+        ),
+        boxShadow: [
+          BoxShadow(
+            color: PishkanColors.primary.withOpacity(context.isDark ? 0.22 : 0.30),
+            blurRadius: 22,
+            offset: const Offset(0, 12),
+          ),
+        ],
+      ),
+      child: ClipRRect(
+        borderRadius: BorderRadius.circular(26),
+        child: child,
       ),
     );
   }
