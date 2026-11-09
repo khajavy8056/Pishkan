@@ -43,6 +43,25 @@ TARGETS = {
     'backdrops': ASSETS / 'service_art' / 'large',
 }
 
+# Backdrops are shared. A service page is a full-width canvas and the picture
+# behind it is large, so drawing 193 of them was both slow and pointless: the
+# services that sit in the same subject group look identical anyway. Each
+# backdrop is named after its group (`backdrop_groups.json` maps a slug to its
+# group) and is copied under THAT service's name, so the app keeps its simple
+# one-picture-per-slug lookup and nothing in Dart has to know about groups.
+GROUP_FILE = MEDIA / 'backdrop_groups.json'
+
+
+def backdrop_groups() -> dict[str, str]:
+    """service slug -> backdrop group name."""
+    if not GROUP_FILE.exists():
+        return {}
+    mapping: dict[str, str] = {}
+    for group, members in json.loads(GROUP_FILE.read_text(encoding='utf-8')).items():
+        for slug in members:
+            mapping[slug] = group
+    return mapping
+
 
 def known_slugs() -> set[str]:
     """Every service the app knows about.
@@ -69,6 +88,8 @@ def main(argv: list[str]) -> int:
     copied = 0
     unknown: list[str] = []
     wrong_type: list[str] = []
+    groups = backdrop_groups()
+    undescribed: list[str] = []
 
     for folder, target in TARGETS.items():
         source = MEDIA / folder
@@ -84,6 +105,23 @@ def main(argv: list[str]) -> int:
             suffix = path.suffix.lower()
             if suffix not in ALLOWED:
                 wrong_type.append(f'{path.relative_to(ROOT)}  ({suffix or "no extension"})')
+                continue
+            if folder == 'backdrops':
+                # One picture per group, copied once under the group's own name.
+                # Copying it under each member's slug would put 24 byte-identical
+                # 30 KB files in the APK for one picture; the app resolves the
+                # group from `backdrop_groups.dart` instead.
+                if path.stem not in set(groups.values()):
+                    unknown.append(str(path.relative_to(ROOT)))
+                    continue
+                destination = target / f'{path.stem}{suffix}'
+                if check_only:
+                    print(f'would copy  {path.relative_to(ROOT)}  ->  {destination.relative_to(ROOT)}')
+                else:
+                    target.mkdir(parents=True, exist_ok=True)
+                    shutil.copyfile(path, destination)
+                    print(f'copied      {path.relative_to(ROOT)}  ->  {destination.relative_to(ROOT)}')
+                copied += 1
                 continue
             if path.stem not in slugs:
                 unknown.append(str(path.relative_to(ROOT)))

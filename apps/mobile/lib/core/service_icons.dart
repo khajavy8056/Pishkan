@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../models/models.dart';
+import 'backdrop_groups.dart';
 import 'bundled_art.dart';
 
 /// Native vector pictogram and an optional bundled editorial illustration.
@@ -149,7 +150,13 @@ ServiceArtwork artworkForService(CatalogService service) {
     base.icon, base.color,
     imageUrl: base.imageUrl,
     assetPath: 'assets/service_art/${service.slug}.webp',
-    largeAssetPath: 'assets/service_art/large/${service.slug}.webp',
+    // The banner is shared with every service in the same subject group: the
+    // page is a full-width canvas and group members sit next to each other in
+    // the list, so one picture per service would be 193 near-identical copies.
+    // A slug with no group falls back to its own file, then to its icon.
+    largeAssetPath: backdropGroupForService.containsKey(service.slug)
+        ? 'assets/service_art/large/${backdropGroupForService[service.slug]}.webp'
+        : 'assets/service_art/large/${service.slug}.webp',
   );
 }
 
