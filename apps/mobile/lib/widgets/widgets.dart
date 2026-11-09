@@ -194,6 +194,13 @@ class SoftCard extends StatelessWidget {
   }
 }
 
+/// Lifts [amount] of white over [base], for the glass highlight stop.
+///
+/// Beside its only caller rather than in the theme: this is one line of colour
+/// maths, not a brand colour.
+Color _whiten(Color base, double amount) =>
+    Color.alphaBlend(Colors.white.withOpacity(amount), base);
+
 /// A translucent surface that lets what is behind it show through.
 ///
 /// This is the glass half of the design language; [SoftCard] is the solid
@@ -207,11 +214,6 @@ class SoftCard extends StatelessWidget {
 /// reads as glass at a fraction of the cost. Screens that genuinely have
 /// something interesting behind them (the hero panel) turn it on for one
 /// element, not for a list.
-/// Lifts [amount] of white over [base] without a second fill, for the glass
-/// highlight stop. Kept here, next to its only caller, rather than inventing a
-/// colour maths helper in the theme.
-Color _whiten(Color base, double amount) => Color.alphaBlend(Colors.white.withOpacity(amount), base);
-
 class GlassCard extends StatelessWidget {
   const GlassCard({
     super.key,
