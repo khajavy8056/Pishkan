@@ -60,7 +60,7 @@ export const SETTING_GROUPS: {
   { code: 'payroll', title: 'درآمد و تسویه کارکنان', description: 'مبنای محاسبه سهم درصدی، دوره تسویه، حداقل برداشت و اجازه ثبت درخواست برداشت', icon: 'wallet', order: 17 },
   { code: 'multibranch', title: 'چنددفتره', description: 'آماده‌سازی برای مدیریت چند دفتر مستقل (آزمایشی)', icon: 'building', order: 16 },
   { code: 'support', title: 'پشتیبانی و تیکت‌ها', description: 'فعال‌سازی میز پشتیبانی مشتریان و متن راهنمای آن', icon: 'life-buoy', order: 18 },
-  { code: 'android_app', title: 'اپ اندروید مشتریان', description: 'نسخه‌بندی و سیاست به‌روزرسانی اپ، نوار اطلاعیه و فعال‌بودن استوری‌ها — مدیریت کامل در بخش «اپ اندروید» پنل مدیر کل است', icon: 'smartphone', order: 19 },
+  { code: 'android_app', title: 'اپ اندروید مشتریان', description: 'نسخه‌بندی و سیاست به‌روزرسانی اپ، نوار اطلاعیه و روشن/خاموش بودن بنرها — مدیریت کامل بنرها در بخش «اپ اندروید» پنل مدیر کل است', icon: 'smartphone', order: 19 },
 ];
 
 const bool = (v: boolean) => v;

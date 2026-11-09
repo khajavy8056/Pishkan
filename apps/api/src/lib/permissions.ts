@@ -58,7 +58,7 @@ export const PAYROLL_PERMISSIONS = [
 /** Restoring a backup is destructive, so it is its own grantable permission. */
 export const BACKUP_PERMISSIONS = ['backup.restore'] as const;
 
-/** Customer Android app: stories, announcements and app-wide settings. */
+/** Customer Android app: banners, announcements and app-wide settings. */
 export const APP_PERMISSIONS = ['app.manage'] as const;
 
 /**
@@ -78,7 +78,7 @@ export const EXTRA_PERMISSION_LABELS: Record<string, string> = {
   'wallet.credit': 'شارژ کیف پول مشتری',
   'wallet.adjust': 'اصلاح موجودی کیف پول مشتری',
   'backup.restore': 'بازیابی نسخهٔ پشتیبان',
-  'app.manage': 'مدیریت اپ اندروید مشتریان (استوری و تنظیمات)',
+  'app.manage': 'مدیریت اپ اندروید مشتریان (بنرها و تنظیمات)',
   'blog.publish': 'انتشار و لغو انتشار مطالب بلاگ',
   'blog.comments': 'مدیریت و تأیید نظرات بلاگ',
   'blog.categories': 'مدیریت دسته‌بندی‌های بلاگ',
