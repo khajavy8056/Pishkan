@@ -3,6 +3,7 @@ import 'package:flutter/services.dart';
 
 import '../core/format.dart';
 import '../core/service_icons.dart';
+import '../widgets/service_art_overlay.dart';
 import '../core/motion.dart';
 import '../core/sizes.dart';
 import '../core/theme.dart';
@@ -96,7 +97,12 @@ class _ServiceDetailScreenState extends State<ServiceDetailScreen> {
               // customer tapped expands into this header.
               : Hero(
                   tag: 'service-art-${service.slug}',
-                  child: useLocalArt ? _illustrationBackdrop(localArt) : _bannerArt(art),
+                  // The bundled asset paints at once and the server's copy
+                  // lands on top of it: instant and replaceable at the same
+                  // time, instead of a spinner on a slow connection.
+                  child: useLocalArt
+                      ? _illustrationBackdrop()
+                      : _bannerArt(art),
                 ),
         ),
         SafeArea(
@@ -147,7 +153,17 @@ class _ServiceDetailScreenState extends State<ServiceDetailScreen> {
   /// The 3D tile is a square on a studio backdrop; on a 300 px hero it is
   /// centred over a tinted wash of its own category colour instead of being
   /// stretched. The wash keeps the header calm in both themes.
-  Widget _illustrationBackdrop(String asset) {
+  /// The header picture of a service page.
+  ///
+  /// This is the wide 1280px backdrop, filling the 300px banner and cropped to
+  /// cover — not the square icon. It used to draw the icon at 236px in the
+  /// middle of a tinted panel, which threw away the whole backdrop and left the
+  /// header mostly empty.
+  ///
+  /// The gradient underneath stays as the last resort: if both the bundled
+  /// file and the server copy are missing, the page still shows the service's
+  /// own tint instead of a black rectangle.
+  Widget _illustrationBackdrop() {
     return DecoratedBox(
       decoration: BoxDecoration(
         gradient: LinearGradient(
@@ -158,16 +174,7 @@ class _ServiceDetailScreenState extends State<ServiceDetailScreen> {
           end: Alignment.bottomCenter,
         ),
       ),
-      child: Center(
-        child: Image.asset(
-          asset,
-          width: 236,
-          height: 236,
-          fit: BoxFit.contain,
-          filterQuality: FilterQuality.medium,
-          errorBuilder: (_, _, _) => _bannerArt(artworkForService(service)),
-        ),
-      ),
+      child: ServiceArtOverlay(service: service, art: artworkForService(service)),
     );
   }
 

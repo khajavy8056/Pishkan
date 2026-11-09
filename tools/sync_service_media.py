@@ -43,6 +43,17 @@ TARGETS = {
     'backdrops': ASSETS / 'service_art' / 'large',
 }
 
+# The same pictures also have to reach the SERVER, because a service created
+# from the admin panel after a release has no bundled asset and must still show
+# its own picture. The web build's public folder is what the API serves at
+# /images/..., and `default-artwork.ts` maps a slug to that path, so copying
+# here is what makes the server the source of truth without a second pipeline.
+SERVER_ART = ROOT / 'apps' / 'web' / 'public' / 'images' / 'services'
+SERVER_TARGETS = {
+    'icons': SERVER_ART / 'individual',
+    'backdrops': SERVER_ART / 'backdrops',
+}
+
 # Backdrops are shared. A service page is a full-width canvas and the picture
 # behind it is large, so drawing 193 of them was both slow and pointless: the
 # services that sit in the same subject group look identical anyway. Each
@@ -76,6 +87,37 @@ def known_slugs() -> set[str]:
     if not manifest.exists():
         return set()
     return {row['slug'] for row in json.loads(manifest.read_text(encoding='utf-8'))}
+
+
+def mirror_to_server() -> None:
+    """Copy the *compressed* WebP into the folder the API serves.
+
+    Done after compression, not during the copy loop: the source files are
+    1024px masters and several hundred kilobytes each, and shipping those to
+    the web bundle put 108 MB of art in a build that only ever loads 30 KB
+    per service.
+    """
+    plan = [
+        (ASSETS / 'service_art', SERVER_TARGETS['icons']),
+        (ASSETS / 'service_art' / 'large', SERVER_TARGETS['backdrops']),
+    ]
+    written = 0
+    for source_dir, target_dir in plan:
+        if not source_dir.is_dir():
+            continue
+        target_dir.mkdir(parents=True, exist_ok=True)
+        # Sweep any master that an earlier run copied here. A PNG in this
+        # folder is always a mistake: it is the 1-2 MB source, not the WebP the
+        # app loads, and it was 108 MB of the web bundle before this existed.
+        for stale in target_dir.glob('*.png'):
+            stale.unlink()
+        for webp in sorted(source_dir.glob('*.webp')):
+            destination = target_dir / webp.name
+            if destination.exists() and destination.stat().st_mtime >= webp.stat().st_mtime:
+                continue
+            shutil.copyfile(webp, destination)
+            written += 1
+    print(f'\nmirrored {written} compressed image(s) to the server bundle.')
 
 
 def main(argv: list[str]) -> int:
@@ -120,6 +162,9 @@ def main(argv: list[str]) -> int:
                 else:
                     target.mkdir(parents=True, exist_ok=True)
                     shutil.copyfile(path, destination)
+                    # The server is fed after compression, from the app's own
+                    # WebP -- see _mirror_to_server below. Copying the master
+                    # here put 193 one-megabyte PNGs in the web bundle.
                     print(f'copied      {path.relative_to(ROOT)}  ->  {destination.relative_to(ROOT)}')
                 copied += 1
                 continue
@@ -155,6 +200,7 @@ def main(argv: list[str]) -> int:
         # the step that keeps ~650 MB out of the APK.
         print('\nCompressing for the app:')
         subprocess.run([sys.executable, str(ROOT / 'tools' / 'compress_service_media.py')], check=True)
+        mirror_to_server()
 
     return 1 if (unknown or wrong_type) else 0
 

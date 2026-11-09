@@ -18,12 +18,15 @@ import 'bundled_art.dart';
 /// `tools/service-art/build.mjs`, so an admin-created service and its eventual
 /// asset look like the same object.
 class ServiceArtwork {
-  const ServiceArtwork(this.icon, this.color, {this.imageUrl = '', this.assetPath = '', this.largeAssetPath = ''});
+  const ServiceArtwork(this.icon, this.color, {this.imageUrl = '', this.assetPath = '', this.largeAssetPath = '', this.backdropGroup = ''});
   final IconData icon;
   final Color color;
   final String imageUrl;
   final String assetPath;
   final String largeAssetPath;
+  /// Subject group whose shared backdrop this service uses, or '' when it has
+  /// none. The server serves the same file at /images/services/backdrops/.
+  final String backdropGroup;
 
   bool get hasBundledArt => assetPath.isNotEmpty;
 
@@ -157,6 +160,7 @@ ServiceArtwork artworkForService(CatalogService service) {
     largeAssetPath: backdropGroupForService.containsKey(service.slug)
         ? 'assets/service_art/large/${backdropGroupForService[service.slug]}.webp'
         : 'assets/service_art/large/${service.slug}.webp',
+    backdropGroup: backdropGroupForService[service.slug] ?? '',
   );
 }
 

@@ -26,13 +26,29 @@ class SplashScreen extends StatefulWidget {
 
 class _SplashScreenState extends State<SplashScreen> {
   String _message = 'در حال آماده‌سازی…';
-  String _brand = 'پیشخوان آرنا';
+  String _brand = 'تک پیشخوان';
   String _tagline = 'سامانهٔ جامع خدمات دولت';
 
   @override
   void initState() {
     super.initState();
     _boot();
+  }
+
+  /// Wall-clock floor for the splash animation.
+  ///
+  /// The brief asks for five to seven seconds of intro so the identity is
+  /// actually seen, but the work has to happen inside that window, not after
+  /// it: [_bootSteps] runs immediately and this only pads the remainder, so a
+  /// fast connection still leaves after six seconds and a slow one leaves as
+  /// soon as it is ready. Nobody waits 6 s *plus* the network.
+  static const _minimumSplash = Duration(seconds: 6);
+  final _bootStarted = DateTime.now();
+
+  Future<void> _holdSplash() async {
+    final elapsed = DateTime.now().difference(_bootStarted);
+    final remaining = _minimumSplash - elapsed;
+    if (remaining > Duration.zero) await Future<void>.delayed(remaining);
   }
 
   Future<void> _boot() async {
@@ -145,7 +161,9 @@ class _SplashScreenState extends State<SplashScreen> {
     );
   }
 
-  void _go(Widget page) {
+  Future<void> _go(Widget page) async {
+    await _holdSplash();
+    if (!mounted) return;
     Navigator.of(context).pushReplacement(MaterialPageRoute(builder: (_) => page));
   }
 

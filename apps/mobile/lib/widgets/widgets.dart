@@ -379,6 +379,31 @@ class IconMedallion extends StatelessWidget {
 
 /// Authenticated network image (previews of private documents need the
 /// session token; public images simply ignore the header).
+/// Like [AuthImage], but draws nothing at all until the file is there.
+///
+/// Used where another layer is already painted underneath — a bundled asset,
+/// for example — so a placeholder, a spinner or a broken-image icon would
+/// cover a perfectly good picture with a grey box.
+class AuthImageOrNothing extends StatelessWidget {
+  const AuthImageOrNothing({super.key, required this.url, this.fit = BoxFit.cover});
+
+  final String url;
+  final BoxFit fit;
+
+  @override
+  Widget build(BuildContext context) {
+    if (url.isEmpty) return const SizedBox.shrink();
+    return CachedNetworkImage(
+      imageUrl: api.absolute(url),
+      httpHeaders: api.authHeaders(url),
+      fit: fit,
+      fadeInDuration: const Duration(milliseconds: 200),
+      placeholder: (_, _) => const SizedBox.shrink(),
+      errorWidget: (_, _, _) => const SizedBox.shrink(),
+    );
+  }
+}
+
 class AuthImage extends StatelessWidget {
   const AuthImage({super.key, required this.url, this.fit = BoxFit.cover, this.width, this.height});
   final String url;
