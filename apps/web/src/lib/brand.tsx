@@ -12,8 +12,8 @@ export function useBrand() {
   const { setting } = useSite();
   const logoFileId = setting('site.logo_file_id');
   return {
-    name: setting('site.name') || 'پیشخوان آرتا',
-    shortName: setting('site.short_name') || 'پیشخوان آرتا',
+    name: setting('site.name') || 'تک پیشخوان',
+    shortName: setting('site.short_name') || 'تک پیشخوان',
     nameEn: setting('site.name_en'),
     tagline: setting('site.tagline'),
     /** Uploaded/configured logo image; empty → built-in vector mark. */

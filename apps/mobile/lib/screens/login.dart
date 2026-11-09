@@ -223,7 +223,7 @@ class _LoginScreenState extends State<LoginScreen> {
   @override
   Widget build(BuildContext context) {
     final config = _config;
-    final brand = config?.brandName ?? 'پیشخوان آرنا';
+    final brand = config?.brandName ?? 'تک پیشخوان';
     final tagline = (config?.tagline.isNotEmpty == true) ? config!.tagline : 'سامانهٔ جامع خدمات دولت';
     return Scaffold(
       body: SafeArea(

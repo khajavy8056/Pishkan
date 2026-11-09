@@ -31,7 +31,7 @@ const contentUser = {
 
 const bootstrap = {
   version: '1.0.0-test',
-  settings: { 'site.name': 'پیشخوان آرتا', 'site.short_name': 'پیشخوان آرتا' },
+  settings: { 'site.name': 'تک پیشخوان', 'site.short_name': 'تک پیشخوان' },
   categories: [], popularServices: [], newestServices: [],
   authMethods: { staffOtp: false, otp: true, password: true, registrationOpen: true, passwordReset: true },
   maintenance: false,

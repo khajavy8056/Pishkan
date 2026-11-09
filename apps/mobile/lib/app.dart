@@ -58,7 +58,7 @@ class _PishkanAppState extends State<PishkanApp> {
     return ListenableBuilder(
       listenable: ThemeController.instance,
       builder: (context, _) => MaterialApp(
-      title: 'پیشخوان',
+      title: 'تک پیشخوان',
       debugShowCheckedModeBanner: false,
       navigatorKey: appNavigatorKey,
       theme: buildPishkanTheme(),

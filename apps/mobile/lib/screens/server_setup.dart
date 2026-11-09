@@ -96,11 +96,11 @@ class _ServerSetupScreenState extends State<ServerSetupScreen> {
           if (!widget.fromProfile) ...[
             Center(child: ClipRRect(borderRadius: BorderRadius.circular(22), child: Image.asset('assets/icon.png', width: 76, height: 76))),
             const SizedBox(height: 16),
-            Center(child: Text('به پیشخوان خوش آمدید', style: TextStyle(fontSize: 20, fontWeight: FontWeight.w800, color: context.ink))),
+            Center(child: Text('به تک پیشخوان خوش آمدید', style: TextStyle(fontSize: 20, fontWeight: FontWeight.w800, color: context.ink))),
             const SizedBox(height: 8),
             Center(
               child: Text(
-                'برای شروع، آدرس سامانهٔ دفتر خودتان را وارد کنید.\nاین آدرس را دفتر پیشخوان به شما می‌دهد.',
+                'برای شروع، آدرس سامانهٔ دفتر خودتان را وارد کنید.\nاین آدرس را دفتر تک پیشخوان به شما می‌دهد.',
                 textAlign: TextAlign.center,
                 style: TextStyle(color: context.inkMuted, fontSize: 13, height: 1.9),
               ),

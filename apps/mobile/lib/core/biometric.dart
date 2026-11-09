@@ -19,7 +19,7 @@ class BiometricAuth {
   static Future<bool> authenticate() async {
     try {
       return await _auth.authenticate(
-        localizedReason: 'برای ورود به حساب پیشخوان، هویت خود را تأیید کنید.',
+        localizedReason: 'برای ورود به حساب تک پیشخوان، هویت خود را تأیید کنید.',
         options: const AuthenticationOptions(stickyAuth: true, biometricOnly: true),
       );
     } catch (_) {

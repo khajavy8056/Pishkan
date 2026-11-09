@@ -103,7 +103,7 @@ class _HomeTabState extends State<HomeTab> {
   @override
   Widget build(BuildContext context) {
     final sizes = context.sizes;
-    final brand = _config?.brandName.isNotEmpty == true ? _config!.brandName : 'پیشخوان آرنا';
+    final brand = _config?.brandName.isNotEmpty == true ? _config!.brandName : 'تک پیشخوان';
     return HeaderScaffold(
       header: Column(children: [
         _header(brand, unread: widget.unreadCount),

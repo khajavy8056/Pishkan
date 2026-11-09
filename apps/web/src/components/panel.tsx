@@ -5,7 +5,7 @@ import clsx from 'clsx';
 import { faNum } from '../lib/format';
 
 /**
- * Shared building blocks of the staff/admin panels (پیشخوان آرتا design):
+ * Shared building blocks of the staff/admin panels (تک پیشخوان design):
  * glossy pastel stat cards, donut/ring gauges, smooth RTL line charts and
  * image heroes. Every value rendered here comes from the real API — these
  * components only draw.

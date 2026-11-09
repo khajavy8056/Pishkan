@@ -53,7 +53,7 @@ const comment = {
 
 const bootstrap = {
   version: '1.0.0-test',
-  settings: { 'site.name': 'پیشخوان آرتا', 'site.short_name': 'پیشخوان آرتا' },
+  settings: { 'site.name': 'تک پیشخوان', 'site.short_name': 'تک پیشخوان' },
   categories: [], popularServices: [], newestServices: [],
   authMethods: { staffOtp: false, otp: true, password: true, registrationOpen: true, passwordReset: true },
   maintenance: false,
@@ -125,7 +125,7 @@ describe('public blog', () => {
     renderBlog(<BlogHome />);
 
     await waitFor(() => expect(screen.getAllByText('راهنمای کامل تعویض پلاک خودرو').length).toBeGreaterThan(0));
-    expect(screen.getByText(/بلاگ پیشخوان آرتا/)).toBeTruthy();
+    expect(screen.getByText(/بلاگ تک پیشخوان/)).toBeTruthy();
     expect(screen.getByText('محبوب‌ترین مطالب')).toBeTruthy();
     expect(screen.getByText('عضویت در خبرنامه')).toBeTruthy();
     expect(screen.getByText('مطالعه بیشتر')).toBeTruthy();

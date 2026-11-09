@@ -112,7 +112,7 @@ class _ProfileTabState extends State<ProfileTab> {
                   child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
                     const Text('اجازهٔ اعلان داده نشده است', style: TextStyle(fontWeight: FontWeight.w800, fontSize: 12.5, color: PishkanColors.danger)),
                     const SizedBox(height: 4),
-                    Text('بدون این اجازه هیچ اعلانی نمایش داده نمی‌شود. با دکمهٔ زیر درخواست اجازه می‌دهیم؛ اگر پنجره نیامد، از تنظیمات گوشی مسیر «برنامه‌ها ← پیشخوان ← اعلان‌ها» را روشن کنید.',
+                    Text('بدون این اجازه هیچ اعلانی نمایش داده نمی‌شود. با دکمهٔ زیر درخواست اجازه می‌دهیم؛ اگر پنجره نیامد، از تنظیمات گوشی مسیر «برنامه‌ها ← تک پیشخوان ← اعلان‌ها» را روشن کنید.',
                         style: TextStyle(fontSize: 11.5, height: 1.75, color: context.ink)),
                     const SizedBox(height: 8),
                     PlushButton(
@@ -190,7 +190,7 @@ class _ProfileTabState extends State<ProfileTab> {
                   showSnack(
                     sheetContext,
                     exempt
-                        ? 'پیشخوان از قبل بدون محدودیت است؛ صفحهٔ تنظیمات باز شد.'
+                        ? 'تک پیشخوان از قبل بدون محدودیت است؛ صفحهٔ تنظیمات باز شد.'
                         : 'صفحهٔ تنظیمات باز شد؛ «بدون محدودیت» را انتخاب کنید تا اعلان‌ها بی‌تأخیر برسند.',
                   );
                 },
@@ -215,7 +215,7 @@ class _ProfileTabState extends State<ProfileTab> {
       listenable: session,
       builder: (context, _) {
         final user = session.user ?? const {};
-        final name = asStr(user['fullName']).isEmpty ? 'کاربر پیشخوان' : asStr(user['fullName']);
+        final name = asStr(user['fullName']).isEmpty ? 'کاربر تک پیشخوان' : asStr(user['fullName']);
         final mobile = asStr(user['mobile']);
         final sizes = context.sizes;
         return HeaderScaffold(
@@ -347,7 +347,7 @@ class _ProfileTabState extends State<ProfileTab> {
                   onChanged: _biometricAvailable ? _toggleBiometric : null,
                 ),
                 const Divider(height: 1),
-                _link(Icons.info_outline_rounded, 'دربارهٔ پیشخوان', 'معرفی، تماس با دفتر و نسخهٔ اپ', () => Navigator.push(context, MaterialPageRoute(builder: (_) => const AboutScreen()))),
+                _link(Icons.info_outline_rounded, 'دربارهٔ تک پیشخوان', 'معرفی، تماس با دفتر و نسخهٔ اپ', () => Navigator.push(context, MaterialPageRoute(builder: (_) => const AboutScreen()))),
               ]),
             ),
             const SectionTitle(title: 'تنظیمات اتصال'),
@@ -385,7 +385,7 @@ class _ProfileTabState extends State<ProfileTab> {
               label: const Text('خروج از حساب کاربری'),
             ),
             const SizedBox(height: 14),
-            Center(child: Text('اپلیکیشن مشتریان پیشخوان · نسخهٔ ${faDigits(_version)}', style: TextStyle(fontSize: 11, color: context.inkMuted))),
+            Center(child: Text('اپلیکیشن مشتریان تک پیشخوان · نسخهٔ ${faDigits(_version)}', style: TextStyle(fontSize: 11, color: context.inkMuted))),
               ],
             ),
         );
@@ -698,7 +698,7 @@ class _AboutScreenState extends State<AboutScreen> {
   @override
   Widget build(BuildContext context) {
     final config = _config;
-    final brand = config?.brandName.isNotEmpty == true ? config!.brandName : 'پیشخوان آرنا';
+    final brand = config?.brandName.isNotEmpty == true ? config!.brandName : 'تک پیشخوان';
     final tagline = (config?.tagline.isNotEmpty == true) ? config!.tagline : 'سامانهٔ جامع خدمات دولت';
     final phone = config?.supportPhone ?? '';
     return Scaffold(
@@ -720,7 +720,7 @@ class _AboutScreenState extends State<AboutScreen> {
         const SizedBox(height: 20),
         const SoftCard(
           child: Text(
-            'این اپ، دفتر پیشخوان شماست؛ بدون صف و معطّلی. درخواست ثبت می‌کنید، مدارک را از همین‌جا می‌فرستید، مرحله‌به‌مرحله با اعلان در جریان پیشرفت پرونده قرار می‌گیرید و نتیجه را همین‌جا تحویل می‌گیرید. حسابتان در اپ و نسخهٔ وب یکی است؛ هرچه این‌جا می‌بینید، در سایت دفتر هم همان است.',
+            'این اپ، تک پیشخوان شماست؛ بدون صف و معطّلی. درخواست ثبت می‌کنید، مدارک را از همین‌جا می‌فرستید، مرحله‌به‌مرحله با اعلان در جریان پیشرفت پرونده قرار می‌گیرید و نتیجه را همین‌جا تحویل می‌گیرید. حسابتان در اپ و نسخهٔ وب یکی است؛ هرچه این‌جا می‌بینید، در سایت دفتر هم همان است.',
             style: TextStyle(height: 2, fontSize: 13),
           ),
         ),

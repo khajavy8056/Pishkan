@@ -13,7 +13,7 @@ bool _bool(dynamic value) => value == true || value == 1 || value == '1' || valu
 
 class AppConfig {
   AppConfig.fromJson(Map<String, dynamic> json)
-      : brandName = _str(_map(json['brand'])['name']).isEmpty ? 'پیشخوان' : _str(_map(json['brand'])['name']),
+      : brandName = _str(_map(json['brand'])['name']).isEmpty ? 'تک پیشخوان' : _str(_map(json['brand'])['name']),
         tagline = _str(_map(json['brand'])['tagline']),
         logoUrl = _str(_map(json['brand'])['logoUrl']),
         welcomeTitle = _str(_map(json['brand'])['welcomeTitle']),

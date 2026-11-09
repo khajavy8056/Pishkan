@@ -67,8 +67,8 @@ const bool = (v: boolean) => v;
 
 export const SETTINGS: SettingDef[] = [
   /* ------------------------------- general -------------------------------- */
-  { key: 'site.name', group: 'general', type: 'text', label: 'نام سامانه', hint: 'در هدر، عنوان صفحه‌ها و پیامک‌ها استفاده می‌شود.', default: 'پیشخوان آرتا', public: true },
-  { key: 'site.short_name', group: 'general', type: 'text', label: 'نام کوتاه', default: 'پیشخوان آرتا', public: true },
+  { key: 'site.name', group: 'general', type: 'text', label: 'نام سامانه', hint: 'در هدر، عنوان صفحه‌ها و پیامک‌ها استفاده می‌شود.', default: 'تک پیشخوان', public: true },
+  { key: 'site.short_name', group: 'general', type: 'text', label: 'نام کوتاه', default: 'تک پیشخوان', public: true },
   { key: 'site.tagline', group: 'general', type: 'text', label: 'شعار / زیرعنوان', default: 'سریع • مطمئن • آسان', public: true },
   { key: 'site.description', group: 'general', type: 'textarea', label: 'توضیحات سایت', hint: 'در فوتر و توضیحات متا استفاده می‌شود.', default: 'سامانه جامع ارائه خدمات دفتر پیشخوان دولت', public: true },
   { key: 'site.logo_file_id', group: 'general', type: 'text', label: 'شناسه فایل لوگو', hint: 'از بخش فایل‌ها آپلود کنید؛ خالی یعنی لوگوی پیش‌فرض.', default: '', public: true },
@@ -76,7 +76,7 @@ export const SETTINGS: SettingDef[] = [
   { key: 'site.footer_text', group: 'general', type: 'text', label: 'متن فوتر', default: 'تمام حقوق محفوظ است.', public: true },
   { key: 'brand.primary_color', group: 'general', type: 'color', label: 'رنگ اصلی برند', default: '#1d4ed8', public: true },
   { key: 'brand.navy_color', group: 'general', type: 'color', label: 'رنگ سرمه‌ای برند', default: '#0b1f3a', public: true },
-  { key: 'office.name', group: 'general', type: 'text', label: 'نام دفتر', default: 'پیشخوان آرتا', public: true },
+  { key: 'office.name', group: 'general', type: 'text', label: 'نام دفتر', default: 'تک پیشخوان', public: true },
   { key: 'office.phone', group: 'general', type: 'tel', label: 'تلفن دفتر', default: '', public: true },
   { key: 'office.mobile', group: 'general', type: 'tel', label: 'موبایل دفتر', default: '', public: true },
   { key: 'office.email', group: 'general', type: 'email', label: 'ایمیل دفتر', default: '', public: true },

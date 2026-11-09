@@ -11,8 +11,8 @@ export default defineConfig({
       registerType: 'autoUpdate',
       includeAssets: ['favicon.svg', 'images/**/*.svg'],
       manifest: {
-        name: 'پیشخوان آرتا',
-        short_name: 'آرتا',
+        name: 'تک پیشخوان',
+        short_name: 'تک پیشخوان',
         description: 'سامانه جامع خدمات دفتر پیشخوان دولت',
         lang: 'fa',
         dir: 'rtl',

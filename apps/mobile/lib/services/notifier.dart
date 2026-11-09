@@ -201,7 +201,7 @@ class NotifierService {
       (_messagesChannel, 'پیام‌ها', 'پاسخ‌های گفتگو و تیکت پشتیبانی', 'message_soft'),
       (_announcementChannel, 'اطلاعیه‌ها و بنرها', 'بنر و اطلاعیهٔ تازهٔ دفتر', 'notice_soft'),
       (_invoiceChannel, 'فاکتورها', 'فاکتورها و وضعیت پرداخت', 'invoice_soft'),
-      (_generalChannel, 'اطلاع‌رسانی سامانه', 'اعلان‌های عمومی پیشخوان', 'notice_soft'),
+      (_generalChannel, 'اطلاع‌رسانی سامانه', 'اعلان‌های عمومی تک پیشخوان', 'notice_soft'),
     ];
     for (final (id, name, description, sound) in channels) {
       // With sound (the user has not muted the app) …
@@ -389,7 +389,7 @@ class NotifierService {
       }
       await _showSystem(AppNotificationEvent(
         id: 'test-${DateTime.now().millisecondsSinceEpoch}',
-        title: 'اعلان آزمایشی پیشخوان',
+        title: 'اعلان آزمایشی تک پیشخوان',
         body: 'اگر این پیام را می‌بینید، اعلان‌ها درست کار می‌کنند.',
         link: '/app/notifications',
         kind: 'info',
@@ -410,7 +410,7 @@ class NotifierService {
       (_, true, _, _) => (_messagesChannel, 'پیام‌ها', 'پاسخ‌های گفتگو و تیکت پشتیبانی', 'message_soft'),
       (_, _, true, _) => (_invoiceChannel, 'فاکتورها', 'فاکتورها و وضعیت پرداخت', 'invoice_soft'),
       (_, _, _, true) => (_requestsChannel, 'تغییرات پرونده‌ها', 'مرحلهٔ تازهٔ درخواست‌ها همراه نوار پیشرفت', 'notice_soft'),
-      _ => (_generalChannel, 'اطلاع‌رسانی سامانه', 'اعلان‌های عمومی پیشخوان', 'notice_soft'),
+      _ => (_generalChannel, 'اطلاع‌رسانی سامانه', 'اعلان‌های عمومی تک پیشخوان', 'notice_soft'),
     };
     final progressValue = event.progress == null ? 0 : (event.progress! * 100).round();
     final bodyText = event.progress == null
