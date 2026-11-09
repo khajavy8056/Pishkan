@@ -1,9 +1,0 @@
-# Machine-readable test output.
-#
-# The CI job's log is not reachable from where this project is developed, so
-# when a test fails the only way to learn *which* one is to leave a file
-# behind. `flutter test` runs with the working directory at apps/mobile, and
-# the artifact upload collects `dist-android/*` from the repository root, so
-# the report is written there — two levels up.
-file_reporters:
-  json: test-report.json
