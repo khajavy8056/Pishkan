@@ -35,9 +35,21 @@ class ServiceArtOverlay extends StatelessWidget {
 
   /// The server path this service's group backdrop lives at. Kept in step with
   /// `GROUP_BACKDROPS` in the API's default-artwork.ts.
+  ///
+  /// The path is stable, which is what makes the on-disk cache worth having —
+  /// but it also means a picture the office replaces would keep coming out of
+  /// the cache forever, since a cached entry is keyed by URL and the URL never
+  /// changes. The service's `updatedAt` rides along as a query token instead:
+  /// unchanged records keep their exact URL and stay cached, a replaced record
+  /// gets a new one and downloads once. The server ignores the parameter.
   String get _remoteUrl {
     final group = art.backdropGroup;
-    return group.isEmpty ? '' : '/images/services/backdrops/$group.webp';
+    if (group.isEmpty) return '';
+    final version = service.updatedAt.trim();
+    final base = '/images/services/backdrops/$group.webp';
+    if (version.isEmpty) return base;
+    final stamp = Uri.encodeQueryComponent(version);
+    return '$base?v=$stamp';
   }
 
   @override

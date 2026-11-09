@@ -87,6 +87,21 @@ class AppBanner {
   bool get isUrl => destinationKind == 'url' && destinationUrl.isNotEmpty;
   bool get hasImage => imageUrl.isNotEmpty;
 
+  /// The picture URL with [updatedAt] attached as a cache token.
+  ///
+  /// An uploaded banner's image is streamed from a path that never changes:
+  /// `/api/app/banners/<id>/image`. The disk cache is therefore right to keep
+  /// serving it, and wrong the moment the office replaces the artwork — the
+  /// new file would never appear on a phone that had opened the old one. The
+  /// token changes exactly when the banner does, so unchanged cards keep their
+  /// cached picture and a replaced one downloads on its next view.
+  String get imageCacheKey {
+    if (imageUrl.isEmpty) return imageUrl;
+    if (updatedAt.isEmpty) return imageUrl;
+    final separator = imageUrl.contains('?') ? '&' : '?';
+    return '$imageUrl${separator}v=${Uri.encodeQueryComponent(updatedAt)}';
+  }
+
   /// Small label shown above the title. A banner that advertises a service
   /// says so; the rest are named for what they are, so the rail does not read
   /// as six identical posters.

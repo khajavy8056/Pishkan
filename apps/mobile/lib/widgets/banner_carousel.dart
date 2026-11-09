@@ -159,7 +159,7 @@ class BannerCard extends StatelessWidget {
           fit: StackFit.expand,
           children: [
             if (banner.hasImage)
-              AuthImage(url: banner.imageUrl)
+              AuthImage(url: banner.imageCacheKey)
             else
               DecoratedBox(decoration: BoxDecoration(gradient: fallback)),
             // The scrim is horizontal rather than uniform: the copy sits on
