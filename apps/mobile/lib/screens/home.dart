@@ -528,26 +528,7 @@ class _HomeTabState extends State<HomeTab> {
       crossAxisSpacing: 10,
       childAspectRatio: 0.8,
       children: [
-        for (final service in items)
-          GestureDetector(
-            onTap: () => Navigator.push(context, fadeThroughRoute(ServiceDetailScreen(service: service))),
-            child: Column(children: [
-              // Same tag as the detail banner: the picture the customer tapped
-              // is the one that expands, so the two screens are visibly linked.
-              Hero(
-                tag: 'service-art-${service.slug}',
-                child: Container(
-                  padding: const EdgeInsets.all(7),
-                  decoration: BoxDecoration(color: context.surface, shape: BoxShape.circle, boxShadow: const [BoxShadow(color: Color(0x100B1F3A), blurRadius: 10, offset: Offset(0, 4))]),
-                  child: IconMedallion(artwork: artworkForService(service), size: 40, glyphBadge: true),
-                ),
-              ),
-              const SizedBox(height: 6),
-              Flexible(
-                child: Text(service.title, maxLines: 2, overflow: TextOverflow.ellipsis, textAlign: TextAlign.center, style: TextStyle(fontSize: 10.5, fontWeight: FontWeight.w600, color: context.ink, height: 1.4)),
-              ),
-            ]),
-          ),
+        for (final service in items) _ServicePill(service: service),
       ],
     );
   }
@@ -572,6 +553,87 @@ class _HomeTabState extends State<HomeTab> {
     );
   }
 
+}
+
+/// One service in the popular grid.
+///
+/// This used to be a bare `GestureDetector` around a circle and a label: it
+/// worked, and it had nothing to say. No pressed state, so a tap gave no
+/// feedback until the next screen arrived; no card, so the tiles floated on the
+/// page wash with a single 4% shadow that disappeared entirely in dark mode.
+///
+/// The plate is what makes the grid read as objects you can pick up: a soft
+/// surface, a tinted drop shadow in the artwork's own colour, a hairline rim,
+/// and a press that scales the whole tile. The tint is what stops four white
+/// squares from looking like a spreadsheet — each tile is lit by the colour of
+/// the service it opens.
+class _ServicePill extends StatelessWidget {
+  const _ServicePill({required this.service});
+
+  final CatalogService service;
+
+  @override
+  Widget build(BuildContext context) {
+    final dark = context.isDark;
+    final art = artworkForService(service);
+    final tint = art.color;
+    return PressableScale(
+      scale: 0.94,
+      onTap: () => Navigator.push(context, fadeThroughRoute(ServiceDetailScreen(service: service))),
+      child: Column(children: [
+        // A circle, not a rounded square: the medallion inside is round, and a
+        // square plate behind a round picture reads as a mistake.
+        //
+        // The shadow is tinted rather than black — at this size a black shadow
+        // is a grey smudge, while the service's own hue reads as light falling
+        // off the object.
+        Container(
+          padding: const EdgeInsets.all(7),
+          decoration: BoxDecoration(
+            color: dark ? PishkanColors.darkSurfaceHigh : Colors.white,
+            shape: BoxShape.circle,
+            border: Border.all(
+              color: dark ? PishkanColors.darkBorder : Colors.white,
+              width: 1.5,
+            ),
+            boxShadow: [
+              BoxShadow(
+                color: tint.withOpacity(dark ? 0.26 : 0.20),
+                blurRadius: 14,
+                offset: const Offset(0, 7),
+              ),
+              // A hairline highlight on the top edge: the same trick the
+              // glass cards use, one level down.
+              BoxShadow(
+                color: Colors.white.withOpacity(dark ? 0.06 : 0.55),
+                blurRadius: 3,
+                offset: const Offset(0, -1),
+              ),
+            ],
+          ),
+          child: Hero(
+            tag: 'service-art-${service.slug}',
+            child: IconMedallion(artwork: art, size: 40, glyphBadge: true),
+          ),
+        ),
+        const SizedBox(height: 7),
+        Flexible(
+          child: Text(
+            service.title,
+            maxLines: 2,
+            overflow: TextOverflow.ellipsis,
+            textAlign: TextAlign.center,
+            style: TextStyle(
+              fontSize: 10.5,
+              fontWeight: FontWeight.w700,
+              color: context.ink,
+              height: 1.4,
+            ),
+          ),
+        ),
+      ]),
+    );
+  }
 }
 
 /// One cell of the popular-services grid while it loads.
