@@ -14,7 +14,7 @@ import '../models/models.dart';
 final api = ApiClient.instance;
 final session = SessionStore.instance;
 
-/// ---------- App surface (stories / config / device stats feed) ----------
+/// ---------- App surface (banners / config / device stats feed) ----------
 
 Future<AppConfig?> fetchAppConfig() async {
   try {
@@ -48,15 +48,22 @@ Future<Map<String, dynamic>> fetchPublicAchievements() async {
   }
 }
 
-Future<List<StoryGroup>> fetchStories() async {
+/// Home-screen banners, newest office order.
+///
+/// Shaped like the catalogue fetches: a successful call refreshes the cache so
+/// the next cold start has something to paint before the network answers, and
+/// a failed call falls back to the last good list. That fallback is what keeps
+/// the home screen from losing its top third when the office PC is briefly
+/// unreachable.
+Future<List<AppBanner>> fetchBanners() async {
   try {
-    final data = await api.getData('/api/app/stories');
-    await JsonCache.put('stories', data);
-    return asMapList(asMap(data)['groups']).map(StoryGroup.fromJson).toList();
+    final data = await api.getData('/api/app/banners');
+    await JsonCache.put('banners', data);
+    return asMapList(asMap(data)['banners']).map(AppBanner.fromJson).toList();
   } catch (_) {
-    final cached = await JsonCache.get('stories');
+    final cached = await JsonCache.get('banners');
     if (cached == null) return const [];
-    return asMapList(asMap(cached.value)['groups']).map(StoryGroup.fromJson).toList();
+    return asMapList(asMap(cached.value)['banners']).map(AppBanner.fromJson).toList();
   }
 }
 

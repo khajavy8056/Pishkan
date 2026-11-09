@@ -56,7 +56,7 @@ class AppPrefs {
 }
 
 /// One fresh thing worth telling the customer about: a case moved a stage,
-/// a reply arrived, a story was published... Consumed both by the system
+/// a reply arrived, a banner was announced... Consumed both by the system
 /// tray notification (background) and the in-app banner (foreground).
 class AppNotificationEvent {
   AppNotificationEvent({
@@ -82,7 +82,7 @@ class AppNotificationEvent {
   bool get isDocumentApproval => eventType == 'document_approved';
   bool get isDocumentRejection => eventType == 'document_rejected';
 
-  bool get isStory => link == '/app/stories';
+  bool get isBanner => link == '/app/banners';
   bool get isMessage => link.contains('messages') || link.contains('support') || link.startsWith('chat:') || title.contains('پیام') || title.contains('یادداشت');
   bool get isInvoice => link.contains('invoice') || '$title $body'.contains('فاکتور') || '$title $body'.contains('صورتحساب');
 
@@ -93,7 +93,7 @@ class AppNotificationEvent {
     final entity = isDocumentApproval && requestId != null
         ? 'request:${requestId!}:document-approvals'
         : isDocumentRejection ? 'event:$id'
-        : requestId != null && !isMessage && !isInvoice && !isStory
+        : requestId != null && !isMessage && !isInvoice && !isBanner
             ? 'request:${requestId!}:stage'
             : 'event:$id';
     return 'pishkan:$server:$userId:$entity';
@@ -104,7 +104,7 @@ class AppNotificationEvent {
   }
 
   IconData get icon {
-    if (isStory) return Icons.auto_stories_rounded;
+    if (isBanner) return Icons.campaign_rounded;
     if (isMessage) return Icons.chat_rounded;
     if (requestId != null) return Icons.timeline_rounded;
     return switch (kind) {
@@ -116,7 +116,7 @@ class AppNotificationEvent {
   }
 
   Color get color {
-    if (isStory) return const Color(0xFFDB2777);
+    if (isBanner) return const Color(0xFFDB2777);
     if (isMessage) return const Color(0xFF0891B2);
     if (requestId != null) return PishkanColors.primary;
     return switch (kind) {
@@ -138,7 +138,7 @@ const _baselineKey = 'pishkan.notif.baselineDone';
 
 /// Rich notifications without Firebase: the server already records a
 /// notification row for every meaningful event (stage changes, replies,
-/// payments, new stories). The app polls that feed — a 15-minute WorkManager
+/// payments, new banners). The app polls that feed — a 15-minute WorkManager
 /// job in the background and a gentle timer while foregrounded — and raises
 /// proper Android notifications, with a stage progress bar for cases, in the
 /// style of ride-hailing apps. When a real FCM project exists later, the
@@ -151,7 +151,10 @@ class NotifierService {
   // New IDs are needed because Android retains each channel's original sound.
   static const _requestsChannel = 'pishkan_requests_v2';
   static const _messagesChannel = 'pishkan_messages_v2';
-  static const _storiesChannel = 'pishkan_stories_v2';
+  // The id keeps its historical spelling: Android keys a channel by id, and a
+  // new id would leave the old, muted-or-not setting stranded on phones that
+  // already installed the app. The label above is what the customer sees.
+  static const _announcementChannel = 'pishkan_stories_v2';
   static const _invoiceChannel = 'pishkan_invoices_v2';
   static const _generalChannel = 'pishkan_general_v2';
 
@@ -196,7 +199,7 @@ class NotifierService {
     const channels = <(String, String, String, String)>[
       (_requestsChannel, 'تغییرات پرونده‌ها', 'مرحلهٔ تازهٔ درخواست‌ها همراه نوار پیشرفت', 'notice_soft'),
       (_messagesChannel, 'پیام‌ها', 'پاسخ‌های گفتگو و تیکت پشتیبانی', 'message_soft'),
-      (_storiesChannel, 'استوری و اطلاعیه‌ها', 'استوری تازه و اطلاعیه‌های دفتر', 'notice_soft'),
+      (_announcementChannel, 'اطلاعیه‌ها و بنرها', 'بنر و اطلاعیهٔ تازهٔ دفتر', 'notice_soft'),
       (_invoiceChannel, 'فاکتورها', 'فاکتورها و وضعیت پرداخت', 'invoice_soft'),
       (_generalChannel, 'اطلاع‌رسانی سامانه', 'اعلان‌های عمومی پیشخوان', 'notice_soft'),
     ];
@@ -402,8 +405,8 @@ class NotifierService {
     final tag = event.notificationTag(session.serverUrl, session.userId);
     final notificationId = await _notificationId(tag);
     final soundsEnabled = await AppPrefs.soundsEnabled();
-    final (channelId, channelName, channelDescription, sound) = switch ((event.isStory, event.isMessage, event.isInvoice, event.requestId != null)) {
-      (true, _, _, _) => (_storiesChannel, 'استوری و اطلاعیه‌ها', 'استوری تازه و اطلاعیه‌های دفتر', 'notice_soft'),
+    final (channelId, channelName, channelDescription, sound) = switch ((event.isBanner, event.isMessage, event.isInvoice, event.requestId != null)) {
+      (true, _, _, _) => (_announcementChannel, 'اطلاعیه‌ها و بنرها', 'بنر و اطلاعیهٔ تازهٔ دفتر', 'notice_soft'),
       (_, true, _, _) => (_messagesChannel, 'پیام‌ها', 'پاسخ‌های گفتگو و تیکت پشتیبانی', 'message_soft'),
       (_, _, true, _) => (_invoiceChannel, 'فاکتورها', 'فاکتورها و وضعیت پرداخت', 'invoice_soft'),
       (_, _, _, true) => (_requestsChannel, 'تغییرات پرونده‌ها', 'مرحلهٔ تازهٔ درخواست‌ها همراه نوار پیشرفت', 'notice_soft'),

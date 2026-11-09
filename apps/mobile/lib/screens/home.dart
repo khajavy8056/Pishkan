@@ -1,5 +1,4 @@
 import 'package:flutter/material.dart';
-import 'package:shared_preferences/shared_preferences.dart';
 
 import '../core/format.dart';
 import '../core/service_icons.dart';
@@ -8,6 +7,7 @@ import '../core/motion.dart';
 import '../core/sizes.dart';
 import '../widgets/screen_header.dart';
 import '../widgets/banner_carousel.dart';
+import '../widgets/banner_route.dart';
 import '../core/theme.dart';
 import '../models/models.dart';
 import '../services/services.dart';
@@ -21,13 +21,11 @@ import 'profile.dart';
 import 'request_detail.dart';
 import 'service_detail.dart';
 import 'services_catalog.dart';
-import 'stories_archive.dart';
-import 'story_viewer.dart';
 import 'support.dart';
 
-/// Customer dashboard (approved design): greeting + bell, search, story
+/// Customer dashboard (approved design): greeting + bell, search, banner
 /// rail, blue hero, quick access tiles, popular services with per-service
-/// icons, notices and the latest requests with stage progress.
+/// icons and the latest requests with stage progress.
 class HomeTab extends StatefulWidget {
   const HomeTab({super.key, required this.onOpenTab, required this.unreadCount, required this.onNotificationsChanged});
 
@@ -40,11 +38,8 @@ class HomeTab extends StatefulWidget {
 }
 
 class _HomeTabState extends State<HomeTab> {
-  static const _seenStoriesKey = 'pishkan.stories.seenGroups';
-
   AppConfig? _config;
-  List<StoryGroup> _groups = [];
-  Set<String> _seenGroups = {};
+  List<AppBanner> _banners = [];
   List<CatalogService> _services = [];
   List<ServiceCategory> _categories = [];
   Map<String, dynamic> _achievements = {};
@@ -58,16 +53,7 @@ class _HomeTabState extends State<HomeTab> {
     fetchMe().then((_) { if (mounted) setState(() {}); }).catchError((_) {});
   }
 
-  String _groupFingerprint(StoryGroup group) =>
-      '${group.title}|${group.items.isEmpty ? '' : group.items.last.id}|${group.items.length}';
-
-  bool _groupSeen(StoryGroup group) => _seenGroups.contains(_groupFingerprint(group));
-
   Future<void> _load() async {
-    final prefs = await SharedPreferences.getInstance();
-    if (mounted) {
-      setState(() => _seenGroups = (prefs.getStringList(_seenStoriesKey) ?? const []).toSet());
-    }
     // Paint the last good requests immediately, even before the network
     // answers — the dashboard should never feel stuck.
     final cachedRecent = await cachedMyRequests();
@@ -79,8 +65,8 @@ class _HomeTabState extends State<HomeTab> {
       fetchAppConfig().then((config) {
         if (mounted) setState(() => _config = config);
       }),
-      fetchStories().then((stories) {
-        if (mounted) setState(() => _groups = stories);
+      fetchBanners().then((banners) {
+        if (mounted) setState(() => _banners = banners);
       }),
       fetchServices().then((services) {
         if (mounted) setState(() { _services = services; _loadingServices = false; });
@@ -98,12 +84,10 @@ class _HomeTabState extends State<HomeTab> {
 
   }
 
-  Future<void> _markGroupSeen(int fromIndex) async {
-    final prefs = await SharedPreferences.getInstance();
-    final next = {..._seenGroups, for (final group in _groups.skip(fromIndex)) _groupFingerprint(group)};
-    await prefs.setStringList(_seenStoriesKey, next.toList());
-    if (mounted) setState(() => _seenGroups = next);
-  }
+  /// Tapping a banner always does the same thing, wherever it is shown: hand
+  /// it to the one resolver that knows how to turn a destination into a route.
+  Future<void> _openBanner(AppBanner banner) =>
+      openBannerDestination(context, banner, loadServices: () async => _services.isNotEmpty ? _services : await fetchServices());
 
   String get _firstName {
     final name = asStr((session.user ?? const {})['fullName']).trim();
@@ -150,34 +134,14 @@ class _HomeTabState extends State<HomeTab> {
               // the hero and the quick-access row, so eight of the ten sections
               // just appeared, which is what made the page read as static.
               StaggeredReveal(step: const Duration(milliseconds: 55), children: [
-                if (_groups.isNotEmpty && (_config == null || _config!.storiesEnabled)) ...[
-                  // Banners, not the circular story rail: a full-width card can
-                  // carry a title and a promise, and tapping it lands on the
-                  // service the banner is about instead of a slideshow.
+                if (_banners.isNotEmpty && (_config == null || _config!.bannersEnabled)) ...[
+                  // Banners replaced the story ring. A wide card can say one
+                  // thing and open the service it is about, which is the whole
+                  // reason the ring was retired: a story needed two taps and a
+                  // slideshow before the customer reached anything useful.
                   BannerCarousel(
-                    groups: _groups,
-                    seen: _seenGroups,
-                    onOpenGroup: _openStories,
-                    onOpenService: (slug) {
-                      final match = _services.where((s) => s.slug == slug);
-                      if (match.isEmpty) {
-                        Navigator.push(context, fadeThroughRoute(const ServiceSearchScreen()));
-                        return;
-                      }
-                      Navigator.push(context, fadeThroughRoute(ServiceDetailScreen(service: match.first)));
-                    },
-                  ),
-                  Align(
-                    alignment: AlignmentDirectional.centerStart,
-                    child: TextButton.icon(
-                      onPressed: () async {
-                        await Navigator.push(context, fadeThroughRoute(const StoriesArchiveScreen()));
-                        widget.onNotificationsChanged();
-                        _load();
-                      },
-                      icon: const Icon(Icons.campaign_outlined, size: 17),
-                      label: const Text('همهٔ اطلاعیه‌ها', style: TextStyle(fontSize: 12, fontWeight: FontWeight.w700)),
-                    ),
+                    banners: _banners,
+                    onOpenBanner: _openBanner,
                   ),
                   SizedBox(height: sizes.s(10)),
                 ],
@@ -207,13 +171,6 @@ class _HomeTabState extends State<HomeTab> {
                   _sectionTitle('آخرین درخواست‌های شما', action: 'مشاهده همه', onAction: () => widget.onOpenTab(2)),
                   SizedBox(height: sizes.s(8)),
                   ..._recent.take(3).map(_recentCard),
-                ],
-                if (_groups.isNotEmpty) ...[
-                  SizedBox(height: sizes.s(20)),
-                  _sectionTitle('اطلاعیه‌ها'),
-                  SizedBox(height: sizes.s(8)),
-                  for (var i = 0; i < _groups.length && i < 3; i++)
-                    if (_groups[i].items.isNotEmpty) _noticeCard(i, _groups[i]),
                 ],
               ]),
 
@@ -317,19 +274,6 @@ class _HomeTabState extends State<HomeTab> {
           ),
       ]),
     );
-  }
-
-  String _groupCover(StoryGroup group) {
-    for (final item in group.items) {
-      if (!item.isVideo && item.effectiveMediaUrl.isNotEmpty) return item.effectiveMediaUrl;
-    }
-    return '';
-  }
-
-  Future<void> _openStories(int groupIndex) async {
-    await Navigator.push(context, MaterialPageRoute(builder: (_) => StoryViewerScreen(groups: _groups, initialGroup: groupIndex)));
-    await _markGroupSeen(groupIndex);
-    widget.onNotificationsChanged();
   }
 
   Widget _hero() {
@@ -568,45 +512,6 @@ class _HomeTabState extends State<HomeTab> {
     );
   }
 
-  Widget _noticeCard(int groupIndex, StoryGroup group) {
-    final first = group.items.first;
-    final cover = _groupCover(group);
-    return Padding(
-      padding: const EdgeInsets.only(bottom: 10),
-      child: SoftCard(
-        onTap: () => _openStories(groupIndex),
-        child: Row(children: [
-          ClipRRect(
-            borderRadius: BorderRadius.circular(16),
-            child: cover.isNotEmpty ? SizedBox(width: 92, height: 76, child: AuthImage(url: cover)) : _noticePlaceholder(),
-          ),
-          const SizedBox(width: 12),
-          Expanded(
-            child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-              Text(first.title.isEmpty ? group.title : first.title, maxLines: 2, overflow: TextOverflow.ellipsis, style: TextStyle(fontWeight: FontWeight.w800, fontSize: 13, color: context.ink, height: 1.6)),
-              if (first.caption.isNotEmpty) Text(first.caption, maxLines: 1, overflow: TextOverflow.ellipsis, style: TextStyle(fontSize: 11, color: context.inkMuted)),
-              const SizedBox(height: 4),
-              Row(children: [
-                Icon(Icons.calendar_month_outlined, size: 14, color: context.inkMuted),
-                const SizedBox(width: 4),
-                Text(faDateNumeric(first.createdAt), style: TextStyle(fontSize: 11, color: context.inkMuted)),
-                const Spacer(),
-                const Text('مشاهده', style: TextStyle(fontSize: 11.5, fontWeight: FontWeight.w700, color: PishkanColors.primary)),
-                const Icon(Icons.chevron_left_rounded, size: 17, color: PishkanColors.primary),
-              ]),
-            ]),
-          ),
-        ]),
-      ),
-    );
-  }
-
-  Widget _noticePlaceholder() => Container(
-        width: 92,
-        height: 76,
-        decoration: const BoxDecoration(gradient: PishkanColors.brandGradient),
-        child: const Icon(Icons.campaign_rounded, color: Colors.white, size: 30),
-      );
 }
 
 /// One cell of the popular-services grid while it loads.

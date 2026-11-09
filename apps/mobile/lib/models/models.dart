@@ -2,6 +2,8 @@
 /// Everything parses defensively: the backend evolves from the web admin, so
 /// unknown/missing fields must never crash the app.
 
+import 'package:flutter/material.dart' show Color;
+
 Map<String, dynamic> _map(dynamic value) => value is Map ? Map<String, dynamic>.from(value) : <String, dynamic>{};
 List<Map<String, dynamic>> _list(dynamic value) =>
     value is List ? value.whereType<Map>().map((item) => Map<String, dynamic>.from(item)).toList() : <Map<String, dynamic>>[];
@@ -24,7 +26,7 @@ class AppConfig {
         updateUrl = _str(_map(json['version'])['updateUrl']),
         forceUpdate = _bool(_map(json['version'])['forceUpdate']),
         announcement = _str(json['announcement']),
-        storiesEnabled = json['storiesEnabled'] != false,
+        bannersEnabled = json['bannersEnabled'] != false,
         supportPhone = _str(json['supportPhone']),
         maintenance = _bool(json['maintenance']);
 
@@ -41,48 +43,80 @@ class AppConfig {
   final String updateUrl;
   final bool forceUpdate;
   final String announcement;
-  final bool storiesEnabled;
+  final bool bannersEnabled;
   final String supportPhone;
   final bool maintenance;
 }
 
-class StoryItem {
-  StoryItem.fromJson(Map<String, dynamic> json)
+/// One home-screen banner.
+///
+/// The server sends a flat list ordered by the office; the app only needs to
+/// know what to draw and where a tap goes. [destinationKind] is deliberately a
+/// small enum rather than a link to parse: a banner either opens a catalogue
+/// service by slug, opens an in-app page or web page, or does nothing.
+class AppBanner {
+  AppBanner.fromJson(Map<String, dynamic> json)
       : id = _str(json['id']),
+        kind = _bannerKind(json['kind']),
         title = _str(json['title']),
-        caption = _str(json['caption']),
-        groupTitle = _str(json['groupTitle']),
-        mediaType = _str(json['mediaType']).isEmpty ? 'image' : _str(json['mediaType']),
-        mediaUrl = _str(json['mediaUrl']),
-        externalMediaUrl = _str(json['externalMediaUrl']),
-        linkUrl = _str(json['linkUrl']),
-        linkLabel = _str(json['linkLabel']).isEmpty ? 'مشاهده' : _str(json['linkLabel']),
-        durationSeconds = _num(json['durationSeconds']).toInt().clamp(3, 30).toInt(),
-        createdAt = _str(json['createdAt']);
+        subtitle = _str(json['subtitle']),
+        imageUrl = _str(json['imageUrl']),
+        accentColor = _parseColor(json['accentColor']),
+        destinationKind = _destinationKind(json['destinationKind']),
+        destinationSlug = _str(json['destinationSlug']),
+        destinationUrl = _str(json['destinationUrl']),
+        actionLabel = _str(json['actionLabel']).isEmpty ? 'مشاهده' : _str(json['actionLabel']),
+        updatedAt = _str(json['updatedAt']);
 
   final String id;
+  /// general | info | ad | service — drives the badge and the fallback art.
+  final String kind;
   final String title;
-  final String caption;
-  final String groupTitle;
-  final String mediaType;
-  final String mediaUrl;
-  final String externalMediaUrl;
-  final String linkUrl;
-  final String linkLabel;
-  final int durationSeconds;
-  final String createdAt;
+  final String subtitle;
+  final String imageUrl;
+  /// Optional accent from the office; used for the fallback gradient.
+  final Color? accentColor;
+  /// none | service | url
+  final String destinationKind;
+  final String destinationSlug;
+  final String destinationUrl;
+  final String actionLabel;
+  final String updatedAt;
 
-  String get effectiveMediaUrl => mediaUrl.isNotEmpty ? mediaUrl : externalMediaUrl;
-  bool get isVideo => mediaType == 'video';
-}
+  bool get isService => destinationKind == 'service' && destinationSlug.isNotEmpty;
+  bool get isUrl => destinationKind == 'url' && destinationUrl.isNotEmpty;
+  bool get hasImage => imageUrl.isNotEmpty;
 
-class StoryGroup {
-  StoryGroup.fromJson(Map<String, dynamic> json)
-      : title = _str(json['title']).isEmpty ? 'اطلاعیه‌ها' : _str(json['title']),
-        items = _list(json['items']).map(StoryItem.fromJson).toList();
+  /// Small label shown above the title. A banner that advertises a service
+  /// says so; the rest are named for what they are, so the rail does not read
+  /// as six identical posters.
+  String get badge => switch (kind) {
+        'service' => 'خدمت ویژه',
+        'ad' => 'پیشنهاد',
+        'info' => 'اطلاعیه',
+        _ => 'جدید',
+      };
 
-  final String title;
-  final List<StoryItem> items;
+  static String _bannerKind(dynamic value) {
+    final text = _str(value);
+    return const {'general', 'info', 'ad', 'service'}.contains(text) ? text : 'general';
+  }
+
+  static String _destinationKind(dynamic value) {
+    final text = _str(value);
+    return const {'none', 'service', 'url'}.contains(text) ? text : 'none';
+  }
+
+  /// `#RRGGBB` from the admin form; anything unexpected becomes null and the
+  /// card falls back to the brand gradient.
+  static Color? _parseColor(dynamic value) {
+    final text = _str(value).trim();
+    if (text.isEmpty) return null;
+    final hex = text.startsWith('#') ? text.substring(1) : text;
+    if (hex.length != 6) return null;
+    final parsed = int.tryParse(hex, radix: 16);
+    return parsed == null ? null : Color(0xFF000000 | parsed);
+  }
 }
 
 class ServiceCategory {

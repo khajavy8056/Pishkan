@@ -9,7 +9,7 @@ import '../services/services.dart';
 import '../widgets/widgets.dart';
 import 'notification_route.dart';
 
-enum _NotifFilter { all, requests, messages, stories }
+enum _NotifFilter { all, requests, messages, announcements }
 
 /// In-app notification centre (the same feed as the web bell), styled after
 /// the approved design: category chips, colorful round icons, unread dots,
@@ -81,7 +81,7 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
     return match?.group(1);
   }
 
-  static bool _isStory(Map<String, dynamic> item) => asStr(item['link']) == '/app/stories';
+  static bool _isAnnouncement(Map<String, dynamic> item) => asStr(item['link']) == '/app/banners';
 
   static bool _isMessage(Map<String, dynamic> item) {
     final link = asStr(item['link']);
@@ -93,7 +93,7 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
       _NotifFilter.all => _items,
       _NotifFilter.requests => _items.where((n) => _requestIdOf(n) != null).toList(),
       _NotifFilter.messages => _items.where(_isMessage).toList(),
-      _NotifFilter.stories => _items.where(_isStory).toList(),
+      _NotifFilter.announcements => _items.where(_isAnnouncement).toList(),
     };
   }
 
@@ -137,7 +137,7 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
           : _error != null
               ? ErrorView(message: _error!, onRetry: _load)
               : _items.isEmpty
-                  ? const EmptyView(icon: Icons.notifications_none_rounded, title: 'اعلانی ندارید', hint: 'تغییر وضعیت پرونده‌ها، پاسخ کارشناس، استوری تازه و رسید پرداخت‌ها همین‌جا اطلاع‌رسانی می‌شود.')
+                  ? const EmptyView(icon: Icons.notifications_none_rounded, title: 'اعلانی ندارید', hint: 'تغییر وضعیت پرونده‌ها، پاسخ کارشناس، اطلاعیهٔ تازه و رسید پرداخت‌ها همین‌جا اطلاع‌رسانی می‌شود.')
                   : Column(children: [
                       _chips(),
                       Expanded(
@@ -182,7 +182,7 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
         chip(_NotifFilter.all, 'همه', Icons.notifications_rounded),
         chip(_NotifFilter.requests, 'پرونده‌ها', Icons.timeline_rounded),
         chip(_NotifFilter.messages, 'پیام‌ها', Icons.chat_rounded),
-        chip(_NotifFilter.stories, 'استوری‌ها', Icons.auto_stories_rounded),
+        chip(_NotifFilter.announcements, 'اطلاعیه‌ها', Icons.campaign_rounded),
       ]),
     );
   }
@@ -193,8 +193,8 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
     final request = requestId == null ? null : _requestsById[requestId];
     final progress = request == null ? null : caseProgress(status: request.status, workBucket: request.workBucket);
 
-    final (IconData icon, Color color) = _isStory(item)
-        ? (Icons.auto_stories_rounded, const Color(0xFFDB2777))
+    final (IconData icon, Color color) = _isAnnouncement(item)
+        ? (Icons.campaign_rounded, const Color(0xFFDB2777))
         : _isMessage(item)
             ? (Icons.chat_rounded, const Color(0xFF0891B2))
             : requestId != null
@@ -227,7 +227,7 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
               Text(faDate(item['createdAt'], withTime: true), style: TextStyle(fontSize: 10.5, color: context.inkMuted)),
             ]),
           ),
-          if (requestId != null || _isStory(item) || _isMessage(item)) Icon(Icons.chevron_left_rounded, color: context.inkMuted, size: 20),
+          if (requestId != null || _isAnnouncement(item) || _isMessage(item)) Icon(Icons.chevron_left_rounded, color: context.inkMuted, size: 20),
         ]),
         if (progress != null) ...[
           const SizedBox(height: 10),

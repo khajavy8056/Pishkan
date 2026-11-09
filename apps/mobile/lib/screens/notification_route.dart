@@ -1,11 +1,11 @@
 import 'package:flutter/material.dart';
 
+import '../core/home_navigation.dart';
 import 'chat.dart';
 import 'documents.dart';
 import 'offers.dart';
 import 'payments.dart';
 import 'request_detail.dart';
-import 'stories_archive.dart';
 import 'support.dart';
 import 'wallet.dart';
 
@@ -21,8 +21,11 @@ void openCustomerNotification(BuildContext context, String link) {
     destination = RequestDetailScreen(requestId: request.group(1)!);
   } else if (thread != null) {
     destination = ChatScreen(threadId: thread.group(1)!, title: 'گفت‌وگو با دفتر');
-  } else if (link == '/app/stories') {
-    destination = const StoriesArchiveScreen();
+  } else if (link == '/app/banners') {
+    // A banner announcement lands on the home screen with the rail at the
+    // top: the customer came to look at it, so the destination is the strip
+    // of banners itself, not an archive of past ones.
+    requestHomeTab();
   } else if (link.contains('custom-offers') || link == '/app/offers') {
     destination = const OffersScreen();
   } else if (link.contains('wallet')) {

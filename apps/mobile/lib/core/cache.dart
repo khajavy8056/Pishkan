@@ -2,7 +2,7 @@ import 'dart:convert';
 
 import 'package:shared_preferences/shared_preferences.dart';
 
-/// Small JSON cache for public content (catalog, categories, stories) so the
+/// Small JSON cache for public content (catalog, categories, banners) so the
 /// app stays browsable on weak connections. Financial/sensitive actions are
 /// never served from cache — they always round-trip to the server.
 class JsonCache {

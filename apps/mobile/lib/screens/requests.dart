@@ -14,7 +14,12 @@ import 'request_detail.dart';
 
 /// My requests with the same status buckets the web panel uses.
 class RequestsTab extends StatefulWidget {
-  const RequestsTab({super.key});
+  const RequestsTab({super.key, this.showBack = false});
+
+  /// Set when the tab is pushed as a route of its own — from a banner or a
+  /// notification — so the customer can leave it, since the bottom bar is not
+  /// part of the pushed screen.
+  final bool showBack;
 
   @override
   State<RequestsTab> createState() => _RequestsTabState();
@@ -117,7 +122,14 @@ class _RequestsTabState extends State<RequestsTab> {
     final sizes = context.sizes;
     return HeaderScaffold(
       headerHeight: MediaQuery.paddingOf(context).top + sizes.s(116),
-      header: ScreenHeading(title: 'درخواست‌های من', subtitle: 'وضعیت پرونده‌ها را از همین‌جا پیگیری کنید'),
+      header: ScreenHeading(
+        title: 'درخواست‌های من',
+        subtitle: 'وضعیت پرونده‌ها را از همین‌جا پیگیری کنید',
+        // Only when this list was pushed as its own route: inside the shell
+        // the bottom bar is the way back, and a back arrow there would pop
+        // the whole app.
+        onBack: widget.showBack ? () => Navigator.pop(context) : null,
+      ),
       body: Column(children: [
         SizedBox(
           height: sizes.s(52),
