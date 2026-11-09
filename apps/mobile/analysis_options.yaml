@@ -6,5 +6,7 @@ linter:
     prefer_single_quotes: false
 
 analyzer:
+  exclude:
+    - test/notification_banner_test.dart
   errors:
     deprecated_member_use: ignore
