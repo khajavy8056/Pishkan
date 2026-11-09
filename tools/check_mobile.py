@@ -40,6 +40,10 @@ STEPS: list[tuple[str, list[str]]] = [
     # import brings in. This is the one that found the missing
     # `models/models.dart` in service_art_overlay.dart.
     ('class imports', ['tools/checks/dart_class_imports.py']),
+    # `BoxDecoration` asserts if a colour and a gradient are both set, and the
+    # release build silently drops the colour instead of failing. This caught
+    # exactly that in `GlassCard`, which would have thrown on first build.
+    ('decoration conflicts', ['tools/checks/dart_decoration.py']),
     # This one takes files, not a directory — it checks a known list of
     # cross-module symbols, so it only needs the Dart sources.
     ('symbol imports', ['tools/checks/dart_symbol_imports.py', *DART_FILES]),

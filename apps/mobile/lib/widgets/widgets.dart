@@ -207,6 +207,11 @@ class SoftCard extends StatelessWidget {
 /// reads as glass at a fraction of the cost. Screens that genuinely have
 /// something interesting behind them (the hero panel) turn it on for one
 /// element, not for a list.
+/// Lifts [amount] of white over [base] without a second fill, for the glass
+/// highlight stop. Kept here, next to its only caller, rather than inventing a
+/// colour maths helper in the theme.
+Color _whiten(Color base, double amount) => Color.alphaBlend(Colors.white.withOpacity(amount), base);
+
 class GlassCard extends StatelessWidget {
   const GlassCard({
     super.key,
@@ -243,10 +248,14 @@ class GlassCard extends StatelessWidget {
       width: 1,
     );
 
+    // A `BoxDecoration` may carry a colour *or* a gradient, never both — it
+    // asserts otherwise, which would crash every GlassCard on its first build.
+    // So the tint is the gradient's base stop and the highlight is layered on
+    // top of it, which is also the more honest description of the material:
+    // one fill, lit from the top edge.
     Widget panel = Container(
       padding: padding,
       decoration: BoxDecoration(
-        color: fill.withOpacity(opacity),
         borderRadius: BorderRadius.circular(radius),
         border: border,
         // A single inset highlight along the top edge is what actually sells
@@ -262,8 +271,8 @@ class GlassCard extends StatelessWidget {
           begin: AlignmentDirectional.topStart,
           end: AlignmentDirectional.bottomEnd,
           colors: [
-            Colors.white.withOpacity(dark ? 0.10 : 0.28),
-            Colors.white.withOpacity(0),
+            _whiten(fill.withOpacity(opacity), dark ? 0.10 : 0.28),
+            fill.withOpacity(opacity),
           ],
         ),
       ),
