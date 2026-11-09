@@ -2,10 +2,10 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 
+import '../core/home_navigation.dart';
 import '../core/motion.dart';
 import '../core/sizes.dart';
 import '../core/theme.dart';
-import '../core/home_navigation.dart';
 import '../services/notifier.dart';
 import '../services/services.dart';
 import '../widgets/widgets.dart';

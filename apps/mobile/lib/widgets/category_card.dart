@@ -2,8 +2,8 @@ import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
 
 import '../core/api.dart';
-import '../core/service_icons.dart';
 import '../core/motion.dart';
+import '../core/service_icons.dart';
 import '../core/theme.dart';
 import '../models/models.dart';
 

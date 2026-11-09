@@ -6,8 +6,8 @@ import 'package:device_info_plus/device_info_plus.dart';
 import 'package:package_info_plus/package_info_plus.dart';
 
 import '../core/api.dart';
-import '../core/referral.dart';
 import '../core/cache.dart';
+import '../core/referral.dart';
 import '../core/session.dart';
 import '../models/models.dart';
 

@@ -4,7 +4,6 @@ import 'dart:ui' show ImageFilter;
 
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:file_picker/file_picker.dart';
-
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:image_picker/image_picker.dart';
@@ -13,9 +12,9 @@ import '../core/motion.dart';
 import '../core/service_icons.dart';
 import '../core/stages.dart';
 import '../core/theme.dart';
-import '../services/notifier.dart' show AppPrefs;
 import '../models/models.dart';
 import '../screens/document_camera.dart';
+import '../services/notifier.dart' show AppPrefs;
 import '../services/services.dart';
 
 /// Short, soft tick for in-app interactions (saved, failed, tapped).

@@ -1,11 +1,11 @@
 import 'package:flutter/material.dart';
 
+import '../core/motion.dart';
 import '../models/models.dart';
 import '../screens/documents.dart';
 import '../screens/requests.dart';
 import '../screens/service_detail.dart';
 import '../screens/services_catalog.dart';
-import '../core/motion.dart';
 
 
 /// Where a banner tap lands.

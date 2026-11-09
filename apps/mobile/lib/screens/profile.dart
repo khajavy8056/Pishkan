@@ -18,12 +18,12 @@ import 'assistant.dart';
 import 'avatar_picker.dart';
 import 'chat.dart';
 import 'documents.dart';
-import 'my_discounts.dart';
-import 'referrals.dart';
 import 'login.dart';
+import 'my_discounts.dart';
 import 'notifications.dart';
 import 'offers.dart';
 import 'payments.dart';
+import 'referrals.dart';
 import 'server_setup.dart';
 import 'wallet.dart';
 

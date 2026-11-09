@@ -2,15 +2,15 @@ import 'package:flutter/material.dart';
 
 import '../core/api.dart';
 import '../core/format.dart';
-import '../core/service_icons.dart';
 import '../core/motion.dart';
+import '../core/service_icons.dart';
 import '../core/sizes.dart';
-import '../widgets/screen_header.dart';
 import '../core/theme.dart';
 import '../models/models.dart';
 import '../services/services.dart';
-import '../widgets/widgets.dart';
 import '../widgets/category_card.dart';
+import '../widgets/screen_header.dart';
+import '../widgets/widgets.dart';
 import 'service_detail.dart';
 
 /// «خدمات» tab: an image-led category chooser, followed by a service grid. Everything (titles, prices, order) comes

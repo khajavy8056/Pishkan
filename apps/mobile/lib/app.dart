@@ -1,11 +1,12 @@
 import 'dart:async';
+
 import 'package:app_links/app_links.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
 
+import 'core/referral.dart';
 import 'core/theme.dart';
 import 'core/theme_mode.dart';
-import 'core/referral.dart';
 import 'screens/splash.dart';
 
 /// Shared navigator so notification taps can deep-link from anywhere.
