@@ -677,11 +677,14 @@ class StageTimeline extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Column(children: [
-      for (var i = 0; i < caseStageLabels.length; i++) _row(i, i == caseStageLabels.length - 1),
+      for (var i = 0; i < caseStageLabels.length; i++)
+        _row(context, i, i == caseStageLabels.length - 1),
     ]);
   }
 
-  Widget _row(int index, bool last) {
+  /// [context] is passed in rather than read from a field: a `StatelessWidget`
+  /// has no `context` outside `build`, and the theme lookups below need one.
+  Widget _row(BuildContext context, int index, bool last) {
     final dark = context.isDark;
     final done = progress.completed || index < progress.doneCount;
     final current = !progress.completed && !progress.failed && index == progress.currentIndex;
