@@ -447,17 +447,64 @@ class NotifierService {
 @pragma('vm:entry-point')
 void notificationCallbackDispatcher() {
   Workmanager().executeTask((task, inputData) async {
-    WidgetsFlutterBinding.ensureInitialized();
-    await SessionStore.instance.load();
-    await NotifierService.checkForUpdates(systemNotifications: true);
+    try {
+      WidgetsFlutterBinding.ensureInitialized();
+      await SessionStore.instance.load();
+      await NotifierService.checkForUpdates(systemNotifications: true);
+    } catch (_) {
+      // Swallowed on purpose: `return false` below would ask WorkManager to
+      // retry with its own backoff, and a retry is a second chain link, which
+      // is how a flaky network turns into two checks racing each other.
+    } finally {
+      // Queue the next link whether this run succeeded or not. Ending the
+      // chain on a failure is the failure mode where notifications stop and
+      // never come back.
+      await scheduleNextNotificationCheck();
+    }
     return true;
   });
+}
+
+/// How long after a check the next one is queued.
+///
+/// This is a **one-off** task that re-queues itself, not a periodic one. That
+/// distinction is the whole point: Android only guarantees a 15-minute floor
+/// for `registerPeriodicTask`, and in Doze it stretches well beyond that, which
+/// is why a case update could sit unnoticed for an hour. A one-off task chained
+/// from the end of the previous one has no floor, so the check can genuinely run
+/// closer to three minutes. The periodic task stays registered underneath as
+/// the safety net for the case where Android kills the chain.
+const notificationPollInterval = Duration(minutes: 3);
+
+/// The one-off task name. Stable, because re-registering under the same name is
+/// what keeps exactly one link of the chain alive.
+const _chainTaskName = 'pishkan-notification-chain';
+
+/// Queue the next link of the one-off chain.
+///
+/// Called at the end of every run, including a failing one: a network blip must
+/// not end the chain, because that is indistinguishable from "notifications
+/// stopped" to the customer.
+Future<void> scheduleNextNotificationCheck() async {
+  try {
+    await Workmanager().registerOneOffTask(
+      _chainTaskName,
+      'pishkanNotificationPoll',
+      initialDelay: notificationPollInterval,
+      constraints: Constraints(networkType: NetworkType.connected),
+      existingWorkPolicy: ExistingWorkPolicy.replace,
+    );
+  } catch (_) {
+    // The periodic task is still there; losing the fast chain degrades speed.
+  }
 }
 
 /// Register the 15-minute background check (minimum allowed by Android).
 Future<void> ensureBackgroundPolling() async {
   try {
     await Workmanager().initialize(notificationCallbackDispatcher);
+    // Start the fast chain on top of the periodic floor.
+    await scheduleNextNotificationCheck();
     await Workmanager().registerPeriodicTask(
       'pishkan-notification-poll',
       'pishkanNotificationPoll',

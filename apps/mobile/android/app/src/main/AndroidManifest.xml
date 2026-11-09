@@ -18,12 +18,20 @@
          exemption is opt-in and only ever triggered from a button the user
          presses; the app never asks for it on its own. -->
     <uses-permission android:name="android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS"/>
+    <!-- The notification check that runs a few minutes apart. WorkManager's
+         15-minute floor is the only cadence Android guarantees on its own,
+         which is why the schedule below uses an exact alarm instead: it is the
+         one mechanism that still fires when the app has been swiped away.
+         SCHEDULE_EXACT_ALARM is granted by default on Android 12 and below;
+         from 13 the user can revoke it, so the app checks canScheduleExactAlarms
+         and falls back to WorkManager rather than assuming it worked. -->
+    <uses-permission android:name="android.permission.SCHEDULE_EXACT_ALARM"/>
 
     <!-- Cleartext stays on because the same APK must reach an office PC over
          the local Wi-Fi (Windows edition). Production servers are expected
          to be HTTPS; see README before tightening this. -->
     <application
-        android:label="پیشخوان"
+        android:label="تک پیشخوان"
         android:name="${applicationName}"
         android:icon="@mipmap/ic_launcher"
         android:usesCleartextTraffic="true"
