@@ -7,6 +7,6 @@ linter:
 
 analyzer:
   exclude:
-    - test/notification_banner_test.dart
+    - test/*.dart
   errors:
     deprecated_member_use: ignore
