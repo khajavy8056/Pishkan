@@ -149,18 +149,4 @@ void main() {
     });
   });
 
-  group('StoryItem caption + createdAt', () {
-    test('parses the new fields', () {
-      final item = StoryItem.fromJson({
-        'id': 's1',
-        'title': 'خوش آمدید',
-        'caption': 'همهٔ خدمات دفتر اینجاست',
-        'mediaType': 'image',
-        'mediaUrl': '/app-stories/story-welcome.jpg',
-        'createdAt': '2025-10-23T12:00:00Z',
-      });
-      expect(item.caption, 'همهٔ خدمات دفتر اینجاست');
-      expect(item.createdAt, '2025-10-23T12:00:00Z');
-    });
-  });
 }

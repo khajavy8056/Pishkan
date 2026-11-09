@@ -1,8 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:pishkan_app/models/models.dart';
-import 'package:pishkan_app/screens/story_viewer.dart';
 import 'package:pishkan_app/services/notifier.dart';
+import 'package:pishkan_app/widgets/banner_carousel.dart';
 
 void main() {
   test('request stage updates share a scoped Android tag, invoices and messages do not', () {
@@ -29,32 +29,73 @@ void main() {
     expect(notificationRevisionKey({'id': 'a'}), 'a:1');
   });
 
-  testWidgets('story edge navigation skips empty groups and final completion returns home', (tester) async {
-    final groups = [
-      StoryGroup.fromJson({'title': 'empty', 'items': []}),
-      StoryGroup.fromJson({'title': 'group', 'items': [
-        {'id': 'a', 'title': 'first', 'durationSeconds': 3},
-        {'id': 'b', 'title': 'second', 'durationSeconds': 3},
-      ]}),
-    ];
-    await tester.pumpWidget(MaterialApp(home: Builder(builder: (context) => Scaffold(
-      body: TextButton(onPressed: () => Navigator.push(context, MaterialPageRoute(builder: (_) => StoryViewerScreen(groups: groups))), child: const Text('home')),
-    ))));
-    await tester.tap(find.text('home'));
-    await tester.pump();
-    await tester.pump(const Duration(milliseconds: 350));
-    expect(find.text('first'), findsOneWidget);
-    await tester.tapAt(const Offset(100, 300));
-    await tester.pump();
-    expect(find.text('second'), findsOneWidget);
-    await tester.tapAt(const Offset(700, 300));
-    await tester.pump();
-    expect(find.text('first'), findsOneWidget);
-    await tester.tapAt(const Offset(100, 300));
-    await tester.pump();
-    await tester.tapAt(const Offset(100, 300));
+  testWidgets('the banner rail advances on its own and opens the card that is showing',
+      (tester) async {
+    AppBanner card(String id, String title) => AppBanner.fromJson({
+          'id': id,
+          'kind': 'service',
+          'title': title,
+          'destinationKind': 'service',
+          'destinationSlug': 'plate-replacement-appointment',
+        });
+
+    final opened = <String>[];
+    await tester.pumpWidget(MaterialApp(
+      home: Scaffold(
+        body: SizedBox(
+          height: 220,
+          child: BannerCarousel(
+            banners: [card('a', 'اول'), card('b', 'دوم')],
+            // A short interval keeps the test at ~1s instead of the 7s the app
+            // uses; the behaviour under test is the advance, not the wait.
+            interval: const Duration(milliseconds: 400),
+            onOpenBanner: (banner) => opened.add(banner.id),
+          ),
+        ),
+      ),
+    ));
+
+    // First card is on screen.
+    expect(find.text('اول'), findsOneWidget);
+
+    // It advances without any input — the whole point of the rail.
+    await tester.pump(const Duration(milliseconds: 500));
     await tester.pumpAndSettle();
-    expect(find.text('home'), findsOneWidget);
+    expect(find.text('دوم'), findsOneWidget);
+
+    // A tap opens *that* banner, not the one the rail started on.
+    await tester.tap(find.text('دوم'));
+    await tester.pump();
+    expect(opened, ['b']);
+
+    // And leaving the tree stops the timer: no pending-timer failure.
+    await tester.pumpWidget(const SizedBox.shrink());
+    await tester.pumpAndSettle();
     expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('a single banner never starts a timer', (tester) async {
+    final banner = AppBanner.fromJson({
+      'id': 'only',
+      'title': 'تنها',
+      'destinationKind': 'none',
+    });
+    await tester.pumpWidget(MaterialApp(
+      home: Scaffold(
+        body: SizedBox(
+          height: 220,
+          child: BannerCarousel(
+            banners: [banner],
+            interval: const Duration(milliseconds: 100),
+            onOpenBanner: (_) {},
+          ),
+        ),
+      ),
+    ));
+    await tester.pump(const Duration(milliseconds: 300));
+    // With one card there is nothing to advance to, and a timer that kept
+    // firing would animate the same page to itself forever.
+    expect(tester.takeException(), isNull);
+    expect(find.text('تنها'), findsOneWidget);
   });
 }

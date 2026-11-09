@@ -1,3 +1,4 @@
+import 'package:flutter/material.dart' show Color;
 import 'package:flutter_test/flutter_test.dart';
 import 'package:pishkan_app/models/models.dart';
 
@@ -98,16 +99,51 @@ void main() {
       expect(config.forceUpdate, isFalse);
     });
 
-    test('story groups parse', () {
-      final group = StoryGroup.fromJson({
-        'title': 'تعطیلی پنجشنبه',
-        'items': [
-          {'id': 's1', 'mediaType': 'video', 'mediaUrl': '/api/app/stories/s1/media', 'durationSeconds': 60},
-        ],
+    test('banners parse with their destination and keep an unusable kind safe', () {
+      final service = AppBanner.fromJson({
+        'id': 'b1',
+        'kind': 'service',
+        'title': 'تعویض پلاک',
+        'subtitle': 'بدون صف',
+        'destinationKind': 'service',
+        'destinationSlug': 'plate-replacement-appointment',
+        'accentColor': '#0EA5A4',
+        'updatedAt': '2026-01-01T00:00:00Z',
       });
-      expect(group.items.single.isVideo, isTrue);
-      expect(group.items.single.durationSeconds, 30); // clamped
-      expect(group.items.single.effectiveMediaUrl, '/api/app/stories/s1/media');
+      expect(service.isService, isTrue);
+      expect(service.destinationSlug, 'plate-replacement-appointment');
+      expect(service.accentColor, const Color(0xFF0EA5A4));
+      // No action label from the office falls back to a readable default
+      // rather than an empty button.
+      expect(service.actionLabel, 'مشاهده');
+
+      // An unknown kind and an unknown destination must degrade to something
+      // renderable: the rail is fed by the server, and a newer server must not
+      // be able to crash an older app.
+      final unknown = AppBanner.fromJson({'id': 'b2', 'kind': 'carousel', 'destinationKind': 'deeplink'});
+      expect(unknown.kind, 'general');
+      expect(unknown.destinationKind, 'none');
+      expect(unknown.hasImage, isFalse);
+
+      // A malformed colour is dropped, not parsed into black.
+      expect(AppBanner.fromJson({'id': 'b3', 'accentColor': '#12345'}).accentColor, isNull);
+    });
+
+    test('the image cache key changes only when the banner does', () {
+      AppBanner make(String updatedAt) => AppBanner.fromJson({
+            'id': 'b1',
+            'imageUrl': '/api/app/banners/b1/image',
+            'updatedAt': updatedAt,
+          });
+      final first = make('2026-01-01T00:00:00Z');
+      final same = make('2026-01-01T00:00:00Z');
+      final edited = make('2026-02-02T00:00:00Z');
+      // Same URL + same token == same cache entry: no re-download on relaunch.
+      expect(first.imageCacheKey, same.imageCacheKey);
+      // A replaced picture must produce a *different* URL or the disk cache
+      // would serve the old one forever.
+      expect(edited.imageCacheKey, isNot(first.imageCacheKey));
+      expect(first.imageCacheKey, contains('/api/app/banners/b1/image'));
     });
   });
 }

@@ -52,7 +52,13 @@ def declared_in(path: Path) -> set[str]:
 def main(argv: list[str]) -> int:
     lib = Path(argv[0]).resolve() if argv else (ROOT / 'apps' / 'mobile' / 'lib')
 
+    # `flutter analyze` analyzes `test/` too, which is exactly where the
+    # release build died: a widget test importing the deleted story viewer.
+    # Both trees are scanned, and test files may import from either.
     files = sorted(lib.rglob('*.dart'))
+    test_dir = lib.parent / 'test'
+    if test_dir.is_dir():
+        files += sorted(test_dir.rglob('*.dart'))
     # Which file declares which class?
     owners: dict[str, set[Path]] = {}
     for path in files:
@@ -63,6 +69,20 @@ def main(argv: list[str]) -> int:
     for path in files:
         src = path.read_text(encoding='utf-8')
         own = declared_in(path)
+
+        # A non-existent import is a hard error in `flutter analyze` and the
+        # single most likely thing to rot: delete a screen, forget a test.
+        # This is what the deleted story viewer left behind in the widget test.
+        for spec in IMPORT.findall(src):
+            if spec.startswith('dart:'):
+                continue
+            if spec.startswith('package:') and not spec.startswith('package:pishkan_app/'):
+                continue
+            target = resolve(path, spec, lib)
+            if target is None or not target.exists():
+                problems.append(
+                    f'{path.relative_to(lib.parent)}: imports `{spec}`, which does not exist'
+                )
 
         # Everything this file can name: direct imports, plus one level of
         # re-export, which is how a barrel file legitimately exposes a class.
@@ -84,7 +104,7 @@ def main(argv: list[str]) -> int:
                 continue
             wanted = ', '.join(sorted(p.name for p in where))
             problems.append(
-                f'{path.relative_to(lib)}: uses `{name}` (declared in {wanted}) '
+                f'{path.relative_to(lib.parent)}: uses `{name}` (declared in {wanted}) '
                 f'but no import brings it in'
             )
 

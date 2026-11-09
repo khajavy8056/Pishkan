@@ -26,3 +26,7 @@ windows/*.exe
 
 # Android signing key backup — NEVER commit (user keeps offline copies)
 apps/mobile/signing-backup/
+
+# Python bytecode from the local checkers
+__pycache__/
+*.pyc
