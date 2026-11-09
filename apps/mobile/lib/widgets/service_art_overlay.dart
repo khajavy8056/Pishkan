@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import '../core/api.dart';
 import '../core/service_icons.dart';
+import '../models/models.dart';
 import '../services/services.dart';
 import 'widgets.dart';
 

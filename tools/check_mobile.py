@@ -35,6 +35,11 @@ STEPS: list[tuple[str, list[str]]] = [
     ('final reassignment', ['tools/checks/dart_final.py', 'apps/mobile/lib']),
     ('icon names', ['tools/checks/dart_icons.py', 'apps/mobile/lib']),
     ('import order', ['tools/checks/dart_imports.py', 'apps/mobile/lib']),
+    # Catches the "undefined class" errors that `flutter analyze` reports as
+    # hard failures but nothing here could see: a class used in a file that no
+    # import brings in. This is the one that found the missing
+    # `models/models.dart` in service_art_overlay.dart.
+    ('class imports', ['tools/checks/dart_class_imports.py']),
     # This one takes files, not a directory — it checks a known list of
     # cross-module symbols, so it only needs the Dart sources.
     ('symbol imports', ['tools/checks/dart_symbol_imports.py', *DART_FILES]),

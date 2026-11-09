@@ -702,9 +702,9 @@ class _LightWashState extends State<_LightWash> with SingleTickerProviderStateMi
     // the `Positioned.fill` layers around it always have a box to fill and the
     // orbs can bleed past the card's edges.
     return Stack(
-    clipBehavior: Clip.none,
-    children: [
-      _Plate(child: widget.child),
+      clipBehavior: Clip.none,
+      children: [
+        _Plate(child: widget.child),
         // The orbs sit above the plate but below the glass, so they show
         // through the translucency rather than washing over the content.
         Positioned.fill(
