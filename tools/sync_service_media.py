@@ -24,6 +24,7 @@ Usage:
 from __future__ import annotations
 
 import shutil
+import subprocess
 import sys
 from pathlib import Path
 
@@ -98,6 +99,14 @@ def main(argv: list[str]) -> int:
 
     verb = 'ready' if check_only else 'copied'
     print(f'\n{copied} image(s) {verb}.')
+
+    if not check_only and copied:
+        # The copies are full-size masters; the app needs them small. Doing this
+        # here means the workflow is one command, and it is impossible to forget
+        # the step that keeps ~650 MB out of the APK.
+        print('\nCompressing for the app:')
+        subprocess.run([sys.executable, str(ROOT / 'tools' / 'compress_service_media.py')], check=True)
+
     return 1 if (unknown or wrong_type) else 0
 
 
