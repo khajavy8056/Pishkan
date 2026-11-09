@@ -17,7 +17,25 @@ abstract final class PishkanColors {
   static const warning = Color(0xFFD97706);
   static const danger = Color(0xFFDC2626);
   static const mutedText = Color(0xFF64748B);
+  /// The brand gradient used wherever **white text sits on top of it**:
+  /// primary buttons, the sent-message bubble, the wallet card.
+  ///
+  /// Its light end was #2E8CFF, which gives white text only 3.33:1 — above the
+  /// 3:1 floor for large text, below the 4.5:1 body-text minimum, and the chat
+  /// bubble puts 13px text on exactly this fill. Darkening the light end one
+  /// step to the brand's own primary (4.60:1) keeps the gradient reading as a
+  /// gradient while making every caller legible; a decorative use that wants
+  /// the brighter blue should use [brightGradient] instead, which never
+  /// carries text.
   static const brandGradient = LinearGradient(
+    colors: [Color(0xFF1F6FEE), Color(0xFF1452D9)],
+    begin: Alignment.topLeft,
+    end: Alignment.bottomRight,
+  );
+
+  /// The brighter, purely decorative variant — illustrations, splash
+  /// fallbacks, empty-state art. Never place text on this one.
+  static const brightGradient = LinearGradient(
     colors: [Color(0xFF2E8CFF), Color(0xFF1452D9)],
     begin: Alignment.topLeft,
     end: Alignment.bottomRight,

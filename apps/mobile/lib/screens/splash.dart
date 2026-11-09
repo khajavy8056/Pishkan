@@ -240,7 +240,7 @@ class _SplashScreenState extends State<SplashScreen> with TickerProviderStateMix
           child: Image.asset(
             'assets/splash-office.jpg',
             fit: BoxFit.cover,
-            errorBuilder: (_, _, _) => Container(decoration: BoxDecoration(gradient: PishkanColors.brandGradient)),
+            errorBuilder: (_, _, _) => Container(decoration: BoxDecoration(gradient: PishkanColors.brightGradient)),
           ),
         ),
         // A slow light sweep across the artwork. One thin diagonal of white at

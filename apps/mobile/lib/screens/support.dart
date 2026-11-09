@@ -78,7 +78,7 @@ class _SupportTabState extends State<SupportTab> {
             child: Row(children: [
               Container(
                 padding: const EdgeInsets.all(12),
-                decoration: BoxDecoration(gradient: PishkanColors.brandGradient, borderRadius: BorderRadius.circular(16)),
+                decoration: BoxDecoration(gradient: PishkanColors.brightGradient, borderRadius: BorderRadius.circular(16)),
                 child: Icon(Icons.chat_rounded, color: Colors.white),
               ),
               const SizedBox(width: 12),
