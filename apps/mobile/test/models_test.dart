@@ -90,12 +90,12 @@ void main() {
     });
   });
 
-  group('AppConfig + stories', () {
+  group('AppConfig + banners', () {
     test('config defaults stay customer-friendly', () {
       final config = AppConfig.fromJson({});
       expect(config.passwordLogin, isTrue);
       expect(config.registrationOpen, isTrue);
-      expect(config.storiesEnabled, isTrue);
+      expect(config.bannersEnabled, isTrue);
       expect(config.forceUpdate, isFalse);
     });
 

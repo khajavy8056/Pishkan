@@ -53,6 +53,7 @@ STEPS: list[tuple[str, list[str]]] = [
     # the member name exists on *other* classes, so nothing else saw it.
     ('member access', ['tools/checks/dart_members.py']),
     ('out-of-scope context', ['tools/checks/dart_context.py']),
+    ('renamed model fields', ['tools/checks/dart_config_members.py']),
     # This one takes files, not a directory — it checks a known list of
     # cross-module symbols, so it only needs the Dart sources.
     ('symbol imports', ['tools/checks/dart_symbol_imports.py', *DART_FILES]),
