@@ -66,20 +66,24 @@ def brightness_profile(path: Path, axis: str, length: int) -> list[float]:
 
 
 def gutter_positions(profile: list[float], total: int) -> list[int]:
-    """Columns/rows where the sheet is pure background, i.e. cell boundaries.
+    """Positions along one axis where the sheet is pure background.
 
-    A gutter is a *run* of near-background samples, not one bright sample: a
-    pale object such as a white sheet of paper is bright too, and single-pixel
-    peaks from those used to invent boundaries that were not there. Only runs
-    at least MIN_GUTTER wide, and clearly brighter than the typical background,
-    count as a boundary between cells.
+    The background is a gradient, brightest at the top and bottom of the
+    canvas, so a median baseline runs *through* the gutters rather than below
+    them and finds nothing. Comparing against the brightest sample works: the
+    gutters are the only large regions that reach the background's peak
+    brightness between icons.
+
+    A gutter is a *run* of such samples, not one: a pale object — a white
+    receipt, a certificate — is bright too, and single-sample peaks from those
+    used to invent boundaries that were not there. Thin gutters are real,
+    though, so the run threshold is deliberately small.
     """
     if not profile:
         return []
-    ordered = sorted(profile)
-    median = ordered[len(ordered) // 2]
-    threshold = median + PEAK_MARGIN
-    min_run = max(3, int(len(profile) * MIN_GUTTER))
+    brightest, darkest = max(profile), min(profile)
+    threshold = brightest - max(3.0, 0.02 * (brightest - darkest))
+    min_run = max(3, int(len(profile) * 0.02))
 
     groups: list[list[int]] = []
     for index, value in enumerate(profile):
@@ -115,15 +119,28 @@ def main(argv: list[str]) -> int:
 
     width, height = image_size(sheet)
     columns = cell_bounds(gutter_positions(brightness_profile(sheet, 'x', width), width), width)
-    rows = cell_bounds(gutter_positions(brightness_profile(sheet, 'y', height), height), height)
-    cells = len(columns) * len(rows)
 
-    print(f'sheet {width}x{height}: {len(columns)} columns x {len(rows)} rows = {cells} cells')
-    if cells != len(slugs):
-        print(f'but {len(slugs)} slugs were given; refusing to guess which cell is which')
+    # Columns are measured; rows are derived. Vertical gutters are often only a
+    # few pixels tall in a 768px sheet and vanish once the image is reduced for
+    # profiling, so counting them was unreliable. A sheet always holds an exact
+    # rectangular grid, so the row count follows from the column count and the
+    # number of slugs — and if those do not divide evenly, the sheet is not a
+    # grid we can trust, and we stop rather than guess.
+    column_count = len(columns)
+    if column_count == 0 or len(slugs) % column_count:
+        print(f'sheet {width}x{height}: measured {column_count} columns, '
+              f'but {len(slugs)} slugs do not divide into it')
         print('column cuts:', columns)
-        print('row cuts:', rows)
         return 1
+
+    row_count = len(slugs) // column_count
+    height_of_row = height // row_count
+    rows = [(r * height_of_row,
+             height if r == row_count - 1 else (r + 1) * height_of_row)
+            for r in range(row_count)]
+
+    print(f'sheet {width}x{height}: {column_count} columns x {row_count} rows '
+          f'= {column_count * row_count} cells')
 
     ICONS.mkdir(parents=True, exist_ok=True)
     SCRATCH.mkdir(parents=True, exist_ok=True)
