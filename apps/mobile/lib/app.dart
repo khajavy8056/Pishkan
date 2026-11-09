@@ -35,21 +35,24 @@ class _PishkanAppState extends State<PishkanApp> {
   Widget build(BuildContext context) {
     // Never a blank screen: any unexpected build error shows a calm Persian
     // message instead of the framework's empty error surface.
+    // Not `const`: the message colour comes from the theme, which only the
+    // build context knows. Everything that *can* be const is, so a rebuild of
+    // this fallback allocates as little as possible.
     ErrorWidget.builder = (details) => Material(
           color: PishkanColors.background,
           child: SafeArea(
             child: Center(
               child: Padding(
-                padding: EdgeInsets.all(28),
+                padding: const EdgeInsets.all(28),
                 child: Column(mainAxisSize: MainAxisSize.min, children: [
-                  Icon(Icons.cloud_off_rounded, size: 44, color: PishkanColors.primary),
-                  SizedBox(height: 14),
+                  const Icon(Icons.cloud_off_rounded, size: 44, color: PishkanColors.primary),
+                  const SizedBox(height: 14),
                   Text('خطایی رخ داد', style: TextStyle(fontFamily: 'Vazirmatn', fontWeight: FontWeight.w800, fontSize: 16, color: context.ink)),
-                  SizedBox(height: 6),
-                  Text(
+                  const SizedBox(height: 6),
+                  const Text(
                     'لطفاً اپ را ببندید و دوباره باز کنید. اگر مشکل ماند، با دفتر تماس بگیرید.',
                     textAlign: TextAlign.center,
-                    style: TextStyle(fontFamily: 'Vazirmatn', fontSize: 12.5, color: PishkanColors.mutedText, height: 1.9),
+                    style: const TextStyle(fontFamily: 'Vazirmatn', fontSize: 12.5, color: PishkanColors.mutedText, height: 1.9),
                   ),
                 ]),
               ),

@@ -293,6 +293,9 @@ class _HomeTabState extends State<HomeTab> {
     final sizes = context.sizes;
     final dark = context.isDark;
     return _LightWash(
+      // The wash is brighter in dark mode, where a light panel on a near-black
+      // background needs the extra glow to read as glass rather than as a hole.
+      intensity: dark ? 1.0 : 0.75,
       child: GlassCard(
         radius: 26,
         strong: true,
@@ -354,9 +357,6 @@ class _HomeTabState extends State<HomeTab> {
           ),
         ]),
       ),
-      // The wash is brighter in dark mode, where a light panel on a near-black
-      // background needs the extra glow to read as glass rather than as a hole.
-      intensity: dark ? 1.0 : 0.75,
     );
   }
 
@@ -713,8 +713,12 @@ class _LightWashState extends State<_LightWash> with SingleTickerProviderStateMi
               animation: _drift,
               builder: (context, _) {
                 final t = _drift.value;
+                // `PositionedDirectional`, not `Positioned`: the app is RTL,
+                // and only the directional form takes `start`/`end`. The two
+                // orbs sit on opposite corners and mirror with the language
+                // rather than pinning themselves to the physical sides.
                 return Stack(clipBehavior: Clip.none, children: [
-                  Positioned(
+                  PositionedDirectional(
                     top: -sizes.s(28) + t * sizes.s(10),
                     end: -sizes.s(30) - t * sizes.s(8),
                     child: _orb(
@@ -722,7 +726,7 @@ class _LightWashState extends State<_LightWash> with SingleTickerProviderStateMi
                       color: brand.withOpacity(0.55 * widget.intensity),
                     ),
                   ),
-                  Positioned(
+                  PositionedDirectional(
                     bottom: -sizes.s(40) - t * sizes.s(8),
                     start: -sizes.s(24) + t * sizes.s(10),
                     child: _orb(

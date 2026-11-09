@@ -44,6 +44,10 @@ STEPS: list[tuple[str, list[str]]] = [
     # release build silently drops the colour instead of failing. This caught
     # exactly that in `GlassCard`, which would have thrown on first build.
     ('decoration conflicts', ['tools/checks/dart_decoration.py']),
+    # `Positioned(start: ..)` instead of `PositionedDirectional`. The analyzer
+    # calls it undefined_named_parameter and it is a hard error; it broke two
+    # release builds before this row existed.
+    ('widget arguments', ['tools/checks/dart_params.py']),
     # This one takes files, not a directory — it checks a known list of
     # cross-module symbols, so it only needs the Dart sources.
     ('symbol imports', ['tools/checks/dart_symbol_imports.py', *DART_FILES]),
