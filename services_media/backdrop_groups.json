@@ -214,9 +214,7 @@
  "civil-registry": [
   "civil-registry-address-change",
   "inheritance-certificate",
-  "property-deed-inquiry"
- ],
- "national-card": [
+  "property-deed-inquiry",
   "smart-national-card-registration"
  ],
  "pilgrimage": [
