@@ -94,7 +94,7 @@ export const SETTINGS: SettingDef[] = [
 
 
   /* -------------------------------- landing -------------------------------- */
-  { key: 'site.name_en', group: 'landing', type: 'text', label: 'نام لاتین برند', hint: 'زیر نام فارسی برند در کنار لوگو نمایش داده می‌شود (مثل Pishkan). خالی یعنی نمایش داده نشود.', default: 'Pishkan Arena', public: true },
+  { key: 'site.name_en', group: 'landing', type: 'text', label: 'نام لاتین برند', hint: 'زیر نام فارسی برند در کنار لوگو نمایش داده می‌شود (مثل Pishkan). خالی یعنی نمایش داده نشود.', default: 'Pishkan', public: true },
   { key: 'site.logo_url', group: 'landing', type: 'text', label: 'نشانی تصویر لوگو', hint: 'نشانی کامل تصویر لوگو (http/https) یا مسیر داخلی مثل /images/logo.png. اگر خالی باشد، از «شناسهٔ فایل لوگو» در تنظیمات عمومی استفاده می‌شود؛ و اگر آن هم خالی باشد نشان پیش‌فرض برند نمایش داده می‌شود.', default: '', public: true },
   { key: 'landing.hero_badge', group: 'landing', type: 'text', label: 'برچسب بالای عنوان اصلی', default: 'سامانهٔ هوشمند خدمات دولتی', public: true },
   { key: 'landing.hero_title', group: 'landing', type: 'text', label: 'عنوان بزرگ صفحهٔ اصلی', hint: 'خالی یعنی همان «نام سامانه» از تنظیمات عمومی. به این ترتیب با تغییر نام سامانه، عنوان صفحهٔ اصلی هم خودکار عوض می‌شود.', default: '', public: true },
@@ -339,8 +339,8 @@ export const SETTINGS: SettingDef[] = [
   { key: 'multibranch.allow_cross_branch_reports', group: 'multibranch', type: 'boolean', label: 'گزارش تلفیقی بین دفاتر', default: bool(false) },
 
   /* --------------------------- Android customer app --------------------------- */
-  { key: 'app.latest_version', group: 'android_app', type: 'text', label: 'آخرین نسخه منتشرشده اپ', hint: 'مثلاً 1.0.0 — اپ اگر قدیمی‌تر باشد پیام به‌روزرسانی نشان می‌دهد.', default: '1.0.0', public: true },
-  { key: 'app.min_version', group: 'android_app', type: 'text', label: 'حداقل نسخه مجاز', hint: 'نسخه‌های قدیمی‌تر از این نمی‌توانند ادامه دهند و باید به‌روزرسانی شوند.', default: '1.0.0', public: true },
+  { key: 'app.latest_version', group: 'android_app', type: 'text', label: 'آخرین نسخه منتشرشده اپ', hint: 'آخرین نسخه‌ای که منتشر کرده‌اید. اپ اگر قدیمی‌تر باشد پیام به‌روزرسانی نشان می‌دهد؛ پس این مقدار باید با نسخه‌ای که واقعاً منتشر شده برابر باشد، وگرنه همهٔ کاربران پیام «نسخهٔ تازه موجود است» می‌بینند.', default: '1.4.0', public: true },
+  { key: 'app.min_version', group: 'android_app', type: 'text', label: 'حداقل نسخه مجاز', hint: 'نسخه‌های قدیمی‌تر از این نمی‌توانند ادامه دهند و باید به‌روزرسانی شوند. پایین نگه داشتنش یعنی هیچ کاربری به‌خاطر نسخه از اپ بیرون نمی‌ماند.', default: '1.0.0', public: true },
   { key: 'app.update_url', group: 'android_app', type: 'url', label: 'پیوند دریافت نسخه تازه', hint: 'لینک مستقیم APK یا صفحه فروشگاه؛ خالی یعنی از «پیوند دانلود اپلیکیشن اندروید» صفحه فرود استفاده شود.', default: '', public: true },
   { key: 'app.force_update', group: 'android_app', type: 'boolean', label: 'به‌روزرسانی اجباری', hint: 'وقتی روشن است، کاربر قدیمی بدون به‌روزرسانی نمی‌تواند وارد اپ شود.', default: bool(false), public: true },
   { key: 'app.banners_enabled', group: 'android_app', type: 'boolean', label: 'نمایش بنرها در اپ', hint: 'وقتی خاموش باشد، ریل بنرها در صفحهٔ اصلی اپ پنهان می‌شود؛ بنرها پاک نمی‌شوند.', default: bool(true), public: true },
