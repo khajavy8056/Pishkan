@@ -150,10 +150,23 @@ export function Textarea(props: TextareaHTMLAttributes<HTMLTextAreaElement>) {
   return <textarea {...props} className={clsx('input min-h-24 resize-y', props.className)} />;
 }
 
+type SelectOption = { value: string; label: string };
+type SelectGroup = { label: string; options: SelectOption[] };
+
+/**
+ * A native select.
+ *
+ * `options` may be flat or grouped. Groups exist because some pickers are
+ * genuinely long and hierarchical — the banner editor's service picker has to
+ * choose one of nearly two hundred services, and a flat list of those is a
+ * scroll you cannot aim in. Inside a group, an option with an empty value is
+ * treated as its heading placeholder rather than a real choice.
+ */
 export function Select({ options, placeholder, ...props }: SelectHTMLAttributes<HTMLSelectElement> & {
-  options: { value: string; label: string }[];
+  options: (SelectOption | SelectGroup)[];
   placeholder?: string;
 }) {
+  const isGroup = (item: SelectOption | SelectGroup): item is SelectGroup => 'options' in item;
   return (
     <select {...props} className={clsx('input appearance-none bg-[length:14px] pl-8', props.className)}
       style={{
@@ -162,7 +175,13 @@ export function Select({ options, placeholder, ...props }: SelectHTMLAttributes<
       }}
     >
       {placeholder && <option value="">{placeholder}</option>}
-      {options.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
+      {options.map((item, index) => isGroup(item)
+        ? (
+          <optgroup key={`g-${index}-${item.label}`} label={item.label}>
+            {item.options.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
+          </optgroup>
+        )
+        : <option key={item.value} value={item.value}>{item.label}</option>)}
     </select>
   );
 }

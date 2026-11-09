@@ -17,7 +17,10 @@ describe('Android customer API contract (real HTTP and SQLite)', () => {
     expect(catalog1.body.meta.total).toBeGreaterThan(100);
     expect(catalog1.body.data.length + catalog2.body.data.length).toBe(catalog1.body.meta.total);
     for (const item of [...catalog1.body.data, ...catalog2.body.data]) {
-      expect(item.image).toMatch(/^\/images\/services\/.*\.png$/);
+      // Every seeded service now ships its own WebP artwork; the `.png`
+      // category photos only survive as the fallback for a service whose slug
+      // has no individual picture yet.
+      expect(item.image).toMatch(/^\/images\/services\/.*\.(webp|png)$/);
       expect(item.icon).toMatch(/\p{Extended_Pictographic}/u);
     }
 

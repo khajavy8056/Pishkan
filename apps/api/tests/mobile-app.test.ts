@@ -4,51 +4,57 @@ import sharp from 'sharp';
 import { adminSession, app, customerSession } from './helpers.js';
 
 /**
- * Native-app backend: public runtime config, story management from the web
- * admin side, customer story feed + media streaming, and the device
- * registry behind usage statistics.
+ * Native-app backend: public runtime config, banner management from the web
+ * admin side, the customer banner feed with its image streaming, and the
+ * device registry behind usage statistics.
+ *
+ * Banners replaced stories wholesale — see migration 038. The behaviours
+ * pinned here are the ones the admin panel promises and the app relies on:
+ * a published banner with a real picture reaches the phone, a draft or an
+ * expired one does not, a customer cannot manage banners, and the campaign
+ * notification goes out once, at publication.
  */
 
 async function jpegFixture(): Promise<Buffer> {
-  return sharp({ create: { width: 540, height: 960, channels: 3, background: '#1d4ed8' } })
+  return sharp({ create: { width: 540, height: 304, channels: 3, background: '#1d4ed8' } })
     .jpeg({ quality: 85 }).toBuffer();
 }
 
 describe('android app backend', () => {
-  it('serves public app config with brand and version policy', async () => {
+  it('serves public app config with brand, version policy and the banner switch', async () => {
     const server = await app();
     const res = await request(server).get('/api/app/config').expect(200);
     expect(res.body.data.brand.name).toBeTruthy();
     expect(res.body.data.version.latest).toBeTruthy();
     expect(res.body.data.version).toHaveProperty('min');
-    expect(res.body.data).toHaveProperty('storiesEnabled');
+    expect(res.body.data).toHaveProperty('bannersEnabled');
     expect(res.body.data.auth).toHaveProperty('otp');
   });
 
-  it('publishes a story from the admin side and streams it to customers', async () => {
+  it('publishes a banner from the admin side and streams its image to customers', async () => {
     const server = await app();
     const admin = await adminSession();
     const customer = await customerSession();
 
-    const upload = await request(server).post('/api/files/upload?purpose=story')
-      .set('Cookie', admin.cookie).attach('file', await jpegFixture(), 'story-cover.jpg');
+    const upload = await request(server).post('/api/files/upload?purpose=banner')
+      .set('Cookie', admin.cookie).attach('file', await jpegFixture(), 'banner-cover.jpg');
     expect(upload.status).toBe(201);
     const fileId = upload.body.data.id as string;
 
-    const createdRes = await request(server).post('/api/app/admin/stories').set('Cookie', admin.cookie).send({
-      groupTitle: 'پیشنهاد هفته', title: 'تخفیف تعویض پلاک', mediaType: 'image', fileId,
-      linkUrl: '/app/services', linkLabel: 'مشاهده خدمت', durationSeconds: 5, status: 'published',
+    const createdRes = await request(server).post('/api/app/admin/banners').set('Cookie', admin.cookie).send({
+      kind: 'service', title: 'تخفیف تعویض پلاک', subtitle: 'بدون صف و بدون مراجعه',
+      imageFileId: fileId, destinationKind: 'service', destinationSlug: 'insurance-history',
+      actionLabel: 'مشاهده خدمت', status: 'published',
     });
     expect(createdRes.status).toBe(201);
-    const story = createdRes.body.data;
-    expect(story.mediaUrl).toBe(`/api/app/stories/${story.id}/media`);
+    const banner = createdRes.body.data;
+    expect(banner.imageUrl).toBe(`/api/app/banners/${banner.id}/image`);
+    expect(banner.destinationSlug).toBe('insurance-history');
 
-    const feed = await request(server).get('/api/app/stories').set('Cookie', customer.cookie).expect(200);
-    const group = feed.body.data.groups.find((g: any) => g.title === 'پیشنهاد هفته');
-    expect(group).toBeTruthy();
-    expect(group.items.some((item: any) => item.id === story.id)).toBe(true);
+    const feed = await request(server).get('/api/app/banners').set('Cookie', customer.cookie).expect(200);
+    expect(feed.body.data.banners.some((item: any) => item.id === banner.id)).toBe(true);
 
-    const media = await request(server).get(`/api/app/stories/${story.id}/media`)
+    const media = await request(server).get(`/api/app/banners/${banner.id}/image`)
       .set('Cookie', customer.cookie)
       .buffer(true)
       .parse((res, cb) => {
@@ -58,83 +64,94 @@ describe('android app backend', () => {
       });
     expect(media.status).toBe(200);
     expect(String(media.headers['content-type'])).toContain('image/');
-    expect((media.body as Buffer).length).toBeGreaterThan(500);
+    // Banner artwork is cached hard and keyed by the banner, so an unchanged
+    // banner is never downloaded a second time.
+    expect(String(media.headers['cache-control'])).toContain('immutable');
+    // The fixture is a flat colour, so it compresses to a few hundred bytes.
+    // It is served re-encoded as WebP — the upload pipeline optimises every
+    // image — so the signature is RIFF, not the JPEG one that was uploaded.
+    const bytes = media.body as Buffer;
+    expect(bytes.length).toBeGreaterThan(100);
+    expect(bytes.subarray(0, 4).toString('ascii')).toBe('RIFF');
+    expect(bytes.subarray(8, 12).toString('ascii')).toBe('WEBP');
 
-    // Range requests (video playback) answer with 206.
-    const ranged = await request(server).get(`/api/app/stories/${story.id}/media`)
-      .set('Cookie', customer.cookie).set('Range', 'bytes=0-99');
-    expect(ranged.status).toBe(206);
-
-    // Unauthenticated media stays closed, and customers cannot manage stories.
-    expect((await request(server).get(`/api/app/stories/${story.id}/media`)).status).toBe(401);
-    const forbidden = await request(server).post('/api/app/admin/stories').set('Cookie', customer.cookie)
-      .send({ title: 'استوری غیرمجاز تستی', mediaType: 'image', mediaUrl: 'https://example.com/x.jpg' });
+    // Unauthenticated media stays closed, and customers cannot manage banners.
+    expect((await request(server).get(`/api/app/banners/${banner.id}/image`)).status).toBe(401);
+    const forbidden = await request(server).post('/api/app/admin/banners').set('Cookie', customer.cookie)
+      .send({ title: 'بنر غیرمجاز تستی', imageUrl: 'https://example.com/x.jpg' });
     expect(forbidden.status).toBe(403);
   });
 
-  it('keeps expired and draft stories out of the customer feed', async () => {
+  it('keeps expired, future and draft banners out of the customer feed', async () => {
     const server = await app();
     const admin = await adminSession();
     const customer = await customerSession();
     const past = new Date(Date.now() - 86_400_000).toISOString();
-    const upload = await request(server).post('/api/files/upload?purpose=story')
-      .set('Cookie', admin.cookie).attach('file', await jpegFixture(), 'story-expired.jpg');
-    const expired = await request(server).post('/api/app/admin/stories').set('Cookie', admin.cookie).send({
-      title: 'استوری منقضی آزمون', mediaType: 'image', fileId: upload.body.data.id, expiresAt: past, status: 'published',
+    const future = new Date(Date.now() + 86_400_000).toISOString();
+    const upload = await request(server).post('/api/files/upload?purpose=banner')
+      .set('Cookie', admin.cookie).attach('file', await jpegFixture(), 'banner-window.jpg');
+    const fileId = upload.body.data.id;
+
+    const expired = await request(server).post('/api/app/admin/banners').set('Cookie', admin.cookie).send({
+      title: 'بنر منقضی آزمون', imageFileId: fileId, expiresAt: past, status: 'published',
     });
     expect(expired.status).toBe(201);
-    const draft = await request(server).post('/api/app/admin/stories').set('Cookie', admin.cookie).send({
-      title: 'استوری پیش نویس آزمون', mediaType: 'image', mediaUrl: 'https://example.com/draft.jpg', status: 'draft',
+    const upcoming = await request(server).post('/api/app/admin/banners').set('Cookie', admin.cookie).send({
+      title: 'بنر آینده آزمون', imageFileId: fileId, startsAt: future, status: 'published',
+    });
+    expect(upcoming.status).toBe(201);
+    const draft = await request(server).post('/api/app/admin/banners').set('Cookie', admin.cookie).send({
+      title: 'بنر پیش نویس آزمون', imageFileId: fileId, status: 'draft',
     });
     expect(draft.status).toBe(201);
 
-    const feed = await request(server).get('/api/app/stories').set('Cookie', customer.cookie).expect(200);
-    const ids = feed.body.data.groups.flatMap((g: any) => g.items.map((item: any) => item.id));
+    const feed = await request(server).get('/api/app/banners').set('Cookie', customer.cookie).expect(200);
+    const ids = feed.body.data.banners.map((item: any) => item.id);
     expect(ids).not.toContain(expired.body.data.id);
+    expect(ids).not.toContain(upcoming.body.data.id);
     expect(ids).not.toContain(draft.body.data.id);
 
-    await request(server).delete(`/api/app/admin/stories/${expired.body.data.id}`).set('Cookie', admin.cookie).expect(200);
-    await request(server).delete(`/api/app/admin/stories/${draft.body.data.id}`).set('Cookie', admin.cookie).expect(200);
+    for (const created of [expired, upcoming, draft]) {
+      await request(server).delete(`/api/app/admin/banners/${created.body.data.id}`).set('Cookie', admin.cookie).expect(200);
+    }
   });
 
-  it('carries a story caption end-to-end and notifies customers when a story is published', async () => {
+  it('notifies customers once, when a banner is published', async () => {
     const server = await app();
     const admin = await adminSession();
     const customer = await customerSession();
 
-    const upload = await request(server).post('/api/files/upload?purpose=story')
-      .set('Cookie', admin.cookie).attach('file', await jpegFixture(), 'story-caption.jpg');
+    const upload = await request(server).post('/api/files/upload?purpose=banner')
+      .set('Cookie', admin.cookie).attach('file', await jpegFixture(), 'banner-notify.jpg');
     expect(upload.status).toBe(201);
 
-    const caption = 'اکنون می‌توانید درخواست صدور و تمدید کارت ملی را کاملاً غیرحضوری ثبت کنید.';
+    const subtitle = 'اکنون می‌توانید درخواست صدور و تمدید کارت ملی را کاملاً غیرحضوری ثبت کنید.';
     // Draft first: publishing must not notify yet.
-    const draft = await request(server).post('/api/app/admin/stories').set('Cookie', admin.cookie).send({
-      groupTitle: 'اطلاعیه‌ها', title: 'ثبت غیرحضوری کارت ملی', caption, mediaType: 'image',
-      fileId: upload.body.data.id, status: 'draft',
+    const draft = await request(server).post('/api/app/admin/banners').set('Cookie', admin.cookie).send({
+      kind: 'info', title: 'ثبت غیرحضوری کارت ملی', subtitle,
+      imageFileId: upload.body.data.id, status: 'draft', notifyCustomers: true,
     });
     expect(draft.status).toBe(201);
-    expect(draft.body.data.caption).toBe(caption);
+    expect(draft.body.data.subtitle).toBe(subtitle);
 
     const before = await request(server).get('/api/customers/me/notifications?limit=50').set('Cookie', customer.cookie).expect(200);
-    const seenBefore = (before.body.data as any[]).some((n) => String(n.title).includes('کارت ملی'));
-    expect(seenBefore).toBe(false);
+    expect((before.body.data as any[]).some((n) => String(n.title).includes('کارت ملی'))).toBe(false);
 
-    const published = await request(server).patch(`/api/app/admin/stories/${draft.body.data.id}`)
+    const published = await request(server).patch(`/api/app/admin/banners/${draft.body.data.id}`)
       .set('Cookie', admin.cookie).send({ status: 'published' }).expect(200);
-    expect(published.body.data.caption).toBe(caption);
+    expect(published.body.data.subtitle).toBe(subtitle);
 
-    // The customer feed shows the caption for the full-screen viewer...
-    const feed = await request(server).get('/api/app/stories').set('Cookie', customer.cookie).expect(200);
-    const item = feed.body.data.groups.flatMap((g: any) => g.items).find((i: any) => i.id === draft.body.data.id);
+    // The customer feed carries the subtitle the notification was built from.
+    const feed = await request(server).get('/api/app/banners').set('Cookie', customer.cookie).expect(200);
+    const item = feed.body.data.banners.find((i: any) => i.id === draft.body.data.id);
     expect(item).toBeTruthy();
-    expect(item.caption).toBe(caption);
+    expect(item.subtitle).toBe(subtitle);
 
-    // ...and a «new story» notification lands in the customer's centre
-    // (fan-out is intentionally fire-and-forget, so poll briefly).
+    // The fan-out is intentionally fire-and-forget, so poll briefly.
     let notified = false;
     for (let attempt = 0; attempt < 20 && !notified; attempt += 1) {
       const after = await request(server).get('/api/customers/me/notifications?limit=50').set('Cookie', customer.cookie).expect(200);
-      notified = (after.body.data as any[]).some((n) => String(n.title).includes('استوری تازه') && n.link === '/app/stories');
+      notified = (after.body.data as any[]).some((n) => String(n.title).includes('کارت ملی') && n.link === '/app/banners');
       if (!notified) await new Promise((resolve) => setTimeout(resolve, 100));
     }
     expect(notified).toBe(true);
@@ -153,6 +170,18 @@ describe('android app backend', () => {
     await request(server).get('/api/app/admin/connection').set('Cookie', customer.cookie).expect(403);
   });
 
+  it('offers the admin a service list to point banners at', async () => {
+    const server = await app();
+    const admin = await adminSession();
+    const targets = await request(server).get('/api/app/admin/banner-targets').set('Cookie', admin.cookie).expect(200);
+    expect(Array.isArray(targets.body.data)).toBe(true);
+    expect(targets.body.data.length).toBeGreaterThan(100);
+    const sample = targets.body.data.find((row: any) => row.slug === 'insurance-history');
+    expect(sample).toBeTruthy();
+    // The picker groups by category, so each row has to carry one.
+    expect(sample.category).toBeTruthy();
+  });
+
   it('registers customer devices and reports usage stats', async () => {
     const server = await app();
     const admin = await adminSession();
@@ -168,5 +197,8 @@ describe('android app backend', () => {
     expect(stats.body.data.devices.total).toBeGreaterThanOrEqual(1);
     expect(stats.body.data.devices.active7d).toBeGreaterThanOrEqual(1);
     expect(stats.body.data.devices.recent.some((row: any) => row.deviceModel === 'Pixel Test')).toBe(true);
+    // The dashboard counts banners, not the retired story table.
+    expect(stats.body.data).toHaveProperty('banners');
+    expect(stats.body.data).not.toHaveProperty('stories');
   });
 });

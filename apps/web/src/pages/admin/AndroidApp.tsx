@@ -1,7 +1,8 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import {
   Smartphone, RefreshCw, Plus, Trash2, Pencil, ArrowUp, ArrowDown, Eye, EyeOff,
-  Users, Activity, History, Layers, Link2, Upload,
+  Users, Activity, History, Layers, Link2, Upload, Image as ImageIcon,
+  Megaphone, Info, BadgePercent, Sparkles, Bell,
 } from 'lucide-react';
 import { AppShell, PageHeader } from '../../components/shell';
 import {
@@ -13,46 +14,90 @@ import { api, ApiFailure } from '../../lib/api';
 import { useAuth } from '../../lib/auth';
 import { faDateTime, faNum, relative } from '../../lib/format';
 
-interface Story {
+/**
+ * The customer app's banners.
+ *
+ * These replaced stories wholesale. A story was a vertical slideshow you had
+ * to build one card at a time and group into rings; a banner is one wide card
+ * on the home screen with a title, a picture and — the part that matters — a
+ * destination that can be a specific catalogue service. The admin surface
+ * follows that model: one list, ordered by the office, each row carrying its
+ * own schedule, on/off switch and optional notification.
+ */
+interface Banner {
   id: string;
-  groupTitle: string | null;
+  kind: 'general' | 'info' | 'ad' | 'service';
   title: string;
-  caption: string | null;
-  mediaType: 'image' | 'video';
-  fileId: string | null;
-  mediaUrl: string | null;
-  externalMediaUrl: string | null;
-  linkUrl: string | null;
-  linkLabel: string | null;
-  durationSeconds: number;
+  subtitle: string | null;
+  imageUrl: string | null;
+  externalImageUrl: string | null;
+  accentColor: string | null;
+  destinationKind: 'none' | 'service' | 'url';
+  destinationSlug: string | null;
+  destinationUrl: string | null;
+  actionLabel: string | null;
   sortOrder: number;
   startsAt: string | null;
   expiresAt: string | null;
   status: string;
+  notifyCustomers: boolean;
   createdAt: string;
 }
 
-const emptyStory = {
-  groupTitle: '', title: '', caption: '', mediaType: 'image' as 'image' | 'video', fileId: '' as string,
-  mediaUrl: '', linkUrl: '', linkLabel: '', durationSeconds: 6, startsAt: '', expiresAt: '',
-  status: 'published' as 'draft' | 'published',
+interface BannerTarget {
+  slug: string;
+  title: string;
+  category: string | null;
+}
+
+const KIND_META: Record<Banner['kind'], { label: string; icon: ReactNode; hint: string }> = {
+  general: { label: 'عمومی', icon: <Sparkles className="size-4" />, hint: 'معرفی کلی سامانه یا کمپین' },
+  service: { label: 'معرفی خدمت', icon: <Megaphone className="size-4" />, hint: 'به یک خدمت مشخص اشاره می‌کند' },
+  info: { label: 'اطلاعیه', icon: <Info className="size-4" />, hint: 'اطلاع‌رسانی یا راهنما' },
+  ad: { label: 'تبلیغاتی', icon: <BadgePercent className="size-4" />, hint: 'پیشنهاد یا تخفیف' },
 };
+
+const emptyBanner = {
+  id: '',
+  kind: 'service' as Banner['kind'],
+  title: '',
+  subtitle: '',
+  imageFileId: '',
+  imageUrl: '',
+  accentColor: '#1F6FEE',
+  destinationKind: 'service' as Banner['destinationKind'],
+  destinationSlug: '',
+  destinationUrl: '',
+  actionLabel: 'شروع',
+  startsAt: '',
+  expiresAt: '',
+  status: 'published' as 'draft' | 'published',
+  notifyCustomers: false,
+};
+
+/** The in-app pages a banner may point at without naming a service. */
+const IN_APP_PAGES = [
+  { value: '/app/services', label: 'فهرست خدمات' },
+  { value: '/app/requests', label: 'درخواست‌های من' },
+  { value: '/app/documents', label: 'مدارک من' },
+];
 
 export function AdminAndroidApp() {
   const { can } = useAuth();
   const { notify } = useToast();
-  const [tab, setTab] = useState<'stories' | 'stats' | 'settings'>('stories');
+  const [tab, setTab] = useState<'banners' | 'stats' | 'settings'>('banners');
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
-  const [stories, setStories] = useState<Story[]>([]);
+  const [banners, setBanners] = useState<Banner[]>([]);
+  const [targets, setTargets] = useState<BannerTarget[]>([]);
   const [stats, setStats] = useState<any>(null);
   const [values, setValues] = useState<Record<string, any>>({});
   const [savingSettings, setSavingSettings] = useState(false);
   const [editing, setEditing] = useState<any>(null);
-  const [mediaName, setMediaName] = useState('');
-  const [mediaPreview, setMediaPreview] = useState<string | null>(null);
+  const [imageName, setImageName] = useState('');
+  const [imagePreview, setImagePreview] = useState<string | null>(null);
   const [uploading, setUploading] = useState(false);
-  const [savingStory, setSavingStory] = useState(false);
+  const [savingBanner, setSavingBanner] = useState(false);
   const [connection, setConnection] = useState<any>(null);
   const [qrImages, setQrImages] = useState<Record<string, string>>({});
   const fileInputRef = useRef<HTMLInputElement | null>(null);
@@ -61,12 +106,14 @@ export function AdminAndroidApp() {
     setLoading(true);
     setError('');
     Promise.all([
-      api.get<{ data: Story[] }>('/api/app/admin/stories').catch(() => ({ data: [] as Story[] })),
+      api.get<{ data: Banner[] }>('/api/app/admin/banners').catch(() => ({ data: [] as Banner[] })),
+      api.get<{ data: BannerTarget[] }>('/api/app/admin/banner-targets').catch(() => ({ data: [] as BannerTarget[] })),
       api.get<{ data: any }>('/api/app/admin/stats').catch(() => ({ data: null })),
       api.get<{ data: any }>('/api/settings/admin'),
       api.get<{ data: any }>('/api/app/admin/connection').catch(() => ({ data: null })),
-    ]).then(async ([st, stat, settings, conn]) => {
-      setStories(st.data ?? []);
+    ]).then(async ([bn, tg, stat, settings, conn]) => {
+      setBanners(bn.data ?? []);
+      setTargets(tg.data ?? []);
       setStats(stat.data);
       setConnection(conn.data);
       // Pre-render one scannable QR per LAN address for the connection card;
@@ -92,7 +139,7 @@ export function AdminAndroidApp() {
     try {
       const keys = [
         'app.latest_version', 'app.min_version', 'app.update_url', 'app.force_update',
-        'app.stories_enabled', 'app.stories_notify', 'app.announcement', 'app.welcome_title',
+        'app.banners_enabled', 'app.announcement', 'app.welcome_title',
         'auth.customer_password_enabled', 'auth.customer_otp_enabled', 'auth.customer_registration_open',
       ];
       const picked: Record<string, any> = {};
@@ -104,111 +151,151 @@ export function AdminAndroidApp() {
     } finally { setSavingSettings(false); }
   };
 
-  /* --------------------------------- stories -------------------------------- */
+  /* --------------------------------- banners -------------------------------- */
 
-  const openEditor = (story?: Story | null) => {
-    setMediaName('');
-    setMediaPreview(story?.mediaUrl ?? null);
-    setEditing(story ? {
-      id: story.id,
-      groupTitle: story.groupTitle ?? '',
-      title: story.title,
-      caption: story.caption ?? '',
-      mediaType: story.mediaType,
-      fileId: story.fileId ?? '',
-      mediaUrl: story.externalMediaUrl ?? '',
-      linkUrl: story.linkUrl ?? '',
-      linkLabel: story.linkLabel ?? '',
-      durationSeconds: story.durationSeconds,
-      startsAt: story.startsAt ? story.startsAt.slice(0, 16) : '',
-      expiresAt: story.expiresAt ? story.expiresAt.slice(0, 16) : '',
-      status: story.status,
-    } : { ...emptyStory });
+  const openEditor = (banner?: Banner | null) => {
+    setImageName('');
+    setImagePreview(banner?.imageUrl ?? null);
+    setEditing(banner ? {
+      id: banner.id,
+      kind: banner.kind,
+      title: banner.title,
+      subtitle: banner.subtitle ?? '',
+      imageFileId: '',
+      imageUrl: banner.externalImageUrl ?? '',
+      accentColor: banner.accentColor ?? '#1F6FEE',
+      destinationKind: banner.destinationKind,
+      destinationSlug: banner.destinationSlug ?? '',
+      destinationUrl: banner.destinationUrl ?? '',
+      actionLabel: banner.actionLabel ?? 'مشاهده',
+      startsAt: banner.startsAt ? banner.startsAt.slice(0, 16) : '',
+      expiresAt: banner.expiresAt ? banner.expiresAt.slice(0, 16) : '',
+      status: banner.status as 'draft' | 'published',
+      notifyCustomers: banner.notifyCustomers,
+    } : { ...emptyBanner });
   };
 
-  const uploadMedia = async (file: File) => {
+  const uploadImage = async (file: File) => {
     setUploading(true);
     try {
-      const res = await api.upload<{ data: { id: string; name: string; mime: string } }>('/api/files/upload', file, { purpose: 'story' });
-      const isVideo = (res.data.mime ?? '').startsWith('video/');
-      setMediaPreview(URL.createObjectURL(file));
-      setMediaName(res.data.name);
-      setEditing((current: any) => ({
-        ...current,
-        fileId: res.data.id,
-        mediaUrl: '',
-        mediaType: isVideo ? 'video' : 'image',
-      }));
-      notify(isVideo ? 'ویدئوی استوری بارگذاری شد.' : 'تصویر استوری بارگذاری شد.', 'success');
+      const res = await api.upload<{ data: { id: string; name: string; mime: string } }>(
+        '/api/files/upload', file, { purpose: 'banner' },
+      );
+      if (!(res.data.mime ?? '').startsWith('image/')) {
+        notify('تصویر بنر باید فایل تصویری باشد.', 'error');
+        return;
+      }
+      setImagePreview(URL.createObjectURL(file));
+      setImageName(res.data.name);
+      // Clearing the URL field is deliberate: the payload sends it as ''
+      // when a file is attached, which is what tells the server to drop any
+      // previously stored external address instead of keeping both.
+      setEditing((current: any) => ({ ...current, imageFileId: res.data.id, imageUrl: '' }));
+      notify('تصویر بنر بارگذاری شد.', 'success');
     } catch (err) {
-      notify(err instanceof ApiFailure ? err.message : 'بارگذاری رسانه ناموفق بود.', 'error');
+      notify(err instanceof ApiFailure ? err.message : 'بارگذاری تصویر ناموفق بود.', 'error');
     } finally { setUploading(false); }
   };
 
-  const saveStory = async () => {
+  const saveBanner = async () => {
     if (!editing) return;
-    setSavingStory(true);
+    setSavingBanner(true);
     try {
       const payload = {
-        groupTitle: editing.groupTitle || null,
+        kind: editing.kind,
         title: editing.title,
-        caption: editing.caption || null,
-        mediaType: editing.mediaType,
-        fileId: editing.fileId || null,
-        mediaUrl: editing.mediaUrl || null,
-        linkUrl: editing.linkUrl || null,
-        linkLabel: editing.linkLabel || null,
-        durationSeconds: Number(editing.durationSeconds) || 6,
+        subtitle: editing.subtitle || null,
+        // Exactly one image source: an explicit upload wins over the URL
+        // field, because that is what the person filling the form last chose.
+        imageFileId: editing.imageFileId || null,
+        imageUrl: editing.imageFileId ? '' : editing.imageUrl,
+        accentColor: editing.accentColor || null,
+        destinationKind: editing.destinationKind,
+        destinationSlug: editing.destinationKind === 'service' ? (editing.destinationSlug || null) : null,
+        destinationUrl: editing.destinationKind === 'url' ? (editing.destinationUrl || null) : null,
+        actionLabel: editing.actionLabel || null,
         startsAt: editing.startsAt ? new Date(editing.startsAt).toISOString() : null,
         expiresAt: editing.expiresAt ? new Date(editing.expiresAt).toISOString() : null,
         status: editing.status,
+        notifyCustomers: Boolean(editing.notifyCustomers),
       };
-      if (editing.id) await api.patch(`/api/app/admin/stories/${editing.id}`, payload);
-      else await api.post('/api/app/admin/stories', payload);
-      notify('استوری ذخیره شد.', 'success');
+      if (editing.id) await api.patch(`/api/app/admin/banners/${editing.id}`, payload);
+      else await api.post('/api/app/admin/banners', payload);
+      notify(
+        editing.notifyCustomers && editing.status === 'published'
+          ? 'بنر ذخیره شد و برای مشتری‌ها اعلان ساخته می‌شود.'
+          : 'بنر ذخیره شد.',
+        'success',
+      );
       setEditing(null);
       load();
     } catch (err) {
-      notify(err instanceof ApiFailure ? err.message : 'خطا در ذخیره استوری', 'error');
-    } finally { setSavingStory(false); }
+      notify(err instanceof ApiFailure ? err.message : 'خطا در ذخیره بنر', 'error');
+    } finally { setSavingBanner(false); }
   };
 
-  const removeStory = async (story: Story) => {
-    if (!window.confirm(`استوری «${story.title}» حذف شود؟`)) return;
+  const removeBanner = async (banner: Banner) => {
+    if (!window.confirm(`بنر «${banner.title}» حذف شود؟`)) return;
     try {
-      await api.delete(`/api/app/admin/stories/${story.id}`);
-      notify('استوری حذف شد.', 'success');
+      await api.delete(`/api/app/admin/banners/${banner.id}`);
+      notify('بنر حذف شد.', 'success');
       load();
     } catch (err) {
       notify(err instanceof ApiFailure ? err.message : 'خطا در حذف', 'error');
     }
   };
 
-  const moveStory = async (story: Story, delta: number) => {
-    const ids = stories.map((s) => s.id);
-    const index = ids.indexOf(story.id);
+  const moveBanner = async (banner: Banner, delta: number) => {
+    const ids = banners.map((b) => b.id);
+    const index = ids.indexOf(banner.id);
     const target = index + delta;
     if (index < 0 || target < 0 || target >= ids.length) return;
     [ids[index], ids[target]] = [ids[target], ids[index]];
-    setStories(ids.map((id) => stories.find((s) => s.id === id)!));
+    setBanners(ids.map((id) => banners.find((b) => b.id === id)!));
     try {
-      const res = await api.post<{ data: Story[] }>('/api/app/admin/stories/reorder', { ids });
-      setStories(res.data);
+      const res = await api.post<{ data: Banner[] }>('/api/app/admin/banners/reorder', { ids });
+      setBanners(res.data);
     } catch (err) {
       notify(err instanceof ApiFailure ? err.message : 'خطا در ترتیب‌دهی', 'error');
       load();
     }
   };
 
+  /** One-click on/off, so pulling a campaign does not mean opening its form. */
+  const togglePublished = async (banner: Banner) => {
+    const next = banner.status === 'published' ? 'draft' : 'published';
+    try {
+      await api.patch(`/api/app/admin/banners/${banner.id}`, { status: next });
+      notify(next === 'published' ? 'بنر منتشر شد.' : 'بنر از انتشار خارج شد.', 'success');
+      load();
+    } catch (err) {
+      notify(err instanceof ApiFailure ? err.message : 'خطا در تغییر وضعیت', 'error');
+    }
+  };
+
+  /** Grouped service picker labels: a flat list of 193 titles is unusable. */
+  const targetOptions = useMemo(() => {
+    const groups = new Map<string, BannerTarget[]>();
+    for (const target of targets) {
+      const key = target.category ?? 'سایر';
+      if (!groups.has(key)) groups.set(key, []);
+      groups.get(key)!.push(target);
+    }
+    return [...groups.entries()].map(([category, items]) => ({
+      label: category,
+      options: items.map((item) => ({ value: item.slug, label: item.title })),
+    }));
+  }, [targets]);
+
   const tabs = [
-    { key: 'stories', label: 'استوری‌ها و اطلاعیه' },
+    { key: 'banners', label: 'بنرها' },
     { key: 'stats', label: 'آمار و همگام‌سازی' },
     { key: 'settings', label: 'تنظیمات و نسخه‌ها' },
   ];
 
   return (
     <AppShell variant="admin">
-      <PageHeader title="اپ اندروید مشتریان" description="استوری و اطلاعیه، سیاست نسخه و به‌روزرسانی، روش‌های ورود به اپ و آمار استفاده — اپ از همین سامانه و پایگاه داده استفاده می‌کند."
+      <PageHeader title="اپ اندروید مشتریان" description="بنرهای صفحهٔ اصلی، سیاست نسخه و به‌روزرسانی، روش‌های ورود به اپ و آمار استفاده — اپ از همین سامانه و پایگاه داده استفاده می‌کند."
         actions={<Button variant="ghost" onClick={load}><RefreshCw className="size-4" /> به‌روزرسانی</Button>} />
 
       {error && <ErrorState message={error} onRetry={load} />}
@@ -231,10 +318,10 @@ export function AdminAndroidApp() {
                   <h3 className="mb-3 font-bold text-navy-900">وضعیت همگام‌سازی</h3>
                   <div className="space-y-2 text-sm text-navy-700">
                     <p>آخرین حضور ثبت‌شده از اپ: <b>{stats?.devices.lastSeenAt ? relative(stats.devices.lastSeenAt) : 'هنوز هیچ دستگاهی متصل نشده است'}</b></p>
-                    <p>استوری‌های منتشرشده: <b>{faNum(stats?.stories.published ?? 0)}</b> • پیش‌نویس: <b>{faNum(stats?.stories.draft ?? 0)}</b></p>
+                    <p>بنرهای منتشرشده: <b>{faNum(stats?.banners?.published ?? 0)}</b> • پیش‌نویس: <b>{faNum(stats?.banners?.draft ?? 0)}</b></p>
                     <p className="text-[11px] leading-6 text-navy-500">
                       هر گوشی با ورود موفق و هر اجرای سرد اپ، حضورش را اینجا ثبت می‌کند.
-                      کاتالوگ خدمات و استوری‌ها در خود اپ هم کش می‌شوند تا در اینترنت ضعیف هم کار کند.
+                      کاتالوگ خدمات و بنرها در خود اپ هم کش می‌شوند تا در اینترنت ضعیف هم کار کند.
                     </p>
                   </div>
                 </Card>
@@ -266,44 +353,69 @@ export function AdminAndroidApp() {
             </div>
           )}
 
-          {tab === 'stories' && (
+          {tab === 'banners' && (
             <div className="space-y-4">
               <div className="flex flex-wrap items-center justify-between gap-2">
-                <p className="text-sm leading-7 text-navy-600">
-                  استوری‌ها در بالای صفحهٔ اصلی اپ مثل حلقه‌های اینستاگرام نشان داده می‌شوند. با «عنوان گروه» یکسان، چند استوری پشت‌سرهم در یک حلقه می‌نشینند.
+                <p className="max-w-3xl text-sm leading-7 text-navy-600">
+                  بنرها در بالای صفحهٔ اصلی اپ، به‌ترتیب همین فهرست نمایش داده می‌شوند. برای هر بنر می‌توانید تصویر،
+                  زمان نمایش و مقصد لمس را تعیین کنید؛ اگر مقصد «خدمت» باشد، لمس بنر مستقیم صفحهٔ همان خدمت را
+                  در اپ باز می‌کند.
                 </p>
-                {can('app.manage') && <Button onClick={() => openEditor(null)}><Plus className="size-4" /> استوری تازه</Button>}
+                {can('app.manage') && <Button onClick={() => openEditor(null)}><Plus className="size-4" /> بنر تازه</Button>}
               </div>
-              {stories.length === 0 && <EmptyState title="استوری‌ای ثبت نشده است" description="اولین استوری (تصویر یا ویدئوی کوتاه عمودی) را بسازید تا در اپ دیده شود." />}
-              <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
-                {stories.map((story, index) => (
-                  <Card key={story.id} pad={false} className="overflow-hidden">
-                    <div className="relative aspect-[9/16] max-h-64 w-full bg-navy-900">
-                      {story.mediaType === 'video'
-                        ? <video src={story.mediaUrl ?? undefined} className="size-full object-cover" muted loop playsInline preload="metadata" />
-                        : story.mediaUrl
-                          ? <img src={story.mediaUrl} alt={story.title} className="size-full object-cover" />
-                          : <div className="flex size-full items-center justify-center text-navy-400"><Smartphone className="size-8" /></div>}
-                      <span className="absolute right-2 top-2"><Badge tone={story.status === 'published' ? 'success' : 'warning'}>{story.status === 'published' ? 'منتشرشده' : 'پیش‌نویس'}</Badge></span>
-                    </div>
-                    <div className="space-y-1 p-3">
-                      <p className="truncate text-sm font-bold text-navy-900">{story.title}</p>
-                      <p className="text-[11px] text-navy-500">
-                        {story.groupTitle ? `گروه: ${story.groupTitle} • ` : ''}{story.mediaType === 'video' ? 'ویدئو' : 'تصویر'} • ترتیب {faNum(index + 1)}
-                      </p>
-                      <p className="text-[11px] text-navy-500">
-                        {story.expiresAt ? `انقضا: ${faDateTime(story.expiresAt)}` : 'بدون انقضا'}
-                        {story.linkUrl && <span className="mr-2 inline-flex items-center gap-1"><Link2 className="size-3" />{story.linkLabel ?? 'پیوند'}</span>}
-                      </p>
-                      <div className="flex flex-wrap gap-1 pt-1">
-                        <Button size="sm" variant="ghost" onClick={() => moveStory(story, -1)} disabled={index === 0}><ArrowUp className="size-3.5" /></Button>
-                        <Button size="sm" variant="ghost" onClick={() => moveStory(story, 1)} disabled={index === stories.length - 1}><ArrowDown className="size-3.5" /></Button>
-                        <Button size="sm" variant="ghost" onClick={() => openEditor(story)}><Pencil className="size-3.5" /> ویرایش</Button>
-                        <Button size="sm" variant="ghost" onClick={() => removeStory(story)}><Trash2 className="size-3.5" /> حذف</Button>
+              {banners.length === 0 && <EmptyState title="بنری ثبت نشده است" description="اولین بنر (تصویر افقی) را بسازید تا در بالای صفحهٔ اصلی اپ دیده شود." />}
+              <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
+                {banners.map((banner, index) => {
+                  const meta = KIND_META[banner.kind] ?? KIND_META.general;
+                  const targetService = banner.destinationKind === 'service'
+                    ? targets.find((t) => t.slug === banner.destinationSlug)
+                    : null;
+                  return (
+                    <Card key={banner.id} pad={false} className="overflow-hidden">
+                      <div className="relative aspect-[16/9] w-full bg-navy-900">
+                        {banner.imageUrl
+                          ? <img src={banner.imageUrl} alt={banner.title} className="size-full object-cover" />
+                          : <div className="flex size-full items-center justify-center text-navy-400"><ImageIcon className="size-8" /></div>}
+                        <span className="absolute right-2 top-2 flex gap-1">
+                          <Badge tone={banner.status === 'published' ? 'success' : 'warning'}>
+                            {banner.status === 'published' ? 'منتشرشده' : 'پیش‌نویس'}
+                          </Badge>
+                          <Badge tone="default">{meta.label}</Badge>
+                        </span>
                       </div>
-                    </div>
-                  </Card>
-                ))}
+                      <div className="space-y-1 p-3">
+                        <p className="truncate text-sm font-bold text-navy-900">{banner.title}</p>
+                        {banner.subtitle && <p className="line-clamp-2 text-[11px] leading-5 text-navy-500">{banner.subtitle}</p>}
+                        <p className="text-[11px] text-navy-500">
+                          ترتیب {faNum(index + 1)} • {banner.expiresAt ? `انقضا: ${faDateTime(banner.expiresAt)}` : 'بدون انقضا'}
+                        </p>
+                        <p className="flex items-center gap-1 text-[11px] text-navy-500">
+                          <Link2 className="size-3" />
+                          {banner.destinationKind === 'service'
+                            ? `خدمت: ${targetService?.title ?? banner.destinationSlug}`
+                            : banner.destinationKind === 'url'
+                              ? `مقصد: ${banner.destinationUrl}`
+                              : 'بدون مقصد (فقط اطلاع‌رسانی)'}
+                        </p>
+                        {banner.notifyCustomers && (
+                          <p className="flex items-center gap-1 text-[11px] text-amber-600">
+                            <Bell className="size-3" /> با انتشار، به مشتری‌ها اعلان می‌شود
+                          </p>
+                        )}
+                        <div className="flex flex-wrap gap-1 pt-1">
+                          <Button size="sm" variant="ghost" onClick={() => moveBanner(banner, -1)} disabled={index === 0}><ArrowUp className="size-3.5" /></Button>
+                          <Button size="sm" variant="ghost" onClick={() => moveBanner(banner, 1)} disabled={index === banners.length - 1}><ArrowDown className="size-3.5" /></Button>
+                          <Button size="sm" variant="ghost" onClick={() => togglePublished(banner)}>
+                            {banner.status === 'published' ? <EyeOff className="size-3.5" /> : <Eye className="size-3.5" />}
+                            {banner.status === 'published' ? 'خروج از انتشار' : 'انتشار'}
+                          </Button>
+                          <Button size="sm" variant="ghost" onClick={() => openEditor(banner)}><Pencil className="size-3.5" /> ویرایش</Button>
+                          <Button size="sm" variant="ghost" onClick={() => removeBanner(banner)}><Trash2 className="size-3.5" /> حذف</Button>
+                        </div>
+                      </div>
+                    </Card>
+                  );
+                })}
               </div>
 
               <Card>
@@ -335,8 +447,7 @@ export function AdminAndroidApp() {
                 <h3 className="mb-3 flex items-center gap-2 font-bold text-navy-900"><Smartphone className="size-4 text-accent" /> ورود و نمایش اپ</h3>
                 <div className="space-y-3">
                   <Field label="عنوان خوشامد اپ" hint="خالی یعنی نام سامانه."><Input value={values['app.welcome_title'] ?? ''} onChange={(e) => setValues({ ...values, 'app.welcome_title': e.target.value })} /></Field>
-                  <Switch checked={Boolean(values['app.stories_enabled'])} onChange={(v) => setValues({ ...values, 'app.stories_enabled': v })} label="نمایش ردیف استوری‌ها در صفحه اصلی اپ" />
-                  <Switch checked={Boolean(values['app.stories_notify'])} onChange={(v) => setValues({ ...values, 'app.stories_notify': v })} label="اعلان «استوری تازه» برای مشتری‌ها هنگام انتشار" />
+                  <Switch checked={Boolean(values['app.banners_enabled'])} onChange={(v) => setValues({ ...values, 'app.banners_enabled': v })} label="نمایش ردیف بنرها در صفحه اصلی اپ" />
                   <Switch checked={Boolean(values['auth.customer_password_enabled'])} onChange={(v) => setValues({ ...values, 'auth.customer_password_enabled': v })} label="ورود مشتری با موبایل و رمز عبور" />
                   <Switch checked={Boolean(values['auth.customer_otp_enabled'])} onChange={(v) => setValues({ ...values, 'auth.customer_otp_enabled': v })} label="ورود مشتری با کد یکبارمصرف پیامکی (OTP)" />
                   <Switch checked={Boolean(values['auth.customer_registration_open'])} onChange={(v) => setValues({ ...values, 'auth.customer_registration_open': v })} label="ثبت‌نام مشتری جدید از داخل اپ" />
@@ -378,45 +489,119 @@ export function AdminAndroidApp() {
         </>
       )}
 
-      <Modal open={Boolean(editing)} onClose={() => setEditing(null)} title={editing?.id ? 'ویرایش استوری' : 'استوری تازه'}
-        footer={<><Button variant="ghost" onClick={() => setEditing(null)}>انصراف</Button><Button loading={savingStory} onClick={saveStory} disabled={!editing?.title || (!editing?.fileId && !editing?.mediaUrl)}>ذخیره استوری</Button></>}>
+      <Modal
+        open={Boolean(editing)}
+        onClose={() => setEditing(null)}
+        title={editing?.id ? 'ویرایش بنر' : 'بنر تازه'}
+        footer={<>
+          <Button variant="ghost" onClick={() => setEditing(null)}>انصراف</Button>
+          <Button
+            loading={savingBanner}
+            onClick={saveBanner}
+            disabled={
+              !editing?.title
+              || (!editing?.imageFileId && !editing?.imageUrl)
+              || (editing?.destinationKind === 'service' && !editing?.destinationSlug)
+              || (editing?.destinationKind === 'url' && !editing?.destinationUrl)
+            }
+          >ذخیره بنر</Button>
+        </>}
+      >
         {editing && (
           <div className="space-y-3">
             <div className="grid gap-3 sm:grid-cols-2">
-              <Field label="عنوان" required><Input value={editing.title} onChange={(e) => setEditing({ ...editing, title: e.target.value })} /></Field>
-              <Field label="عنوان گروه (حلقه)" hint="استوری‌های هم‌گروه پشت‌سرهم در یک حلقه می‌آیند."><Input value={editing.groupTitle} onChange={(e) => setEditing({ ...editing, groupTitle: e.target.value })} placeholder="مثلاً: پیشنهاد هفته" /></Field>
+              <Field label="عنوان" required><Input value={editing.title} onChange={(e) => setEditing({ ...editing, title: e.target.value })} placeholder="مثلاً: تعویض پلاک، بدون صف" /></Field>
+              <Field label="نوع بنر" hint={KIND_META[editing.kind as Banner['kind']]?.hint}>
+                <Select
+                  value={editing.kind}
+                  onChange={(e) => setEditing({ ...editing, kind: e.target.value })}
+                  options={(Object.keys(KIND_META) as Banner['kind'][]).map((key) => ({ value: key, label: KIND_META[key].label }))}
+                />
+              </Field>
             </div>
-            <Field label="متن بدنه استوری" hint="در نمایش تمام‌صفحه، زیر عنوان و بالای دکمه می‌نشیند؛ کوتاه و شفاف بنویسید.">
-              <Textarea value={editing.caption ?? ''} onChange={(e) => setEditing({ ...editing, caption: e.target.value })} placeholder="مثلاً: اکنون می‌توانید درخواست صدور و تمدید کارت ملی را به صورت کاملاً غیرحضوری ثبت کنید." />
+            <Field label="زیرعنوان" hint="یک جملهٔ کوتاه که زیر عنوان می‌نشیند؛ خالی باشد فقط عنوان دیده می‌شود.">
+              <Textarea value={editing.subtitle} onChange={(e) => setEditing({ ...editing, subtitle: e.target.value })} placeholder="مثلاً: نوبت و مدارک را همین‌جا انجام دهید؛ پیگیری تا تحویل با ما." />
             </Field>
 
-            <Field label="رسانه (تصویر عمودی یا ویدئوی کوتاه — پیشنهاد ۹:۱۶)">
-              <input ref={fileInputRef} type="file" accept="image/jpeg,image/png,image/webp,video/mp4,video/webm" className="hidden"
-                onChange={(e) => { const f = e.target.files?.[0]; if (f) void uploadMedia(f); e.target.value = ''; }} />
+            <Field label="تصویر بنر (افقی — پیشنهاد ۱۶:۹)">
+              <input ref={fileInputRef} type="file" accept="image/jpeg,image/png,image/webp" className="hidden"
+                onChange={(e) => { const f = e.target.files?.[0]; if (f) void uploadImage(f); e.target.value = ''; }} />
               <div className="flex flex-wrap items-center gap-3">
-                <Button type="button" size="sm" loading={uploading} onClick={() => fileInputRef.current?.click()}><Upload className="size-4" /> بارگذاری رسانه</Button>
-                {mediaName && <span dir="ltr" className="text-[11px] text-navy-500">{mediaName}</span>}
-                {mediaPreview && (editing.mediaType === 'video'
-                  ? <video src={mediaPreview} className="h-36 w-auto rounded-xl ring-1 ring-line" muted loop playsInline autoPlay />
-                  : <img src={mediaPreview} alt="پیش‌نمایش" className="h-36 w-auto rounded-xl object-cover ring-1 ring-line" />)}
+                <Button type="button" size="sm" loading={uploading} onClick={() => fileInputRef.current?.click()}><Upload className="size-4" /> بارگذاری تصویر</Button>
+                {imageName && <span dir="ltr" className="text-[11px] text-navy-500">{imageName}</span>}
+                {imagePreview && <img src={imagePreview} alt="پیش‌نمایش" className="h-28 w-auto rounded-xl object-cover ring-1 ring-line" />}
               </div>
             </Field>
-            <Field label="یا نشانی اینترنتی رسانه" hint="اگر رسانه روی اینترنت است (اختیاری). با بارگذاری فایل، این بخش خالی می‌شود.">
-              <Input dir="ltr" className="text-left" value={editing.mediaUrl} onChange={(e) => setEditing({ ...editing, mediaUrl: e.target.value, fileId: '' })} placeholder="https://…" />
+            <Field label="یا نشانی تصویر" hint="برای تصاویر داخل خود سامانه (مثل /images/services/…) یا تصویری روی اینترنت. با بارگذاری فایل، این بخش نادیده گرفته می‌شود.">
+              <Input dir="ltr" className="text-left" value={editing.imageUrl} onChange={(e) => setEditing({ ...editing, imageUrl: e.target.value, imageFileId: '' })} placeholder="https://… یا /images/services/…" />
             </Field>
 
             <div className="grid gap-3 sm:grid-cols-2">
-              <Field label="پیوند لمس استوری" hint="می‌تواند نشانی اینترنتی یا مسیر داخل اپ باشد."><Input dir="ltr" className="text-left" value={editing.linkUrl} onChange={(e) => setEditing({ ...editing, linkUrl: e.target.value })} placeholder="https://… یا /services" /></Field>
-              <Field label="متن دکمه پیوند"><Input value={editing.linkLabel} onChange={(e) => setEditing({ ...editing, linkLabel: e.target.value })} placeholder="مشاهده خدمت" /></Field>
+              <Field label="مقصد لمس">
+                <Select
+                  value={editing.destinationKind}
+                  onChange={(e) => setEditing({ ...editing, destinationKind: e.target.value })}
+                  options={[
+                    { value: 'service', label: 'باز کردن یک خدمت' },
+                    { value: 'url', label: 'باز کردن یک صفحه' },
+                    { value: 'none', label: 'بدون مقصد (اطلاع‌رسانی)' },
+                  ]}
+                />
+              </Field>
+              <Field label="متن دکمه" hint="روی کارت بنر، این متن در دکمهٔ کوچک پایین نوشته می‌شود.">
+                <Input value={editing.actionLabel} onChange={(e) => setEditing({ ...editing, actionLabel: e.target.value })} placeholder="مشاهده خدمت" />
+              </Field>
             </div>
-            <div className="grid gap-3 sm:grid-cols-3">
-              <Field label="مدت نمایش تصویر (ثانیه)"><Input type="number" min={2} max={60} dir="ltr" className="text-left" value={editing.durationSeconds} onChange={(e) => setEditing({ ...editing, durationSeconds: Number(e.target.value) })} /></Field>
-              <Field label="وضعیت"><Select value={editing.status} onChange={(e) => setEditing({ ...editing, status: e.target.value })} options={[{ value: 'published', label: 'منتشرشده' }, { value: 'draft', label: 'پیش‌نویس' }]} /></Field>
-              <Field label="نوع رسانه"><Select value={editing.mediaType} onChange={(e) => setEditing({ ...editing, mediaType: e.target.value })} options={[{ value: 'image', label: 'تصویر' }, { value: 'video', label: 'ویدئو' }]} /></Field>
-            </div>
+
+            {editing.destinationKind === 'service' && (
+              <Field label="خدمت مقصد" required hint="لمس بنر، مستقیماً صفحهٔ همین خدمت را در اپ باز می‌کند.">
+                <Select
+                  value={editing.destinationSlug}
+                  onChange={(e) => setEditing({ ...editing, destinationSlug: e.target.value })}
+                  options={targetOptions}
+                />
+              </Field>
+            )}
+
+            {editing.destinationKind === 'url' && (
+              <div className="grid gap-3 sm:grid-cols-2">
+                <Field label="صفحهٔ داخلی اپ">
+                  <Select
+                    value={IN_APP_PAGES.some((p) => p.value === editing.destinationUrl) ? editing.destinationUrl : ''}
+                    onChange={(e) => setEditing({ ...editing, destinationUrl: e.target.value })}
+                    placeholder="— انتخاب صفحه —"
+                    options={IN_APP_PAGES}
+                  />
+                </Field>
+                <Field label="یا نشانی دلخواه" hint="نشانی اینترنتی کامل، یا مسیر /services/<slug>.">
+                  <Input dir="ltr" className="text-left" value={editing.destinationUrl} onChange={(e) => setEditing({ ...editing, destinationUrl: e.target.value })} placeholder="/app/requests یا https://…" />
+                </Field>
+              </div>
+            )}
+
             <div className="grid gap-3 sm:grid-cols-2">
-              <Field label="شروع نمایش (اختیاری)"><Input type="datetime-local" dir="ltr" className="text-left" value={editing.startsAt} onChange={(e) => setEditing({ ...editing, startsAt: e.target.value })} /></Field>
-              <Field label="انقضا (اختیاری)"><Input type="datetime-local" dir="ltr" className="text-left" value={editing.expiresAt} onChange={(e) => setEditing({ ...editing, expiresAt: e.target.value })} /></Field>
+              <Field label="شروع نمایش (اختیاری)" hint="خالی یعنی از همین حالا."><Input type="datetime-local" dir="ltr" className="text-left" value={editing.startsAt} onChange={(e) => setEditing({ ...editing, startsAt: e.target.value })} /></Field>
+              <Field label="پایان نمایش (اختیاری)" hint="خالی یعنی بدون انقضا."><Input type="datetime-local" dir="ltr" className="text-left" value={editing.expiresAt} onChange={(e) => setEditing({ ...editing, expiresAt: e.target.value })} /></Field>
+            </div>
+
+            <div className="grid gap-3 sm:grid-cols-2">
+              <Field label="وضعیت">
+                <Select value={editing.status} onChange={(e) => setEditing({ ...editing, status: e.target.value })} options={[{ value: 'published', label: 'منتشرشده' }, { value: 'draft', label: 'پیش‌نویس' }]} />
+              </Field>
+              <Field label="رنگ تأکید" hint="رنگ دکمه و در صورت نداشتن تصویر، رنگ پس‌زمینه.">
+                <Input dir="ltr" className="text-left" value={editing.accentColor} onChange={(e) => setEditing({ ...editing, accentColor: e.target.value })} placeholder="#1F6FEE" />
+              </Field>
+            </div>
+
+            <div className="rounded-2xl bg-surface-3 p-3">
+              <Switch
+                checked={Boolean(editing.notifyCustomers)}
+                onChange={(v) => setEditing({ ...editing, notifyCustomers: v })}
+                label="انتشار این بنر برای مشتری‌ها اعلان بسازد"
+              />
+              <p className="mt-2 text-[11px] leading-6 text-navy-500">
+                فقط یک بار و در اولین انتشار ساخته می‌شود؛ اگر بنر را بعداً ویرایش کنید اعلان تازه‌ای نمی‌رود.
+              </p>
             </div>
           </div>
         )}

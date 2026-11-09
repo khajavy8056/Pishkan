@@ -50,8 +50,8 @@ async function multerMiddleware() {
       const ext = (file.originalname.split('.').pop() ?? '').toLowerCase();
       // App-story media may be a short video even where office documents are
       // restricted to images/PDF; the signature check still decides below.
-      const isStory = (req as any)?.query?.purpose === 'story';
-      const allowed = isStory ? [...cfg.allowedTypes, 'mp4', 'webm'] : cfg.allowedTypes;
+      const isStoryUpload = (req as any)?.query?.purpose === 'story';
+      const allowed = isStoryUpload ? [...cfg.allowedTypes, 'mp4', 'webm'] : cfg.allowedTypes;
       if (!allowed.includes(ext)) {
         return cb(badRequest(`پسوند .${ext || '—'} مجاز نیست. فرمت‌های مجاز: ${allowed.join(', ')}`));
       }
@@ -77,7 +77,10 @@ filesRouter.post('/upload', requireAuth, asyncRoute(async (req, res, next) => {
           filePath: file.path,
           originalName: file.originalname,
           size: file.size,
-          allowedTypes: purpose === 'story' ? [...cfg.allowedTypes, 'mp4', 'webm'] : cfg.allowedTypes,
+          // Banner artwork is a wide photo, never a video: a rail that has
+          // to buffer before it can show a card is a rail that stalls the
+          // home screen.
+          allowedTypes: cfg.allowedTypes,
           imagePolicy: cfg.policy,
         });
 

@@ -42,11 +42,11 @@ async function bootstrap() {
   const upgradedRoles = await syncSystemRolePermissions();
   if (upgradedRoles) console.log(`[boot] roles: ${upgradedRoles} system role(s) received the wallet/monitoring permission set`);
   await seedCatalog((m) => console.log(`[boot] ${m}`));
-  // Starter stories for the customer app on a completely fresh install
+  // Starter banners for the customer app on a completely fresh install
   // (no-op afterwards; the same idempotent pattern as the catalogue seed).
-  const { seedDefaultStories } = await import('./modules/mobile/service.js');
-  await seedDefaultStories((m) => console.log(`[boot] ${m}`)).catch((error) => {
-    console.error(`[boot] starter stories failed: ${safeErrorText(error)}`);
+  const { seedDefaultBanners } = await import('./modules/mobile/service.js');
+  await seedDefaultBanners((m) => console.log(`[boot] ${m}`)).catch((error) => {
+    console.error(`[boot] starter banners failed: ${safeErrorText(error)}`);
   });
   setMinimumLevel(await getString('monitoring.log_level').catch(() => 'INFO'));
 
