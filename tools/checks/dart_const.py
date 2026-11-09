@@ -119,7 +119,10 @@ def main(argv):
                 raw = raw[:start] + raw[end:]
             path.write_text(raw, encoding='utf-8')
     print(f'--- {total} offending const expression(s)')
-    return 0
+    # Non-zero when it finds something. It used to return 0 unconditionally,
+    # which made it a checker that could never fail — the one bug a checker
+    # cannot afford.
+    return 1 if total else 0
 
 
 if __name__ == '__main__':

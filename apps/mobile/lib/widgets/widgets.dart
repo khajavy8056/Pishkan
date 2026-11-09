@@ -9,6 +9,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:image_picker/image_picker.dart';
 
+import '../core/motion.dart';
 import '../core/service_icons.dart';
 import '../core/stages.dart';
 import '../core/theme.dart';
@@ -233,7 +234,10 @@ class GlassCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final dark = context.isDark;
-    final fill = tint ?? (dark ? Colors.white : Colors.white);
+    // Glass is a white veil in both themes: in light mode it lifts the panel
+    // off the page, in dark mode it is the only thing that reads as "lit".
+    // What changes with the theme is the opacity, not the hue.
+    final fill = tint ?? Colors.white;
     final opacity = strong ? (dark ? 0.16 : 0.82) : (dark ? 0.10 : 0.62);
     final border = Border.all(
       color: dark ? const Color(0x24FFFFFF) : Colors.white.withOpacity(0.70),
@@ -605,7 +609,10 @@ class TrackProgressIndicator extends StatelessWidget {
   Widget build(BuildContext context) {
     return Container(
       height: height,
-      color: const Color(0xFFE8EEF7),
+      // A pale track is the right "empty" on a white card, but on the dark
+      // canvas it becomes the brightest thing on screen — brighter than the
+      // bar it is meant to sit behind. Dark mode inverts the relationship.
+      color: context.isDark ? const Color(0x14FFFFFF) : const Color(0xFFE8EEF7),
       alignment: AlignmentDirectional.centerStart,
       child: FractionallySizedBox(
         widthFactor: value.clamp(0.02, 1),
@@ -665,6 +672,7 @@ class StageTimeline extends StatelessWidget {
   }
 
   Widget _row(int index, bool last) {
+    final dark = context.isDark;
     final done = progress.completed || index < progress.doneCount;
     final current = !progress.completed && !progress.failed && index == progress.currentIndex;
     final failedHere = progress.failed && index == progress.doneCount;
@@ -675,13 +683,16 @@ class StageTimeline extends StatelessWidget {
         : done
             ? PishkanColors.success
             : current
-                ? PishkanColors.primary
-                : const Color(0xFFD7DEE9);
+                ? context.brand
+                : (dark ? const Color(0x33FFFFFF) : const Color(0xFFD7DEE9));
     final node = Container(
       width: 30,
       height: 30,
       decoration: BoxDecoration(
-        color: done || failedHere ? nodeColor : Colors.white,
+        // An unfinished node is a *hole* in the track, so it is filled with
+        // the card it sits on rather than a literal white — on the dark canvas
+        // a white disc punches a bright hole through the card.
+        color: done || failedHere ? nodeColor : context.surface,
         shape: BoxShape.circle,
         border: Border.all(color: nodeColor, width: 2),
         boxShadow: current ? [BoxShadow(color: PishkanColors.primary.withOpacity(0.30), blurRadius: 10, spreadRadius: 2)] : null,
@@ -702,7 +713,9 @@ class StageTimeline extends StatelessWidget {
               child: Container(
                 width: 2.5,
                 margin: const EdgeInsets.symmetric(vertical: 3),
-                color: index < progress.doneCount ? PishkanColors.success.withOpacity(0.55) : const Color(0xFFE2E8F0),
+                color: index < progress.doneCount
+                    ? PishkanColors.success.withOpacity(0.55)
+                    : (dark ? const Color(0x1FFFFFFF) : const Color(0xFFE2E8F0)),
               ),
             ),
         ]),

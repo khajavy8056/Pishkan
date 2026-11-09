@@ -34,7 +34,7 @@ class _PishkanAppState extends State<PishkanApp> {
   Widget build(BuildContext context) {
     // Never a blank screen: any unexpected build error shows a calm Persian
     // message instead of the framework's empty error surface.
-    ErrorWidget.builder = (details) => const Material(
+    ErrorWidget.builder = (details) => Material(
           color: PishkanColors.background,
           child: SafeArea(
             child: Center(

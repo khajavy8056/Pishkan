@@ -13,10 +13,18 @@ abstract final class PishkanColors {
   static const navy = Color(0xFF0B1F3A);
   static const accent = Color(0xFF06B6D4);
   static const background = Color(0xFFF4F8FF);
-  static const success = Color(0xFF16A34A);
-  static const warning = Color(0xFFD97706);
+  // Status colours are used as *text and icons* on white cards and on the page
+  // wash, at 11–13px, so they have to clear 4.5:1 — not just look like a
+  // green/amber/red. The stock Tailwind 600 values came in at 3.30 and 3.19,
+  // which reads as a pleasant tint and is unreadable as an 11px label. These
+  // are the 700-weight variants: same hue, legible.
+  static const success = Color(0xFF15803D);
+  static const warning = Color(0xFFB45309);
   static const danger = Color(0xFFDC2626);
-  static const mutedText = Color(0xFF64748B);
+  /// Secondary text. Nudged darker from #64748B, which was 4.47:1 on the page
+  /// wash — a rounding error below AA, and exactly the kind that never gets
+  /// noticed because the same colour passes on a white card.
+  static const mutedText = Color(0xFF5D6B80);
   /// The brand gradient used wherever **white text sits on top of it**:
   /// primary buttons, the sent-message bubble, the wallet card.
   ///
