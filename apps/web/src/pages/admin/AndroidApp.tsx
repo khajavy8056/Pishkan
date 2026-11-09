@@ -57,6 +57,16 @@ const KIND_META: Record<Banner['kind'], { label: string; icon: ReactNode; hint: 
   ad: { label: 'تبلیغاتی', icon: <BadgePercent className="size-4" />, hint: 'پیشنهاد یا تخفیف' },
 };
 
+/**
+ * Sentinel for "this banner already has an uploaded file; do not touch it".
+ *
+ * The file id itself is deliberately never sent to the browser (the app gets a
+ * streamed URL instead), so the editor cannot repopulate the upload field. It
+ * sends this marker instead and the server keeps the existing file; choosing a
+ * new picture, or typing a URL, replaces it.
+ */
+const KEEP_IMAGE = '__keep__';
+
 const emptyBanner = {
   id: '',
   kind: 'service' as Banner['kind'],
@@ -161,7 +171,10 @@ export function AdminAndroidApp() {
       kind: banner.kind,
       title: banner.title,
       subtitle: banner.subtitle ?? '',
-      imageFileId: '',
+      // Keep whichever source the banner already has. A banner whose picture
+      // was uploaded has no `externalImageUrl`, and editing its title used to
+      // leave both fields empty — the save would then silently strip the image.
+      imageFileId: banner.externalImageUrl ? '' : KEEP_IMAGE,
       imageUrl: banner.externalImageUrl ?? '',
       accentColor: banner.accentColor ?? '#1F6FEE',
       destinationKind: banner.destinationKind,
@@ -205,10 +218,13 @@ export function AdminAndroidApp() {
         kind: editing.kind,
         title: editing.title,
         subtitle: editing.subtitle || null,
-        // Exactly one image source: an explicit upload wins over the URL
-        // field, because that is what the person filling the form last chose.
-        imageFileId: editing.imageFileId || null,
-        imageUrl: editing.imageFileId ? '' : editing.imageUrl,
+        // Exactly one image source. An explicit upload wins; the sentinel
+        // means "keep whatever is stored", which for PATCH is expressed by
+        // omitting the key entirely; and a typed URL replaces both.
+        imageFileId: editing.imageFileId === KEEP_IMAGE
+          ? undefined
+          : (editing.imageFileId || null),
+        imageUrl: editing.imageFileId && editing.imageFileId !== KEEP_IMAGE ? '' : editing.imageUrl,
         accentColor: editing.accentColor || null,
         destinationKind: editing.destinationKind,
         destinationSlug: editing.destinationKind === 'service' ? (editing.destinationSlug || null) : null,
@@ -500,7 +516,8 @@ export function AdminAndroidApp() {
             onClick={saveBanner}
             disabled={
               !editing?.title
-              || (!editing?.imageFileId && !editing?.imageUrl)
+              // KEEP_IMAGE means an uploaded picture is already attached.
+              || !editing?.imageFileId && !editing?.imageUrl
               || (editing?.destinationKind === 'service' && !editing?.destinationSlug)
               || (editing?.destinationKind === 'url' && !editing?.destinationUrl)
             }
