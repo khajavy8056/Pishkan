@@ -48,6 +48,10 @@ def main(argv: list[str]) -> int:
                 continue
             out = src.with_suffix('.webp')
             if out.exists() and not force:
+                # Already compressed on a previous run, but the PNG copy is
+                # still sitting beside it (a re-sync rewrites it). Drop it here
+                # too, or the APK ships both formats of every picture.
+                src.unlink()
                 skipped += 1
                 continue
             subprocess.run(
@@ -58,7 +62,11 @@ def main(argv: list[str]) -> int:
                  str(out)],
                 check=True, capture_output=True,
             )
-            src.unlink()                            # the master lives in services_media/
+            # Remove the intermediate copy. The master still lives in
+            # services_media/, so nothing is lost -- and leaving the PNG here
+            # would ship both formats in the APK, doubling the weight of every
+            # picture we just spent effort shrinking.
+            src.unlink()
             done += 1
             print(f'  {src.name} -> {out.name}  ({out.stat().st_size // 1024} KB)')
     print(f'\n{done} compressed, {skipped} already present.')
