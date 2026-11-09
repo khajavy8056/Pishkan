@@ -1,8 +1,10 @@
-import 'dart:io';
 import 'dart:async';
+import 'dart:io';
+import 'dart:ui' show ImageFilter;
 
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:file_picker/file_picker.dart';
+
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:image_picker/image_picker.dart';
@@ -189,6 +191,96 @@ class SoftCard extends StatelessWidget {
     );
     if (onTap == null) return card;
     return InkWell(onTap: onTap, borderRadius: BorderRadius.circular(22), child: card);
+  }
+}
+
+/// A translucent surface that lets what is behind it show through.
+///
+/// This is the glass half of the design language; [SoftCard] is the solid
+/// half. Used where a panel sits on top of artwork or a gradient — the home
+/// hero, the banner rail's controls, the profile header — so the colour behind
+/// keeps working instead of being covered by an opaque card.
+///
+/// [blur] is off by default on purpose. A `BackdropFilter` re-renders what is
+/// behind it every frame, and on the weak phones this app targets that costs
+/// more than the effect is worth; a translucent fill plus a hairline highlight
+/// reads as glass at a fraction of the cost. Screens that genuinely have
+/// something interesting behind them (the hero panel) turn it on for one
+/// element, not for a list.
+class GlassCard extends StatelessWidget {
+  const GlassCard({
+    super.key,
+    required this.child,
+    this.padding = const EdgeInsets.all(16),
+    this.radius = 22,
+    this.blur = false,
+    this.onTap,
+    this.tint,
+    this.strong = false,
+  });
+
+  final Widget child;
+  final EdgeInsets padding;
+  final double radius;
+  final bool blur;
+  final VoidCallback? onTap;
+  /// Overrides the automatic white/navy tint — used on brand gradients where
+  /// the glass has to sit on colour rather than on the page background.
+  final Color? tint;
+  /// Slightly more opaque, for panels that carry long text over a busy photo.
+  final bool strong;
+
+  @override
+  Widget build(BuildContext context) {
+    final dark = context.isDark;
+    final fill = tint ?? (dark ? Colors.white : Colors.white);
+    final opacity = strong ? (dark ? 0.16 : 0.82) : (dark ? 0.10 : 0.62);
+    final border = Border.all(
+      color: dark ? const Color(0x24FFFFFF) : Colors.white.withOpacity(0.70),
+      width: 1,
+    );
+
+    Widget panel = Container(
+      padding: padding,
+      decoration: BoxDecoration(
+        color: fill.withOpacity(opacity),
+        borderRadius: BorderRadius.circular(radius),
+        border: border,
+        // A single inset highlight along the top edge is what actually sells
+        // the material: it reads as a lit rim, which flat translucency lacks.
+        boxShadow: [
+          BoxShadow(
+            color: dark ? const Color(0x4D000000) : const Color(0x140B1F3A),
+            blurRadius: 20,
+            offset: const Offset(0, 8),
+          ),
+        ],
+        gradient: LinearGradient(
+          begin: AlignmentDirectional.topStart,
+          end: AlignmentDirectional.bottomEnd,
+          colors: [
+            Colors.white.withOpacity(dark ? 0.10 : 0.28),
+            Colors.white.withOpacity(0),
+          ],
+        ),
+      ),
+      child: child,
+    );
+
+    if (blur) {
+      panel = ClipRRect(
+        borderRadius: BorderRadius.circular(radius),
+        child: BackdropFilter(
+          // 12 px is enough to read as frosted without smearing the artwork
+          // into a flat wash behind the text.
+          filter: ImageFilter.blur(sigmaX: 12, sigmaY: 12),
+          child: panel,
+        ),
+      );
+    }
+
+    if (onTap == null) return panel;
+    return PressableScale(onTap: onTap, scale: 0.975, child: panel);
   }
 }
 
@@ -660,5 +752,63 @@ Future<void> saveMappedProfileDocument(BuildContext context, String fileId, Stri
     if (context.mounted) showSnack(context, 'مدرک در پروفایل ثبت شد و در انتظار تأیید است.');
   } catch (_) {
     if (context.mounted) showSnack(context, 'ذخیره در پروفایل انجام نشد؛ فایل درخواست همچنان موجود است.', error: true);
+  }
+}
+
+/// The page backdrop.
+///
+/// Not a flat fill: a very low-contrast two-stop gradient, lit from the top,
+/// with one soft glow behind the area where the screen's heading sits. The
+/// difference from `scaffoldBackgroundColor` is subtle by design — enough that
+/// white cards look like they are resting on something rather than floating in
+/// a void, and never enough to compete with the content.
+///
+/// It is a single widget rather than a per-screen decoration so every page
+/// shares one backdrop; two screens with slightly different washes is the
+/// fastest way to make an app feel assembled instead of designed.
+class PageWash extends StatelessWidget {
+  const PageWash({super.key, required this.child, this.glow = true});
+
+  final Widget child;
+  /// Turn off on dense screens (long forms, the chat thread) where the glow
+  /// would sit behind text rather than behind a heading.
+  final bool glow;
+
+  @override
+  Widget build(BuildContext context) {
+    final dark = context.isDark;
+    final top = dark ? const Color(0xFF0C1A2E) : const Color(0xFFEFF4FC);
+    final bottom = dark ? PishkanColors.darkBackground : PishkanColors.background;
+    return DecoratedBox(
+      decoration: BoxDecoration(
+        gradient: LinearGradient(
+          begin: Alignment.topCenter,
+          end: Alignment.bottomCenter,
+          colors: [top, bottom],
+          stops: const [0, 0.55],
+        ),
+      ),
+      child: Stack(children: [
+        if (glow)
+          PositionedDirectional(
+            top: -110,
+            end: -70,
+            child: IgnorePointer(
+              child: Container(
+                width: 260,
+                height: 260,
+                decoration: BoxDecoration(
+                  shape: BoxShape.circle,
+                  gradient: RadialGradient(colors: [
+                    context.brand.withOpacity(dark ? 0.20 : 0.13),
+                    context.brand.withOpacity(0),
+                  ]),
+                ),
+              ),
+            ),
+          ),
+        child,
+      ]),
+    );
   }
 }

@@ -157,7 +157,7 @@ class _HomeShellState extends State<HomeShell> with WidgetsBindingObserver {
         if (!didPop && _index != 0) selectTab(0);
       },
       child: Scaffold(
-        body: Stack(children: [
+        body: PageWash(child: Stack(children: [
           // The tabs cross-fade rather than snapping. KeyedSubtree gives the
           // switcher a distinct child per tab, which is what makes it animate
           // at all -- an IndexedStack alone looks identical frame to frame.
@@ -166,7 +166,7 @@ class _HomeShellState extends State<HomeShell> with WidgetsBindingObserver {
             child: KeyedSubtree(key: ValueKey(_index), child: IndexedStack(index: _index, children: pages)),
           ),
           _banner(),
-        ]),
+        ])),
         // A floating white pill that sits above the content instead of a bar
         // welded to the bottom edge. The reference has it detached with the
         // page visible underneath, which is what makes the layout feel like one

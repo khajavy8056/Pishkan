@@ -1,3 +1,5 @@
+import 'dart:ui' show ImageFilter;
+
 import 'package:flutter/material.dart';
 
 import '../core/format.dart';
@@ -276,38 +278,85 @@ class _HomeTabState extends State<HomeTab> {
     );
   }
 
+  /// The welcome panel.
+  ///
+  /// Two stacked layers, not one flat gradient. Behind the card sits a soft
+  /// "light wash" — a pair of large, blurred, low-opacity orbs that drift
+  /// almost imperceptibly. On top of it sits a real glass card, so the panel
+  /// has depth: the orbs are *behind* the surface and visible through it,
+  /// which is what separates a glass panel from a gradient rectangle.
+  ///
+  /// The drift is a 9-second alternating tween on two offsets — cheap enough
+  /// to run on a weak phone, slow enough not to pull the eye away from the
+  /// button.
   Widget _hero() {
-    return Container(
-      padding: const EdgeInsets.fromLTRB(18, 20, 18, 20),
-      decoration: BoxDecoration(
-        gradient: PishkanColors.brandGradient,
-        borderRadius: BorderRadius.circular(26),
-        boxShadow: [BoxShadow(color: PishkanColors.primary.withOpacity(0.35), blurRadius: 18, offset: const Offset(0, 10))],
-      ),
-      child: Stack(children: [
-        PositionedDirectional(
-          end: -6,
-          top: -6,
-          child: Icon(Icons.account_balance_rounded, size: 92, color: Colors.white.withOpacity(0.14)),
-        ),
-        Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-          const Text('خدمات دولتی،', style: TextStyle(color: Colors.white, fontSize: 19, fontWeight: FontWeight.w800)),
-          const Text('بدون صف و انتظار', style: TextStyle(color: Colors.white, fontSize: 19, fontWeight: FontWeight.w800)),
-          const SizedBox(height: 6),
-          const Text('انجام همهٔ امور اداری شما در یک جا', style: TextStyle(color: Color(0xFFD8E7FF), fontSize: 12.5)),
-          const SizedBox(height: 14),
-          FilledButton(
-            style: FilledButton.styleFrom(
-              backgroundColor: Colors.white,
-              foregroundColor: PishkanColors.primary,
-              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(999)),
-              padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 11),
+    final sizes = context.sizes;
+    final dark = context.isDark;
+    return _LightWash(
+      child: GlassCard(
+        radius: 26,
+        strong: true,
+        tint: Colors.white,
+        padding: EdgeInsets.fromLTRB(sizes.s(18), sizes.s(20), sizes.s(18), sizes.s(20)),
+        child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+          Row(children: [
+            Container(
+              padding: EdgeInsets.symmetric(horizontal: sizes.s(9), vertical: sizes.s(4)),
+              decoration: BoxDecoration(
+                color: Colors.white.withOpacity(0.22),
+                borderRadius: BorderRadius.circular(999),
+                border: Border.all(color: Colors.white.withOpacity(0.34)),
+              ),
+              child: Text(
+                'همهٔ خدمات، یک‌جا',
+                style: TextStyle(color: Colors.white, fontSize: sizes.s(10), fontWeight: FontWeight.w700),
+              ),
             ),
-            onPressed: () => widget.onOpenTab(1),
-            child: const Text('ثبت درخواست جدید', style: TextStyle(fontWeight: FontWeight.w800, fontSize: 13.5)),
+          ]),
+          SizedBox(height: sizes.s(12)),
+          Text(
+            'خدمات دولتی،',
+            style: TextStyle(color: Colors.white, fontSize: sizes.s(19), fontWeight: FontWeight.w800, height: 1.5),
+          ),
+          Text(
+            'بدون صف و انتظار',
+            style: TextStyle(color: Colors.white, fontSize: sizes.s(19), fontWeight: FontWeight.w800, height: 1.5),
+          ),
+          SizedBox(height: sizes.s(6)),
+          Text(
+            'انجام همهٔ امور اداری شما در یک جا',
+            style: TextStyle(color: Colors.white.withOpacity(0.90), fontSize: sizes.s(12.5), height: 1.7),
+          ),
+          SizedBox(height: sizes.s(16)),
+          // The one solid element on the panel: the action. Everything else is
+          // translucent, so the eye lands here.
+          PressableScale(
+            scale: 0.97,
+            onTap: () => widget.onOpenTab(1),
+            child: Container(
+              padding: EdgeInsets.symmetric(horizontal: sizes.s(20), vertical: sizes.s(11)),
+              decoration: BoxDecoration(
+                color: Colors.white,
+                borderRadius: BorderRadius.circular(999),
+                boxShadow: [
+                  BoxShadow(color: const Color(0x33000000), blurRadius: 14, offset: const Offset(0, 6)),
+                ],
+              ),
+              child: Row(mainAxisSize: MainAxisSize.min, children: [
+                Text(
+                  'ثبت درخواست جدید',
+                  style: TextStyle(color: PishkanColors.primary, fontWeight: FontWeight.w800, fontSize: sizes.s(13)),
+                ),
+                SizedBox(width: sizes.s(4)),
+                Icon(Icons.arrow_back_rounded, size: sizes.s(16), color: PishkanColors.primary),
+              ]),
+            ),
           ),
         ]),
-      ]),
+      ),
+      // The wash is brighter in dark mode, where a light panel on a near-black
+      // background needs the extra glow to read as glass rather than as a hole.
+      intensity: dark ? 1.0 : 0.75,
     );
   }
 
@@ -340,6 +389,17 @@ class _HomeTabState extends State<HomeTab> {
                 : Color.alphaBlend(deep.withOpacity(0.10), Colors.white),
             borderRadius: BorderRadius.circular(sizes.s(20)),
             border: Border.all(color: deep.withOpacity(dark ? 0.30 : 0.22)),
+            // The tile has to feel raised before it is pressed, so the press
+            // has somewhere to travel to. A shadow tinted with the tile's own
+            // colour keeps the four tiles distinguishable at a glance instead
+            // of turning them into four identical grey plates.
+            boxShadow: [
+              BoxShadow(
+                color: deep.withOpacity(dark ? 0.22 : 0.16),
+                blurRadius: 16,
+                offset: const Offset(0, 7),
+              ),
+            ],
           ),
           child: Row(children: [
             Container(
@@ -527,5 +587,123 @@ class _ServiceTileSkeleton extends StatelessWidget {
       const SizedBox(height: 4),
       const ShimmerBox(width: 28, height: 9, radius: 5),
     ]);
+  }
+}
+
+/// The soft light behind the welcome panel.
+///
+/// Two large blurred orbs in the brand's blue and teal, drifting on a slow
+/// alternating tween. They exist to give the glass card above something to be
+/// translucent *about*: a glass surface on a flat background is just a
+/// slightly tinted rectangle, and that is exactly how it reads.
+///
+/// Performance notes, because this runs on the home screen of every device:
+///  * The orbs are `Container`s with radial gradients, not images — no decode,
+///    no memory, no asset weight.
+///  * [ImageFiltered] blurs are applied once to a static subtree; the drift
+///    moves the parent, so the blur is not recomputed per pixel per frame.
+///  * The animation is stopped when the widget is disposed, and it is a single
+///    controller driving two `Transform`s.
+class _LightWash extends StatefulWidget {
+  const _LightWash({required this.child, this.intensity = 1});
+
+  final Widget child;
+  /// 0..1 — how strongly the orbs show. Dark mode passes more.
+  final double intensity;
+
+  @override
+  State<_LightWash> createState() => _LightWashState();
+}
+
+class _LightWashState extends State<_LightWash> with SingleTickerProviderStateMixin {
+  late final AnimationController _controller = AnimationController(
+    vsync: this,
+    duration: const Duration(seconds: 9),
+  )..repeat(reverse: true);
+
+  late final Animation<double> _drift = CurvedAnimation(
+    parent: _controller,
+    curve: Curves.easeInOut,
+  );
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final sizes = context.sizes;
+    final brand = context.brand;
+    return Stack(
+      clipBehavior: Clip.none,
+      children: [
+        // The wash sits behind the card and bleeds past its edges, which is
+        // what makes the panel look lit rather than pasted on.
+        Positioned.fill(
+          child: IgnorePointer(
+            child: AnimatedBuilder(
+              animation: _drift,
+              builder: (context, _) {
+                final t = _drift.value;
+                return Stack(children: [
+                  Positioned(
+                    top: -sizes.s(28) + t * sizes.s(10),
+                    end: -sizes.s(30) - t * sizes.s(8),
+                    child: _orb(
+                      size: sizes.s(150),
+                      color: brand.withOpacity(0.55 * widget.intensity),
+                    ),
+                  ),
+                  Positioned(
+                    bottom: -sizes.s(40) - t * sizes.s(8),
+                    start: -sizes.s(24) + t * sizes.s(10),
+                    child: _orb(
+                      size: sizes.s(120),
+                      color: const Color(0xFF22D3EE).withOpacity(0.42 * widget.intensity),
+                    ),
+                  ),
+                ]);
+              },
+            ),
+          ),
+        ),
+        // A dim navy plate under the glass so white text has a stable floor to
+        // sit on even when the wash is bright behind it.
+        DecoratedBox(
+          decoration: BoxDecoration(
+            borderRadius: BorderRadius.circular(26),
+            gradient: const LinearGradient(
+              begin: AlignmentDirectional.topStart,
+              end: AlignmentDirectional.bottomEnd,
+              colors: [Color(0xE61F6FEE), Color(0xE60B3E8F)],
+            ),
+            boxShadow: [
+              BoxShadow(
+                color: PishkanColors.primary.withOpacity(context.isDark ? 0.22 : 0.30),
+                blurRadius: 22,
+                offset: const Offset(0, 12),
+              ),
+            ],
+          ),
+          child: widget.child,
+        ),
+      ],
+    );
+  }
+
+  Widget _orb({required double size, required Color color}) {
+    return ImageFiltered(
+      imageFilter: ImageFilter.blur(sigmaX: 28, sigmaY: 28),
+      child: Container(
+        width: size,
+        height: size,
+        decoration: BoxDecoration(
+          shape: BoxShape.circle,
+          gradient: RadialGradient(colors: [color, color.withOpacity(0)]),
+        ),
+      ),
+    );
   }
 }
