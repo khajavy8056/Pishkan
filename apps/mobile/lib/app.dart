@@ -43,7 +43,7 @@ class _PishkanAppState extends State<PishkanApp> {
                 child: Column(mainAxisSize: MainAxisSize.min, children: [
                   Icon(Icons.cloud_off_rounded, size: 44, color: PishkanColors.primary),
                   SizedBox(height: 14),
-                  Text('خطایی رخ داد', style: TextStyle(fontFamily: 'Vazirmatn', fontWeight: FontWeight.w800, fontSize: 16, color: PishkanColors.navy)),
+                  Text('خطایی رخ داد', style: TextStyle(fontFamily: 'Vazirmatn', fontWeight: FontWeight.w800, fontSize: 16, color: context.ink)),
                   SizedBox(height: 6),
                   Text(
                     'لطفاً اپ را ببندید و دوباره باز کنید. اگر مشکل ماند، با دفتر تماس بگیرید.',

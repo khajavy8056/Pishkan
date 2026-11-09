@@ -268,10 +268,10 @@ class EmptyView extends StatelessWidget {
             child: Icon(icon, size: 38, color: PishkanColors.primary),
           ),
           const SizedBox(height: 16),
-          Text(title, textAlign: TextAlign.center, style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 15, color: PishkanColors.navy)),
+          Text(title, textAlign: TextAlign.center, style: TextStyle(fontWeight: FontWeight.w700, fontSize: 15, color: context.ink)),
           if (hint.isNotEmpty) ...[
             const SizedBox(height: 6),
-            Text(hint, textAlign: TextAlign.center, style: const TextStyle(color: PishkanColors.mutedText, fontSize: 12.5, height: 1.8)),
+            Text(hint, textAlign: TextAlign.center, style: TextStyle(color: context.inkMuted, fontSize: 12.5, height: 1.8)),
           ],
           if (action != null) ...[const SizedBox(height: 18), action!],
         ]),
@@ -599,7 +599,7 @@ class StageTimeline extends StatelessWidget {
                 style: TextStyle(
                   fontWeight: isCurrent || done ? FontWeight.w800 : FontWeight.w600,
                   fontSize: 13.5,
-                  color: done || isCurrent ? PishkanColors.navy : PishkanColors.mutedText,
+                  color: done || isCurrent ? context.ink : context.inkMuted,
                 ),
               ),
               const SizedBox(height: 2),

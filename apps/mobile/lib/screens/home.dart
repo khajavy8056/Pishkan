@@ -7,6 +7,7 @@ import '../core/stages.dart';
 import '../core/motion.dart';
 import '../core/sizes.dart';
 import '../widgets/screen_header.dart';
+import '../widgets/banner_carousel.dart';
 import '../core/theme.dart';
 import '../models/models.dart';
 import '../services/services.dart';
@@ -150,14 +151,35 @@ class _HomeTabState extends State<HomeTab> {
               // just appeared, which is what made the page read as static.
               StaggeredReveal(step: const Duration(milliseconds: 55), children: [
                 if (_groups.isNotEmpty && (_config == null || _config!.storiesEnabled)) ...[
-                  _sectionTitle('استوری‌ها و اطلاعیه‌ها', action: 'مشاهده همه', onAction: () async {
-                    await Navigator.push(context, fadeThroughRoute(const StoriesArchiveScreen()));
-                    widget.onNotificationsChanged();
-                    _load();
-                  }),
-                  SizedBox(height: sizes.s(8)),
-                  _storyRail(),
-                  SizedBox(height: sizes.s(18)),
+                  // Banners, not the circular story rail: a full-width card can
+                  // carry a title and a promise, and tapping it lands on the
+                  // service the banner is about instead of a slideshow.
+                  BannerCarousel(
+                    groups: _groups,
+                    seen: _seenGroups,
+                    onOpenGroup: _openStories,
+                    onOpenService: (slug) {
+                      final match = _services.where((s) => s.slug == slug);
+                      if (match.isEmpty) {
+                        Navigator.push(context, fadeThroughRoute(const ServiceSearchScreen()));
+                        return;
+                      }
+                      Navigator.push(context, fadeThroughRoute(ServiceDetailScreen(service: match.first)));
+                    },
+                  ),
+                  Align(
+                    alignment: AlignmentDirectional.centerStart,
+                    child: TextButton.icon(
+                      onPressed: () async {
+                        await Navigator.push(context, fadeThroughRoute(const StoriesArchiveScreen()));
+                        widget.onNotificationsChanged();
+                        _load();
+                      },
+                      icon: const Icon(Icons.campaign_outlined, size: 17),
+                      label: const Text('همهٔ اطلاعیه‌ها', style: TextStyle(fontSize: 12, fontWeight: FontWeight.w700)),
+                    ),
+                  ),
+                  SizedBox(height: sizes.s(10)),
                 ],
                 _hero(),
                 SizedBox(height: sizes.s(20)),
@@ -302,43 +324,6 @@ class _HomeTabState extends State<HomeTab> {
       if (!item.isVideo && item.effectiveMediaUrl.isNotEmpty) return item.effectiveMediaUrl;
     }
     return '';
-  }
-
-  Widget _storyRail() {
-    return SizedBox(
-      height: 102,
-      child: ListView.separated(
-        scrollDirection: Axis.horizontal,
-        itemCount: _groups.length,
-        separatorBuilder: (_, _) => const SizedBox(width: 14),
-        itemBuilder: (_, index) {
-          final group = _groups[index];
-          final seen = _groupSeen(group);
-          final cover = _groupCover(group);
-          return GestureDetector(
-            onTap: () => _openStories(index),
-            child: SizedBox(
-              width: 68,
-              child: Column(children: [
-                Container(
-                  padding: const EdgeInsets.all(2.5),
-                  decoration: BoxDecoration(
-                    shape: BoxShape.circle,
-                    gradient: seen ? null : const SweepGradient(colors: [Color(0xFF7C3AED), Color(0xFF2563EB), Color(0xFF06B6D4), Color(0xFF7C3AED)]),
-                    border: seen ? Border.all(color: const Color(0xFFCBD5E1), width: 2) : null,
-                  ),
-                  child: cover.isNotEmpty
-                      ? ClipOval(child: SizedBox(width: 58, height: 58, child: AuthImage(url: cover)))
-                      : const CircleAvatar(radius: 29, backgroundColor: Color(0xFFE0EAFA), child: Icon(Icons.campaign_rounded, color: PishkanColors.primary)),
-                ),
-                const SizedBox(height: 6),
-                Text(group.title, maxLines: 1, overflow: TextOverflow.ellipsis, textAlign: TextAlign.center, style: TextStyle(fontSize: 11, fontWeight: seen ? FontWeight.w500 : FontWeight.w700, color: context.ink)),
-              ]),
-            ),
-          );
-        },
-      ),
-    );
   }
 
   Future<void> _openStories(int groupIndex) async {
