@@ -6,4 +6,4 @@
 # the artifact upload collects `dist-android/*` from the repository root, so
 # the report is written there — two levels up.
 file_reporters:
-  json: ../../dist-android/test-report.json
+  json: test-report.json

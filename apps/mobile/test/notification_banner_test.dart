@@ -59,8 +59,13 @@ void main() {
     expect(find.text('اول'), findsOneWidget);
 
     // It advances without any input — the whole point of the rail.
+    //
+    // `pumpAndSettle` is deliberately not used here. The rail re-arms its
+    // timer every 400ms and each advance animates for 520ms, so a frame is
+    // always scheduled and the widget never settles; pumping for longer than
+    // one animation is what actually waits for the page to arrive.
     await tester.pump(const Duration(milliseconds: 500));
-    await tester.pumpAndSettle();
+    await tester.pump(const Duration(milliseconds: 600));
     expect(find.text('دوم'), findsOneWidget);
 
     // A tap opens *that* banner, not the one the rail started on.
@@ -69,8 +74,10 @@ void main() {
     expect(opened, ['b']);
 
     // And leaving the tree stops the timer: no pending-timer failure.
+    // `dispose` cancels it, so `pumpAndSettle` would now be safe — but a
+    // single pump proves the same thing without relying on that.
     await tester.pumpWidget(const SizedBox.shrink());
-    await tester.pumpAndSettle();
+    await tester.pump(const Duration(seconds: 2));
     expect(tester.takeException(), isNull);
   });
 
