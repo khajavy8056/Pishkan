@@ -7,8 +7,6 @@ linter:
 
 analyzer:
   exclude:
-    - test/category_card_test.dart
-    - test/format_test.dart
     - test/models_test.dart
   errors:
     deprecated_member_use: ignore
