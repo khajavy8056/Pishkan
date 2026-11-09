@@ -48,6 +48,10 @@ STEPS: list[tuple[str, list[str]]] = [
     # calls it undefined_named_parameter and it is a hard error; it broke two
     # release builds before this row existed.
     ('widget arguments', ['tools/checks/dart_params.py']),
+    # `service.updatedAt` on a class that never declares it. This is the error
+    # that failed the 1.4.0 build twice: everything around it was valid, and
+    # the member name exists on *other* classes, so nothing else saw it.
+    ('member access', ['tools/checks/dart_members.py']),
     # This one takes files, not a directory — it checks a known list of
     # cross-module symbols, so it only needs the Dart sources.
     ('symbol imports', ['tools/checks/dart_symbol_imports.py', *DART_FILES]),

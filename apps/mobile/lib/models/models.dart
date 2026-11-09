@@ -233,7 +233,11 @@ class CatalogService {
         // payloads used `formFields`/`documentRequirements`. Accept both.
         formFields = _list(raw['form'] ?? raw['formFields']).map(FormFieldDef.fromJson).toList(),
         requirements = _list(raw['documents'] ?? raw['documentRequirements']).map(DocumentRequirement.fromJson).toList(),
-        requiresAuthentication = _bool(raw['requiresAuthentication']);
+        requiresAuthentication = _bool(raw['requiresAuthentication']),
+        // Carried so image URLs can be versioned: a replaced backdrop has the
+        // same path forever, and without a token the disk cache would keep
+        // showing the old picture.
+        updatedAt = _str(raw['updatedAt']);
 
   final Map<String, dynamic> raw;
   final String id;
@@ -262,6 +266,9 @@ class CatalogService {
   final List<FormFieldDef> formFields;
   final List<DocumentRequirement> requirements;
   final bool requiresAuthentication;
+  /// Server-side revision timestamp, used to bust the image cache when the
+  /// office replaces a service picture.
+  final String updatedAt;
 
   String get displayDescription {
     if (fullDescription.isNotEmpty) return fullDescription;
