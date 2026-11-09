@@ -419,8 +419,11 @@ export function AdminAndroidApp() {
                           </p>
                         )}
                         <div className="flex flex-wrap gap-1 pt-1">
-                          <Button size="sm" variant="ghost" onClick={() => moveBanner(banner, -1)} disabled={index === 0}><ArrowUp className="size-3.5" /></Button>
-                          <Button size="sm" variant="ghost" onClick={() => moveBanner(banner, 1)} disabled={index === banners.length - 1}><ArrowDown className="size-3.5" /></Button>
+                          {/* Icon-only buttons need a spoken name: without one a screen
+                              reader announces "button" and the office cannot tell
+                              "move up" from "delete". */}
+                          <Button size="sm" variant="ghost" aria-label="جابه‌جایی به بالا" onClick={() => moveBanner(banner, -1)} disabled={index === 0}><ArrowUp className="size-3.5" /></Button>
+                          <Button size="sm" variant="ghost" aria-label="جابه‌جایی به پایین" onClick={() => moveBanner(banner, 1)} disabled={index === banners.length - 1}><ArrowDown className="size-3.5" /></Button>
                           <Button size="sm" variant="ghost" onClick={() => togglePublished(banner)}>
                             {banner.status === 'published' ? <EyeOff className="size-3.5" /> : <Eye className="size-3.5" />}
                             {banner.status === 'published' ? 'خروج از انتشار' : 'انتشار'}

@@ -106,6 +106,12 @@ function renderPage() {
 
 afterEach(() => { vi.unstubAllGlobals(); });
 
+/** Two banners in a known order: the first is bn_1, the second bn_2. */
+const pair = () => [
+  banner({ id: 'bn_1', title: 'بنر نخست', sortOrder: 1 }),
+  banner({ id: 'bn_2', title: 'بنر دوم', sortOrder: 2 }),
+];
+
 describe('admin banner management', () => {
   it('lists banners with their destination spelled out in words', async () => {
     installApi([banner()]);
@@ -169,5 +175,46 @@ describe('admin banner management', () => {
       expect(patch).toBeTruthy();
       expect(patch!.body.notifyCustomers).toBe(true);
     }, { timeout: 3000 });
+  });
+
+  it('reorders by sending the full list of ids, in the new order', async () => {
+    installApi(pair());
+    renderPage();
+
+    await screen.findByText('بنر نخست');
+    // Three banners' worth of rows would need three clicks to reach the end;
+    // with two, moving the second one up is the whole operation and the body
+    // has to contain both ids with the order swapped.
+    const upButtons = await screen.findAllByRole('button', { name: 'جابه‌جایی به بالا' });
+    fireEvent.click(upButtons[1]);
+
+    await waitFor(() => {
+      const reorder = calls.find((call) => call.path === '/api/app/admin/banners/reorder');
+      expect(reorder).toBeTruthy();
+      // A reorder that sent only the moved id (or a dense 1..n renumber) is the
+      // mistake this catches: every row has to appear, exactly once.
+      expect(reorder!.body.ids).toEqual(['bn_2', 'bn_1']);
+    });
+  });
+
+  it('deletes only after the office confirms', async () => {
+    installApi(pair());
+    renderPage();
+
+    await screen.findByText('بنر نخست');
+    const confirm = vi.spyOn(window, 'confirm').mockReturnValue(false);
+    fireEvent.click(screen.getAllByRole('button', { name: /حذف/ })[0]);
+    // Declining the confirmation must not send anything.
+    await waitFor(() => expect(confirm).toHaveBeenCalled());
+    expect(calls.find((c) => c.method === 'DELETE')).toBeUndefined();
+
+    confirm.mockReturnValue(true);
+    fireEvent.click(screen.getAllByRole('button', { name: /حذف/ })[0]);
+    await waitFor(() => {
+      const del = calls.find((c) => c.method === 'DELETE');
+      expect(del).toBeTruthy();
+      expect(del!.path).toBe('/api/app/admin/banners/bn_1');
+    });
+    confirm.mockRestore();
   });
 });
