@@ -7,6 +7,10 @@ linter:
 
 analyzer:
   exclude:
-    - test/**
+    - test/category_card_test.dart
+    - test/format_test.dart
+    - test/referral_test.dart
+    - test/session_test.dart
+    - test/stages_test.dart
   errors:
     deprecated_member_use: ignore
