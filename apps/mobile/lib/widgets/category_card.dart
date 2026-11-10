@@ -155,12 +155,16 @@ class CategoryCard extends StatelessWidget {
               child: Padding(
                 padding: const EdgeInsets.all(6),
                 child: Row(
+                  // Stretch so the art well takes the card's full height rather
+                  // than collapsing to its intrinsic size.
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
                   children: [
                     // Artwork first in the row: the app is RTL, so this is the
                     // leading edge, matching the reference screenshots.
-                    _ArtWell(category: category, color: color, dark: dark),
+                    Flexible(flex: 4, fit: FlexFit.tight, child: _ArtWell(category: category, color: color, dark: dark)),
                     const SizedBox(width: 10),
                     Expanded(
+                      flex: 6,
                       child: Padding(
                         padding: const EdgeInsetsDirectional.only(end: 4, top: 2, bottom: 2),
                         child: Column(
@@ -175,29 +179,16 @@ class CategoryCard extends StatelessWidget {
                               overflow: TextOverflow.ellipsis,
                               style: TextStyle(
                                 color: textColor,
-                                fontSize: 12.5,
+                                fontSize: 12,
                                 fontWeight: FontWeight.w800,
-                                height: 1.45,
+                                height: 1.35,
                               ),
                             ),
-                            const SizedBox(height: 5),
-                            Row(
-                              mainAxisSize: MainAxisSize.min,
-                              children: [
-                                Text(
-                                  'مشاهده',
-                                  style: TextStyle(
-                                    color: dark ? color : PishkanColors.primary,
-                                    fontSize: 10,
-                                    fontWeight: FontWeight.w700,
-                                  ),
-                                ),
-                                Icon(
-                                  Icons.chevron_left_rounded,
-                                  color: dark ? color : PishkanColors.primary,
-                                  size: 13,
-                                ),
-                              ],
+                            const SizedBox(height: 4),
+                            Icon(
+                              Icons.chevron_left_rounded,
+                              color: dark ? color.withOpacity(0.85) : PishkanColors.primary.withOpacity(0.8),
+                              size: 15,
                             ),
                           ],
                         ),
@@ -231,8 +222,11 @@ class _ArtWell extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Container(
-      width: 82,
-      height: 68,
+      // The well takes a share of the card rather than a fixed width. The card
+      // is laid out at whatever width the grid gives it, and a fixed 82px well
+      // plus a readable label does not fit on a narrow phone or at a large text
+      // scale — the row overflows. A layout that only works at one width is not
+      // a layout.
       decoration: BoxDecoration(
         borderRadius: BorderRadius.circular(15),
         color: dark

@@ -48,6 +48,27 @@ void main() {
     expect(tester.takeException(), isNull);
     await tester.tap(find.byType(CategoryCard));
     expect(taps, 1);
+    // 160x95 is the tightest box the home grid can produce (two columns on a
+    // small phone). Any RenderFlex overflow at this size is a real bug on a
+    // real device, and it is reported as an exception rather than a test
+    // failure, so it has to be asserted explicitly.
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('category card survives a narrow box and a large text scale', (tester) async {
+    final category = ServiceCategory.fromJson({'slug': 'housing-land', 'title': 'مسکن و زمین و املاک'});
+    await tester.pumpWidget(MaterialApp(
+      home: MediaQuery(
+        data: const MediaQueryData(textScaler: TextScaler.linear(1.3)),
+        child: Scaffold(body: Center(child: SizedBox(
+          width: 132, height: 88, child: CategoryCard(category: category, onTap: () {}),
+        ))),
+      ),
+    ));
+    await tester.pumpAndSettle();
+    // A card that only lays out at one width is not a card; the label is
+    // allowed to truncate, but nothing may overflow.
+    expect(tester.takeException(), isNull);
   });
 
   testWidgets('new categories use a vector fallback and support dark surfaces', (tester) async {
