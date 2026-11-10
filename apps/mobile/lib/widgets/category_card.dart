@@ -119,9 +119,13 @@ class CategoryCard extends StatelessWidget {
     return Semantics(
       button: true,
       label: category.title,
-      child: PressableScale(
-        onTap: onTap,
-        scale: 0.965,
+      // `TactileTap`, not `PressableScale`: a navigation tap has to show its
+      // press before the page changes, otherwise the animation is cut off by
+      // the incoming route and the card feels dead.
+      child: TactileTap(
+        onTap: () async => onTap(),
+        scale: 0.955,
+        hold: const Duration(milliseconds: 120),
         child: DecoratedBox(
           decoration: BoxDecoration(
             borderRadius: BorderRadius.circular(20),

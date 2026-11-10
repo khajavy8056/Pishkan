@@ -41,6 +41,16 @@ abstract final class PishkanColors {
     end: Alignment.bottomRight,
   );
 
+  /// The splash field: deep brand blue through to violet, always dark enough
+  /// for white to sit on it. Replaced a dark office photograph, which made the
+  /// first screen a customer ever saw look like a shutdown screen.
+  static const splashGradient = LinearGradient(
+    begin: AlignmentDirectional.topStart,
+    end: AlignmentDirectional.bottomEnd,
+    colors: [Color(0xFF0B3E8F), Color(0xFF1F6FEE), Color(0xFF5B4BD6)],
+    stops: [0, 0.55, 1],
+  );
+
   /// The brighter, purely decorative variant — illustrations, splash
   /// fallbacks, empty-state art. Never place text on this one.
   static const brightGradient = LinearGradient(

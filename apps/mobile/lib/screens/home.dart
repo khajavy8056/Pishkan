@@ -188,6 +188,21 @@ class _HomeTabState extends State<HomeTab> {
                 _sectionTitle('دسترسی سریع'),
                 SizedBox(height: sizes.s(8)),
                 _quickAccess(),
+                if (_recent.isNotEmpty) ...[
+                  // The rail sits before the catalogue: what is already in
+                  // progress is more urgent than what could be started, and it
+                  // is the one block on the page with a different shape — which
+                  // is what breaks the stack of full-width rows.
+                  SizedBox(height: sizes.s(22)),
+                  _sectionTitle('در جریان', action: 'همهٔ پیگیری‌ها', onAction: () => widget.onOpenTab(2)),
+                  SizedBox(height: sizes.s(10)),
+                  // Bleeds past the page gutter so the rail visibly continues
+                  // off-screen instead of stopping at the margin.
+                  Transform.translate(
+                    offset: Offset(-sizes.gutter, 0),
+                    child: _liveRail(),
+                  ),
+                ],
                 if (_categories.isNotEmpty) ...[
                   SizedBox(height: sizes.s(20)),
                   _sectionTitle('دسته‌بندی خدمات', action: 'مشاهده همه', onAction: () => widget.onOpenTab(1)),
@@ -581,6 +596,45 @@ class _HomeTabState extends State<HomeTab> {
     );
   }
 
+  /// A horizontal rail of the customer's own open cases, drawn as coloured
+  /// cards.
+  ///
+  /// The page up to here is a stack of same-width blocks: a carousel, a glass
+  /// hero, a 2x2 grid, a 2-column list. Everything is the width of the screen
+  /// and aligned to the same edge, which is what makes a dense dashboard read
+  /// as a form rather than as an app. A sideways rail is the cheapest way to
+  /// break that rhythm, and it is also the one section whose content is live:
+  /// these are the cases actually in progress, with their real progress bars.
+  Widget _liveRail() {
+    final sizes = context.sizes;
+    final items = _recent.take(5).toList();
+    if (items.isEmpty) return const SizedBox.shrink();
+    return SizedBox(
+      height: 132,
+      child: ListView.separated(
+        scrollDirection: Axis.horizontal,
+        padding: EdgeInsets.symmetric(horizontal: sizes.gutter),
+        itemCount: items.length,
+        separatorBuilder: (_, _) => SizedBox(width: sizes.s(10)),
+        itemBuilder: (context, index) => _LiveCaseCard(
+          request: items[index],
+          accent: _railAccents[index % _railAccents.length],
+        ),
+      ),
+    );
+  }
+
+  /// Six accents, cycled. Chosen to stay distinguishable from each other and to
+  /// keep white text above 4.5:1 on the card's darker end.
+  static const _railAccents = <List<Color>>[
+    [Color(0xFF1F6FEE), Color(0xFF0B3E8F)],
+    [Color(0xFF0EA5A4), Color(0xFF047857)],
+    [Color(0xFF8B5CF6), Color(0xFF5B21B6)],
+    [Color(0xFFF97316), Color(0xFFB45309)],
+    [Color(0xFFDB2777), Color(0xFF9D174D)],
+    [Color(0xFF0891B2), Color(0xFF155E75)],
+  ];
+
   Widget _recentCard(ServiceRequestSummary request) {
     final progress = caseProgress(status: request.status, workBucket: request.workBucket);
     return Padding(
@@ -625,9 +679,10 @@ class _ServicePill extends StatelessWidget {
     final dark = context.isDark;
     final art = artworkForService(service);
     final tint = art.color;
-    return PressableScale(
-      scale: 0.94,
-      onTap: () => Navigator.push(context, fadeThroughRoute(ServiceDetailScreen(service: service))),
+    return TactileTap(
+      scale: 0.93,
+      hold: const Duration(milliseconds: 110),
+      onTap: () async => Navigator.push(context, fadeThroughRoute(ServiceDetailScreen(service: service))),
       child: Column(children: [
         // A circle, not a rounded square: the medallion inside is round, and a
         // square plate behind a round picture reads as a mistake.
@@ -854,6 +909,106 @@ class _Plate extends StatelessWidget {
       child: ClipRRect(
         borderRadius: BorderRadius.circular(26),
         child: child,
+      ),
+    );
+  }
+}
+
+/// One open case, as a coloured card in the live rail.
+///
+/// Deliberately unlike every other card on the page: it is the only one with a
+/// saturated fill, the only one that scrolls sideways, and the only one whose
+/// content changes while the customer is looking at it. That contrast is the
+/// point — it separates "here is what is happening" from "here is the catalogue".
+class _LiveCaseCard extends StatelessWidget {
+  const _LiveCaseCard({required this.request, required this.accent});
+
+  final ServiceRequestSummary request;
+  final List<Color> accent;
+
+  @override
+  Widget build(BuildContext context) {
+    final sizes = context.sizes;
+    final progress = caseProgress(status: request.status, workBucket: request.workBucket);
+    return SizedBox(
+      width: 218,
+      // The press shows before the route opens; see [TactileTap].
+      child: TactileTap(
+        scale: 0.97,
+        hold: const Duration(milliseconds: 110),
+        onTap: () async => Navigator.push(
+          context,
+          fadeThroughRoute(RequestDetailScreen(requestId: request.id)),
+        ),
+        child: Container(
+          padding: EdgeInsets.all(sizes.s(14)),
+          decoration: BoxDecoration(
+            borderRadius: BorderRadius.circular(20),
+            gradient: LinearGradient(
+              begin: AlignmentDirectional.topStart,
+              end: AlignmentDirectional.bottomEnd,
+              colors: accent,
+            ),
+            boxShadow: [
+              BoxShadow(color: accent.first.withOpacity(0.34), blurRadius: 18, offset: const Offset(0, 9)),
+            ],
+          ),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(children: [
+                Container(
+                  padding: EdgeInsets.symmetric(horizontal: sizes.s(7), vertical: sizes.s(2)),
+                  decoration: BoxDecoration(
+                    color: Colors.white.withOpacity(0.22),
+                    borderRadius: BorderRadius.circular(999),
+                  ),
+                  child: Text(
+                    progress.currentLabel,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: TextStyle(color: Colors.white, fontSize: sizes.s(9.5), fontWeight: FontWeight.w700),
+                  ),
+                ),
+                const Spacer(),
+                Icon(Icons.chevron_left_rounded, color: Colors.white.withOpacity(0.9), size: sizes.s(18)),
+              ]),
+              SizedBox(height: sizes.s(10)),
+              Text(
+                request.serviceTitle,
+                maxLines: 2,
+                overflow: TextOverflow.ellipsis,
+                style: TextStyle(
+                  color: Colors.white,
+                  fontSize: sizes.s(13),
+                  fontWeight: FontWeight.w800,
+                  height: 1.35,
+                ),
+              ),
+              const Spacer(),
+              // The real progress of this case, not a decorative bar.
+              ClipRRect(
+                borderRadius: BorderRadius.circular(999),
+                child: TweenAnimationBuilder<double>(
+                  tween: Tween(begin: 0, end: progress.fraction),
+                  duration: PishkanMotion.reduced(context) ? Duration.zero : const Duration(milliseconds: 700),
+                  curve: Curves.easeOutCubic,
+                  builder: (_, value, _) => LinearProgressIndicator(
+                    value: value,
+                    minHeight: 5,
+                    backgroundColor: Colors.white.withOpacity(0.24),
+                    valueColor: const AlwaysStoppedAnimation(Colors.white),
+                  ),
+                ),
+              ),
+              SizedBox(height: sizes.s(6)),
+              Text(
+                request.trackingCode,
+                style: TextStyle(color: Colors.white.withOpacity(0.72), fontSize: sizes.s(9.5), fontWeight: FontWeight.w600),
+              ),
+            ],
+          ),
+        ),
       ),
     );
   }

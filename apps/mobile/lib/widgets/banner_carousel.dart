@@ -148,12 +148,20 @@ class BannerCard extends StatelessWidget {
     final fallback = LinearGradient(
       begin: AlignmentDirectional.topStart,
       end: AlignmentDirectional.bottomEnd,
-      colors: [accent, Color.lerp(accent, const Color(0xFF0B1F3A), 0.55)!],
+      // Lifted, not darkened: `lerp` toward navy made every fallback card end
+      // in the same flat navy. Blending toward a bright cyan keeps the banner's
+      // own hue recognisable and gives the card a lit edge, which is what makes
+      // a rail of them read as colour rather than as six grey boxes.
+      colors: [
+        accent,
+        Color.alphaBlend(accent.withOpacity(0.55), const Color(0xFF22D3EE)),
+      ],
     );
 
-    return PressableScale(
-      onTap: onTap,
-      scale: 0.975,
+    return TactileTap(
+      onTap: () async => onTap(),
+      scale: 0.972,
+      hold: const Duration(milliseconds: 120),
       child: ClipRRect(
         borderRadius: BorderRadius.circular(24),
         child: Stack(
@@ -163,16 +171,29 @@ class BannerCard extends StatelessWidget {
               AuthImage(url: banner.imageCacheKey)
             else
               DecoratedBox(decoration: BoxDecoration(gradient: fallback)),
-            // The scrim is horizontal rather than uniform: the copy sits on
-            // the leading edge, so the picture on the trailing edge keeps its
-            // detail instead of being flattened by a full-card overlay.
-            const DecoratedBox(
+            // The scrim.
+            //
+            // It used to be flat navy at 90% -> 60% -> 0 across the card. That
+            // is enough to make *any* photograph look like a dark banner — the
+            // complaint was that every card felt dead, and this was the reason:
+            // the picture's own colour was being replaced with the same navy
+            // every time.
+            //
+            // Now the scrim carries the banner's own accent instead of a fixed
+            // navy, and only reaches full strength where the text actually
+            // sits. The heading keeps 4.5:1 because the text column is over the
+            // dense end, while two thirds of the card get to show the artwork.
+            DecoratedBox(
               decoration: BoxDecoration(
                 gradient: LinearGradient(
-                  begin: Alignment.centerLeft,
-                  end: Alignment.centerRight,
-                  colors: [Color(0xE60A1B33), Color(0x990A1B33), Color(0x000A1B33)],
-                  stops: [0, 0.58, 1],
+                  begin: AlignmentDirectional.centerStart,
+                  end: AlignmentDirectional.centerEnd,
+                  colors: [
+                    Color.alphaBlend(Colors.black.withOpacity(0.52), accent),
+                    Color.alphaBlend(Colors.black.withOpacity(0.24), accent),
+                    Colors.transparent,
+                  ],
+                  stops: const [0, 0.52, 1],
                 ),
               ),
             ),

@@ -529,3 +529,84 @@ class _ParallaxState extends State<Parallax> {
     return Transform.translate(offset: Offset(0, shift), child: widget.child);
   }
 }
+
+/// A tap that finishes its feedback *before* the next screen opens.
+///
+/// The default `onTap` navigates on the same frame the finger lifts, so the
+/// press animation is cut off before it can be seen — the card shrinks for a
+/// few milliseconds and is then covered by the incoming page. That is why the
+/// cards felt like dead buttons even though they had a scale animation.
+///
+/// This holds the pressed state for [hold] first: the card dips, the ripple
+/// spreads, the haptic fires, and only then does navigation start. Total added
+/// latency is one sustained press, which reads as responsiveness rather than
+/// delay because *something is visibly happening*.
+///
+/// Under reduced motion the hold collapses to zero — the movement is what is
+/// being suppressed, not the tap.
+class TactileTap extends StatefulWidget {
+  const TactileTap({
+    super.key,
+    required this.child,
+    required this.onTap,
+    this.scale = 0.965,
+    this.hold = const Duration(milliseconds: 130),
+    this.enabled = true,
+  });
+
+  final Widget child;
+
+  /// Runs after the press has been shown. May be async; the widget stays
+  /// pressed until it completes, so a slow route still feels connected.
+  final Future<void> Function() onTap;
+
+  final double scale;
+  final Duration hold;
+  final bool enabled;
+
+  @override
+  State<TactileTap> createState() => _TactileTapState();
+}
+
+class _TactileTapState extends State<TactileTap> {
+  bool _down = false;
+  bool _busy = false;
+
+  Future<void> _handle() async {
+    // A double tap while the first is still holding would open two pages.
+    if (_busy || !widget.enabled) return;
+    _busy = true;
+    setState(() => _down = true);
+    Haptics.press();
+    final animate = !PishkanMotion.reduced(context);
+    if (animate) await Future<void>.delayed(widget.hold);
+    if (!mounted) {
+      _busy = false;
+      return;
+    }
+    try {
+      await widget.onTap();
+    } finally {
+      if (mounted) {
+        setState(() => _down = false);
+        _busy = false;
+      }
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final animate = !PishkanMotion.reduced(context);
+    return GestureDetector(
+      behavior: HitTestBehavior.opaque,
+      onTap: _handle,
+      onTapCancel: () => setState(() => _down = false),
+      child: AnimatedScale(
+        scale: _down && animate ? widget.scale : 1,
+        duration: animate ? PishkanMotion.quick : Duration.zero,
+        curve: Curves.easeOutCubic,
+        child: widget.child,
+      ),
+    );
+  }
+}

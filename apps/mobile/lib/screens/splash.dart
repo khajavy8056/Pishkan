@@ -43,7 +43,7 @@ class _SplashScreenState extends State<SplashScreen> with TickerProviderStateMix
   /// it: [_bootSteps] runs immediately and this only pads the remainder, so a
   /// fast connection still leaves after six seconds and a slow one leaves as
   /// soon as it is ready. Nobody waits 6 s *plus* the network.
-  static const _minimumSplash = Duration(seconds: 6);
+  static const _minimumSplash = Duration(seconds: 10);
   final _bootStarted = DateTime.now();
 
   Future<void> _holdSplash() async {
@@ -230,208 +230,344 @@ class _SplashScreenState extends State<SplashScreen> with TickerProviderStateMix
   @override
   Widget build(BuildContext context) {
     final size = MediaQuery.of(context).size;
-    // Respect the system "remove animations" accessibility switch: with it on,
-    // nothing loops and the screen is simply the artwork plus the brand.
     final reduceMotion = MediaQuery.of(context).disableAnimations;
+
     return Scaffold(
-      body: Stack(children: [
-        // Office artwork (bundled so the very first screen works offline).
-        Positioned.fill(
-          child: Image.asset(
-            'assets/splash-office.jpg',
-            fit: BoxFit.cover,
-            errorBuilder: (_, _, _) => Container(decoration: BoxDecoration(gradient: PishkanColors.brightGradient)),
-          ),
-        ),
-        // A slow light sweep across the artwork. One thin diagonal of white at
-        // 6% opacity, moving over six seconds — it gives the still photograph a
-        // sense of lit glass without touching the photo itself.
-        if (!reduceMotion)
-          Positioned.fill(
-            child: IgnorePointer(
-              child: AnimatedBuilder(
-                animation: _ambient,
-                builder: (context, _) => FractionalTranslation(
-                  translation: Offset(-1.2 + _ambient.value * 2.4, 0),
-                  child: Transform.rotate(
-                    angle: -0.35,
-                    child: Container(
-                      width: size.width * 0.42,
-                      decoration: BoxDecoration(
-                        gradient: LinearGradient(
-                          begin: Alignment.topCenter,
-                          end: Alignment.bottomCenter,
-                          colors: [Colors.white.withOpacity(0.10), Colors.white.withOpacity(0)],
+      body: AnimatedBuilder(
+        animation: _ambient,
+        builder: (context, _) {
+          // Everything on this screen is a function of one looping value, so
+          // they all share phase and nothing drifts out of step.
+          final t = _ambient.value;
+          final wave = math.sin(t * 2 * math.pi);
+          return Stack(children: [
+            // ---- the living background -------------------------------------
+            // A dark office photograph with a navy scrim used to sit here. It
+            // was the first thing a customer ever saw and it read as a
+            // shutdown screen: dark, still, and identical on every launch.
+            // This is the brand's own light instead — a deep-blue field that
+            // shifts hue as it breathes, with two warm orbs crossing it.
+            const Positioned.fill(
+              child: DecoratedBox(
+                decoration: BoxDecoration(gradient: PishkanColors.splashGradient),
+              ),
+            ),
+            Positioned.fill(
+              child: IgnorePointer(
+                child: Stack(children: [
+                  _DriftOrb(
+                    alignment: AlignmentDirectional(-0.55 + 0.25 * wave, -0.62 + 0.18 * wave),
+                    size: size.width * 0.78,
+                    color: const Color(0xFF22D3EE),
+                    opacity: 0.30,
+                  ),
+                  _DriftOrb(
+                    alignment: AlignmentDirectional(0.62 - 0.22 * wave, 0.34 - 0.16 * wave),
+                    size: size.width * 0.62,
+                    color: const Color(0xFF3B82F6),
+                    opacity: 0.34,
+                  ),
+                  _DriftOrb(
+                    alignment: AlignmentDirectional(0.10, 0.92 - 0.10 * wave),
+                    size: size.width * 0.55,
+                    color: const Color(0xFF8B5CF6),
+                    opacity: 0.22,
+                  ),
+                ]),
+              ),
+            ),
+            if (!reduceMotion)
+              Positioned.fill(
+                child: IgnorePointer(
+                  // Sweeping light: one soft diagonal band travelling right to
+                  // left across the whole screen. Cheap (one gradient, no
+                  // filter) and it is what makes the field read as lit glass
+                  // rather than as a solid fill.
+                  child: FractionalTranslation(
+                    translation: Offset(-1.1 + t * 2.2, 0),
+                    child: Transform.rotate(
+                      angle: -0.34,
+                      child: Container(
+                        width: size.width * 0.5,
+                        decoration: BoxDecoration(
+                          gradient: LinearGradient(
+                            begin: Alignment.topCenter,
+                            end: Alignment.bottomCenter,
+                            colors: [Colors.white.withOpacity(0.13), Colors.white.withOpacity(0)],
+                          ),
                         ),
                       ),
                     ),
                   ),
                 ),
               ),
-            ),
-          ),
-        Positioned.fill(
-          child: DecoratedBox(
-            decoration: BoxDecoration(
-              gradient: LinearGradient(
-                colors: [Colors.white.withOpacity(0.10), Colors.transparent, const Color(0xFF1452D9).withOpacity(0.88)],
-                stops: const [0, 0.42, 0.86],
-                begin: Alignment.topCenter,
-                end: Alignment.bottomCenter,
+            // A slow grid of dots, drifting up. Almost invisible individually;
+            // together they give the background texture so the eye has
+            // something to move over during the wait.
+            if (!reduceMotion)
+              Positioned.fill(
+                child: IgnorePointer(
+                  child: CustomPaint(painter: _DotField(t: t)),
+                ),
               ),
-            ),
-          ),
-        ),
-        SafeArea(
-          child: Column(children: [
-            SizedBox(height: size.height * 0.075),
-            // The mark: halo, then the disc, then a hairline ring that expands
-            // once as the logo lands — the "arrival" beat.
-            FadeTransition(
-              opacity: _logoIn,
-              child: ScaleTransition(
-                scale: Tween<double>(begin: 0.72, end: 1).animate(_logoIn),
-                child: AnimatedBuilder(
-                  animation: _ambient,
-                  builder: (context, child) {
-                    final pulse = reduceMotion ? 0.5 : (0.5 + 0.5 * math.sin(_ambient.value * 2 * math.pi));
-                    return SizedBox(
-                      width: 168,
-                      height: 168,
+
+            // ---- the mark ---------------------------------------------------
+            SafeArea(
+              child: Column(children: [
+                const Spacer(flex: 3),
+                FadeTransition(
+                  opacity: _logoIn,
+                  child: ScaleTransition(
+                    scale: Tween<double>(begin: 0.70, end: 1).animate(_logoIn),
+                    child: SizedBox(
+                      width: 214,
+                      height: 214,
                       child: Stack(alignment: Alignment.center, children: [
-                        // The glow: two concentric soft discs, pulsing out of
-                        // phase with the ring below.
+                        // Halo: breathes in on the beat.
                         Container(
-                          width: 168,
-                          height: 168,
+                          width: 214,
+                          height: 214,
                           decoration: BoxDecoration(
                             shape: BoxShape.circle,
                             gradient: RadialGradient(colors: [
-                              Colors.white.withOpacity(0.26 + 0.10 * pulse),
+                              Colors.white.withOpacity(0.20 + 0.09 * (0.5 + 0.5 * wave)),
                               Colors.white.withOpacity(0),
                             ]),
                           ),
                         ),
+                        // Two rings expanding outward on a 2.6s cycle, fading as
+                        // they grow — a pulse you can actually see, unlike the
+                        // old static border.
+                        if (!reduceMotion) ...[
+                          for (final offsetPhase in const [0.0, 0.5])
+                            _PulseRing(
+                              progress: (t * 2.6 + offsetPhase) % 1,
+                              baseSize: 132,
+                              color: Colors.white,
+                            ),
+                        ],
                         Container(
-                          width: 128 + 10 * pulse,
-                          height: 128 + 10 * pulse,
+                          padding: const EdgeInsets.all(13),
                           decoration: BoxDecoration(
+                            color: Colors.white,
                             shape: BoxShape.circle,
-                            border: Border.all(color: Colors.white.withOpacity(0.22 + 0.10 * (1 - pulse)), width: 1.2),
+                            boxShadow: [
+                              BoxShadow(color: const Color(0xFF0B1F3A).withOpacity(0.34), blurRadius: 34, offset: const Offset(0, 14)),
+                              BoxShadow(color: const Color(0xFF5AA0FF).withOpacity(0.45), blurRadius: 52, spreadRadius: 4),
+                            ],
                           ),
+                          child: ClipOval(child: Image.asset('assets/icon.png', width: 86, height: 86)),
                         ),
-                        child!,
-                      ]),
-                    );
-                  },
-                  child: Container(
-                    padding: const EdgeInsets.all(12),
-                    decoration: BoxDecoration(
-                      color: Colors.white,
-                      shape: BoxShape.circle,
-                      boxShadow: [
-                        BoxShadow(color: const Color(0xFF0B1F3A).withOpacity(0.28), blurRadius: 28, offset: const Offset(0, 12)),
-                        BoxShadow(color: Colors.white.withOpacity(0.30), blurRadius: 40, spreadRadius: 2),
-                      ],
-                    ),
-                    child: ClipOval(child: Image.asset('assets/icon.png', width: 78, height: 78)),
-                  ),
-                ),
-              ),
-            ),
-            const SizedBox(height: 18),
-            FadeTransition(
-              opacity: _titleIn,
-              child: AnimatedBuilder(
-                animation: _ambient,
-                builder: (context, child) {
-                  // The brand line lifts a touch as the sweep passes, which
-                  // ties it to the light crossing the photo.
-                  final t = reduceMotion ? 0.0 : math.sin(_ambient.value * 2 * math.pi);
-                  return Transform.translate(offset: Offset(0, -1.5 * t), child: child);
-                },
-                child: Text(
-                  _brand,
-                  style: TextStyle(
-                    color: context.ink,
-                    fontSize: 28,
-                    fontWeight: FontWeight.w800,
-                    letterSpacing: 0.2,
-                    shadows: [Shadow(color: Colors.white.withOpacity(0.85), blurRadius: 16)],
-                  ),
-                ),
-              ),
-            ),
-            const SizedBox(height: 5),
-            FadeTransition(
-              opacity: _titleIn,
-              child: Text(_tagline, style: const TextStyle(color: Color(0xFF274B73), fontSize: 13.5, fontWeight: FontWeight.w600)),
-            ),
-            const Spacer(),
-            FadeTransition(
-              opacity: _footerIn,
-              child: Column(children: [
-                const Text('خدمات دولتی، ساده‌تر از همیشه', style: TextStyle(color: Colors.white, fontSize: 16.5, fontWeight: FontWeight.w800)),
-                const SizedBox(height: 6),
-                const Text('سریع • آسان • مطمئن', style: TextStyle(color: Color(0xFFD8E7FF), fontSize: 13, fontWeight: FontWeight.w600)),
-                const SizedBox(height: 22),
-                Padding(
-                  padding: const EdgeInsets.symmetric(horizontal: 70),
-                  child: ClipRRect(
-                    borderRadius: BorderRadius.circular(999),
-                    child: SizedBox(
-                      height: 5,
-                      child: Stack(children: [
-                        // Track, then a sweep that never stops. Unlike a stock
-                        // indeterminate bar, the sweep's speed eases rather
-                        // than restarting abruptly, so it reads as breathing.
-                        Positioned.fill(child: ColoredBox(color: Colors.white.withOpacity(0.20))),
-                        if (!reduceMotion)
-                          AnimatedBuilder(
-                            animation: _ambient,
-                            builder: (context, _) {
-                              final t = Curves.easeInOut.transform(((_ambient.value * 2) % 1));
-                              return Align(
-                                alignment: AlignmentDirectional(-1 + 2 * t, 0),
-                                child: FractionallySizedBox(
-                                  widthFactor: 0.34,
-                                  child: Container(
-                                    decoration: BoxDecoration(
-                                      gradient: LinearGradient(colors: [
-                                        Colors.white.withOpacity(0.75),
-                                        Colors.white,
-                                        Colors.white.withOpacity(0.75),
-                                      ]),
-                                      borderRadius: BorderRadius.circular(999),
-                                    ),
-                                  ),
-                                ),
-                              );
-                            },
-                          )
-                        else
-                          const Positioned.fill(child: ColoredBox(color: Colors.white54)),
                       ]),
                     ),
-                  ),
-                ),
-                const SizedBox(height: 10),
-                // The status line is the honest part of this screen: it says
-                // what is actually happening while the network is answering.
-                AnimatedSwitcher(
-                  duration: const Duration(milliseconds: 260),
-                  child: Text(
-                    _message,
-                    key: ValueKey(_message),
-                    style: const TextStyle(color: Color(0xFFE6EEFF), fontSize: 12),
                   ),
                 ),
                 const SizedBox(height: 26),
+                // The brand line, with a highlight travelling through it.
+                ShaderMask(
+                  shaderCallback: (rect) => LinearGradient(
+                    begin: AlignmentDirectional(-1 + 2 * ((t * 2) % 1), 0),
+                    end: AlignmentDirectional(1 + 2 * ((t * 2) % 1), 0),
+                    colors: [Colors.white, const Color(0xFFBFE3FF), Colors.white],
+                    stops: const [0.35, 0.5, 0.65],
+                  ).createShader(rect),
+                  child: Text(
+                    _brand,
+                    style: TextStyle(
+                      color: Colors.white,
+                      fontSize: size.width * 0.078,
+                      fontWeight: FontWeight.w900,
+                      letterSpacing: 0.4,
+                      shadows: [Shadow(color: const Color(0xFF06203F).withOpacity(0.45), blurRadius: 18, offset: const Offset(0, 6))],
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 8),
+                Text(
+                  _tagline,
+                  style: TextStyle(color: Colors.white.withOpacity(0.86), fontSize: 12.5, height: 1.7, fontWeight: FontWeight.w500),
+                ),
+                const Spacer(flex: 4),
+                // ---- progress -------------------------------------------------
+                SizedBox(
+                  width: size.width * 0.62,
+                  child: Column(children: [
+                    // A determinate-looking arc driven by real elapsed time
+                    // against the splash's own floor, not a fake value: by the
+                    // time the bar is full the screen is genuinely leaving.
+                    _SplashArc(progress: _progress),
+                    const SizedBox(height: 18),
+                    AnimatedSwitcher(
+                      duration: const Duration(milliseconds: 320),
+                      transitionBuilder: (child, animation) => FadeTransition(
+                        opacity: animation,
+                        child: SlideTransition(
+                          position: Tween<Offset>(begin: const Offset(0, 0.25), end: Offset.zero).animate(animation),
+                          child: child,
+                        ),
+                      ),
+                      child: Text(
+                        _message,
+                        key: ValueKey(_message),
+                        style: TextStyle(color: Colors.white.withOpacity(0.92), fontSize: 12.5, fontWeight: FontWeight.w600),
+                      ),
+                    ),
+                  ]),
+                ),
+                const SizedBox(height: 34),
               ]),
             ),
-          ]),
-        ),
-      ]),
+          ]);
+        },
+      ),
     );
   }
+
+  /// 0..1 against the splash floor, so the arc is a real clock.
+  double get _progress {
+    final elapsed = DateTime.now().difference(_bootStarted).inMilliseconds;
+    return (elapsed / _minimumSplash.inMilliseconds).clamp(0.0, 1.0);
+  }
+}
+
+/* ------------------------------- piecework -------------------------------- */
+
+/// A soft coloured light that floats behind the whole screen.
+class _DriftOrb extends StatelessWidget {
+  const _DriftOrb({required this.alignment, required this.size, required this.color, required this.opacity});
+
+  final Alignment alignment;
+  final double size;
+  final Color color;
+  final double opacity;
+
+  @override
+  Widget build(BuildContext context) {
+    return Align(
+      alignment: alignment,
+      child: IgnorePointer(
+        child: Container(
+          width: size,
+          height: size,
+          decoration: BoxDecoration(
+            shape: BoxShape.circle,
+            gradient: RadialGradient(colors: [color.withOpacity(opacity), color.withOpacity(0)]),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+/// A ring that expands and fades — the "heartbeat" behind the mark.
+///
+/// Two of these run half a cycle apart, so there is always one arriving while
+/// the other is leaving. A single ring that restarts from nothing reads as a
+/// stutter; the pair reads as a pulse.
+class _PulseRing extends StatelessWidget {
+  const _PulseRing({required this.progress, required this.baseSize, required this.color});
+
+  /// 0..1 through one expansion.
+  final double progress;
+  final double baseSize;
+  final Color color;
+
+  @override
+  Widget build(BuildContext context) {
+    // Ease-out so the ring leaps away and then settles, which is how a real
+    // pulse behaves; linear expansion looks mechanical.
+    final eased = Curves.easeOutCubic.transform(progress);
+    final size = baseSize + eased * 86;
+    final fade = (1 - progress) * 0.34;
+    return IgnorePointer(
+      child: Container(
+        width: size,
+        height: size,
+        decoration: BoxDecoration(
+          shape: BoxShape.circle,
+          border: Border.all(color: color.withOpacity(fade), width: 1.4),
+        ),
+      ),
+    );
+  }
+}
+
+/// The faint field of drifting dots behind the mark.
+///
+/// Painted rather than built: a hundred `Container`s would be a hundred widgets
+/// rebuilding every frame, while this is one paint call.
+class _DotField extends CustomPainter {
+  _DotField({required this.t});
+
+  /// The shared ambient phase, 0..1.
+  final double t;
+
+  static const _count = 46;
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final paint = Paint();
+    for (var i = 0; i < _count; i++) {
+      // Deterministic placement: no Random, so the field is identical on every
+      // launch and does not shimmer when the widget rebuilds.
+      final fx = ((i * 67) % 100) / 100;
+      final baseY = ((i * 37) % 100) / 100;
+      // Each dot drifts upward on its own offset, wrapping at the top edge.
+      final drift = ((baseY - t * (0.35 + (i % 5) * 0.08)) % 1 + 1) % 1;
+      final radius = 0.9 + (i % 3) * 0.55;
+      paint.color = Colors.white.withOpacity(0.05 + (i % 4) * 0.022);
+      canvas.drawCircle(Offset(fx * size.width, drift * size.height), radius, paint);
+    }
+  }
+
+  @override
+  bool shouldRepaint(covariant _DotField old) => old.t != t;
+}
+
+/// A circular progress arc around the status line.
+class _SplashArc extends StatelessWidget {
+  const _SplashArc({required this.progress});
+
+  final double progress;
+
+  @override
+  Widget build(BuildContext context) {
+    return SizedBox(
+      width: 46,
+      height: 46,
+      child: CustomPaint(
+        painter: _ArcPainter(progress: progress),
+      ),
+    );
+  }
+}
+
+class _ArcPainter extends CustomPainter {
+  _ArcPainter({required this.progress});
+
+  final double progress;
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final rect = Rect.fromLTWH(2, 2, size.width - 4, size.height - 4);
+    final track = Paint()
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = 2.6
+      ..strokeCap = StrokeCap.round
+      ..color = Colors.white.withOpacity(0.20);
+    canvas.drawArc(rect, 0, math.pi * 2, false, track);
+
+    final sweep = Paint()
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = 2.6
+      ..strokeCap = StrokeCap.round
+      ..shader = const SweepGradient(
+        colors: [Color(0xFFFFFFFF), Color(0xFF7DD3FC), Color(0xFFFFFFFF)],
+      ).createShader(rect);
+    // Starts at the top and grows clockwise.
+    canvas.drawArc(rect, -math.pi / 2, math.pi * 2 * progress, false, sweep);
+  }
+
+  @override
+  bool shouldRepaint(covariant _ArcPainter old) => old.progress != progress;
 }
