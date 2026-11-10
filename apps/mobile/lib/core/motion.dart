@@ -687,6 +687,16 @@ class _TactileTapState extends State<TactileTap> {
   Offset? _origin;
   int _sequence = 0;
 
+  @override
+  void dispose() {
+    // `_down`/`_busy` die with the state, but being explicit documents the
+    // lifecycle: a press that is still holding when the card leaves the tree
+    // must not resume into a disposed State.
+    _busy = false;
+    _down = false;
+    super.dispose();
+  }
+
   void _captureOrigin(TapDownDetails details) {
     _origin = details.localPosition;
   }
@@ -698,17 +708,17 @@ class _TactileTapState extends State<TactileTap> {
     _sequence++;
     setState(() => _down = true);
     Haptics.press();
-    // The hold is a plain timer on purpose. A controller would let tests settle
-    // without knowing its length, but it also means a ticker running for a
-    // 120 ms press on a screen full of cards — and this widget is instantiated
-    // dozens of times per page. Tests pump the hold explicitly instead.
+    // The hold is a plain timer. A controller would let tests settle without
+    // knowing its length, but this widget is instantiated dozens of times per
+    // page and a ticker per card costs more than a 120 ms timer ever will.
     if (!PishkanMotion.reduced(context)) {
       await Future<void>.delayed(widget.hold);
     }
-    if (!mounted) {
-      _busy = false;
-      return;
-    }
+    // Nothing below may run once the widget is gone: `setState` would throw,
+    // and the route would open from a screen that no longer exists. `_busy` is
+    // reset in `dispose`, not here, because after unmount there is no state
+    // left to reset.
+    if (!mounted) return;
     try {
       await widget.onTap();
     } finally {

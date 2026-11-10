@@ -51,17 +51,17 @@ void main() {
   testWidgets('the ripple paints from the finger and clears itself', (tester) async {
     await tester.pumpWidget(host(TactileTap(onTap: () async {}, child: const ColoredBox(color: Colors.blue))));
 
-    await tester.press(find.byType(TactileTap));
+    // `press` returns the gesture, so it can be *released*. Leaving a pointer
+    // held down lets the hold timer and the gesture both survive the test,
+    // which `flutter_test` reports as a leaked timer.
+    final gesture = await tester.press(find.byType(TactileTap));
     await tester.pump(const Duration(milliseconds: 80));
     // Something is drawing over the child while the finger is down.
     expect(find.byType(CustomPaint), findsWidgets);
     expect(tester.takeException(), isNull);
 
-    // Release, then drain everything this press started: the hold timer (a bare
-    // timer, so `pumpAndSettle` ignores it) and the ripple's own 520 ms
-    // controller. A timer still pending at the end of a test is a failure in
-    // `flutter_test`, so this is not optional.
-    await tester.pump(const Duration(milliseconds: 200));   // past the 130 ms hold
+    await gesture.up();
+    await tester.pump(const Duration(milliseconds: 200));   // past the hold
     await tester.pump(const Duration(milliseconds: 600));   // past the ripple
     expect(tester.takeException(), isNull);
   });
