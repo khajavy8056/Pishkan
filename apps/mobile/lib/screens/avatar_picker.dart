@@ -213,7 +213,6 @@ class _PresetTile extends StatelessWidget {
       child: TactileTap(
         scale: 0.9,
         hold: const Duration(milliseconds: 100),
-        rippleRadius: 999,
         // `onTap` is nullable here: a preset can be disabled while a photo is
         // uploading. Calling it without `?` is a compile error, so the guard is
         // part of the callback rather than a separate `enabled: onTap != null`.

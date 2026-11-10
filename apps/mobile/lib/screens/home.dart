@@ -284,7 +284,6 @@ class _HomeTabState extends State<HomeTab> {
         child: TactileTap(
           scale: 0.985,
           hold: const Duration(milliseconds: 100),
-          rippleRadius: 999,
           onTap: () async {
             await Navigator.push(context, fadeThroughRoute(const ServiceSearchScreen()));
           },
@@ -328,7 +327,6 @@ class _HomeTabState extends State<HomeTab> {
             onTap: () async => onAction!(),
             scale: 0.94,
             hold: const Duration(milliseconds: 90),
-            ripple: false,
             child: Padding(
               padding: EdgeInsets.symmetric(horizontal: sizes.s(6), vertical: sizes.s(4)),
               child: Row(children: [
@@ -410,7 +408,6 @@ class _HomeTabState extends State<HomeTab> {
             TactileTap(
               scale: 0.96,
               hold: const Duration(milliseconds: 110),
-              rippleRadius: 999,
               // A bloom here is the whole point: this is the one solid control
               // on a translucent panel, and light spreading out of it is what
               // tells the thumb it hit the button rather than the panel.
@@ -463,7 +460,6 @@ class _HomeTabState extends State<HomeTab> {
         onTap: () async => onTap(),
         scale: 0.95,
         hold: const Duration(milliseconds: 110),
-        rippleRadius: sizes.s(20),
         child: Container(
           padding: EdgeInsets.symmetric(vertical: sizes.s(12), horizontal: sizes.s(10)),
           decoration: BoxDecoration(
@@ -706,7 +702,6 @@ class _ServicePill extends StatelessWidget {
       scale: 0.93,
       hold: const Duration(milliseconds: 110),
       // The tile is a circle of artwork, not a rounded card.
-      rippleRadius: 999,
       // A block body, not `=> Navigator.push(...)`: that returns `Future<T?>`,
       // which is not assignable to this widget's `Future<void> Function()`.
       onTap: () async {

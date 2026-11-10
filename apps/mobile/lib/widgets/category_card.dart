@@ -126,7 +126,6 @@ class CategoryCard extends StatelessWidget {
         onTap: () async => onTap(),
         scale: 0.955,
         hold: const Duration(milliseconds: 120),
-        rippleRadius: 20,
         child: DecoratedBox(
           decoration: BoxDecoration(
             borderRadius: BorderRadius.circular(20),

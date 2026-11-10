@@ -35,88 +35,6 @@ abstract final class PishkanMotion {
       reduced(context) ? Duration.zero : duration;
 }
 
-/// The light that spreads from the finger during a press.
-///
-/// One `CustomPaint` and one controller: cheap enough to sit inside every
-/// tappable card on a mid-range phone, and it stops itself when the class is
-/// unmounted mid-press. It fades out on its own rather than being removed
-/// instantly, so lifting the finger early does not leave a hard edge.
-class _RippleBloom extends StatefulWidget {
-  const _RippleBloom({super.key, required this.origin});
-
-  final Offset origin;
-
-  @override
-  State<_RippleBloom> createState() => _RippleBloomState();
-}
-
-class _RippleBloomState extends State<_RippleBloom> with SingleTickerProviderStateMixin {
-  late final AnimationController _controller = AnimationController(
-    vsync: this,
-    duration: const Duration(milliseconds: 520),
-  )..forward();
-
-  @override
-  void dispose() {
-    _controller.dispose();
-    super.dispose();
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    final tint = Theme.of(context).colorScheme.primary;
-    return AnimatedBuilder(
-      animation: _controller,
-      builder: (context, _) => CustomPaint(
-        painter: _RipplePainter(progress: _controller.value, origin: widget.origin, tint: tint),
-      ),
-    );
-  }
-}
-
-class _RipplePainter extends CustomPainter {
-  _RipplePainter({required this.progress, required this.origin, required this.tint});
-
-  final double progress;
-  final Offset origin;
-  final Color tint;
-
-  @override
-  void paint(Canvas canvas, Size size) {
-    if (size.isEmpty) return;
-    // The radius that actually clears the widget: the distance from the touch
-    // to the farthest corner, not the shorter side. Using the side leaves the
-    // opposite corner untouched when the tap lands off-centre.
-    final corners = <Offset>[
-      Offset.zero,
-      Offset(size.width, 0),
-      Offset(0, size.height),
-      Offset(size.width, size.height),
-    ];
-    final maxRadius = corners
-        .map((c) => (c - origin).distance)
-        .reduce((a, b) => a > b ? a : b)
-        .clamp(1.0, double.infinity);
-    final radius = maxRadius * Curves.easeOutCubic.transform(progress);
-    // Bright at the start, gone by the end, and never above 16% — a ripple you
-    // can see through the artwork rather than one that hides it.
-    final alpha = (1 - progress) * 0.16;
-    if (alpha <= 0.001) return;
-    canvas.drawCircle(
-      origin,
-      radius,
-      Paint()..shader = RadialGradient(
-        colors: [tint.withOpacity(alpha), tint.withOpacity(alpha * 0.35), tint.withOpacity(0)],
-        stops: const [0, 0.55, 1],
-      ).createShader(Rect.fromCircle(center: origin, radius: radius)),
-    );
-  }
-
-  @override
-  bool shouldRepaint(covariant _RipplePainter old) =>
-      old.progress != progress || old.origin != origin || old.tint != tint;
-}
-
 /// A page route that fades and lifts its content instead of sliding in from
 /// the side. Material's default horizontal slide reads as "another app screen
 /// in a stack"; a short rise feels like a card opening, which matches the
@@ -629,8 +547,8 @@ class _ParallaxState extends State<Parallax> {
 /// few milliseconds and is then covered by the incoming page. That is why the
 /// cards felt like dead buttons even though they had a scale animation.
 ///
-/// This holds the pressed state for [hold] first: the card dips, the ripple
-/// spreads, the haptic fires, and only then does navigation start. Total added
+/// This holds the pressed state for [hold] first: the card dips, the haptic
+/// fires, and only then does navigation start. Total added
 /// latency is one sustained press, which reads as responsiveness rather than
 /// delay because *something is visibly happening*.
 ///
@@ -644,8 +562,6 @@ class TactileTap extends StatefulWidget {
     this.scale = 0.965,
     this.hold = const Duration(milliseconds: 130),
     this.enabled = true,
-    this.ripple = true,
-    this.rippleRadius = 22,
   });
 
   final Widget child;
@@ -658,21 +574,6 @@ class TactileTap extends StatefulWidget {
   final Duration hold;
   final bool enabled;
 
-  /// A light spreading from the finger while the press is held.
-  ///
-  /// The scale alone tells you *that* something happened; the ripple tells you
-  /// *where*, which is what makes a large card feel like a touched object
-  /// rather than a block that blinked. Keep it off for anything whose own
-  /// artwork already contains a light (the banner, whose photo it would wash).
-  final bool ripple;
-
-  /// The corner radius the bloom is clipped to.
-  ///
-  /// The bloom is a layer *over* the child, so without this it paints across
-  /// the child's rounded corners and puts a coloured wedge outside the card.
-  /// Pass the child's own radius; a pill wants something large (999).
-  final double rippleRadius;
-
   @override
   State<TactileTap> createState() => _TactileTapState();
 }
@@ -680,12 +581,6 @@ class TactileTap extends StatefulWidget {
 class _TactileTapState extends State<TactileTap> {
   bool _down = false;
   bool _busy = false;
-
-  /// Where the finger landed, in the widget's own coordinates. A ripple that
-  /// always blooms from the centre is a decoration; one that blooms from the
-  /// thumb is feedback.
-  Offset? _origin;
-  int _sequence = 0;
 
   @override
   void dispose() {
@@ -697,15 +592,10 @@ class _TactileTapState extends State<TactileTap> {
     super.dispose();
   }
 
-  void _captureOrigin(TapDownDetails details) {
-    _origin = details.localPosition;
-  }
-
   Future<void> _handle() async {
     // A double tap while the first is still holding would open two pages.
     if (_busy || !widget.enabled) return;
     _busy = true;
-    _sequence++;
     setState(() => _down = true);
     Haptics.press();
     // The hold is a plain timer. A controller would let tests settle without
@@ -730,11 +620,11 @@ class _TactileTapState extends State<TactileTap> {
   }
 
   @override
+  @override
   Widget build(BuildContext context) {
     final animate = !PishkanMotion.reduced(context);
     return GestureDetector(
       behavior: HitTestBehavior.opaque,
-      onTapDown: widget.ripple ? _captureOrigin : null,
       onTap: _handle,
       // Guarded: a cancel can arrive while the tree is being torn down (a route
       // push disposes the card mid-gesture), and `setState` after dispose is an
@@ -747,25 +637,12 @@ class _TactileTapState extends State<TactileTap> {
         scale: _down && animate ? widget.scale : 1,
         duration: animate ? PishkanMotion.quick : Duration.zero,
         curve: Curves.easeOutCubic,
-        child: widget.ripple && animate
-            ? Stack(
-                // `passthrough`, not the default: the ripple must not steal the
-                // hit area from whatever is underneath it.
-                fit: StackFit.passthrough,
-                children: [
-                  widget.child,
-                  if (_down && _origin != null)
-                    Positioned.fill(
-                      child: IgnorePointer(
-                        child: ClipRRect(
-                          borderRadius: BorderRadius.circular(widget.rippleRadius),
-                          child: _RippleBloom(origin: _origin!, key: ValueKey(_sequence)),
-                        ),
-                      ),
-                    ),
-                ],
-              )
-            : widget.child,
+        // The child is never wrapped, re-parented or re-constrained: the press
+        // effect is a scale on this whole widget plus a haptic, not a decoration
+        // that can change layout. An earlier version drew a ripple inside a
+        // `Stack`, which handed the child loose constraints and made
+        // correctly sized cards overflow their boxes.
+        child: widget.child,
       ),
     );
   }

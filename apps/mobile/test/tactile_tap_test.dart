@@ -11,10 +11,6 @@ void main() {
         home: Scaffold(body: Center(child: SizedBox(width: 220, height: 96, child: child))),
       );
 
-  /// A touch point in the middle of the tile. `tester.tap` uses the widget's
-  /// centre anyway; being explicit keeps the ripple's origin meaningful.
-  Future<void> tapCentre(WidgetTester tester) => tester.tap(find.byType(TactileTap));
-
   testWidgets('the press is shown before onTap runs', (tester) async {
     var fired = 0;
     await tester.pumpWidget(host(TactileTap(onTap: () async => fired++, child: const ColoredBox(color: Colors.blue))));
@@ -33,7 +29,6 @@ void main() {
     await tester.pump();
     expect(fired, 1);
 
-    await tester.pump(const Duration(milliseconds: 600)); // let the ripple finish
   });
 
   testWidgets('a second tap while the first is holding opens nothing twice', (tester) async {
@@ -45,25 +40,6 @@ void main() {
     await tester.pump(const Duration(milliseconds: 400));
     await tester.pump();
     expect(fired, 1);
-    await tester.pump(const Duration(milliseconds: 600));
-  });
-
-  testWidgets('the ripple paints from the finger and clears itself', (tester) async {
-    await tester.pumpWidget(host(TactileTap(onTap: () async {}, child: const ColoredBox(color: Colors.blue))));
-
-    // `press` returns the gesture, so it can be *released*. Leaving a pointer
-    // held down lets the hold timer and the gesture both survive the test,
-    // which `flutter_test` reports as a leaked timer.
-    final gesture = await tester.press(find.byType(TactileTap));
-    await tester.pump(const Duration(milliseconds: 80));
-    // Something is drawing over the child while the finger is down.
-    expect(find.byType(CustomPaint), findsWidgets);
-    expect(tester.takeException(), isNull);
-
-    await gesture.up();
-    await tester.pump(const Duration(milliseconds: 200));   // past the hold
-    await tester.pump(const Duration(milliseconds: 600));   // past the ripple
-    expect(tester.takeException(), isNull);
   });
 
   testWidgets('reduced motion drops the hold but still runs the action', (tester) async {
@@ -82,8 +58,6 @@ void main() {
     await tester.pump();
     await tester.pump();
     expect(fired, 1);
-    // ...and no ripple layer either.
-    await tester.pump(const Duration(milliseconds: 300));
     expect(tester.takeException(), isNull);
   });
 

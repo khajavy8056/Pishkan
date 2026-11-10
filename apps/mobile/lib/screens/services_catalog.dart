@@ -186,7 +186,6 @@ class _ServicesCatalogTabState extends State<ServicesCatalogTab> {
             child: TactileTap(
               scale: 0.94,
               hold: const Duration(milliseconds: 110),
-              rippleRadius: 999,
               onTap: () async {
                 await Navigator.push(context, fadeThroughRoute(ServiceDetailScreen(service: service)));
               },
