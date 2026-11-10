@@ -289,7 +289,37 @@ def check_file(path: Path) -> list[str]:
                 break
 
     problems.extend(check_duplicate_declarations(code))
+    problems.extend(check_orphan_annotation(source))
 
+    return problems
+
+
+def check_orphan_annotation(source: str) -> list[str]:
+    """A metadata annotation must be attached to the declaration it describes.
+
+    `@visibleForTesting`, then a blank line, then `class X` is a syntax error,
+    and it is the exact shape a patch that inserts a doc comment above an
+    existing annotation produces: the comment lands between the annotation and
+    the class it was already annotating.
+
+    Annotations last seen in this repo: `@visibleForTesting`, `@override`,
+    `@immutable`, `@protected`, `@Deprecated(...)`, `@JsonKey(...)`.
+    """
+    problems: list[str] = []
+    lines = source.splitlines()
+    for index, line in enumerate(lines[:-1]):
+        if not line.lstrip().startswith('@'):
+            continue
+        # An annotation with arguments can span lines; only the single-line form
+        # is checked here, which is every annotation this repo uses.
+        if line.rstrip().endswith((',', '(')):
+            continue
+        following = lines[index + 1]
+        if not following.strip() and index + 2 < len(lines) and lines[index + 2].strip():
+            problems.append(
+                f'line {index + 2}: annotation `{line.strip()}` is separated from '
+                f'the declaration on line {index + 3} by a blank line'
+            )
     return problems
 
 

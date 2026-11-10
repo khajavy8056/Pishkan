@@ -214,7 +214,6 @@ class _SplashScreenState extends State<SplashScreen> {
 /// so a test can pump it across the whole loop — which matters, because it is
 /// almost entirely `CustomPainter` and animation maths, the kind of code that
 @visibleForTesting
-
 class SplashStage extends StatefulWidget {
   const SplashStage({
     super.key,
@@ -307,122 +306,122 @@ class _SplashStageState extends State<SplashStage> with TickerProviderStateMixin
       child: Scaffold(
         backgroundColor: const Color(0xFF0B3E8F),
         body: DecoratedBox(
-      decoration: const BoxDecoration(gradient: PishkanColors.splashGradient),
-      child: Stack(children: [
-        // ---- the field ---------------------------------------------------
-        // One slowly breathing glow, centred behind the mark. It is the only
-        // continuous motion on the screen, and at 12 s per cycle it reads as
-        // the surface being lit rather than as an animation.
-        if (!reduceMotion)
-          Positioned.fill(
-            child: IgnorePointer(
-              child: AnimatedBuilder(
-                animation: _breath,
-                builder: (context, _) => CustomPaint(
-                  painter: _SplashField(breath: _breath.value, markSize: markSize),
-                ),
-              ),
-            ),
-          ),
-        // ---- the column --------------------------------------------------
-        SafeArea(
-          child: Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 32),
-            child: Column(
-              mainAxisAlignment: MainAxisAlignment.center,
-              children: [
-                const Spacer(flex: 5),
-                FadeTransition(
-                  opacity: _markIn,
-                  child: ScaleTransition(
-                    // Extremely small travel. A logo that pops from 50% reads as
-                    // a notification; from 92% it reads as arriving.
-                    scale: Tween<double>(begin: 0.92, end: 1).animate(_markIn),
-                    child: Container(
-                      width: markSize,
-                      height: markSize,
-                      decoration: BoxDecoration(
-                        shape: BoxShape.circle,
-                        color: Colors.white,
-                        boxShadow: [
-                          // A soft brand glow, not a drop shadow: the disc is
-                          // meant to look like it is emitting light.
-                          BoxShadow(color: const Color(0xFF9CC8FF).withOpacity(0.45), blurRadius: 60, spreadRadius: 6),
-                          BoxShadow(color: Colors.black.withOpacity(0.28), blurRadius: 28, offset: const Offset(0, 14)),
-                        ],
-                      ),
-                      padding: EdgeInsets.all(markSize * 0.14),
-                      child: ClipOval(child: Image.asset('assets/icon.png')),
+          decoration: const BoxDecoration(gradient: PishkanColors.splashGradient),
+          child: Stack(children: [
+            // ---- the field ---------------------------------------------------
+            // One slowly breathing glow, centred behind the mark. It is the only
+            // continuous motion on the screen, and at 12 s per cycle it reads as
+            // the surface being lit rather than as an animation.
+            if (!reduceMotion)
+              Positioned.fill(
+                child: IgnorePointer(
+                  child: AnimatedBuilder(
+                    animation: _breath,
+                    builder: (context, _) => CustomPaint(
+                      painter: _SplashField(breath: _breath.value, markSize: markSize),
                     ),
                   ),
                 ),
-                SizedBox(height: markSize * 0.22),
-                FadeTransition(
-                  opacity: _textIn,
-                  child: Column(children: [
-                    Text(
-                      widget.brand,
-                      textAlign: TextAlign.center,
-                      style: TextStyle(
-                        color: Colors.white,
-                        fontSize: 27,
-                        fontWeight: FontWeight.w900,
-                        letterSpacing: 0.2,
-                      ),
-                    ),
-                    const SizedBox(height: 10),
-                    Text(
-                      widget.tagline,
-                      textAlign: TextAlign.center,
-                      style: TextStyle(
-                        color: Colors.white.withOpacity(0.78),
-                        fontSize: 13,
-                        height: 1.6,
-                        fontWeight: FontWeight.w500,
-                      ),
-                    ),
-                  ]),
-                ),
-                const Spacer(flex: 6),
-                FadeTransition(
-                  opacity: _footIn,
-                  child: Column(children: [
-                    // A thin rail, not a spinning ring. It says "this is
-                    // happening" without competing with the mark for attention.
-                    SizedBox(
-                      width: 150,
-                      child: ClipRRect(
-                        borderRadius: BorderRadius.circular(999),
-                        child: LinearProgressIndicator(
-                          value: widget.progress.clamp(0.0, 1.0),
-                          minHeight: 3,
-                          backgroundColor: Colors.white.withOpacity(0.16),
-                          valueColor: const AlwaysStoppedAnimation(Colors.white),
+              ),
+            // ---- the column --------------------------------------------------
+            SafeArea(
+              child: Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 32),
+                child: Column(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    const Spacer(flex: 5),
+                    FadeTransition(
+                      opacity: _markIn,
+                      child: ScaleTransition(
+                        // Extremely small travel. A logo that pops from 50% reads as
+                        // a notification; from 92% it reads as arriving.
+                        scale: Tween<double>(begin: 0.92, end: 1).animate(_markIn),
+                        child: Container(
+                          width: markSize,
+                          height: markSize,
+                          decoration: BoxDecoration(
+                            shape: BoxShape.circle,
+                            color: Colors.white,
+                            boxShadow: [
+                              // A soft brand glow, not a drop shadow: the disc is
+                              // meant to look like it is emitting light.
+                              BoxShadow(color: const Color(0xFF9CC8FF).withOpacity(0.45), blurRadius: 60, spreadRadius: 6),
+                              BoxShadow(color: Colors.black.withOpacity(0.28), blurRadius: 28, offset: const Offset(0, 14)),
+                            ],
+                          ),
+                          padding: EdgeInsets.all(markSize * 0.14),
+                          child: ClipOval(child: Image.asset('assets/icon.png')),
                         ),
                       ),
                     ),
-                    const SizedBox(height: 16),
-                    AnimatedSwitcher(
-                      duration: const Duration(milliseconds: 300),
-                      child: Text(
-                        widget.status,
-                        key: ValueKey(widget.status),
-                        textAlign: TextAlign.center,
-                        style: TextStyle(
-                          color: Colors.white.withOpacity(0.80),
-                          fontSize: 12,
-                          fontWeight: FontWeight.w600,
+                    SizedBox(height: markSize * 0.22),
+                    FadeTransition(
+                      opacity: _textIn,
+                      child: Column(children: [
+                        Text(
+                          widget.brand,
+                          textAlign: TextAlign.center,
+                          style: TextStyle(
+                            color: Colors.white,
+                            fontSize: 27,
+                            fontWeight: FontWeight.w900,
+                            letterSpacing: 0.2,
+                          ),
                         ),
-                      ),
+                        const SizedBox(height: 10),
+                        Text(
+                          widget.tagline,
+                          textAlign: TextAlign.center,
+                          style: TextStyle(
+                            color: Colors.white.withOpacity(0.78),
+                            fontSize: 13,
+                            height: 1.6,
+                            fontWeight: FontWeight.w500,
+                          ),
+                        ),
+                      ]),
                     ),
-                  ]),
+                    const Spacer(flex: 6),
+                    FadeTransition(
+                      opacity: _footIn,
+                      child: Column(children: [
+                        // A thin rail, not a spinning ring. It says "this is
+                        // happening" without competing with the mark for attention.
+                        SizedBox(
+                          width: 150,
+                          child: ClipRRect(
+                            borderRadius: BorderRadius.circular(999),
+                            child: LinearProgressIndicator(
+                              value: widget.progress.clamp(0.0, 1.0),
+                              minHeight: 3,
+                              backgroundColor: Colors.white.withOpacity(0.16),
+                              valueColor: const AlwaysStoppedAnimation(Colors.white),
+                            ),
+                          ),
+                        ),
+                        const SizedBox(height: 16),
+                        AnimatedSwitcher(
+                          duration: const Duration(milliseconds: 300),
+                          child: Text(
+                            widget.status,
+                            key: ValueKey(widget.status),
+                            textAlign: TextAlign.center,
+                            style: TextStyle(
+                              color: Colors.white.withOpacity(0.80),
+                              fontSize: 12,
+                              fontWeight: FontWeight.w600,
+                            ),
+                          ),
+                        ),
+                      ]),
+                    ),
+                    const SizedBox(height: 40),
+                  ],
                 ),
-                const SizedBox(height: 40),
-              ],
+              ),
             ),
-          ),
-        ),
-      ]),
+          ]),
         ),
       ),
     );
