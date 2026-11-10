@@ -337,8 +337,6 @@ def check_duplicate_declarations(code: str) -> list[str]:
     their signatures differ, which is a different error.
     """
     problems: list[str] = []
-    if 'library' not in code and 'class ' not in code and 'enum ' not in code:
-        return problems
     seen: dict[str, int] = {}
     # A top-level declaration starts in column 0: `class`, `enum`, `mixin`,
     # `extension`, `typedef`, `abstract`, or a function/`final`/`const`/`var`.
@@ -359,6 +357,31 @@ def check_duplicate_declarations(code: str) -> list[str]:
             seen[name] = line
     # `extension` may be anonymous (`extension on String`), which the pattern
     # above skips; anything it matched has a name, so no further handling.
+    #
+    # Top-level *functions* as well as types. The same append-instead-of-replace
+    # bug that duplicated a whole file also left `fadeThroughRoute` declared
+    # twice — once near the top, once at the end — and a duplicate function is
+    # just as fatal as a duplicate class. Checking only `class` missed it for
+    # three more CI runs.
+    function = re.compile(
+        r'^(?:(?:Future<[^>]*>|void|Widget|String|int|double|bool|Color|num|'
+        r'Route<\w+>|[A-Z]\w*(?:<[^>]*>)?)\s+)([a-zA-Z_]\w*)\s*'
+        r'(?:<[^>]*>)?\s*\(',
+    )
+    depth = 0
+    for index, line in enumerate(code.splitlines()):
+        if depth == 0:
+            match = function.match(line)
+            if match:
+                name = match.group(1)
+                if name in seen:
+                    problems.append(
+                        f'duplicate top-level declaration `{name}`: '
+                        f'line {seen[name]} and line {index + 1}'
+                    )
+                else:
+                    seen[name] = index + 1
+        depth += line.count('{') - line.count('}')
     return problems
 
 

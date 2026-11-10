@@ -669,38 +669,3 @@ class _TactileTapState extends State<TactileTap> {
     );
   }
 }
-
-/// A page route that fades and lifts its content instead of sliding in from
-/// the side. Material's default horizontal slide reads as "another app screen
-/// in a stack"; a short rise feels like a card opening, which matches the
-/// rounded, floating surfaces the rest of the design uses.
-Route<T> fadeThroughRoute<T>(Widget page, {Duration? duration}) {
-  return PageRouteBuilder<T>(
-    transitionDuration: duration ?? PishkanMotion.standard,
-    reverseTransitionDuration: PishkanMotion.standard,
-    pageBuilder: (_, _, _) => page,
-    transitionsBuilder: (context, animation, secondary, child) {
-      final curved = CurvedAnimation(parent: animation, curve: PishkanMotion.enter, reverseCurve: PishkanMotion.exit);
-      if (PishkanMotion.reduced(context)) {
-        // State still changes; nothing travels.
-        return FadeTransition(opacity: curved, child: child);
-      }
-      // The incoming page rises, fades, and grows from 98.5% to full size.
-      // The earlier version slid 3.5% and faded, which is a correct transition
-      // and a forgettable one; the small scale is what makes the surface feel
-      // like it is opening *towards* the customer instead of being switched in.
-      //
-      // Note this is the incoming route only: a `transitionsBuilder` cannot
-      // reach the page underneath, so there is deliberately no "outgoing page
-      // recedes" effect here — writing one by animating `secondary` against
-      // `child` would dim the page that is arriving, not the one leaving.
-      return SlideTransition(
-        position: Tween<Offset>(begin: const Offset(0, 0.045), end: Offset.zero).animate(curved),
-        child: ScaleTransition(
-          scale: Tween<double>(begin: 0.985, end: 1).animate(curved),
-          child: FadeTransition(opacity: curved, child: child),
-        ),
-      );
-    },
-  );
-}
