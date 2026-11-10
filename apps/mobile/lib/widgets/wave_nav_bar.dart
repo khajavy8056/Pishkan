@@ -369,7 +369,9 @@ class _WavePainter extends CustomPainter {
     // *within* the visible dome on every tab.
     final rampLeft = math.max(0.0, domeX - flareL);
     final rampRight = math.min(w, domeX + flareR);
-    final dome = crest.clone()
+    // `Path.from` is the copy constructor; `dart:ui`'s `Path` has no
+    // `clone()` — that was the compile error the whole 1.11.1 build died on.
+    final dome = Path.from(crest)
       ..cubicTo(
         domeX + rightHalf, rise + (h - rise) * 0.45,
         domeX + flareR, rise + (h - rise) * 0.80,

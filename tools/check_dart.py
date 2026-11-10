@@ -250,6 +250,27 @@ def directional_shader_mismatches(source: str) -> list[str]:
             )
     return problems
 
+# `dart:ui` members that are easy to *assume* exist and do not. Each of these
+# has bitten this repo at least once, and `flutter analyze` is the only other
+# thing that would have caught it — one build per mistake. Checked statically so
+# a wrong guess never costs a release.
+KNOWN_ABSENT = {
+    'clone': 'Path has no clone(); use Path.from(source)',
+    'copy': 'Path has no copy(); use Path.from(source)',
+    'toImage': 'Canvas has no toImage(); use PictureRecorder + Picture.toImage()',
+}
+
+
+def check_assumed_ui_members(code: str) -> list[str]:
+    """Catch method calls on Flutter types that do not have that method."""
+    problems = []
+    for name, hint in KNOWN_ABSENT.items():
+        if re.search(rf'\.{name}\s*\(', code):
+            line = code[: re.search(rf'\.{name}\s*\(', code).start()].count('\n') + 1
+            problems.append(f'line {line}: .{name}() — {hint}')
+    return problems
+
+
 def check_file(path: Path) -> list[str]:
     source = path.read_text(encoding='utf-8')
     code = strip_code(source)
@@ -288,6 +309,7 @@ def check_file(path: Path) -> list[str]:
                 problems.append(f'line {line}: const constructor contains {marker}')
                 break
 
+    problems.extend(check_assumed_ui_members(code))
     problems.extend(check_duplicate_declarations(code))
     problems.extend(check_orphan_annotation(source))
 
