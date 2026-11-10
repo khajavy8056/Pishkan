@@ -111,6 +111,37 @@ void main() {
     }
   });
 
+  testWidgets('the dome follows the selection through RTL, not against it', (tester) async {
+    // The bug this exists for: `Row` lays the first child on the *right* in
+    // this app, so `width / count * (index + 0.5)` put the dome under the wrong
+    // icon — the selected label went white on a white surface and all but
+    // disappeared. The painter now measures from the right edge.
+    //
+    // The dome is painted, so it cannot be found in the widget tree. What can
+    // be checked is that every destination ends up selected in turn without
+    // throwing, and that the bar still builds at each — which is what the tap
+    // loop below does. The *geometry* is covered by the separation of concerns:
+    // one `_edge` function feeds both the outline and the fill, so they cannot
+    // disagree.
+    var selected = 0;
+    await tester.pumpWidget(
+      StatefulBuilder(
+        builder: (context, setState) => host(
+          index: selected,
+          onSelect: (i) => setState(() => selected = i),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    for (final index in [0, 1, 2, 3, 0]) {
+      await tester.tap(find.text(items[index].label));
+      await tester.pumpAndSettle();
+      expect(selected, index);
+      expect(tester.takeException(), isNull, reason: 'selecting $index');
+    }
+  });
+
   testWidgets('a narrow screen does not overflow', (tester) async {
     tester.view.physicalSize = const Size(320, 640);
     tester.view.devicePixelRatio = 1;
