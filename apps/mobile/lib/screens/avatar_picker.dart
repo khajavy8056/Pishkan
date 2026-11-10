@@ -214,7 +214,10 @@ class _PresetTile extends StatelessWidget {
         scale: 0.9,
         hold: const Duration(milliseconds: 100),
         rippleRadius: 999,
-        onTap: () async => onTap(),
+        // `onTap` is nullable here: a preset can be disabled while a photo is
+        // uploading. Calling it without `?` is a compile error, so the guard is
+        // part of the callback rather than a separate `enabled: onTap != null`.
+        onTap: () async => onTap?.call(),
         child: AnimatedContainer(
           duration: PishkanMotion.standard,
           curve: PishkanMotion.spring,

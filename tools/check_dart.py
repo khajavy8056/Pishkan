@@ -179,6 +179,27 @@ def future_void_arrow_mismatches(source: str) -> list[str]:
     return problems
 
 
+def nullable_callback_calls(source: str) -> list[str]:
+    """Catch `() async => onTap()` when `onTap` is declared `VoidCallback?`.
+
+    A nullable function field cannot be called without `?`/`!`, and the error
+    ("The method 'call' can't be unconditionally invoked because the receiver
+    can be 'null'") only appears once the field is nullable — so it is exactly
+    the kind of thing that survives review.
+    """
+    code = strip_code(source)
+    nullable = set(re.findall(r'\b(?:final\s+)?VoidCallback\?\s+(\w+)\s*;', code))
+    problems: list[str] = []
+    for name in nullable:
+        for match in re.finditer(rf'\b{name}\(\)', code):
+            # Ignore the declaration itself and null-safe/property calls.
+            before = code[max(0, match.start() - 6):match.start()]
+            if before.rstrip().endswith(('?', '!.', '.')):
+                continue
+            line = code[:match.start()].count('\n') + 1
+            problems.append(f'line {line}: {name} is nullable but is called without ?')
+    return problems
+
 def check_file(path: Path) -> list[str]:
     source = path.read_text(encoding='utf-8')
     code = strip_code(source)
@@ -241,6 +262,7 @@ def main(argv: list[str]) -> int:
         source = path.read_text(encoding='utf-8')
         problems.extend(sibling_type_mismatches(path, source, global_fields))
         problems.extend(future_void_arrow_mismatches(source))
+        problems.extend(nullable_callback_calls(source))
         if problems:
             total += len(problems)
             print(f'{path.relative_to(ROOT)}')
