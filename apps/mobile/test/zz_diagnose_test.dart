@@ -11,8 +11,13 @@ void main() {
       await tester.pumpWidget(const MaterialApp(home: SplashStage()));
       await tester.pump();
       await tester.pump(const Duration(milliseconds: 400));
-      final e = tester.takeException();
-      debugPrint('::error::SPLASH_STAGE_1 ${e ?? "none"}');
+      // Drain every queued error, one at a time: `takeException` returns a
+      // summary once more than one is pending, and the summary hides the cause.
+      for (var i = 0; i < 6; i++) {
+        final e = tester.takeException();
+        if (e == null) break;
+        debugPrint('::error::SPLASH_ERR_$i ${e.toString().replaceAll("\n", " | ").substring(0, e.toString().length > 300 ? 300 : e.toString().length)}');
+      }
       await tester.pumpWidget(const SizedBox.shrink());
       await tester.pump();
       final e2 = tester.takeException();
