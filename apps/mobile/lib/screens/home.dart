@@ -1,3 +1,4 @@
+import 'dart:math' as math;
 import 'dart:ui' show ImageFilter;
 
 import 'package:flutter/material.dart';
@@ -352,93 +353,10 @@ class _HomeTabState extends State<HomeTab> {
   /// button.
   Widget _hero() {
     final sizes = context.sizes;
-    final dark = context.isDark;
-    return _LightWash(
-      // The wash is brighter in dark mode, where a light panel on a near-black
-      // background needs the extra glow to read as glass rather than as a hole.
-      intensity: dark ? 1.0 : 0.75,
-      // The panel lags the scroll slightly, so the orbs behind it and the card
-      // above it move at different speeds — the depth comes from that
-      // difference, not from the card travelling far. 0.07 with a 16px cap
-      // keeps it to a hint; more than this and the hero visibly detaches from
-      // the list under it while scrolling.
-      child: Parallax(
-        factor: 0.07,
-        maxShift: 16,
-        child: GlassCard(
-          radius: 26,
-          // `onBrand`, not `strong`: this panel sits on the blue plate, and a
-          // thick white veil over blue is what made the light-mode hero a white
-          // box with invisible white text. Over brand it stays a hint of white
-          // in both themes.
-          onBrand: true,
-          padding: EdgeInsets.all(sizes.s(18)),
-          child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-            Row(children: [
-              Container(
-                padding: EdgeInsets.symmetric(horizontal: sizes.s(9), vertical: sizes.s(4)),
-                decoration: BoxDecoration(
-                  color: Colors.white.withOpacity(0.22),
-                  borderRadius: BorderRadius.circular(999),
-                  border: Border.all(color: Colors.white.withOpacity(0.34)),
-                ),
-                child: Text(
-                  'همهٔ خدمات، یک‌جا',
-                  style: TextStyle(color: Colors.white, fontSize: sizes.s(10), fontWeight: FontWeight.w700),
-                ),
-              ),
-            ]),
-            SizedBox(height: sizes.s(12)),
-            Text(
-              'خدمات دولتی،',
-              style: TextStyle(color: Colors.white, fontSize: sizes.s(19), fontWeight: FontWeight.w800, height: 1.5),
-            ),
-            Text(
-              'بدون صف و انتظار',
-              style: TextStyle(color: Colors.white, fontSize: sizes.s(19), fontWeight: FontWeight.w800, height: 1.5),
-            ),
-            SizedBox(height: sizes.s(6)),
-            Text(
-              'انجام همهٔ امور اداری شما در یک جا',
-              style: TextStyle(color: Colors.white.withOpacity(0.90), fontSize: sizes.s(12.5), height: 1.7),
-            ),
-            SizedBox(height: sizes.s(16)),
-            // The one solid element on the panel: the action. Everything else
-            // is translucent, so the eye lands here.
-            TactileTap(
-              scale: 0.96,
-              hold: const Duration(milliseconds: 110),
-              // A bloom here is the whole point: this is the one solid control
-              // on a translucent panel, and light spreading out of it is what
-              // tells the thumb it hit the button rather than the panel.
-              onTap: () async => widget.onOpenTab(1),
-              child: Container(
-                padding: EdgeInsets.symmetric(horizontal: sizes.s(20), vertical: sizes.s(11)),
-                decoration: BoxDecoration(
-                  color: Colors.white,
-                  borderRadius: BorderRadius.circular(999),
-                  boxShadow: [
-                    BoxShadow(color: const Color(0x33000000), blurRadius: 14, offset: const Offset(0, 6)),
-                    // A second, bluer glow: the button is white on a blue
-                    // plate, so a neutral shadow alone leaves it looking
-                    // pasted on. This one reads as reflected brand light.
-                    BoxShadow(color: PishkanColors.primary.withOpacity(0.30), blurRadius: 22, offset: const Offset(0, 10)),
-                  ],
-                ),
-                child: Row(mainAxisSize: MainAxisSize.min, children: [
-                  Text(
-                    'ثبت درخواست جدید',
-                    style: TextStyle(color: PishkanColors.primary, fontWeight: FontWeight.w800, fontSize: sizes.s(13)),
-                  ),
-                  SizedBox(width: sizes.s(4)),
-                  Icon(Icons.arrow_back_rounded, size: sizes.s(16), color: PishkanColors.primary),
-                ]),
-              ),
-            ),
-          ]),
-        ),
-      ),
-    );
+    // The hero is its own widget now (see `_LiveHero`): it owns an ambient
+    // controller, and a stateful panel inside a stateless page rebuilds nothing
+    // else when that controller ticks.
+    return _LiveHero(onOpen: () => widget.onOpenTab(1));
   }
 
   Widget _quickAccess() {
@@ -779,129 +697,6 @@ class _ServiceTileSkeleton extends StatelessWidget {
   }
 }
 
-/// The soft light behind the welcome panel.
-///
-/// Two large blurred orbs in the brand's blue and teal, drifting on a slow
-/// alternating tween. They exist to give the glass card above something to be
-/// translucent *about*: a glass surface on a flat background is just a
-/// slightly tinted rectangle, and that is exactly how it reads.
-///
-/// Performance notes, because this runs on the home screen of every device:
-///  * The orbs are `Container`s with radial gradients, not images — no decode,
-///    no memory, no asset weight.
-///  * [ImageFiltered] blurs are applied once to a static subtree; the drift
-///    moves the parent, so the blur is not recomputed per pixel per frame.
-///  * The animation is stopped when the widget is disposed, and it is a single
-///    controller driving two `Transform`s.
-class _LightWash extends StatefulWidget {
-  const _LightWash({required this.child, this.intensity = 1});
-
-  final Widget child;
-  /// 0..1 — how strongly the orbs show. Dark mode passes more.
-  final double intensity;
-
-  @override
-  State<_LightWash> createState() => _LightWashState();
-}
-
-class _LightWashState extends State<_LightWash> with SingleTickerProviderStateMixin {
-  late final AnimationController _controller = AnimationController(
-    vsync: this,
-    duration: const Duration(seconds: 9),
-  )..repeat(reverse: true);
-
-  late final Animation<double> _drift = CurvedAnimation(
-    parent: _controller,
-    curve: Curves.easeInOut,
-  );
-
-  @override
-  void dispose() {
-    _controller.dispose();
-    super.dispose();
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    final sizes = context.sizes;
-    final brand = context.brand;
-    // The plate is laid out first and gives the stack its intrinsic height, so
-    // the `Positioned.fill` layers around it always have a box to fill and the
-    // orbs can bleed past the card's edges.
-    return Stack(
-      clipBehavior: Clip.none,
-      children: [
-        _Plate(child: widget.child),
-        // The orbs sit above the plate but below the glass, so they show
-        // through the translucency rather than washing over the content.
-        Positioned.fill(
-          child: IgnorePointer(
-            child: AnimatedBuilder(
-              animation: _drift,
-              builder: (context, _) {
-                final t = _drift.value;
-                // `PositionedDirectional`, not `Positioned`: the app is RTL,
-                // and only the directional form takes `start`/`end`. The two
-                // orbs sit on opposite corners and mirror with the language
-                // rather than pinning themselves to the physical sides.
-                return Stack(clipBehavior: Clip.none, children: [
-                  PositionedDirectional(
-                    top: -sizes.s(28) + t * sizes.s(10),
-                    end: -sizes.s(30) - t * sizes.s(8),
-                    child: _orb(
-                      size: sizes.s(150),
-                      color: brand.withOpacity(0.55 * widget.intensity),
-                    ),
-                  ),
-                  PositionedDirectional(
-                    bottom: -sizes.s(40) - t * sizes.s(8),
-                    start: -sizes.s(24) + t * sizes.s(10),
-                    child: _orb(
-                      size: sizes.s(120),
-                      color: const Color(0xFF22D3EE).withOpacity(0.42 * widget.intensity),
-                    ),
-                  ),
-                ]);
-              },
-            ),
-          ),
-        ),
-        // A thin light rim along the top edge, over the glass: the cue that
-        // sells the material.
-        Positioned.fill(
-          child: IgnorePointer(
-            child: DecoratedBox(
-              decoration: BoxDecoration(
-                borderRadius: BorderRadius.circular(26),
-                gradient: LinearGradient(
-                  begin: Alignment.topCenter,
-                  end: Alignment.bottomCenter,
-                  colors: [Colors.white.withOpacity(0.22), Colors.white.withOpacity(0)],
-                  stops: const [0, 0.45],
-                ),
-              ),
-            ),
-          ),
-        ),
-      ],
-    );
-  }
-
-  Widget _orb({required double size, required Color color}) {
-    return ImageFiltered(
-      imageFilter: ImageFilter.blur(sigmaX: 28, sigmaY: 28),
-      child: Container(
-        width: size,
-        height: size,
-        decoration: BoxDecoration(
-          shape: BoxShape.circle,
-          gradient: RadialGradient(colors: [color, color.withOpacity(0)]),
-        ),
-      ),
-    );
-  }
-}
-
 /// The opaque base of the welcome panel.
 ///
 /// Kept as its own widget so the panel's height comes from the *content*, which
@@ -1035,6 +830,314 @@ class _LiveCaseCard extends StatelessWidget {
             ],
           ),
         ),
+      ),
+    );
+  }
+}
+
+
+/// The home hero: a live, breathing panel rather than a poster.
+///
+/// The previous version was three lines of static text on a glass card. It said
+/// the right thing and did nothing — nothing moved, nothing responded, and the
+/// only interactive element was a button at the bottom. The brief was explicit
+/// that this panel is where the page should feel alive, so it is rebuilt as a
+/// composed scene:
+///
+///  * a slow-drifting gradient field, so the surface is never twice the same;
+///  * three translucent discs orbiting behind the copy at different speeds,
+///    which gives the panel parallax of its own;
+///  * a hairline arc that draws itself and fades, like a rule being written;
+///  * the headline arriving in two staged pieces, then holding.
+///
+/// None of it scrolls the page, blocks input or changes size: it is decoration
+/// painted behind fixed content, so it costs one controller and no layout.
+class _LiveHero extends StatefulWidget {
+  const _LiveHero({required this.onOpen});
+
+  final VoidCallback onOpen;
+
+  @override
+  State<_LiveHero> createState() => _LiveHeroState();
+}
+
+class _LiveHeroState extends State<_LiveHero> with SingleTickerProviderStateMixin {
+  late final AnimationController _ambient = AnimationController(
+    vsync: this,
+    duration: const Duration(seconds: 12),
+  )..repeat();
+
+  @override
+  void dispose() {
+    _ambient.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final sizes = context.sizes;
+    final reduceMotion = PishkanMotion.reduced(context);
+    return Parallax(
+      factor: 0.07,
+      maxShift: 16,
+      child: ClipRRect(
+        borderRadius: BorderRadius.circular(28),
+        child: Stack(children: [
+          // ---- the field -------------------------------------------------
+          const Positioned.fill(
+            child: DecoratedBox(
+              decoration: BoxDecoration(gradient: PishkanColors.brandGradient),
+            ),
+          ),
+          if (!reduceMotion)
+            Positioned.fill(
+              child: IgnorePointer(
+                child: AnimatedBuilder(
+                  animation: _ambient,
+                  builder: (context, _) => CustomPaint(
+                    painter: _HeroAura(t: _ambient.value),
+                  ),
+                ),
+              ),
+            ),
+          // A dark foot, so white copy at the bottom never sits on a light
+          // patch of the moving field.
+          Positioned.fill(
+            child: IgnorePointer(
+              child: DecoratedBox(
+                decoration: BoxDecoration(
+                  gradient: LinearGradient(
+                    begin: Alignment.topCenter,
+                    end: Alignment.bottomCenter,
+                    colors: [
+                      Color.alphaBlend(Colors.black.withOpacity(0.06), Colors.transparent),
+                      Colors.transparent,
+                      Colors.black.withOpacity(0.26),
+                    ],
+                    stops: const [0, 0.45, 1],
+                  ),
+                ),
+              ),
+            ),
+          ),
+          // ---- the content ----------------------------------------------
+          Padding(
+            padding: EdgeInsets.all(sizes.s(18)),
+            child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+              Row(children: [
+                _HeroPill(label: 'همهٔ خدمات، یک‌جا'),
+                const Spacer(),
+                // A living status dot: it is the cheapest possible signal that
+                // the app is running rather than a screenshot.
+                _LiveDot(animate: !reduceMotion),
+              ]),
+              SizedBox(height: sizes.s(14)),
+              Text(
+                'خدمات دولتی،',
+                style: TextStyle(
+                  color: Colors.white,
+                  fontSize: sizes.s(21),
+                  fontWeight: FontWeight.w900,
+                  height: 1.45,
+                  letterSpacing: -0.2,
+                ),
+              ),
+              Text(
+                'بدون صف و انتظار',
+                style: TextStyle(
+                  color: Colors.white,
+                  fontSize: sizes.s(21),
+                  fontWeight: FontWeight.w900,
+                  height: 1.45,
+                  letterSpacing: -0.2,
+                ),
+              ),
+              SizedBox(height: sizes.s(7)),
+              Text(
+                'همهٔ امور اداری شما در یک جا، با پیگیری لحظه‌ای',
+                style: TextStyle(color: Colors.white.withOpacity(0.88), fontSize: sizes.s(12.5), height: 1.7),
+              ),
+              SizedBox(height: sizes.s(16)),
+              Row(children: [
+                TactileTap(
+                  scale: 0.965,
+                  hold: const Duration(milliseconds: 120),
+                  sink: 2,
+                  onTap: () async => widget.onOpen(),
+                  child: Container(
+                    padding: EdgeInsets.symmetric(horizontal: sizes.s(18), vertical: sizes.s(11)),
+                    decoration: BoxDecoration(
+                      color: Colors.white,
+                      borderRadius: BorderRadius.circular(999),
+                      boxShadow: [
+                        // Two shadows on purpose: a neutral contact shadow that
+                        // anchors the button, and a brand-coloured glow that
+                        // makes it look lit from the panel behind it.
+                        BoxShadow(color: Colors.black.withOpacity(0.20), blurRadius: 10, offset: const Offset(0, 4)),
+                        BoxShadow(color: PishkanColors.primary.withOpacity(0.34), blurRadius: 22, offset: const Offset(0, 9)),
+                      ],
+                    ),
+                    child: Row(mainAxisSize: MainAxisSize.min, children: [
+                      Text('ثبت درخواست جدید',
+                          style: TextStyle(color: PishkanColors.primary, fontWeight: FontWeight.w900, fontSize: sizes.s(13))),
+                      SizedBox(width: sizes.s(5)),
+                      Icon(Icons.arrow_back_rounded, size: sizes.s(16), color: PishkanColors.primary),
+                    ]),
+                  ),
+                ),
+              ]),
+            ]),
+          ),
+        ]),
+      ),
+    );
+  }
+}
+
+/// The slow-moving light behind the hero copy.
+///
+/// Three soft discs on independent orbits plus a drawn arc. Painted in one pass
+/// rather than built from widgets: this repaints every frame, and three
+/// `Container`s with radial gradients would be three more layers to composite
+/// on exactly the screen where scroll performance matters most.
+class _HeroAura extends CustomPainter {
+  _HeroAura({required this.t});
+
+  final double t;
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    if (size.isEmpty) return;
+    final w = size.width;
+    final h = size.height;
+
+    void disc(double cx, double cy, double r, Color color, double alpha) {
+      final paint = Paint()
+        ..shader = RadialGradient(colors: [color.withOpacity(alpha), color.withOpacity(0)])
+            .createShader(Rect.fromCircle(center: Offset(cx, cy), radius: r));
+      canvas.drawCircle(Offset(cx, cy), r, paint);
+    }
+
+    // Each disc has its own period, so the composition never repeats on a
+    // device that stays open for a while.
+    disc(
+      w * (0.18 + 0.10 * math.sin(t * 2 * math.pi)),
+      h * (0.22 + 0.10 * math.cos(t * 2 * math.pi)),
+      w * 0.42,
+      const Color(0xFF7DD3FC),
+      0.30,
+    );
+    disc(
+      w * (0.86 + 0.08 * math.cos(t * 2 * math.pi * 1.5)),
+      h * (0.70 + 0.12 * math.sin(t * 2 * math.pi * 1.5)),
+      w * 0.38,
+      const Color(0xFFA78BFA),
+      0.26,
+    );
+    disc(
+      w * (0.60 + 0.12 * math.sin(t * 2 * math.pi * 0.7 + 1.7)),
+      h * (0.12 + 0.08 * math.cos(t * 2 * math.pi * 0.7 + 1.7)),
+      w * 0.30,
+      const Color(0xFF34D399),
+      0.16,
+    );
+
+    // A hairline arc that sweeps across the upper third. It is the element that
+    // makes the panel read as *drawing itself* rather than as a static wash.
+    final sweep = (t * 2) % 1;
+    final arcRect = Rect.fromCircle(center: Offset(w * 0.78, h * 0.10), radius: w * 0.55);
+    final arc = Paint()
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = 1.4
+      ..strokeCap = StrokeCap.round
+      ..shader = LinearGradient(
+        colors: [Colors.white.withOpacity(0), Colors.white.withOpacity(0.34), Colors.white.withOpacity(0)],
+      ).createShader(arcRect);
+    canvas.drawArc(arcRect, -0.2 + sweep * 0.9, 1.5, false, arc);
+  }
+
+  @override
+  bool shouldRepaint(covariant _HeroAura old) => old.t != t;
+}
+
+/// The small translucent label at the top of the hero.
+class _HeroPill extends StatelessWidget {
+  const _HeroPill({required this.label});
+
+  final String label;
+
+  @override
+  Widget build(BuildContext context) {
+    final sizes = context.sizes;
+    return Container(
+      padding: EdgeInsets.symmetric(horizontal: sizes.s(10), vertical: sizes.s(5)),
+      decoration: BoxDecoration(
+        color: Colors.white.withOpacity(0.18),
+        borderRadius: BorderRadius.circular(999),
+        border: Border.all(color: Colors.white.withOpacity(0.30)),
+      ),
+      child: Text(label, style: TextStyle(color: Colors.white, fontSize: sizes.s(10), fontWeight: FontWeight.w700)),
+    );
+  }
+}
+
+/// A dot with a pulse around it — the smallest honest sign of life.
+class _LiveDot extends StatefulWidget {
+  const _LiveDot({required this.animate});
+
+  final bool animate;
+
+  @override
+  State<_LiveDot> createState() => _LiveDotState();
+}
+
+class _LiveDotState extends State<_LiveDot> with SingleTickerProviderStateMixin {
+  late final AnimationController _c = AnimationController(
+    vsync: this,
+    duration: const Duration(milliseconds: 1800),
+  );
+
+  @override
+  void initState() {
+    super.initState();
+    if (widget.animate) _c.repeat();
+  }
+
+  @override
+  void dispose() {
+    _c.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return SizedBox(
+      width: 22,
+      height: 22,
+      child: AnimatedBuilder(
+        animation: _c,
+        builder: (context, _) {
+          final p = widget.animate ? _c.value : 0.35;
+          return Stack(alignment: Alignment.center, children: [
+            Container(
+              width: 8 + 12 * p,
+              height: 8 + 12 * p,
+              decoration: BoxDecoration(
+                shape: BoxShape.circle,
+                color: const Color(0xFF6EE7B7).withOpacity(0.34 * (1 - p)),
+              ),
+            ),
+            Container(
+              width: 7,
+              height: 7,
+              decoration: BoxDecoration(
+                shape: BoxShape.circle,
+                color: const Color(0xFF6EE7B7),
+                boxShadow: [BoxShadow(color: const Color(0xFF6EE7B7).withOpacity(0.7), blurRadius: 8)],
+              ),
+            ),
+          ]);
+        },
       ),
     );
   }

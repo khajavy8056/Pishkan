@@ -111,9 +111,19 @@ class CategoryCard extends StatelessWidget {
     // accent only tints it. Letting the accent drive the fill made six adjacent
     // tiles six different colours at full strength, which read as a palette
     // test rather than a menu.
-    final tintTop = dark ? const Color(0xFF16294A) : const Color(0xFFFFFFFF);
+    // Dark mode: the card has to sit *above* the page, not melt into it.
+    //
+    // The page background is near-black and the previous card fill (#16294A)
+    // was close enough in lightness that the two read as one flat field — the
+    // tiles looked like text floating on the background, with no object between
+    // the eye and the label. These are lighter, and they carry more of the
+    // category's own colour, so two adjacent tiles are distinguishable at a
+    // glance without turning into a palette test.
+    final tintTop = dark
+        ? Color.alphaBlend(color.withOpacity(0.20), const Color(0xFF1B3055))
+        : const Color(0xFFFFFFFF);
     final tintBottom = dark
-        ? const Color(0xFF1D3457)
+        ? Color.alphaBlend(color.withOpacity(0.10), const Color(0xFF122240))
         : Color.alphaBlend(color.withOpacity(0.06), const Color(0xFFF7FAFF));
 
     return Semantics(
@@ -124,39 +134,68 @@ class CategoryCard extends StatelessWidget {
       // the incoming route and the card feels dead.
       child: TactileTap(
         onTap: () async => onTap(),
-        scale: 0.955,
+        scale: 0.96,
         hold: const Duration(milliseconds: 120),
+        // 2 px of travel, which on a ~95 px card is the difference between
+        // "the picture resized" and "the key went down".
+        sink: 2,
         child: DecoratedBox(
           decoration: BoxDecoration(
-            borderRadius: BorderRadius.circular(20),
+            borderRadius: BorderRadius.circular(22),
+            // A hairline rim: without it the tile's silhouette disappears
+            // against a dark page even when its fill is lighter, because the
+            // shadow is black on black.
+            border: Border.all(
+              color: dark ? Colors.white.withOpacity(0.09) : Colors.white,
+              width: 1,
+            ),
             gradient: LinearGradient(
               begin: AlignmentDirectional.topStart,
               end: AlignmentDirectional.bottomEnd,
               colors: [tintTop, tintBottom],
             ),
-            // Contact + mid + ambient. Collapsing them into one blur is what
-            // made the old card look pressed into the page.
+            // A cushion, not a rectangle with a shadow.
+            //
+            // Four shadows, each doing one job: a 1 px contact edge that glues
+            // the card to the page, a tight shadow that gives the lip, a broad
+            // tinted one that lifts the whole tile in its own colour, and a
+            // soft inner highlight along the top that reads as light landing on
+            // a padded surface. One blur cannot do all four — which is why the
+            // earlier version looked printed rather than raised.
             boxShadow: [
-              BoxShadow(color: context.shadow, blurRadius: 3, offset: const Offset(0, 1)),
               BoxShadow(
-                color: (dark ? Colors.black : color).withOpacity(dark ? 0.30 : 0.15),
-                blurRadius: 12,
+                color: (dark ? Colors.black : PishkanColors.navy).withOpacity(dark ? 0.45 : 0.10),
+                blurRadius: 2,
+                offset: const Offset(0, 1),
+              ),
+              BoxShadow(
+                color: (dark ? Colors.black : color).withOpacity(dark ? 0.38 : 0.18),
+                blurRadius: 10,
+                spreadRadius: -2,
                 offset: const Offset(0, 5),
               ),
               BoxShadow(
-                color: (dark ? Colors.black : color).withOpacity(dark ? 0.22 : 0.08),
-                blurRadius: 26,
-                offset: const Offset(0, 14),
+                color: (dark ? Colors.black : color).withOpacity(dark ? 0.30 : 0.13),
+                blurRadius: 24,
+                spreadRadius: -6,
+                offset: const Offset(0, 15),
+              ),
+              BoxShadow(
+                color: Colors.white.withOpacity(dark ? 0.05 : 0.85),
+                blurRadius: 1,
+                offset: const Offset(0, -1),
               ),
             ],
           ),
-          child: Material(
-            color: Colors.transparent,
-            child: InkWell(
-              onTap: onTap,
-              borderRadius: BorderRadius.circular(20),
-              splashColor: color.withOpacity(0.12),
-              child: Padding(
+          // Deliberately *no* `InkWell` in here.
+          //
+          // `InkWell.onTap` fires as the gesture completes, which on this card
+          // happened before `TactileTap`'s hold elapsed — so the route opened on
+          // the same beat as the finger lifting and the press animation was
+          // never seen. That is why the customer reported that the cards had no
+          // click effect: there were two tap handlers, and the inner one won.
+          // `TactileTap` is the only handler now.
+          child: Padding(
                 padding: const EdgeInsets.all(6),
                 child: Row(
                   // Stretch so the art well takes the card's full height rather
@@ -202,9 +241,7 @@ class CategoryCard extends StatelessWidget {
                 ),
               ),
             ),
-          ),
         ),
-      ),
     );
   }
 }
