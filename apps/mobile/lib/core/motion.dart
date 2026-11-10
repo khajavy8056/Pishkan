@@ -677,15 +677,31 @@ class TactileTap extends StatefulWidget {
   State<TactileTap> createState() => _TactileTapState();
 }
 
-class _TactileTapState extends State<TactileTap> {
+class _TactileTapState extends State<TactileTap> with SingleTickerProviderStateMixin {
   bool _down = false;
   bool _busy = false;
+
+  /// Drives the hold.
+  ///
+  /// The hold used to be a bare `Future.delayed`, which is invisible to the
+  /// frame pipeline: `pumpAndSettle` would not advance it, so every test that
+  /// tapped anything had to guess the delay instead of settling. As a real
+  /// animation it advances with ordinary frames, it can be cancelled cleanly
+  /// when the widget goes away mid-press, and it gives the pressed state
+  /// something to be *measured against* rather than a flag.
+  late final AnimationController _holdController = AnimationController(vsync: this);
 
   /// Where the finger landed, in the widget's own coordinates. A ripple that
   /// always blooms from the centre is a decoration; one that blooms from the
   /// thumb is feedback.
   Offset? _origin;
   int _sequence = 0;
+
+  @override
+  void dispose() {
+    _holdController.dispose();
+    super.dispose();
+  }
 
   void _captureOrigin(TapDownDetails details) {
     _origin = details.localPosition;
@@ -698,8 +714,17 @@ class _TactileTapState extends State<TactileTap> {
     _sequence++;
     setState(() => _down = true);
     Haptics.press();
-    final animate = !PishkanMotion.reduced(context);
-    if (animate) await Future<void>.delayed(widget.hold);
+    if (!PishkanMotion.reduced(context)) {
+      _holdController.duration = widget.hold;
+      try {
+        await _holdController.forward(from: 0).orCancel;
+      } on TickerCanceled {
+        // Re-pressed or unmounted mid-hold: `_handle` will have been re-entered
+        // or the state is gone, so this run must not navigate.
+        _busy = false;
+        return;
+      }
+    }
     if (!mounted) {
       _busy = false;
       return;

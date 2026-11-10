@@ -73,11 +73,12 @@ void main() {
     // The open is deliberately delayed by the press hold in `TactileTap` — the
     // card dips first, then the page opens. `pumpAndSettle` is still wrong here
     // because the rail's own timer never lets the tree settle, so pump past the
-    // hold instead.
+    // hold explicitly. (The hold is frame-driven, so this is a real 120 ms of
+    // animation, not a wall-clock sleep.)
     await tester.tap(find.text('دوم'));
     await tester.pump();
     expect(opened, isEmpty);
-    await tester.pump(const Duration(milliseconds: 200));
+    await tester.pump(const Duration(milliseconds: 250));
     expect(opened, ['b']);
 
     // And leaving the tree stops the timer: no pending-timer failure.

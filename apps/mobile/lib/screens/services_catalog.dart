@@ -183,9 +183,11 @@ class _ServicesCatalogTabState extends State<ServicesCatalogTab> {
           Semantics(
             button: true,
             label: service.title,
-            child: PressableScale(
+            child: TactileTap(
               scale: 0.94,
-              onTap: () => Navigator.push(context, fadeThroughRoute(ServiceDetailScreen(service: service))),
+              hold: const Duration(milliseconds: 110),
+              rippleRadius: 999,
+              onTap: () async => Navigator.push(context, fadeThroughRoute(ServiceDetailScreen(service: service))),
               child: Column(children: [
                 Hero(
                   tag: 'service-art-${service.slug}',

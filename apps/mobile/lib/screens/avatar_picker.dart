@@ -210,9 +210,11 @@ class _PresetTile extends StatelessWidget {
       button: true,
       selected: selected,
       label: 'آواتار شماره $preset',
-      child: PressableScale(
+      child: TactileTap(
         scale: 0.9,
-        onTap: onTap,
+        hold: const Duration(milliseconds: 100),
+        rippleRadius: 999,
+        onTap: () async => onTap(),
         child: AnimatedContainer(
           duration: PishkanMotion.standard,
           curve: PishkanMotion.spring,

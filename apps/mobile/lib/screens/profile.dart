@@ -398,8 +398,10 @@ class _ProfileTabState extends State<ProfileTab> {
   Widget _identity(String name, String mobile, Map<String, dynamic> user) {
     final sizes = context.sizes;
     return Column(mainAxisSize: MainAxisSize.min, children: [
-      PressableScale(
+      TactileTap(
         scale: 0.94,
+        hold: const Duration(milliseconds: 110),
+        rippleRadius: 999,
         onTap: () async {
           final changed = await Navigator.push<bool>(context, fadeThroughRoute(const AvatarPickerScreen()));
           if (changed == true) await fetchMe().catchError((_) => <String, dynamic>{});

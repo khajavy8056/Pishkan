@@ -44,6 +44,7 @@ void main() {
     expect(find.byType(CustomPaint), findsWidgets);
     expect(tester.takeException(), isNull);
 
+    // Lift, then let both the hold and the ripple's own controller finish.
     await tester.pumpAndSettle();
     expect(tester.takeException(), isNull);
   });

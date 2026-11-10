@@ -322,9 +322,11 @@ class _HomeTabState extends State<HomeTab> {
         Text(title, style: TextStyle(fontWeight: FontWeight.w800, fontSize: sizes.title * 0.86, color: context.ink)),
         const Spacer(),
         if (action != null)
-          PressableScale(
-            onTap: onAction,
+          TactileTap(
+            onTap: () async => onAction!(),
             scale: 0.94,
+            hold: const Duration(milliseconds: 90),
+            ripple: false,
             child: Padding(
               padding: EdgeInsets.symmetric(horizontal: sizes.s(6), vertical: sizes.s(4)),
               child: Row(children: [
@@ -455,9 +457,11 @@ class _HomeTabState extends State<HomeTab> {
     Widget tile(IconData icon, Color deep, Color bright, String label, VoidCallback onTap) {
       final dark = context.isDark;
       final accent = dark ? bright : deep;
-      return PressableScale(
-        onTap: onTap,
+      return TactileTap(
+        onTap: () async => onTap(),
         scale: 0.95,
+        hold: const Duration(milliseconds: 110),
+        rippleRadius: sizes.s(20),
         child: Container(
           padding: EdgeInsets.symmetric(vertical: sizes.s(12), horizontal: sizes.s(10)),
           decoration: BoxDecoration(

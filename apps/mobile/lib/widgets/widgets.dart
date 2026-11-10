@@ -372,7 +372,7 @@ class GlassCard extends StatelessWidget {
     }
 
     if (onTap == null) return panel;
-    return PressableScale(onTap: onTap, scale: 0.975, child: panel);
+    return TactileTap(onTap: () async => onTap!(), scale: 0.985, hold: const Duration(milliseconds: 110), rippleRadius: radius, child: panel);
   }
 }
 

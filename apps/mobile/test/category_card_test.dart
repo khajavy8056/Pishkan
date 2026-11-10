@@ -52,6 +52,9 @@ void main() {
     // dip before the next page covers it. Asserting the callback fires on the
     // same frame would lock in the dead-feeling behaviour this replaced.
     expect(taps, 0);
+    // Settling now works because the hold is driven by an animation controller
+    // rather than a bare timer: it advances with frames, so a test can wait for
+    // it without knowing its length.
     await tester.pumpAndSettle();
     expect(taps, 1);
     // 160x95 is the tightest box the home grid can produce (two columns on a
