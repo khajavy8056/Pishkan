@@ -1,7 +1,7 @@
 name: pishkan_app
 description: اپلیکیشن اندروید مشتریان پیشخوان — متصل به همان سامانه و پایگاه داده نسخه وب.
 publish_to: 'none'
-version: 1.7.3+47
+version: 1.7.4+48
 
 environment:
   # >=3.7: wildcard variables (`(_, _)`) used across the codebase.
