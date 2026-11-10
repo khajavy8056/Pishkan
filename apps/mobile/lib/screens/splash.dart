@@ -268,7 +268,15 @@ class _SplashStageState extends State<SplashStage> with TickerProviderStateMixin
 
   @override
   Widget build(BuildContext context) {
-    return AnimatedBuilder(
+    // This widget returns a bare `Stack` full of `AlignmentDirectional`s, and
+    // `Align` resolves those during *layout*, not build — so it needs a
+    // `Directionality` above it or every orb throws "No TextDirection found".
+    // `MaterialApp` normally supplies one, but the stage is also used directly
+    // (in tests, and as a preview), and a widget that only works inside one
+    // particular ancestor is a trap. Declaring it here costs nothing.
+    return Directionality(
+      textDirection: Directionality.maybeOf(context) ?? TextDirection.rtl,
+      child: AnimatedBuilder(
       animation: _ambient,
       builder: (context, _) {
         final size = MediaQuery.of(context).size;
@@ -463,6 +471,7 @@ class _SplashStageState extends State<SplashStage> with TickerProviderStateMixin
           ),
         ]);
       },
+      ),
     );
   }
 }
