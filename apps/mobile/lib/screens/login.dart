@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 import '../core/api.dart';
 import '../core/biometric.dart';
 import '../core/format.dart';
+import '../core/motion.dart';
 import '../core/referral.dart';
 import '../core/theme.dart';
 import '../models/models.dart';
@@ -88,9 +89,15 @@ class _LoginScreenState extends State<LoginScreen> {
     setState(() => _busy = true);
     try {
       await action();
+      // Every path through here ends in either a screen change or a snackbar,
+      // and both are easy to miss if the eye is on the keyboard. The haptic is
+      // the confirmation that arrives first.
+      Haptics.settle();
     } on ApiException catch (error) {
+      Haptics.settle();
       if (mounted) showSnack(context, error.message, error: true);
     } catch (_) {
+      Haptics.settle();
       if (mounted) showSnack(context, 'خطایی رخ داد. دوباره تلاش کنید.', error: true);
     } finally {
       if (mounted) setState(() => _busy = false);
@@ -292,9 +299,12 @@ class _LoginScreenState extends State<LoginScreen> {
   Widget _switchPill(String label, bool active, VoidCallback onTap) {
     return Expanded(
       child: GestureDetector(
-        onTap: onTap,
+        onTap: () {
+          if (!active) Haptics.select();
+          onTap();
+        },
         child: AnimatedContainer(
-          duration: const Duration(milliseconds: 180),
+          duration: PishkanMotion.scaled(context, PishkanMotion.standard),
           padding: const EdgeInsets.symmetric(vertical: 11),
           decoration: BoxDecoration(
             gradient: active ? PishkanColors.brandGradient : null,
@@ -311,12 +321,32 @@ class _LoginScreenState extends State<LoginScreen> {
     return TextField(
       controller: controller,
       obscureText: _obscure,
+      // The reveal toggle is the one control on this screen people press
+      // uncertainly, often twice, to check whether the dots actually hid
+      // something. So it ticks on the way in and the icon *rotates* into its
+      // new state — a straight swap of two near-identical eye glyphs gives no
+      // confirmation that anything happened.
       decoration: InputDecoration(
         hintText: hint,
         prefixIcon: const Icon(Icons.lock_outline_rounded),
         suffixIcon: IconButton(
-          onPressed: () => setState(() => _obscure = !_obscure),
-          icon: Icon(_obscure ? Icons.visibility_outlined : Icons.visibility_off_outlined),
+          onPressed: () {
+            Haptics.select();
+            setState(() => _obscure = !_obscure);
+          },
+          icon: AnimatedSwitcher(
+            duration: PishkanMotion.reduced(context) ? Duration.zero : PishkanMotion.quick,
+            transitionBuilder: (child, animation) => RotationTransition(
+              turns: Tween<double>(begin: 0.75, end: 1).animate(animation),
+              child: FadeTransition(opacity: animation, child: child),
+            ),
+            // The key is what makes AnimatedSwitcher swap rather than update
+            // the same icon in place.
+            child: Icon(
+              _obscure ? Icons.visibility_outlined : Icons.visibility_off_outlined,
+              key: ValueKey(_obscure),
+            ),
+          ),
         ),
       ),
     );

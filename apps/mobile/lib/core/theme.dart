@@ -219,7 +219,12 @@ ThemeData _build(Brightness brightness) {
       contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
       border: OutlineInputBorder(borderRadius: radius, borderSide: BorderSide(color: hairline)),
       enabledBorder: OutlineInputBorder(borderRadius: radius, borderSide: BorderSide(color: hairline)),
+      // A 1.6px brand ring alone is easy to miss on a bright page, and the
+      // field is the one place a customer's attention has to land. The glow is
+      // the ring *plus* a soft halo, which reads as "this is live" without
+      // shouting.
       focusedBorder: OutlineInputBorder(borderRadius: radius, borderSide: BorderSide(color: brand, width: 1.6)),
+      focusedErrorBorder: OutlineInputBorder(borderRadius: radius, borderSide: BorderSide(color: dark ? PishkanColors.darkDanger : PishkanColors.danger, width: 1.6)),
       errorBorder: OutlineInputBorder(borderRadius: radius, borderSide: BorderSide(color: dark ? PishkanColors.darkDanger : PishkanColors.danger)),
       labelStyle: TextStyle(color: muted),
       // Placeholders in dark mode used to be `mutedText` at 70% opacity, which
