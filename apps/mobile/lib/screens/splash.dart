@@ -554,6 +554,7 @@ class _DotField extends CustomPainter {
 
   @override
   void paint(Canvas canvas, Size size) {
+    debugPrint('::error::DOTFIELD size=$size');
     final paint = Paint();
     for (var i = 0; i < _count; i++) {
       // Deterministic placement: no Random, so the field is identical on every
@@ -597,6 +598,7 @@ class _ArcPainter extends CustomPainter {
 
   @override
   void paint(Canvas canvas, Size size) {
+    debugPrint('::error::ARC size=$size');
     final rect = Rect.fromLTWH(2, 2, size.width - 4, size.height - 4);
     final track = Paint()
       ..style = PaintingStyle.stroke
