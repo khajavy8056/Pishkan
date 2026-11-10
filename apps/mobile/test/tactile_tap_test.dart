@@ -44,10 +44,12 @@ void main() {
     expect(find.byType(CustomPaint), findsWidgets);
     expect(tester.takeException(), isNull);
 
-    // Lift, then let the hold (a bare timer, invisible to `pumpAndSettle`) and
-    // the ripple's own controller both finish.
-    await tester.pump(const Duration(milliseconds: 200));
-    await tester.pumpAndSettle();
+    // Release, then drain everything this press started: the hold timer (a bare
+    // timer, so `pumpAndSettle` ignores it) and the ripple's own 520 ms
+    // controller. A timer still pending at the end of a test is a failure in
+    // `flutter_test`, so this is not optional.
+    await tester.pump(const Duration(milliseconds: 200));   // past the 130 ms hold
+    await tester.pump(const Duration(milliseconds: 600));   // past the ripple
     expect(tester.takeException(), isNull);
   });
 
@@ -64,8 +66,8 @@ void main() {
     // No artificial wait for someone who asked for no animation...
     await tester.pump();
     expect(fired, 1);
-    // ...and no ripple layer either, and no wait either.
-    await tester.pumpAndSettle();
+    // ...and no ripple layer either.
+    await tester.pump(const Duration(milliseconds: 300));
     expect(tester.takeException(), isNull);
   });
 

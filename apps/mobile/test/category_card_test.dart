@@ -57,7 +57,8 @@ void main() {
     // pending. Pump past it explicitly.
     await tester.pump(const Duration(milliseconds: 200));
     expect(taps, 1);
-    await tester.pumpAndSettle();
+    // The ripple is still running; let it finish before the next assertion.
+    await tester.pump(const Duration(milliseconds: 600));
     // 160x95 is the tightest box the home grid can produce (two columns on a
     // small phone). Any RenderFlex overflow at this size is a real bug on a
     // real device, and it is reported as an exception rather than a test

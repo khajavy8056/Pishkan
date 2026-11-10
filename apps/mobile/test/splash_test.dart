@@ -33,6 +33,14 @@ void main() {
       await tester.pump(const Duration(seconds: 2));
       expect(tester.takeException(), isNull);
     }
+
+    // The ambient controller repeats forever on purpose: it is what keeps the
+    // splash alive for its ten seconds. That means the tree never settles on
+    // its own, so the test has to unmount it — otherwise a live ticker is still
+    // running when the test ends, which `flutter_test` reports as a failure.
+    await tester.pumpWidget(const SizedBox.shrink());
+    await tester.pump();
+    expect(tester.takeException(), isNull);
   });
 
   testWidgets('the splash stage renders the brand and the status line', (tester) async {
@@ -42,6 +50,9 @@ void main() {
     await tester.pump();
     expect(find.text('تک پیشخوان'), findsOneWidget);
     expect(find.text('در حال اتصال به سامانه…'), findsOneWidget);
+
+    await tester.pumpWidget(const SizedBox.shrink());
+    await tester.pump();
   });
 
   testWidgets('the splash stage survives reduced motion', (tester) async {
@@ -55,6 +66,9 @@ void main() {
     // The decorative layers are suppressed, not merely slowed: that is what
     // "reduced" has to mean for a customer who turned animations off.
     expect(find.byType(SplashStage), findsOneWidget);
+
+    await tester.pumpWidget(const SizedBox.shrink());
+    await tester.pump();
   });
 
   testWidgets('a zero and a full progress arc both paint', (tester) async {
@@ -63,5 +77,7 @@ void main() {
       await tester.pump();
       expect(tester.takeException(), isNull);
     }
+    await tester.pumpWidget(const SizedBox.shrink());
+    await tester.pump();
   });
 }

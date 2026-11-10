@@ -726,7 +726,13 @@ class _TactileTapState extends State<TactileTap> {
       behavior: HitTestBehavior.opaque,
       onTapDown: widget.ripple ? _captureOrigin : null,
       onTap: _handle,
-      onTapCancel: () => setState(() => _down = false),
+      // Guarded: a cancel can arrive while the tree is being torn down (a route
+      // push disposes the card mid-gesture), and `setState` after dispose is an
+      // exception the customer sees as a red screen in debug and a dead tap in
+      // release.
+      onTapCancel: () {
+        if (mounted) setState(() => _down = false);
+      },
       child: AnimatedScale(
         scale: _down && animate ? widget.scale : 1,
         duration: animate ? PishkanMotion.quick : Duration.zero,
