@@ -288,6 +288,47 @@ def check_file(path: Path) -> list[str]:
                 problems.append(f'line {line}: const constructor contains {marker}')
                 break
 
+    problems.extend(check_duplicate_declarations(code))
+
+    return problems
+
+
+def check_duplicate_declarations(code: str) -> list[str]:
+    """Two top-level declarations with the same name cannot both compile.
+
+    This is not a hypothetical: a whole file was once written twice by a patch
+    tool that appended instead of replacing, so every class in it existed at
+    both `line 75` and `line 715`. `dart analyze` fails on that, and none of the
+    other checks here could see it — brackets balanced, imports fine, constants
+    fine. It cost three CI runs and a tag each time.
+
+    Top-level declarations only. A local variable inside a function may shadow
+    an outer one, and a class may have two methods with the same name only if
+    their signatures differ, which is a different error.
+    """
+    problems: list[str] = []
+    if 'library' not in code and 'class ' not in code and 'enum ' not in code:
+        return problems
+    seen: dict[str, int] = {}
+    # A top-level declaration starts in column 0: `class`, `enum`, `mixin`,
+    # `extension`, `typedef`, `abstract`, or a function/`final`/`const`/`var`.
+    pattern = re.compile(
+        r'^(?:abstract\s+|sealed\s+|base\s+|final\s+)?'
+        r'(?:class|enum|mixin|extension|typedef)\s+([A-Za-z_]\w*)',
+        re.MULTILINE,
+    )
+    for match in pattern.finditer(code):
+        name = match.group(1)
+        line = code[:match.start()].count('\n') + 1
+        if name in seen:
+            problems.append(
+                f'duplicate top-level declaration `{name}`: '
+                f'line {seen[name]} and line {line}'
+            )
+        else:
+            seen[name] = line
+    # `extension` may be anonymous (`extension on String`), which the pattern
+    # above skips; anything it matched has a name, so no further handling.
     return problems
 
 
