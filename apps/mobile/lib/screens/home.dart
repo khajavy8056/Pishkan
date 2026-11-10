@@ -342,7 +342,11 @@ class _HomeTabState extends State<HomeTab> {
         maxShift: 16,
         child: GlassCard(
           radius: 26,
-          strong: true,
+          // `onBrand`, not `strong`: this panel sits on the blue plate, and a
+          // thick white veil over blue is what made the light-mode hero a white
+          // box with invisible white text. Over brand it stays a hint of white
+          // in both themes.
+          onBrand: true,
           padding: EdgeInsets.all(sizes.s(18)),
           child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
             Row(children: [

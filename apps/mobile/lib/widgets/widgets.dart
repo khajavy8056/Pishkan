@@ -269,6 +269,7 @@ class GlassCard extends StatelessWidget {
     this.onTap,
     this.tint,
     this.strong = false,
+    this.onBrand = false,
   });
 
   final Widget child;
@@ -281,6 +282,12 @@ class GlassCard extends StatelessWidget {
   final Color? tint;
   /// Slightly more opaque, for panels that carry long text over a busy photo.
   final bool strong;
+  /// The panel sits on a saturated brand surface, not on the page.
+  ///
+  /// Over a blue gradient a white veil has to stay thin in *both* themes, or it
+  /// washes the gradient out to near-white and the white text on top of it
+  /// disappears. The hero and the banner controls use this.
+  final bool onBrand;
 
   @override
   Widget build(BuildContext context) {
@@ -289,9 +296,25 @@ class GlassCard extends StatelessWidget {
     // off the page, in dark mode it is the only thing that reads as "lit".
     // What changes with the theme is the opacity, not the hue.
     final fill = tint ?? Colors.white;
-    final opacity = strong ? (dark ? 0.16 : 0.82) : (dark ? 0.10 : 0.62);
+    // Opacity has to follow what is *behind* the glass, not the theme alone.
+    //
+    // This used to invert on dark mode: 0.82 in light, 0.16 in dark. On the
+    // home hero — a white panel intended to sit on a blue gradient — that meant
+    // a light mode panel at 82% white, which is an almost-solid white card
+    // carrying white text. The hero was unreadable in light mode and perfect in
+    // dark, which is exactly backwards from what the screenshot shows.
+    //
+    // A white veil only lifts a panel off a *light* background; over a dark or
+    // saturated one it erases it. So a filled panel is more opaque in light
+    // mode and more translucent in dark, and the hero opts into [onBrand],
+    // which keeps it a hint of white in both.
+    final opacity = onBrand
+        ? (dark ? 0.14 : 0.20)
+        : strong
+            ? (dark ? 0.16 : 0.82)
+            : (dark ? 0.10 : 0.62);
     final border = Border.all(
-      color: dark ? const Color(0x24FFFFFF) : Colors.white.withOpacity(0.70),
+      color: dark || onBrand ? const Color(0x24FFFFFF) : Colors.white.withOpacity(0.70),
       width: 1,
     );
 

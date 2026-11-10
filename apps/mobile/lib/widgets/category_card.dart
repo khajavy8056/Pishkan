@@ -83,6 +83,18 @@ class CategoryArtImage extends StatelessWidget {
 
 /// Landscape, raised card inspired by the supplied reference. Text is real RTL
 /// Flutter text rather than baked into an image, so admin edits remain live.
+///
+/// Shape notes, because this card is the one the customer sees six times per
+/// screen and it was the flattest thing in the app:
+///
+///  * the artwork is *inset* rather than bleeding to the card's edge. Full-bleed
+///    art on a rounded card leaves the picture describing its own rectangle,
+///    and the card stops reading as one object;
+///  * the pictures all sit on a pale studio floor, so they are given a matching
+///    tinted well instead of being pasted onto the card's gradient, which was
+///    producing a visible seam down the middle of every tile;
+///  * elevation is three shadows — contact, mid, ambient — not one blur, which
+///    is what makes a surface look lifted rather than smudged.
 class CategoryCard extends StatelessWidget {
   const CategoryCard({super.key, required this.category, required this.onTap});
   final ServiceCategory category;
@@ -90,59 +102,149 @@ class CategoryCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final color = artworkForCategory(category).color;
-    final dark = Theme.of(context).brightness == Brightness.dark;
-    final textColor = dark ? Colors.white : PishkanColors.navy;
-    // One source of truth for the card's own colours. The artwork was fading
-    // into a second, separately hardcoded copy of the last stop; when the two
-    // drifted apart a visible seam appeared across the picture.
-    final tints = dark
-        ? const [Color(0xFF142B4D), Color(0xFF263C62)]
-        : <Color>[const Color(0xFFF6FAFF), Color.alphaBlend(color.withOpacity(.12), const Color(0xFFEAF2FF))];
-    final fadeTo = tints[1];
+    final art = artworkForCategory(category);
+    final color = art.color;
+    final dark = context.isDark;
+    final textColor = dark ? const Color(0xFFEAF1FF) : PishkanColors.navy;
+
+    // The card body is a near-white (light) or lifted-navy (dark) surface; the
+    // accent only tints it. Letting the accent drive the fill made six adjacent
+    // tiles six different colours at full strength, which read as a palette
+    // test rather than a menu.
+    final tintTop = dark ? const Color(0xFF16294A) : const Color(0xFFFFFFFF);
+    final tintBottom = dark
+        ? const Color(0xFF1D3457)
+        : Color.alphaBlend(color.withOpacity(0.06), const Color(0xFFF7FAFF));
+
     return Semantics(
-      button: true, label: category.title,
+      button: true,
+      label: category.title,
       child: PressableScale(
         onTap: onTap,
-        scale: 0.96,
-        child: Material(
-        color: Colors.transparent,
-        child: InkWell(
-          onTap: onTap,
-          borderRadius: BorderRadius.circular(20),
-          child: Ink(
-            decoration: BoxDecoration(
-              borderRadius: BorderRadius.circular(20),
-              gradient: LinearGradient(colors: tints),
-              border: Border.all(color: dark ? Colors.white24 : Colors.white, width: 1.4),
-              boxShadow: [BoxShadow(color: color.withOpacity(dark ? .12 : .16), blurRadius: 14, offset: const Offset(0, 5))],
+        scale: 0.965,
+        child: DecoratedBox(
+          decoration: BoxDecoration(
+            borderRadius: BorderRadius.circular(20),
+            gradient: LinearGradient(
+              begin: AlignmentDirectional.topStart,
+              end: AlignmentDirectional.bottomEnd,
+              colors: [tintTop, tintBottom],
             ),
-            child: ClipRRect(
-              borderRadius: BorderRadius.circular(19),
-              child: LayoutBuilder(builder: (context, constraints) => Stack(children: [
-                Positioned(left: 0, top: 0, bottom: 0, width: constraints.maxWidth * .60,
-                  child: CategoryArtImage(category: category)),
-                Positioned(left: constraints.maxWidth * .40, top: 0, bottom: 0, width: constraints.maxWidth * .20,
-                  child: DecoratedBox(decoration: BoxDecoration(gradient: LinearGradient(colors: [
-                    Colors.transparent, fadeTo,
-                  ])))),
-                Positioned(right: 9, top: 5, bottom: 5, width: constraints.maxWidth * .43,
-                  child: Align(alignment: Alignment.centerRight, child: Text(category.title,
-                    textDirection: TextDirection.rtl, textAlign: TextAlign.right,
-                    maxLines: 3, overflow: TextOverflow.ellipsis,
-                    style: TextStyle(color: textColor, fontSize: 11.5, fontWeight: FontWeight.w800, height: 1.35)))),
-                Positioned(left: 6, bottom: 8, child: Container(
-                  width: 25, height: 25,
-                  decoration: BoxDecoration(shape: BoxShape.circle, color: Colors.white.withOpacity(.92),
-                    boxShadow: [BoxShadow(color: color.withOpacity(.17), blurRadius: 5, offset: const Offset(0, 2))]),
-                  child: Icon(Icons.chevron_right_rounded, color: color, size: 20),
-                )),
-              ])),
+            // Contact + mid + ambient. Collapsing them into one blur is what
+            // made the old card look pressed into the page.
+            boxShadow: [
+              BoxShadow(color: context.shadow, blurRadius: 3, offset: const Offset(0, 1)),
+              BoxShadow(
+                color: (dark ? Colors.black : color).withOpacity(dark ? 0.30 : 0.15),
+                blurRadius: 12,
+                offset: const Offset(0, 5),
+              ),
+              BoxShadow(
+                color: (dark ? Colors.black : color).withOpacity(dark ? 0.22 : 0.08),
+                blurRadius: 26,
+                offset: const Offset(0, 14),
+              ),
+            ],
+          ),
+          child: Material(
+            color: Colors.transparent,
+            child: InkWell(
+              onTap: onTap,
+              borderRadius: BorderRadius.circular(20),
+              splashColor: color.withOpacity(0.12),
+              child: Padding(
+                padding: const EdgeInsets.all(6),
+                child: Row(
+                  children: [
+                    // Artwork first in the row: the app is RTL, so this is the
+                    // leading edge, matching the reference screenshots.
+                    _ArtWell(category: category, color: color, dark: dark),
+                    const SizedBox(width: 10),
+                    Expanded(
+                      child: Padding(
+                        padding: const EdgeInsetsDirectional.only(end: 4, top: 2, bottom: 2),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          children: [
+                            Text(
+                              category.title,
+                              textDirection: TextDirection.rtl,
+                              textAlign: TextAlign.right,
+                              maxLines: 2,
+                              overflow: TextOverflow.ellipsis,
+                              style: TextStyle(
+                                color: textColor,
+                                fontSize: 12.5,
+                                fontWeight: FontWeight.w800,
+                                height: 1.45,
+                              ),
+                            ),
+                            const SizedBox(height: 5),
+                            Row(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                Text(
+                                  'مشاهده',
+                                  style: TextStyle(
+                                    color: dark ? color : PishkanColors.primary,
+                                    fontSize: 10,
+                                    fontWeight: FontWeight.w700,
+                                  ),
+                                ),
+                                Icon(
+                                  Icons.chevron_left_rounded,
+                                  color: dark ? color : PishkanColors.primary,
+                                  size: 13,
+                                ),
+                              ],
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
             ),
           ),
         ),
+      ),
+    );
+  }
+}
+
+/// The picture, in its own tinted well.
+///
+/// Every service illustration was drawn on the same pale studio floor. Placing
+/// that floor on a card with a different background is what caused the hard
+/// seam through the middle of the old tiles; giving the art its own recess with
+/// a matching fill removes the edge entirely, because the picture's background
+/// and the well are the same colour.
+class _ArtWell extends StatelessWidget {
+  const _ArtWell({required this.category, required this.color, required this.dark});
+
+  final ServiceCategory category;
+  final Color color;
+  final bool dark;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      width: 82,
+      height: 68,
+      decoration: BoxDecoration(
+        borderRadius: BorderRadius.circular(15),
+        color: dark
+            ? Color.alphaBlend(color.withOpacity(0.16), const Color(0xFF0E1D33))
+            : Color.alphaBlend(color.withOpacity(0.07), const Color(0xFFF3F8FF)),
+        border: Border.all(
+          color: dark ? Colors.white.withOpacity(0.07) : Colors.white,
+          width: 1,
         ),
       ),
+      clipBehavior: Clip.antiAlias,
+      child: CategoryArtImage(category: category),
     );
   }
 }

@@ -233,6 +233,13 @@ ThemeData _build(Brightness brightness) {
       // out. The dark palette already carries a proper muted colour at 7.3:1,
       // so use it instead of fading a light-mode grey.
       hintStyle: TextStyle(color: dark ? PishkanColors.darkMutedText : PishkanColors.mutedText),
+      // Belt and braces with `textTheme` above: `TextField` resolves its own
+      // `style` from `bodyLarge`, which is one of the styles the theme's
+      // `copyWith` did not touch, so it silently kept the hard-coded black.
+      // Naming it here means a field can never inherit a foreground that does
+      // not match the surface it is drawn on.
+      errorStyle: TextStyle(color: dark ? PishkanColors.darkDanger : PishkanColors.danger),
+      floatingLabelStyle: TextStyle(color: brand),
     ),
     elevatedButtonTheme: ElevatedButtonThemeData(
       style: ElevatedButton.styleFrom(
@@ -303,10 +310,31 @@ ThemeData _build(Brightness brightness) {
     ),
     progressIndicatorTheme: ProgressIndicatorThemeData(color: brand, linearTrackColor: hairline),
     tooltipTheme: TooltipThemeData(textStyle: const TextStyle(fontFamily: 'Vazirmatn', fontSize: 12)),
-    textTheme: Typography.material2021(platform: TargetPlatform.android).black.apply(fontFamily: 'Vazirmatn').copyWith(
-      bodyMedium: TextStyle(fontSize: 13.5, height: 1.75, color: ink),
-      bodySmall: TextStyle(fontSize: 11.5, height: 1.7, color: muted),
-      titleMedium: TextStyle(fontSize: 15, fontWeight: FontWeight.w700, color: ink),
+    // `...black` was hard-coded, so every style this theme did not override by
+    // hand kept a *black* foreground. That is fine in light mode and invisible
+    // in dark — and it is the whole reason typed text disappeared into a field
+    // while the placeholder looked correct (the hint colour was set, the input
+    // colour was not). `white` for the dark theme is the same typography, not a
+    // second one.
+    textTheme: Typography.material2021(platform: TargetPlatform.android)
+        .white
+        .apply(fontFamily: 'Vazirmatn', bodyColor: ink, displayColor: ink)
+        .copyWith(
+          bodyMedium: TextStyle(fontSize: 13.5, height: 1.75, color: ink),
+          bodySmall: TextStyle(fontSize: 11.5, height: 1.7, color: muted),
+          titleMedium: TextStyle(fontSize: 15, fontWeight: FontWeight.w700, color: ink),
+          // `TextField` takes its text colour from `bodyLarge` specifically.
+          // `apply(bodyColor:)` above already recolours it, but naming it keeps
+          // the dependency obvious to whoever edits this next.
+          bodyLarge: TextStyle(fontSize: 14.5, color: ink),
+        ),
+    // What the user types is body text and must follow the same rule. Set
+    // explicitly here rather than left to Material's default, because the
+    // default resolves against the *scheme*, which this theme overrides.
+    textSelectionTheme: TextSelectionThemeData(
+      cursorColor: brand,
+      selectionColor: brand.withOpacity(0.28),
+      selectionHandleColor: brand,
     ),
   );
 }

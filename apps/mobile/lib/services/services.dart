@@ -207,9 +207,16 @@ Future<Map<String, dynamic>> fetchAvatarCatalogue() async {
 
 /// Persist a preset choice server-side (survives reinstall and other devices).
 Future<Map<String, dynamic>> chooseAvatarPreset(int preset, {String gender = ''}) async {
+  // The picker has three tabs — `female`, `male` and `unspecified` for "show
+  // both". The server accepts `'male' | 'female' | ''` and rejects anything
+  // else, so passing the third tab's own name through made every pick from the
+  // "همه" tab fail with «داده‌های ارسالی معتبر نیست» — a 400 that never
+  // mentioned which field was wrong. The tab is a *view filter*, not a gender;
+  // it maps to "no opinion", which the wire format spells as empty.
+  final wire = gender == 'unspecified' ? '' : gender;
   final data = await api.putData('/api/customers/me/avatar/preset', body: {
     'preset': preset,
-    if (gender.isNotEmpty) 'gender': gender,
+    if (wire.isNotEmpty) 'gender': wire,
   });
   await fetchMe().catchError((_) => <String, dynamic>{});
   return asMap(data);
