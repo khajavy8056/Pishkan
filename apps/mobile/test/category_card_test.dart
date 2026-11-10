@@ -52,11 +52,12 @@ void main() {
     // dip before the next page covers it. Asserting the callback fires on the
     // same frame would lock in the dead-feeling behaviour this replaced.
     expect(taps, 0);
-    // Settling now works because the hold is driven by an animation controller
-    // rather than a bare timer: it advances with frames, so a test can wait for
-    // it without knowing its length.
-    await tester.pumpAndSettle();
+    // `pumpAndSettle` cannot wait for this: the hold is a bare timer and a
+    // timer schedules no frames, so settling returns while it is still
+    // pending. Pump past it explicitly.
+    await tester.pump(const Duration(milliseconds: 200));
     expect(taps, 1);
+    await tester.pumpAndSettle();
     // 160x95 is the tightest box the home grid can produce (two columns on a
     // small phone). Any RenderFlex overflow at this size is a real bug on a
     // real device, and it is reported as an exception rather than a test

@@ -44,7 +44,9 @@ void main() {
     expect(find.byType(CustomPaint), findsWidgets);
     expect(tester.takeException(), isNull);
 
-    // Lift, then let both the hold and the ripple's own controller finish.
+    // Lift, then let the hold (a bare timer, invisible to `pumpAndSettle`) and
+    // the ripple's own controller both finish.
+    await tester.pump(const Duration(milliseconds: 200));
     await tester.pumpAndSettle();
     expect(tester.takeException(), isNull);
   });
@@ -62,7 +64,7 @@ void main() {
     // No artificial wait for someone who asked for no animation...
     await tester.pump();
     expect(fired, 1);
-    // ...and no ripple layer either.
+    // ...and no ripple layer either, and no wait either.
     await tester.pumpAndSettle();
     expect(tester.takeException(), isNull);
   });
