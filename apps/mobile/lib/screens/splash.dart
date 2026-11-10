@@ -212,7 +212,8 @@ class _SplashScreenState extends State<SplashScreen> {
 /// a network boot: any widget test that mounted it would either wait ten
 /// seconds or fail outright on a pending timer. This widget owns animation only,
 /// so a test can pump it across the whole loop — which matters, because it is
-/// almost entirely `CustomPainter` and animation maths, the kind of code that
+/// almost entirely `CustomPainter` and animation maths, the kind of code that is
+/// worth pumping through its whole loop.
 @visibleForTesting
 class SplashStage extends StatefulWidget {
   const SplashStage({
@@ -393,7 +394,7 @@ class _SplashStageState extends State<SplashStage> with TickerProviderStateMixin
                           child: ClipRRect(
                             borderRadius: BorderRadius.circular(999),
                             child: LinearProgressIndicator(
-                              value: widget.progress.clamp(0.0, 1.0),
+                              value: widget.progress.clamp(0.0, 1.0).toDouble(),
                               minHeight: 3,
                               backgroundColor: Colors.white.withOpacity(0.16),
                               valueColor: const AlwaysStoppedAnimation(Colors.white),
