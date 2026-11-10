@@ -21,8 +21,15 @@ void main() {
     await tester.pump();
     expect(fired, 0);
 
+    // Pumping past the 120 ms hold *fires* the timer; the `await` inside
+    // `_handle` then resumes on a microtask, which needs one more frame to be
+    // observed. Asserting straight after the first pump is what fails here, not
+    // the implementation.
     await tester.pump(const Duration(milliseconds: 200));
+    await tester.pump();
     expect(fired, 1);
+
+    await tester.pump(const Duration(milliseconds: 600)); // let the ripple finish
   });
 
   testWidgets('a second tap while the first is holding opens nothing twice', (tester) async {
@@ -32,7 +39,9 @@ void main() {
     await tester.tap(find.byType(TactileTap));
     await tester.tap(find.byType(TactileTap));
     await tester.pump(const Duration(milliseconds: 400));
+    await tester.pump();
     expect(fired, 1);
+    await tester.pump(const Duration(milliseconds: 600));
   });
 
   testWidgets('the ripple paints from the finger and clears itself', (tester) async {
@@ -63,7 +72,10 @@ void main() {
     ));
 
     await tester.tap(find.byType(TactileTap));
-    // No artificial wait for someone who asked for no animation...
+    // No artificial wait for someone who asked for no animation. One pump runs
+    // the (zero-length) hold's microtask; one more lets the callback's own
+    // `await` complete.
+    await tester.pump();
     await tester.pump();
     expect(fired, 1);
     // ...and no ripple layer either.
@@ -76,6 +88,7 @@ void main() {
     await tester.pumpWidget(host(TactileTap(enabled: false, onTap: () async => fired++, child: const ColoredBox(color: Colors.blue))));
     await tester.tap(find.byType(TactileTap));
     await tester.pump(const Duration(milliseconds: 400));
+    await tester.pump();
     expect(fired, 0);
   });
 }

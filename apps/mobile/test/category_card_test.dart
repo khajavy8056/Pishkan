@@ -56,6 +56,9 @@ void main() {
     // timer schedules no frames, so settling returns while it is still
     // pending. Pump past it explicitly.
     await tester.pump(const Duration(milliseconds: 200));
+    // The hold fires on that pump; `_handle`'s own `await` then resumes on a
+    // microtask, so the callback is only observable on the next frame.
+    await tester.pump();
     expect(taps, 1);
     // The ripple is still running; let it finish before the next assertion.
     await tester.pump(const Duration(milliseconds: 600));
