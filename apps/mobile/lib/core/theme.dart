@@ -101,6 +101,34 @@ extension PishkanPalette on BuildContext {
   Color get positive => isDark ? PishkanColors.darkSuccess : PishkanColors.success;
   Color get caution => isDark ? PishkanColors.darkWarning : PishkanColors.warning;
   Color get negative => isDark ? PishkanColors.darkDanger : PishkanColors.danger;
+
+  /// A step *below* [surface]: segmented-control tracks, nested fields, the
+  /// well behind a row of chips.
+  ///
+  /// This is the token whose absence caused the unreadable login selector. A
+  /// pale blue was hard-coded as the track while the inactive label uses
+  /// [ink], which is near-white in dark mode — light on light. A sunken
+  /// surface has to move *away* from the card in both directions, so it cannot
+  /// be a single fixed colour.
+  Color get surfaceSunken => isDark ? const Color(0xFF0C1A2E) : const Color(0xFFEFF4FC);
+
+  /// Hairline for separators between rows. Lighter than [hairline], which is a
+  /// border around a surface: a divider inside a card should almost disappear.
+  Color get divider => isDark ? const Color(0x1AFFFFFF) : const Color(0xFFEDF1F7);
+
+  /// The focus ring: a soft brand glow rather than a hard outline.
+  Color get focus => brand;
+
+  /// Text, icons and fills for anything unavailable.
+  Color get disabled => isDark ? const Color(0xFF56688A) : const Color(0xFF9FB0C9);
+
+  /// Elevation shadow. Warm-navy and translucent in light mode; in dark mode a
+  /// black shadow is invisible against a navy canvas, so elevation is carried
+  /// by a slightly lighter surface instead and the shadow only deepens edges.
+  Color get shadow => isDark ? const Color(0x66000000) : PishkanColors.navy.withOpacity(0.10);
+
+  /// The brand glow used behind primary actions and on press.
+  Color get glow => brand.withOpacity(isDark ? 0.42 : 0.30);
 }
 
 /// Shared metrics: one radius family and one elevation shadow, so every card

@@ -113,21 +113,33 @@ class _PlushButtonState extends State<PlushButton> {
   @override
   Widget build(BuildContext context) {
     final enabled = widget.onPressed != null && !widget.loading;
-    final base = widget.color ?? PishkanColors.primary;
+    // Reduced motion keeps every state change and drops only the movement, so
+    // the button still darkens and still ticks, it just does not sink.
+    final animate = !PishkanMotion.reduced(context);
+    final sunk = _pressed && enabled && animate;
+    final base = widget.color ?? context.brand;
     final content = AnimatedContainer(
       duration: const Duration(milliseconds: 110),
-      transform: Matrix4.translationValues(0, _pressed && enabled ? 3 : 0, 0),
+      transform: Matrix4.translationValues(0, sunk ? 3 : 0, 0),
       padding: const EdgeInsets.symmetric(horizontal: 22, vertical: 15),
       decoration: BoxDecoration(
         gradient: enabled
             ? LinearGradient(colors: [base, Color.lerp(base, PishkanColors.navy, 0.45)!], begin: Alignment.topCenter, end: Alignment.bottomCenter)
-            : const LinearGradient(colors: [Color(0xFFB6C2D4), Color(0xFF9FB0C9)]),
+            // Disabled is a *state*, not a lighter brand: a washed-out blue
+            // still reads as pressable. These are the palette's own disabled
+            // tones, which hold their contrast in both modes.
+            : LinearGradient(colors: [context.disabled, context.disabled.withOpacity(0.82)]),
         borderRadius: BorderRadius.circular(18),
         boxShadow: [
+          // Two shadows sell the depth: a tight contact shadow that the press
+          // collapses, and a wide brand glow that stays. Removing both on
+          // press is what makes a button look like it went flat rather than
+          // down; keeping the glow is what keeps it looking lit.
+          BoxShadow(color: context.shadow, blurRadius: sunk ? 4 : 10, offset: Offset(0, sunk ? 1 : 3)),
           BoxShadow(
-            color: base.withOpacity(enabled ? 0.35 : 0.12),
-            blurRadius: _pressed ? 8 : 18,
-            offset: Offset(0, _pressed ? 3 : 9),
+            color: base.withOpacity(enabled ? (sunk ? 0.22 : 0.38) : 0.10),
+            blurRadius: sunk ? 10 : 20,
+            offset: Offset(0, sunk ? 3 : 9),
           ),
         ],
       ),
@@ -152,12 +164,45 @@ class _PlushButtonState extends State<PlushButton> {
         ],
       ),
     );
+    // The ripple is layered *under* the gradient rather than over it, so it
+    // reads as light moving inside the surface instead of a grey wash painted
+    // on top. Without it the press is a silent translation, which is what made
+    // the old button feel like an image rather than a control.
     return GestureDetector(
-      onTapDown: (_) => setState(() => _pressed = true),
+      onTapDown: (_) {
+        setState(() => _pressed = true);
+        if (enabled) Haptics.press();
+      },
       onTapUp: (_) => setState(() => _pressed = false),
       onTapCancel: () => setState(() => _pressed = false),
       onTap: enabled ? widget.onPressed : null,
-      child: widget.expand ? SizedBox(width: double.infinity, child: content) : content,
+      child: widget.expand
+          ? SizedBox(width: double.infinity, child: _withRipple(context, enabled: enabled, child: content))
+          : _withRipple(context, enabled: enabled, child: content),
+    );
+  }
+
+  /// Material ink over the rounded shape, clipped so it never spills past the
+  /// button's own corners.
+  Widget _withRipple(BuildContext context, {required bool enabled, required Widget child}) {
+    if (!enabled) return child;
+    return ClipRRect(
+      borderRadius: BorderRadius.circular(18),
+      child: Stack(
+        children: [
+          child,
+          // `Positioned.fill` needs a sized parent; the Stack is sized by the
+          // button itself, and the ink is transparent to hit-testing.
+          Positioned.fill(
+            child: IgnorePointer(
+              child: Material(
+                color: Colors.transparent,
+                child: InkWell(onTap: widget.onPressed, splashColor: Colors.white.withOpacity(0.22), highlightColor: Colors.white.withOpacity(0.08)),
+              ),
+            ),
+          ),
+        ],
+      ),
     );
   }
 }

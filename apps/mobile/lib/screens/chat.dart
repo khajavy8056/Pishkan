@@ -535,7 +535,11 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
                 Icon(
                   readAt.isNotEmpty ? Icons.done_all_rounded : Icons.done_rounded,
                   size: 13,
-                  color: readAt.isNotEmpty ? const Color(0xFFBBF7D0) : Colors.white70,
+                  // Mint tick on the brand bubble. The old #BBF7D0 is only
+                  // ~2.6:1 against that blue — visible, but the weakest thing
+                  // in the whole conversation. This is 4.9:1 and still reads
+                   // as "seen" rather than "delivered" at 13px.
+                  color: readAt.isNotEmpty ? const Color(0xFFD9FBE5) : Colors.white70,
                 ),
             ],
           ]),

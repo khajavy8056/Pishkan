@@ -269,7 +269,12 @@ class _LoginScreenState extends State<LoginScreen> {
     if (!showRegister && _mode == _Mode.register) _mode = _Mode.password;
     return Container(
       padding: const EdgeInsets.all(5),
-      decoration: BoxDecoration(color: const Color(0xFFEAF1FE), borderRadius: BorderRadius.circular(999)),
+      // The track, not a decoration: it sits behind both pills, so it has to be
+      // a step *away* from the surface in whichever direction the mode goes.
+      // It used to be a fixed pale blue — near-white — while the inactive pill's
+      // label is `context.ink`, which is near-white in dark mode. Light text on
+      // a light track is the unreadable pair in the screenshots.
+      decoration: BoxDecoration(color: context.surfaceSunken, borderRadius: BorderRadius.circular(999)),
       child: Row(children: [
         _switchPill('ورود', _isLoginSide, () => setState(() {
               _mode = _Mode.password;

@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 
 /// Motion vocabulary for the whole app.
 ///
@@ -18,6 +19,20 @@ abstract final class PishkanMotion {
   static const Curve enter = Curves.easeOutCubic;
   static const Curve exit = Curves.easeInCubic;
   static const Curve spring = Curves.easeOutBack;
+
+  /// Whether the OS asks for reduced motion (Android "Remove animations").
+  ///
+  /// Every animation in the app has to consult this, not just the splash.
+  /// People who turn it on do so because motion makes them unwell, and a card
+  /// that slides in is enough to cause it — the effect is not the point, the
+  /// content is. When it is on, things still change state, they just do it
+  /// without travelling.
+  static bool reduced(BuildContext context) =>
+      MediaQuery.maybeDisableAnimationsOf(context) ?? false;
+
+  /// A duration that collapses to zero under reduced motion.
+  static Duration scaled(BuildContext context, Duration duration) =>
+      reduced(context) ? Duration.zero : duration;
 }
 
 /// A page route that fades and lifts its content instead of sliding in from
@@ -79,6 +94,8 @@ class _RevealOnMountState extends State<RevealOnMount> with SingleTickerProvider
   @override
   void initState() {
     super.initState();
+    // `enabled: false` is also how reduced-motion callers opt out: the widget
+    // renders at rest immediately instead of fading in from nothing.
     if (!widget.enabled) {
       _controller.value = 1;
     } else if (widget.delay == Duration.zero) {
@@ -193,14 +210,20 @@ class _PressableScaleState extends State<PressableScale> {
 
   @override
   Widget build(BuildContext context) {
+    // Reduced motion keeps the state change and the haptic, and drops the
+    // travel. A press still *feels* like a press; it just does not move.
+    final animate = !PishkanMotion.reduced(context);
     return GestureDetector(
-      onTapDown: (_) => setState(() => _down = true),
+      onTapDown: (_) {
+        setState(() => _down = true);
+        Haptics.press();
+      },
       onTapUp: (_) => setState(() => _down = false),
       onTapCancel: () => setState(() => _down = false),
       onTap: widget.onTap,
       child: AnimatedScale(
-        scale: _down ? widget.scale : 1,
-        duration: PishkanMotion.quick,
+        scale: _down && animate ? widget.scale : 1,
+        duration: animate ? PishkanMotion.quick : Duration.zero,
         curve: PishkanMotion.enter,
         child: widget.child,
       ),
@@ -299,4 +322,24 @@ class StaggeredReveal extends StatelessWidget {
       ],
     );
   }
+}
+
+/// Haptics, in one vocabulary.
+///
+/// The app had none at all, which is why every press felt flat no matter how
+/// much depth the button drew: the hand is half of tactile feedback and it was
+/// being ignored. Three weights are enough — anything more becomes noise.
+///
+/// All of them are fire-and-forget. `HapticFeedback` returns a Future that
+/// resolves when the platform channel replies, and awaiting it on the tap path
+/// would put a frame of latency between the finger and the animation.
+abstract final class Haptics {
+  /// A selection changed: a chip, a segment, a tab.
+  static void select() => HapticFeedback.selectionClick();
+
+  /// A control was pressed. The default for buttons and cards.
+  static void press() => HapticFeedback.lightImpact();
+
+  /// Something completed or failed: submit, payment, error.
+  static void settle() => HapticFeedback.mediumImpact();
 }
