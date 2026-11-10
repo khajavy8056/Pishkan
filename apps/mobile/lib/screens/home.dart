@@ -255,7 +255,10 @@ class _HomeTabState extends State<HomeTab> {
         FloatingIconButton(
           icon: Icons.auto_awesome_rounded,
           label: 'دستیار هوشمند',
-          onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const AssistantScreen())),
+          // Same route as every other screen: `MaterialPageRoute` slid in from
+          // the side here, so the assistant and notifications were the only two
+          // places in the app that felt like a different app.
+          onTap: () => Navigator.push(context, fadeThroughRoute(const AssistantScreen())),
         ),
         SizedBox(width: sizes.s(7)),
         FloatingIconButton(
@@ -263,7 +266,7 @@ class _HomeTabState extends State<HomeTab> {
           label: 'اعلان‌ها',
           badge: unread,
           onTap: () async {
-            await Navigator.push(context, MaterialPageRoute(builder: (_) => const NotificationsScreen()));
+            await Navigator.push(context, fadeThroughRoute(const NotificationsScreen()));
             widget.onNotificationsChanged();
           },
         ),
@@ -278,20 +281,25 @@ class _HomeTabState extends State<HomeTab> {
       child: Semantics(
         button: true,
         label: 'جستجوی خدمات',
-        child: Material(
-          color: context.surface,
-          borderRadius: BorderRadius.circular(PishkanMetrics.radiusPill),
-          clipBehavior: Clip.antiAlias,
-          child: InkWell(
-            onTap: () => Navigator.push(context, fadeThroughRoute(const ServiceSearchScreen())),
-            child: Padding(
-              padding: EdgeInsets.symmetric(horizontal: sizes.s(16), vertical: sizes.s(12)),
-              child: Row(children: [
-                Icon(Icons.search_rounded, color: context.inkMuted, size: sizes.s(21)),
-                SizedBox(width: sizes.s(8)),
-                Text('جستجوی خدمات…', style: TextStyle(color: context.inkMuted, fontSize: sizes.body)),
-              ]),
+        child: TactileTap(
+          scale: 0.985,
+          hold: const Duration(milliseconds: 100),
+          rippleRadius: 999,
+          onTap: () async => Navigator.push(context, fadeThroughRoute(const ServiceSearchScreen())),
+          child: Container(
+            padding: EdgeInsets.symmetric(horizontal: sizes.s(16), vertical: sizes.s(12)),
+            decoration: BoxDecoration(
+              color: context.surface,
+              borderRadius: BorderRadius.circular(PishkanMetrics.radiusPill),
+              border: Border.all(color: context.isDark ? PishkanColors.darkBorder : const Color(0xFFE6EEF9)),
             ),
+            child: Row(children: [
+              Icon(Icons.search_rounded, color: context.inkMuted, size: sizes.s(21)),
+              SizedBox(width: sizes.s(8)),
+              Expanded(child: Text('جستجوی خدمات…', style: TextStyle(color: context.inkMuted, fontSize: sizes.body))),
+              // A trailing hint that the field is a way in, not decoration.
+              Icon(Icons.tune_rounded, color: context.inkMuted.withOpacity(0.7), size: sizes.s(18)),
+            ]),
           ),
         ),
       ),
@@ -395,9 +403,14 @@ class _HomeTabState extends State<HomeTab> {
             SizedBox(height: sizes.s(16)),
             // The one solid element on the panel: the action. Everything else
             // is translucent, so the eye lands here.
-            PressableScale(
-              scale: 0.97,
-              onTap: () => widget.onOpenTab(1),
+            TactileTap(
+              scale: 0.96,
+              hold: const Duration(milliseconds: 110),
+              rippleRadius: 999,
+              // A bloom here is the whole point: this is the one solid control
+              // on a translucent panel, and light spreading out of it is what
+              // tells the thumb it hit the button rather than the panel.
+              onTap: () async => widget.onOpenTab(1),
               child: Container(
                 padding: EdgeInsets.symmetric(horizontal: sizes.s(20), vertical: sizes.s(11)),
                 decoration: BoxDecoration(
@@ -405,6 +418,10 @@ class _HomeTabState extends State<HomeTab> {
                   borderRadius: BorderRadius.circular(999),
                   boxShadow: [
                     BoxShadow(color: const Color(0x33000000), blurRadius: 14, offset: const Offset(0, 6)),
+                    // A second, bluer glow: the button is white on a blue
+                    // plate, so a neutral shadow alone leaves it looking
+                    // pasted on. This one reads as reflected brand light.
+                    BoxShadow(color: PishkanColors.primary.withOpacity(0.30), blurRadius: 22, offset: const Offset(0, 10)),
                   ],
                 ),
                 child: Row(mainAxisSize: MainAxisSize.min, children: [
@@ -682,6 +699,8 @@ class _ServicePill extends StatelessWidget {
     return TactileTap(
       scale: 0.93,
       hold: const Duration(milliseconds: 110),
+      // The tile is a circle of artwork, not a rounded card.
+      rippleRadius: 999,
       onTap: () async => Navigator.push(context, fadeThroughRoute(ServiceDetailScreen(service: service))),
       child: Column(children: [
         // A circle, not a rounded square: the medallion inside is round, and a

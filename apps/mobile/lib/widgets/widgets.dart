@@ -235,7 +235,17 @@ class SoftCard extends StatelessWidget {
       child: child,
     );
     if (onTap == null) return card;
-    return InkWell(onTap: onTap, borderRadius: BorderRadius.circular(22), child: card);
+    // `TactileTap` rather than `InkWell`: an InkWell needs a Material ancestor
+    // to paint its splash, and inside the home list there is not always one —
+    // so the tap gave no visible feedback at all on exactly the cards that
+    // open things. This also makes the press-and-then-navigate behaviour match
+    // every other tappable surface in the app.
+    return TactileTap(
+      onTap: () async => onTap!(),
+      scale: 0.985,
+      hold: const Duration(milliseconds: 110),
+      child: card,
+    );
   }
 }
 

@@ -69,8 +69,15 @@ void main() {
     expect(find.text('دوم'), findsOneWidget);
 
     // A tap opens *that* banner, not the one the rail started on.
+    //
+    // The open is deliberately delayed by the press hold in `TactileTap` — the
+    // card dips first, then the page opens. `pumpAndSettle` is still wrong here
+    // because the rail's own timer never lets the tree settle, so pump past the
+    // hold instead.
     await tester.tap(find.text('دوم'));
     await tester.pump();
+    expect(opened, isEmpty);
+    await tester.pump(const Duration(milliseconds: 200));
     expect(opened, ['b']);
 
     // And leaving the tree stops the timer: no pending-timer failure.

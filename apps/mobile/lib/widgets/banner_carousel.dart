@@ -162,6 +162,10 @@ class BannerCard extends StatelessWidget {
       onTap: () async => onTap(),
       scale: 0.972,
       hold: const Duration(milliseconds: 120),
+      // No bloom: the banner is a photograph, and a tinted circle spreading
+      // across it reads as a smudge on the picture. The dip and the haptic are
+      // the whole effect here.
+      ripple: false,
       child: ClipRRect(
         borderRadius: BorderRadius.circular(24),
         child: Stack(

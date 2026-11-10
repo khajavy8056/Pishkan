@@ -47,6 +47,12 @@ void main() {
     expect(find.byType(CategoryArtImage), findsOneWidget);
     expect(tester.takeException(), isNull);
     await tester.tap(find.byType(CategoryCard));
+    // The tap is deliberately *not* instant: `TactileTap` holds the pressed
+    // state for ~120 ms before it calls `onTap`, so the customer sees the card
+    // dip before the next page covers it. Asserting the callback fires on the
+    // same frame would lock in the dead-feeling behaviour this replaced.
+    expect(taps, 0);
+    await tester.pumpAndSettle();
     expect(taps, 1);
     // 160x95 is the tightest box the home grid can produce (two columns on a
     // small phone). Any RenderFlex overflow at this size is a real bug on a
