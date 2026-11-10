@@ -187,7 +187,9 @@ class _ServicesCatalogTabState extends State<ServicesCatalogTab> {
               scale: 0.94,
               hold: const Duration(milliseconds: 110),
               rippleRadius: 999,
-              onTap: () async => Navigator.push(context, fadeThroughRoute(ServiceDetailScreen(service: service))),
+              onTap: () async {
+                await Navigator.push(context, fadeThroughRoute(ServiceDetailScreen(service: service)));
+              },
               child: Column(children: [
                 Hero(
                   tag: 'service-art-${service.slug}',

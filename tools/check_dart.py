@@ -100,6 +100,85 @@ def strip_code(source: str) -> str:
     return ''.join(out)
 
 
+# Flutter types that are *siblings*, not parent/child. Passing one where the
+# parameter is declared as the other is a plain compile error, and it is the
+# mistake that actually happens when a widget is written for `Alignment` and
+# then called with `AlignmentDirectional` (or the reverse) while adding RTL
+# support. `check_dart` does not type-check, so this is checked explicitly.
+SIBLING_TYPES = {
+    'Alignment': {'AlignmentDirectional'},
+    'AlignmentDirectional': {'Alignment'},
+}
+
+
+def declared_param_types(source: str) -> dict[str, dict[str, str]]:
+    """Map widget class -> {field name: declared type} for its own fields.
+
+    Only `this.x` constructor parameters with a matching `final T x;` field are
+    collected, which is enough for the widgets this project writes.
+    """
+    classes: dict[str, dict[str, str]] = {}
+    for match in re.finditer(r'\bclass\s+(\w+)\s+extends\s+\w+', source):
+        name = match.group(1)
+        # field declarations in the class body
+        body_start = source.find('{', match.end())
+        if body_start < 0:
+            continue
+        fields: dict[str, str] = {}
+        for field in re.finditer(r'^\s*(?:final|const)\s+(\w+)\??\s+(\w+)\s*;', source[body_start:body_start + 6000], re.M):
+            fields[field.group(2)] = field.group(1)
+        if fields:
+            classes[name] = fields
+    return classes
+
+
+def sibling_type_mismatches(path: Path, source: str, global_fields: dict[str, dict[str, str]]) -> list[str]:
+    problems: list[str] = []
+    code = strip_code(source)
+    for cls, fields in global_fields.items():
+        for call in re.finditer(rf'\b{cls}\s*\(', code):
+            depth = 0
+            i = call.end() - 1
+            while i < len(code):
+                if code[i] == '(':
+                    depth += 1
+                elif code[i] == ')':
+                    depth -= 1
+                    if depth == 0:
+                        break
+                i += 1
+            body = code[call.end():i]
+            for arg in re.finditer(r'\b(\w+)\s*:\s*(AlignmentDirectional|Alignment)\s*\(', body):
+                field, given = arg.group(1), arg.group(2)
+                want = fields.get(field)
+                if want and given in SIBLING_TYPES.get(want, set()):
+                    line = code[:call.start() + arg.start()].count('\n') + 1
+                    problems.append(f'line {line}: {cls}.{field} is {want} but is given {given}')
+    return problems
+
+
+def future_void_arrow_mismatches(source: str) -> list[str]:
+    """Catch `() async => expr` where the closure must be `Future<void>`.
+
+    `() async => Navigator.push(...)` has the inferred type
+    `Future<T?> Function()`, and `Future<T?>` is not assignable to `Future<void>`
+    — a compile error that reads like a typo. It only happens on arrow bodies,
+    so it is cheap to detect: the arrow returns a value, and the widget's own
+    field is declared `Future<void> Function()`.
+    """
+    code = strip_code(source)
+    problems: list[str] = []
+    for match in re.finditer(r'on\w+:\s*\(\)\s*async\s*=>\s*', code):
+        tail = code[match.end():match.end() + 120]
+        # A block body or a void-ish call is fine; a `Navigator.push(`/`show*`
+        # returns a future with a value.
+        target = re.match(r'([\w.]+)\s*\(', tail)
+        if target and target.group(1).endswith(('push', 'showDialog', 'showModalBottomSheet', 'pushNamed')):
+            line = code[:match.start()].count('\n') + 1
+            problems.append(f'line {line}: `() async => {target.group(1)}(...)` returns a value; use a block body')
+    return problems
+
+
 def check_file(path: Path) -> list[str]:
     source = path.read_text(encoding='utf-8')
     code = strip_code(source)
@@ -147,9 +226,21 @@ def main(argv: list[str]) -> int:
     for target in targets:
         files.extend(sorted(target.rglob('*.dart')) if target.is_dir() else [target])
 
+    # Widget field types, across every file, so a widget declared in one place
+    # and called in another is still checked.
+    global_fields: dict[str, dict[str, str]] = {}
+    for path in files:
+        try:
+            global_fields.update(declared_param_types(path.read_text(encoding='utf-8')))
+        except OSError:
+            continue
+
     total = 0
     for path in files:
         problems = check_file(path)
+        source = path.read_text(encoding='utf-8')
+        problems.extend(sibling_type_mismatches(path, source, global_fields))
+        problems.extend(future_void_arrow_mismatches(source))
         if problems:
             total += len(problems)
             print(f'{path.relative_to(ROOT)}')

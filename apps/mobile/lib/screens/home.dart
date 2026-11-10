@@ -285,7 +285,9 @@ class _HomeTabState extends State<HomeTab> {
           scale: 0.985,
           hold: const Duration(milliseconds: 100),
           rippleRadius: 999,
-          onTap: () async => Navigator.push(context, fadeThroughRoute(const ServiceSearchScreen())),
+          onTap: () async {
+            await Navigator.push(context, fadeThroughRoute(const ServiceSearchScreen()));
+          },
           child: Container(
             padding: EdgeInsets.symmetric(horizontal: sizes.s(16), vertical: sizes.s(12)),
             decoration: BoxDecoration(
@@ -705,7 +707,11 @@ class _ServicePill extends StatelessWidget {
       hold: const Duration(milliseconds: 110),
       // The tile is a circle of artwork, not a rounded card.
       rippleRadius: 999,
-      onTap: () async => Navigator.push(context, fadeThroughRoute(ServiceDetailScreen(service: service))),
+      // A block body, not `=> Navigator.push(...)`: that returns `Future<T?>`,
+      // which is not assignable to this widget's `Future<void> Function()`.
+      onTap: () async {
+        await Navigator.push(context, fadeThroughRoute(ServiceDetailScreen(service: service)));
+      },
       child: Column(children: [
         // A circle, not a rounded square: the medallion inside is round, and a
         // square plate behind a round picture reads as a mistake.
@@ -959,10 +965,12 @@ class _LiveCaseCard extends StatelessWidget {
       child: TactileTap(
         scale: 0.97,
         hold: const Duration(milliseconds: 110),
-        onTap: () async => Navigator.push(
-          context,
-          fadeThroughRoute(RequestDetailScreen(requestId: request.id)),
-        ),
+        onTap: () async {
+          await Navigator.push(
+            context,
+            fadeThroughRoute(RequestDetailScreen(requestId: request.id)),
+          );
+        },
         child: Container(
           padding: EdgeInsets.all(sizes.s(14)),
           decoration: BoxDecoration(
