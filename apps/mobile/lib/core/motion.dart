@@ -343,3 +343,189 @@ abstract final class Haptics {
   /// Something completed or failed: submit, payment, error.
   static void settle() => HapticFeedback.mediumImpact();
 }
+
+/// Reveals its child when it actually scrolls into view — once.
+///
+/// `StaggeredReveal` fires on mount, which is right for a short page but wrong
+/// for the home page: a section eight screens down has already finished its
+/// animation by the time anyone gets there, so it just pops into existence.
+/// This watches the scrollable it sits in and starts the reveal only when the
+/// child crosses [_trigger] of the viewport.
+///
+/// Deliberately outside-in, not a global scroll listener: each section owns its
+/// own trigger, so sections do not need to know how many are above them, and a
+/// section that is already visible at first paint (the hero) animates
+/// immediately instead of waiting for a scroll that may never come.
+///
+/// It does not touch the scroll position in any way — no hijacking, no locking,
+/// no jump. The only thing it reads is whether it has been seen.
+class ScrollDrivenReveal extends StatefulWidget {
+  const ScrollDrivenReveal({
+    super.key,
+    required this.child,
+    this.offset = 26,
+    this.delay = Duration.zero,
+    this.scaleFrom = 1,
+    this.horizontal = false,
+  });
+
+  final Widget child;
+
+  /// How far the child travels, in logical pixels.
+  final double offset;
+
+  /// Stagger, for siblings that share a trigger.
+  final Duration delay;
+
+  /// Start a little smaller and settle to 1 — used for cards that should feel
+  /// like they are arriving rather than sliding.
+  final double scaleFrom;
+
+  /// Come in from the side instead of from below.
+  final bool horizontal;
+
+  /// How far up from the bottom edge counts as "in view".
+  static const double _trigger = 0.90;
+
+  @override
+  State<ScrollDrivenReveal> createState() => _ScrollDrivenRevealState();
+}
+
+class _ScrollDrivenRevealState extends State<ScrollDrivenReveal> with SingleTickerProviderStateMixin {
+  late final AnimationController _controller = AnimationController(
+    vsync: this,
+    duration: PishkanMotion.settled,
+  );
+  late final Animation<double> _curved = CurvedAnimation(parent: _controller, curve: PishkanMotion.enter);
+
+  ScrollPosition? _position;
+  bool _seen = false;
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    final next = Scrollable.maybeOf(context)?.position;
+    if (identical(next, _position)) return;
+    _position?.removeListener(_onScroll);
+    _position = next;
+    _position?.addListener(_onScroll);
+    // Already on screen at first paint: animate now rather than on a scroll
+    // that will never happen.
+    WidgetsBinding.instance.addPostFrameCallback((_) => _check());
+  }
+
+  @override
+  void dispose() {
+    _position?.removeListener(_onScroll);
+    _controller.dispose();
+    super.dispose();
+  }
+
+  void _onScroll() => _check();
+
+  void _check() {
+    if (_seen || !mounted) return;
+    final box = context.findRenderObject();
+    if (box is! RenderBox || !box.hasSize) return;
+    final height = MediaQuery.sizeOf(context).height;
+    final top = box.localToGlobal(Offset.zero).dy;
+    // The child counts as arrived once its top is above the trigger line.
+    if (top <= height * ScrollDrivenReveal._trigger) {
+      _seen = true;
+      if (widget.delay == Duration.zero) {
+        _controller.forward();
+      } else {
+        Future<void>.delayed(widget.delay).then((_) {
+          if (mounted) _controller.forward();
+        });
+      }
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    // Reduced motion, and anything that has already been seen and rebuilt:
+    // render at rest, with no controller work.
+    if (PishkanMotion.reduced(context)) return widget.child;
+    return AnimatedBuilder(
+      animation: _curved,
+      builder: (_, child) {
+        final t = _curved.value;
+        final shift = (1 - t) * widget.offset;
+        return Opacity(
+          opacity: t,
+          child: Transform.translate(
+            offset: widget.horizontal ? Offset(shift, 0) : Offset(0, shift),
+            child: widget.scaleFrom == 1
+                ? child
+                : Transform.scale(scale: widget.scaleFrom + (1 - widget.scaleFrom) * t, child: child),
+          ),
+        );
+      },
+      child: widget.child,
+    );
+  }
+}
+
+/// Shifts its child against the scroll, for depth.
+///
+/// A small, bounded parallax: the child moves at [factor] of the scroll delta
+/// relative to its own position, so content behind drifts slower than content
+/// in front. Capped at [maxShift] so nothing can walk off its parent, and
+/// disabled entirely under reduced motion.
+class Parallax extends StatefulWidget {
+  const Parallax({
+    super.key,
+    required this.child,
+    this.factor = 0.18,
+    this.maxShift = 28,
+  });
+
+  final Widget child;
+
+  /// Fraction of the scroll distance to lag behind by. 0 is pinned, 1 is
+  /// stationary in the world.
+  final double factor;
+  final double maxShift;
+
+  @override
+  State<Parallax> createState() => _ParallaxState();
+}
+
+class _ParallaxState extends State<Parallax> {
+  ScrollPosition? _position;
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    final next = Scrollable.maybeOf(context)?.position;
+    if (identical(next, _position)) return;
+    _position?.removeListener(_tick);
+    _position = next;
+    _position?.addListener(_tick);
+  }
+
+  @override
+  void dispose() {
+    _position?.removeListener(_tick);
+    super.dispose();
+  }
+
+  void _tick() {
+    if (mounted) setState(() {});
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    if (PishkanMotion.reduced(context) || _position == null || !_position!.hasContentDimensions) {
+      return widget.child;
+    }
+    final box = context.findRenderObject();
+    if (box is! RenderBox || !box.hasSize) return widget.child;
+    // How far this widget's top is from the top of the viewport, normalised so
+    // zero means "its top is exactly at the top edge".
+    final scrolled = -box.localToGlobal(Offset.zero).dy;
+    final shift = (scrolled * widget.factor).clamp(-widget.maxShift, widget.maxShift);
+    return Transform.translate(offset: Offset(0, shift), child: widget.child);
+  }
+}

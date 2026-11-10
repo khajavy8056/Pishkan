@@ -231,7 +231,13 @@ class _HomeShellState extends State<HomeShell> with WidgetsBindingObserver {
           // No sound here. A tick on every tab press is the one piece of
           // feedback people actively dislike: it fires dozens of times a
           // session and cannot be turned off without muting notifications too.
-          onTap: () => selectTab(index),
+          onTap: () {
+            // Selecting a tab is the most frequent deliberate action in the
+            // app; the tick is what confirms the tap landed before the new
+            // body has painted.
+            if (!active) Haptics.select();
+            selectTab(index);
+          },
           child: AnimatedContainer(
             duration: PishkanMotion.standard,
             curve: PishkanMotion.enter,
@@ -246,8 +252,8 @@ class _HomeShellState extends State<HomeShell> with WidgetsBindingObserver {
             ),
             child: Column(mainAxisSize: MainAxisSize.min, children: [
               AnimatedScale(
-                scale: active ? 1.06 : 1,
-                duration: PishkanMotion.quick,
+                scale: active && !PishkanMotion.reduced(context) ? 1.06 : 1,
+                duration: PishkanMotion.scaled(context, PishkanMotion.quick),
                 curve: PishkanMotion.spring,
                 child: Icon(active ? activeIcon : icon,
                     color: active ? context.brand : context.inkMuted, size: sizes.s(23)),

@@ -86,6 +86,41 @@ class _HomeTabState extends State<HomeTab> {
 
   }
 
+  /// Wraps each entry in a scroll-triggered reveal, staggering siblings.
+  ///
+  /// The page is built as one flat list of mixed content — a carousel, a hero,
+  /// a title, a rail — so there is no single "section" widget to hang a trigger
+  /// on. This wraps every entry, which gives each one its own trigger and lets
+  /// the ones that come after an anchor element inherit its delay.
+  ///
+  /// Spacer entries (`SizedBox`) are deliberately *not* wrapped: animating a
+  /// gap does nothing visible and would waste a ticker per gap on a page with
+  /// a dozen of them.
+  List<Widget> scrollRevealed(List<Widget> entries) {
+    final out = <Widget>[];
+    var slot = 0;
+    for (final entry in entries) {
+      if (entry is SizedBox) {
+        out.add(entry);
+        continue;
+      }
+      // 45ms per visible slot, capped: by the fifth element the stagger stops
+      // growing, or the last card on a long scroll would wait two seconds.
+      final delay = Duration(milliseconds: (slot * 45).clamp(0, 220));
+      out.add(
+        ScrollDrivenReveal(
+          delay: delay,
+          // Rails are wide, so a large vertical offset reads as a jump; a
+          // single tile can afford to travel further.
+          offset: entry is BannerCarousel ? 18 : 26,
+          child: entry,
+        ),
+      );
+      slot++;
+    }
+    return out;
+  }
+
   /// Tapping a banner always does the same thing, wherever it is shown: hand
   /// it to the one resolver that knows how to turn a destination into a route.
   Future<void> _openBanner(AppBanner banner) =>
@@ -131,11 +166,12 @@ class _HomeTabState extends State<HomeTab> {
                 ),
                 SizedBox(height: sizes.gap),
               ],
-              // Everything below the header arrives in one wave. The two
-              // hand-placed RevealOnMounts that used to sit here covered only
-              // the hero and the quick-access row, so eight of the ten sections
-              // just appeared, which is what made the page read as static.
-              StaggeredReveal(step: const Duration(milliseconds: 55), children: [
+              // Sections arrive as they are scrolled to, not all at once on
+              // mount. `StaggeredReveal` fired on first build, so everything
+              // below the hero had finished animating before the customer
+              // scrolled far enough to see it — the animation existed and
+              // nobody ever saw it. Each block now owns its own trigger.
+              ...scrollRevealed([
                 if (_banners.isNotEmpty && (_config == null || _config!.bannersEnabled)) ...[
                   // Banners replaced the story ring. A wide card can say one
                   // thing and open the service it is about, which is the whole
@@ -296,66 +332,74 @@ class _HomeTabState extends State<HomeTab> {
       // The wash is brighter in dark mode, where a light panel on a near-black
       // background needs the extra glow to read as glass rather than as a hole.
       intensity: dark ? 1.0 : 0.75,
-      child: GlassCard(
-        radius: 26,
-        strong: true,
-        tint: Colors.white,
-        padding: EdgeInsets.fromLTRB(sizes.s(18), sizes.s(20), sizes.s(18), sizes.s(20)),
-        child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-          Row(children: [
-            Container(
-              padding: EdgeInsets.symmetric(horizontal: sizes.s(9), vertical: sizes.s(4)),
-              decoration: BoxDecoration(
-                color: Colors.white.withOpacity(0.22),
-                borderRadius: BorderRadius.circular(999),
-                border: Border.all(color: Colors.white.withOpacity(0.34)),
+      // The panel lags the scroll slightly, so the orbs behind it and the card
+      // above it move at different speeds — the depth comes from that
+      // difference, not from the card travelling far. 0.07 with a 16px cap
+      // keeps it to a hint; more than this and the hero visibly detaches from
+      // the list under it while scrolling.
+      child: Parallax(
+        factor: 0.07,
+        maxShift: 16,
+        child: GlassCard(
+          radius: 26,
+          strong: true,
+          padding: EdgeInsets.all(sizes.s(18)),
+          child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+            Row(children: [
+              Container(
+                padding: EdgeInsets.symmetric(horizontal: sizes.s(9), vertical: sizes.s(4)),
+                decoration: BoxDecoration(
+                  color: Colors.white.withOpacity(0.22),
+                  borderRadius: BorderRadius.circular(999),
+                  border: Border.all(color: Colors.white.withOpacity(0.34)),
+                ),
+                child: Text(
+                  'همهٔ خدمات، یک‌جا',
+                  style: TextStyle(color: Colors.white, fontSize: sizes.s(10), fontWeight: FontWeight.w700),
+                ),
               ),
-              child: Text(
-                'همهٔ خدمات، یک‌جا',
-                style: TextStyle(color: Colors.white, fontSize: sizes.s(10), fontWeight: FontWeight.w700),
+            ]),
+            SizedBox(height: sizes.s(12)),
+            Text(
+              'خدمات دولتی،',
+              style: TextStyle(color: Colors.white, fontSize: sizes.s(19), fontWeight: FontWeight.w800, height: 1.5),
+            ),
+            Text(
+              'بدون صف و انتظار',
+              style: TextStyle(color: Colors.white, fontSize: sizes.s(19), fontWeight: FontWeight.w800, height: 1.5),
+            ),
+            SizedBox(height: sizes.s(6)),
+            Text(
+              'انجام همهٔ امور اداری شما در یک جا',
+              style: TextStyle(color: Colors.white.withOpacity(0.90), fontSize: sizes.s(12.5), height: 1.7),
+            ),
+            SizedBox(height: sizes.s(16)),
+            // The one solid element on the panel: the action. Everything else
+            // is translucent, so the eye lands here.
+            PressableScale(
+              scale: 0.97,
+              onTap: () => widget.onOpenTab(1),
+              child: Container(
+                padding: EdgeInsets.symmetric(horizontal: sizes.s(20), vertical: sizes.s(11)),
+                decoration: BoxDecoration(
+                  color: Colors.white,
+                  borderRadius: BorderRadius.circular(999),
+                  boxShadow: [
+                    BoxShadow(color: const Color(0x33000000), blurRadius: 14, offset: const Offset(0, 6)),
+                  ],
+                ),
+                child: Row(mainAxisSize: MainAxisSize.min, children: [
+                  Text(
+                    'ثبت درخواست جدید',
+                    style: TextStyle(color: PishkanColors.primary, fontWeight: FontWeight.w800, fontSize: sizes.s(13)),
+                  ),
+                  SizedBox(width: sizes.s(4)),
+                  Icon(Icons.arrow_back_rounded, size: sizes.s(16), color: PishkanColors.primary),
+                ]),
               ),
             ),
           ]),
-          SizedBox(height: sizes.s(12)),
-          Text(
-            'خدمات دولتی،',
-            style: TextStyle(color: Colors.white, fontSize: sizes.s(19), fontWeight: FontWeight.w800, height: 1.5),
-          ),
-          Text(
-            'بدون صف و انتظار',
-            style: TextStyle(color: Colors.white, fontSize: sizes.s(19), fontWeight: FontWeight.w800, height: 1.5),
-          ),
-          SizedBox(height: sizes.s(6)),
-          Text(
-            'انجام همهٔ امور اداری شما در یک جا',
-            style: TextStyle(color: Colors.white.withOpacity(0.90), fontSize: sizes.s(12.5), height: 1.7),
-          ),
-          SizedBox(height: sizes.s(16)),
-          // The one solid element on the panel: the action. Everything else is
-          // translucent, so the eye lands here.
-          PressableScale(
-            scale: 0.97,
-            onTap: () => widget.onOpenTab(1),
-            child: Container(
-              padding: EdgeInsets.symmetric(horizontal: sizes.s(20), vertical: sizes.s(11)),
-              decoration: BoxDecoration(
-                color: Colors.white,
-                borderRadius: BorderRadius.circular(999),
-                boxShadow: [
-                  BoxShadow(color: const Color(0x33000000), blurRadius: 14, offset: const Offset(0, 6)),
-                ],
-              ),
-              child: Row(mainAxisSize: MainAxisSize.min, children: [
-                Text(
-                  'ثبت درخواست جدید',
-                  style: TextStyle(color: PishkanColors.primary, fontWeight: FontWeight.w800, fontSize: sizes.s(13)),
-                ),
-                SizedBox(width: sizes.s(4)),
-                Icon(Icons.arrow_back_rounded, size: sizes.s(16), color: PishkanColors.primary),
-              ]),
-            ),
-          ),
-        ]),
+        ),
       ),
     );
   }
