@@ -43,13 +43,42 @@ class BannerCarousel extends StatefulWidget {
   State<BannerCarousel> createState() => _BannerCarouselState();
 }
 
+/// The built-in banner, as an [AppBanner] the rail can render.
+///
+/// Built here rather than fetched because it is not content: it is the app
+/// introducing itself, it never changes between builds, and the first run of a
+/// fresh install has no network yet. A server that has published its own
+/// banners replaces it entirely — this is what fills the rail when there would
+/// otherwise be nothing.
+AppBanner builtInBanner() => AppBanner.fromJson(<String, dynamic>{
+      'id': '__built_in',
+      'kind': 'general',
+      'title': defaultBanners['title'],
+      'subtitle': defaultBanners['subtitle'],
+      'actionLabel': defaultBanners['action'],
+      // «شروع کنید» opens the catalogue, not one particular service: it is the
+      // first thing a new customer taps, and it should lead to the full list
+      // rather than guessing which service they came for. `banner_route.dart`
+      // maps this path to the catalogue tab, so the tap stays in the app.
+      'destinationKind': 'url',
+      'destinationUrl': '/app/services',
+    });
+
 class _BannerCarouselState extends State<BannerCarousel> {
   final _controller = PageController(viewportFraction: 0.93);
   Timer? _timer;
   int _page = 0;
   bool _dragging = false;
 
-  int get _count => widget.banners.length;
+  /// What the rail actually shows.
+  ///
+  /// The office's banners when there are any, otherwise the built-in one. This
+  /// is a getter rather than a change to the caller so every use of the rail
+  /// gets the behaviour, including the notification previews that mount it
+  /// directly.
+  List<AppBanner> get _items => widget.banners.isEmpty ? [builtInBanner()] : widget.banners;
+
+  int get _count => _items.length;
 
   @override
   void initState() {
@@ -64,7 +93,7 @@ class _BannerCarouselState extends State<BannerCarousel> {
     // the list changes on every parent rebuild, which happens on every theme
     // or notification refresh; resetting then would pin the rail to page 0.
     if (old.banners.length != widget.banners.length) {
-      if (_page >= widget.banners.length) _page = 0;
+      if (_page >= _count) _page = 0;
       _restartTimer();
     }
   }
@@ -92,6 +121,9 @@ class _BannerCarouselState extends State<BannerCarousel> {
 
   @override
   Widget build(BuildContext context) {
+    // `_count` is never zero: the built-in banner stands in for an empty list,
+    // which is the whole point. The guard is kept for the impossible case so a
+    // future change to `_items` cannot silently divide by zero in the timer.
     if (_count == 0) return const SizedBox.shrink();
     return Column(
       children: [
@@ -114,8 +146,8 @@ class _BannerCarouselState extends State<BannerCarousel> {
                   end: index == _count - 1 ? 12 : 0,
                 ),
                 child: BannerCard(
-                  banner: widget.banners[index],
-                  onTap: () => widget.onOpenBanner(widget.banners[index]),
+                  banner: _items[index],
+                  onTap: () => widget.onOpenBanner(_items[index]),
                 ),
               ),
             ),
@@ -130,155 +162,187 @@ class _BannerCarouselState extends State<BannerCarousel> {
   }
 }
 
+/// The bundled banner art, keyed by the service slug a banner is about.
+///
+/// These are drawn as one set — same blue field, same light arch, same floating
+/// spheres — so the rail reads as a series of posters for one app rather than
+/// as five unrelated images. A banner whose subject has no bespoke art falls
+/// back to the hero, which is still the right thing to show: the app's own
+/// promise, not somebody else's photograph.
+const bannerArtAssets = <String, String>{
+  'vehicle-services': 'assets/banners/banner-vehicle.webp',
+  'housing-land': 'assets/banners/banner-property.webp',
+  'business-licenses': 'assets/banners/banner-business.webp',
+  'insurance-health': 'assets/banners/banner-health.webp',
+};
+
+/// The banner shown when the office has not published one.
+///
+/// The rail used to be empty on a fresh install until an admin uploaded
+/// something, which made the top of the home page a blank strip on exactly the
+/// first run a customer ever has. This is the app introducing itself.
+const defaultBanners = <String, String>{
+  'title': 'تک پیشخوان',
+  'subtitle': 'همراه شما در دسترسی آسان به خدمات دولتی',
+  'action': 'شروع کنید',
+  'asset': 'assets/banners/banner-hero.webp',
+};
+
 /// A single banner card.
 ///
 /// Public because the admin panel's own preview and the notifications list
 /// both reuse it; one widget means one look for "this is a banner".
+///
+/// The layout follows the reference: the artwork is the full card, the copy
+/// sits on the leading (right, in RTL) side over a scrim that is dense enough
+/// to carry white 16 px text and then disappears, so the picture is never
+/// tinted into a flat navy rectangle. The scrim is the banner's own accent,
+/// not a fixed colour — a fixed one made every card look like the same card.
+///
+/// The picture is the *bundled* art whenever the banner is about a service
+/// that has some, and the office's uploaded image only replaces it when one
+/// actually arrives. That ordering matters: these illustrations were drawn for
+/// this screen at this aspect ratio, while an uploaded one is whatever the
+/// manager had, and stretching it under a headline was how the old rail ended
+/// up with five cards that each looked accidental.
 class BannerCard extends StatelessWidget {
   const BannerCard({super.key, required this.banner, required this.onTap});
 
   final AppBanner banner;
   final VoidCallback onTap;
 
+  /// The bundled art for this banner, or the hero when there is none.
+  String get _asset =>
+      bannerArtAssets[banner.destinationSlug] ?? defaultBanners['asset']!;
+
   @override
   Widget build(BuildContext context) {
     final accent = banner.accentColor ?? context.brand;
-    // A banner with no photo of its own still has to look deliberate, so the
-    // fallback is a brand-tinted gradient, not a grey box.
-    final fallback = LinearGradient(
-      begin: AlignmentDirectional.topStart,
-      end: AlignmentDirectional.bottomEnd,
-      // Lifted, not darkened: `lerp` toward navy made every fallback card end
-      // in the same flat navy. Blending toward a bright cyan keeps the banner's
-      // own hue recognisable and gives the card a lit edge, which is what makes
-      // a rail of them read as colour rather than as six grey boxes.
-      colors: [
-        accent,
-        Color.alphaBlend(accent.withOpacity(0.55), const Color(0xFF22D3EE)),
-      ],
-    );
 
     return TactileTap(
       onTap: () async => onTap(),
       scale: 0.972,
       hold: const Duration(milliseconds: 120),
-      // No bloom: the banner is a photograph, and a tinted circle spreading
-      // across it reads as a smudge on the picture. The dip and the haptic are
-      // the whole effect here.
+      sink: 0.014,
       child: ClipRRect(
         borderRadius: BorderRadius.circular(24),
         child: Stack(
           fit: StackFit.expand,
           children: [
-            if (banner.hasImage)
-              AuthImage(url: banner.imageCacheKey)
-            else
-              DecoratedBox(decoration: BoxDecoration(gradient: fallback)),
-            // The scrim.
-            //
-            // It used to be flat navy at 90% -> 60% -> 0 across the card. That
-            // is enough to make *any* photograph look like a dark banner — the
-            // complaint was that every card felt dead, and this was the reason:
-            // the picture's own colour was being replaced with the same navy
-            // every time.
-            //
-            // Now the scrim carries the banner's own accent instead of a fixed
-            // navy, and only reaches full strength where the text actually
-            // sits. The heading keeps 4.5:1 because the text column is over the
-            // dense end, while two thirds of the card get to show the artwork.
+            // The drawn art first, so the card is never a grey box while a
+            // remote picture loads.
+            Image.asset(
+              _asset,
+              fit: BoxFit.cover,
+              filterQuality: FilterQuality.medium,
+              errorBuilder: (_, _, _) => DecoratedBox(
+                decoration: BoxDecoration(
+                  gradient: LinearGradient(
+                    begin: AlignmentDirectional.topStart,
+                    end: AlignmentDirectional.bottomEnd,
+                    colors: [accent, Color.alphaBlend(accent.withOpacity(0.55), const Color(0xFF22D3EE))],
+                  ),
+                ),
+              ),
+            ),
+            // An uploaded image, if there is one, on top — and only once it has
+            // actually decoded, so it never covers the artwork with a blank.
+            if (banner.hasImage) AuthImageOrNothing(url: banner.imageCacheKey),
+            // The scrim. It reaches full strength only under the text block,
+            // which is the leading half; the artwork keeps its own colour.
             DecoratedBox(
               decoration: BoxDecoration(
                 gradient: LinearGradient(
-                  begin: AlignmentDirectional.centerStart,
-                  end: AlignmentDirectional.centerEnd,
+                  begin: AlignmentDirectional.centerEnd,
+                  end: AlignmentDirectional.centerStart,
                   colors: [
-                    Color.alphaBlend(Colors.black.withOpacity(0.52), accent),
-                    Color.alphaBlend(Colors.black.withOpacity(0.24), accent),
+                    Color.alphaBlend(Colors.black.withOpacity(0.42), accent),
+                    Color.alphaBlend(Colors.black.withOpacity(0.16), accent),
                     Colors.transparent,
                   ],
-                  stops: const [0, 0.52, 1],
+                  stops: const [0, 0.48, 1],
                 ),
               ),
             ),
             Padding(
-              padding: const EdgeInsets.fromLTRB(18, 16, 18, 16),
+              padding: const EdgeInsets.fromLTRB(20, 16, 20, 16),
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
-                mainAxisAlignment: MainAxisAlignment.end,
+                mainAxisAlignment: MainAxisAlignment.center,
                 children: [
-                  Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 3),
-                    decoration: BoxDecoration(
-                      color: Colors.white.withOpacity(0.20),
-                      borderRadius: BorderRadius.circular(999),
-                      border: Border.all(color: Colors.white.withOpacity(0.30)),
-                    ),
-                    child: Text(
-                      banner.badge,
-                      style: const TextStyle(
-                        color: Colors.white,
-                        fontSize: 10,
-                        fontWeight: FontWeight.w700,
-                        letterSpacing: 0.2,
-                      ),
-                    ),
-                  ),
-                  const SizedBox(height: 8),
                   Text(
                     banner.title,
                     maxLines: 2,
                     overflow: TextOverflow.ellipsis,
                     style: const TextStyle(
                       color: Colors.white,
-                      fontSize: 16,
-                      fontWeight: FontWeight.w800,
-                      height: 1.45,
-                      shadows: [Shadow(color: Color(0x80000000), blurRadius: 10)],
+                      fontSize: 19,
+                      fontWeight: FontWeight.w900,
+                      height: 1.42,
+                      shadows: [Shadow(color: Color(0x66000000), blurRadius: 12)],
                     ),
                   ),
                   if (banner.subtitle.isNotEmpty) ...[
-                    const SizedBox(height: 4),
+                    const SizedBox(height: 7),
                     Text(
                       banner.subtitle,
                       maxLines: 2,
                       overflow: TextOverflow.ellipsis,
                       style: TextStyle(
-                        color: Colors.white.withOpacity(0.90),
-                        fontSize: 11.5,
-                        height: 1.65,
+                        color: Colors.white.withOpacity(0.92),
+                        fontSize: 12,
+                        height: 1.7,
+                        shadows: const [Shadow(color: Color(0x59000000), blurRadius: 10)],
                       ),
                     ),
                   ],
                   if (banner.destinationKind != 'none') ...[
-                    const SizedBox(height: 10),
-                    Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-                      decoration: BoxDecoration(
-                        color: Colors.white.withOpacity(0.95),
-                        borderRadius: BorderRadius.circular(999),
-                      ),
-                      child: Row(
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          Text(
-                            banner.actionLabel,
-                            style: TextStyle(
-                              color: accent,
-                              fontSize: 11,
-                              fontWeight: FontWeight.w800,
-                            ),
-                          ),
-                          const SizedBox(width: 2),
-                          Icon(Icons.chevron_left_rounded, size: 15, color: accent),
-                        ],
-                      ),
-                    ),
+                    const SizedBox(height: 14),
+                    _BannerAction(accent: accent, label: banner.actionLabel),
                   ],
                 ],
               ),
             ),
           ],
         ),
+      ),
+    );
+  }
+}
+
+/// The white pill under a banner's subtitle.
+///
+/// Split out so the card's build stays a readable list of layers, and so the
+/// glow can be tuned in one place: the pill sits on a photograph, and a neutral
+/// shadow alone leaves it looking pasted on.
+class _BannerAction extends StatelessWidget {
+  const _BannerAction({required this.accent, required this.label});
+
+  final Color accent;
+  final String label;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 15, vertical: 8),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(999),
+        boxShadow: [
+          BoxShadow(color: Colors.black.withOpacity(0.20), blurRadius: 10, offset: const Offset(0, 4)),
+          BoxShadow(color: accent.withOpacity(0.34), blurRadius: 18, offset: const Offset(0, 8)),
+        ],
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Text(
+            label,
+            style: TextStyle(color: accent, fontSize: 12, fontWeight: FontWeight.w800),
+          ),
+          const SizedBox(width: 3),
+          Icon(Icons.arrow_back_rounded, size: 15, color: accent),
+        ],
       ),
     );
   }

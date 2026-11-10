@@ -1,6 +1,3 @@
-import 'dart:math' as math;
-import 'dart:ui' show ImageFilter;
-
 import 'package:flutter/material.dart';
 
 import '../core/format.dart';
@@ -173,19 +170,25 @@ class _HomeTabState extends State<HomeTab> {
               // scrolled far enough to see it — the animation existed and
               // nobody ever saw it. Each block now owns its own trigger.
               ...scrollRevealed([
-                if (_banners.isNotEmpty && (_config == null || _config!.bannersEnabled)) ...[
-                  // Banners replaced the story ring. A wide card can say one
-                  // thing and open the service it is about, which is the whole
-                  // reason the ring was retired: a story needed two taps and a
-                  // slideshow before the customer reached anything useful.
+                // The banner rail *is* the hero now.
+                //
+                // Before this, the page opened with a banner and then a second
+                // full-width panel repeating the same promise in different
+                // words — two oversized blocks stacked, each pushing the
+                // shortcuts below the fold. There is one welcome surface on the
+                // page, and it is the banner: it is the larger, better-looking
+                // of the two, and the customer can act on it directly. The
+                // built-in one is shown even before the office publishes
+                // anything, so a fresh install is never greeted by a gap.
+                if (_config == null || _config!.bannersEnabled) ...[
                   BannerCarousel(
                     banners: _banners,
                     onOpenBanner: _openBanner,
+                    height: sizes.s(196),
                   ),
-                  SizedBox(height: sizes.s(10)),
+                  SizedBox(height: sizes.s(14)),
                 ],
-                _hero(),
-                SizedBox(height: sizes.s(20)),
+                SizedBox(height: sizes.s(6)),
                 _sectionTitle('دسترسی سریع'),
                 SizedBox(height: sizes.s(8)),
                 _quickAccess(),
@@ -338,25 +341,6 @@ class _HomeTabState extends State<HomeTab> {
           ),
       ]),
     );
-  }
-
-  /// The welcome panel.
-  ///
-  /// Two stacked layers, not one flat gradient. Behind the card sits a soft
-  /// "light wash" — a pair of large, blurred, low-opacity orbs that drift
-  /// almost imperceptibly. On top of it sits a real glass card, so the panel
-  /// has depth: the orbs are *behind* the surface and visible through it,
-  /// which is what separates a glass panel from a gradient rectangle.
-  ///
-  /// The drift is a 9-second alternating tween on two offsets — cheap enough
-  /// to run on a weak phone, slow enough not to pull the eye away from the
-  /// button.
-  Widget _hero() {
-    final sizes = context.sizes;
-    // The hero is its own widget now (see `_LiveHero`): it owns an ambient
-    // controller, and a stateful panel inside a stateless page rebuilds nothing
-    // else when that controller ticks.
-    return _LiveHero(onOpen: () => widget.onOpenTab(1));
   }
 
   Widget _quickAccess() {
@@ -697,42 +681,6 @@ class _ServiceTileSkeleton extends StatelessWidget {
   }
 }
 
-/// The opaque base of the welcome panel.
-///
-/// Kept as its own widget so the panel's height comes from the *content*, which
-/// is what lets the light orbs and the rim be `Positioned.fill` layers around
-/// it instead of guessing a height.
-class _Plate extends StatelessWidget {
-  const _Plate({required this.child});
-
-  final Widget child;
-
-  @override
-  Widget build(BuildContext context) {
-    return DecoratedBox(
-      decoration: BoxDecoration(
-        borderRadius: BorderRadius.circular(26),
-        gradient: const LinearGradient(
-          begin: AlignmentDirectional.topStart,
-          end: AlignmentDirectional.bottomEnd,
-          colors: [Color(0xE61F6FEE), Color(0xE60B3E8F)],
-        ),
-        boxShadow: [
-          BoxShadow(
-            color: PishkanColors.primary.withOpacity(context.isDark ? 0.22 : 0.30),
-            blurRadius: 22,
-            offset: const Offset(0, 12),
-          ),
-        ],
-      ),
-      child: ClipRRect(
-        borderRadius: BorderRadius.circular(26),
-        child: child,
-      ),
-    );
-  }
-}
-
 /// One open case, as a coloured card in the live rail.
 ///
 /// Deliberately unlike every other card on the page: it is the only one with a
@@ -830,314 +778,6 @@ class _LiveCaseCard extends StatelessWidget {
             ],
           ),
         ),
-      ),
-    );
-  }
-}
-
-
-/// The home hero: a live, breathing panel rather than a poster.
-///
-/// The previous version was three lines of static text on a glass card. It said
-/// the right thing and did nothing — nothing moved, nothing responded, and the
-/// only interactive element was a button at the bottom. The brief was explicit
-/// that this panel is where the page should feel alive, so it is rebuilt as a
-/// composed scene:
-///
-///  * a slow-drifting gradient field, so the surface is never twice the same;
-///  * three translucent discs orbiting behind the copy at different speeds,
-///    which gives the panel parallax of its own;
-///  * a hairline arc that draws itself and fades, like a rule being written;
-///  * the headline arriving in two staged pieces, then holding.
-///
-/// None of it scrolls the page, blocks input or changes size: it is decoration
-/// painted behind fixed content, so it costs one controller and no layout.
-class _LiveHero extends StatefulWidget {
-  const _LiveHero({required this.onOpen});
-
-  final VoidCallback onOpen;
-
-  @override
-  State<_LiveHero> createState() => _LiveHeroState();
-}
-
-class _LiveHeroState extends State<_LiveHero> with SingleTickerProviderStateMixin {
-  late final AnimationController _ambient = AnimationController(
-    vsync: this,
-    duration: const Duration(seconds: 12),
-  )..repeat();
-
-  @override
-  void dispose() {
-    _ambient.dispose();
-    super.dispose();
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    final sizes = context.sizes;
-    final reduceMotion = PishkanMotion.reduced(context);
-    return Parallax(
-      factor: 0.07,
-      maxShift: 16,
-      child: ClipRRect(
-        borderRadius: BorderRadius.circular(28),
-        child: Stack(children: [
-          // ---- the field -------------------------------------------------
-          const Positioned.fill(
-            child: DecoratedBox(
-              decoration: BoxDecoration(gradient: PishkanColors.brandGradient),
-            ),
-          ),
-          if (!reduceMotion)
-            Positioned.fill(
-              child: IgnorePointer(
-                child: AnimatedBuilder(
-                  animation: _ambient,
-                  builder: (context, _) => CustomPaint(
-                    painter: _HeroAura(t: _ambient.value),
-                  ),
-                ),
-              ),
-            ),
-          // A dark foot, so white copy at the bottom never sits on a light
-          // patch of the moving field.
-          Positioned.fill(
-            child: IgnorePointer(
-              child: DecoratedBox(
-                decoration: BoxDecoration(
-                  gradient: LinearGradient(
-                    begin: Alignment.topCenter,
-                    end: Alignment.bottomCenter,
-                    colors: [
-                      Color.alphaBlend(Colors.black.withOpacity(0.06), Colors.transparent),
-                      Colors.transparent,
-                      Colors.black.withOpacity(0.26),
-                    ],
-                    stops: const [0, 0.45, 1],
-                  ),
-                ),
-              ),
-            ),
-          ),
-          // ---- the content ----------------------------------------------
-          Padding(
-            padding: EdgeInsets.all(sizes.s(18)),
-            child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-              Row(children: [
-                _HeroPill(label: 'همهٔ خدمات، یک‌جا'),
-                const Spacer(),
-                // A living status dot: it is the cheapest possible signal that
-                // the app is running rather than a screenshot.
-                _LiveDot(animate: !reduceMotion),
-              ]),
-              SizedBox(height: sizes.s(14)),
-              Text(
-                'خدمات دولتی،',
-                style: TextStyle(
-                  color: Colors.white,
-                  fontSize: sizes.s(21),
-                  fontWeight: FontWeight.w900,
-                  height: 1.45,
-                  letterSpacing: -0.2,
-                ),
-              ),
-              Text(
-                'بدون صف و انتظار',
-                style: TextStyle(
-                  color: Colors.white,
-                  fontSize: sizes.s(21),
-                  fontWeight: FontWeight.w900,
-                  height: 1.45,
-                  letterSpacing: -0.2,
-                ),
-              ),
-              SizedBox(height: sizes.s(7)),
-              Text(
-                'همهٔ امور اداری شما در یک جا، با پیگیری لحظه‌ای',
-                style: TextStyle(color: Colors.white.withOpacity(0.88), fontSize: sizes.s(12.5), height: 1.7),
-              ),
-              SizedBox(height: sizes.s(16)),
-              Row(children: [
-                TactileTap(
-                  scale: 0.965,
-                  hold: const Duration(milliseconds: 120),
-                  sink: 0.02,
-                  onTap: () async => widget.onOpen(),
-                  child: Container(
-                    padding: EdgeInsets.symmetric(horizontal: sizes.s(18), vertical: sizes.s(11)),
-                    decoration: BoxDecoration(
-                      color: Colors.white,
-                      borderRadius: BorderRadius.circular(999),
-                      boxShadow: [
-                        // Two shadows on purpose: a neutral contact shadow that
-                        // anchors the button, and a brand-coloured glow that
-                        // makes it look lit from the panel behind it.
-                        BoxShadow(color: Colors.black.withOpacity(0.20), blurRadius: 10, offset: const Offset(0, 4)),
-                        BoxShadow(color: PishkanColors.primary.withOpacity(0.34), blurRadius: 22, offset: const Offset(0, 9)),
-                      ],
-                    ),
-                    child: Row(mainAxisSize: MainAxisSize.min, children: [
-                      Text('ثبت درخواست جدید',
-                          style: TextStyle(color: PishkanColors.primary, fontWeight: FontWeight.w900, fontSize: sizes.s(13))),
-                      SizedBox(width: sizes.s(5)),
-                      Icon(Icons.arrow_back_rounded, size: sizes.s(16), color: PishkanColors.primary),
-                    ]),
-                  ),
-                ),
-              ]),
-            ]),
-          ),
-        ]),
-      ),
-    );
-  }
-}
-
-/// The slow-moving light behind the hero copy.
-///
-/// Three soft discs on independent orbits plus a drawn arc. Painted in one pass
-/// rather than built from widgets: this repaints every frame, and three
-/// `Container`s with radial gradients would be three more layers to composite
-/// on exactly the screen where scroll performance matters most.
-class _HeroAura extends CustomPainter {
-  _HeroAura({required this.t});
-
-  final double t;
-
-  @override
-  void paint(Canvas canvas, Size size) {
-    if (size.isEmpty) return;
-    final w = size.width;
-    final h = size.height;
-
-    void disc(double cx, double cy, double r, Color color, double alpha) {
-      final paint = Paint()
-        ..shader = RadialGradient(colors: [color.withOpacity(alpha), color.withOpacity(0)])
-            .createShader(Rect.fromCircle(center: Offset(cx, cy), radius: r));
-      canvas.drawCircle(Offset(cx, cy), r, paint);
-    }
-
-    // Each disc has its own period, so the composition never repeats on a
-    // device that stays open for a while.
-    disc(
-      w * (0.18 + 0.10 * math.sin(t * 2 * math.pi)),
-      h * (0.22 + 0.10 * math.cos(t * 2 * math.pi)),
-      w * 0.42,
-      const Color(0xFF7DD3FC),
-      0.30,
-    );
-    disc(
-      w * (0.86 + 0.08 * math.cos(t * 2 * math.pi * 1.5)),
-      h * (0.70 + 0.12 * math.sin(t * 2 * math.pi * 1.5)),
-      w * 0.38,
-      const Color(0xFFA78BFA),
-      0.26,
-    );
-    disc(
-      w * (0.60 + 0.12 * math.sin(t * 2 * math.pi * 0.7 + 1.7)),
-      h * (0.12 + 0.08 * math.cos(t * 2 * math.pi * 0.7 + 1.7)),
-      w * 0.30,
-      const Color(0xFF34D399),
-      0.16,
-    );
-
-    // A hairline arc that sweeps across the upper third. It is the element that
-    // makes the panel read as *drawing itself* rather than as a static wash.
-    final sweep = (t * 2) % 1;
-    final arcRect = Rect.fromCircle(center: Offset(w * 0.78, h * 0.10), radius: w * 0.55);
-    final arc = Paint()
-      ..style = PaintingStyle.stroke
-      ..strokeWidth = 1.4
-      ..strokeCap = StrokeCap.round
-      ..shader = LinearGradient(
-        colors: [Colors.white.withOpacity(0), Colors.white.withOpacity(0.34), Colors.white.withOpacity(0)],
-      ).createShader(arcRect);
-    canvas.drawArc(arcRect, -0.2 + sweep * 0.9, 1.5, false, arc);
-  }
-
-  @override
-  bool shouldRepaint(covariant _HeroAura old) => old.t != t;
-}
-
-/// The small translucent label at the top of the hero.
-class _HeroPill extends StatelessWidget {
-  const _HeroPill({required this.label});
-
-  final String label;
-
-  @override
-  Widget build(BuildContext context) {
-    final sizes = context.sizes;
-    return Container(
-      padding: EdgeInsets.symmetric(horizontal: sizes.s(10), vertical: sizes.s(5)),
-      decoration: BoxDecoration(
-        color: Colors.white.withOpacity(0.18),
-        borderRadius: BorderRadius.circular(999),
-        border: Border.all(color: Colors.white.withOpacity(0.30)),
-      ),
-      child: Text(label, style: TextStyle(color: Colors.white, fontSize: sizes.s(10), fontWeight: FontWeight.w700)),
-    );
-  }
-}
-
-/// A dot with a pulse around it — the smallest honest sign of life.
-class _LiveDot extends StatefulWidget {
-  const _LiveDot({required this.animate});
-
-  final bool animate;
-
-  @override
-  State<_LiveDot> createState() => _LiveDotState();
-}
-
-class _LiveDotState extends State<_LiveDot> with SingleTickerProviderStateMixin {
-  late final AnimationController _c = AnimationController(
-    vsync: this,
-    duration: const Duration(milliseconds: 1800),
-  );
-
-  @override
-  void initState() {
-    super.initState();
-    if (widget.animate) _c.repeat();
-  }
-
-  @override
-  void dispose() {
-    _c.dispose();
-    super.dispose();
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    return SizedBox(
-      width: 22,
-      height: 22,
-      child: AnimatedBuilder(
-        animation: _c,
-        builder: (context, _) {
-          final p = widget.animate ? _c.value : 0.35;
-          return Stack(alignment: Alignment.center, children: [
-            Container(
-              width: 8 + 12 * p,
-              height: 8 + 12 * p,
-              decoration: BoxDecoration(
-                shape: BoxShape.circle,
-                color: const Color(0xFF6EE7B7).withOpacity(0.34 * (1 - p)),
-              ),
-            ),
-            Container(
-              width: 7,
-              height: 7,
-              decoration: BoxDecoration(
-                shape: BoxShape.circle,
-                color: const Color(0xFF6EE7B7),
-                boxShadow: [BoxShadow(color: const Color(0xFF6EE7B7).withOpacity(0.7), blurRadius: 8)],
-              ),
-            ),
-          ]);
-        },
       ),
     );
   }

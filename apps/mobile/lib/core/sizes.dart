@@ -80,8 +80,12 @@ class Sizes {
   /// without this the final card ends up underneath it. Measured from the pill
   /// itself rather than guessed: tab padding + icon + label + the pill's own
   /// margin, plus the device's gesture inset.
+  /// The bar is [WaveNavBar.height] (72) plus its own bottom margin (9) plus
+  /// the device's gesture inset; 12 px of air after that keeps the last card
+  /// from touching it. Measured from the bar, so raising the bar's height in
+  /// one place does not quietly bury the end of every scrolling page.
   double navPillClearance(BuildContext context) =>
-      s(62) + MediaQuery.paddingOf(context).bottom + s(16);
+      s(72) + s(9) + MediaQuery.paddingOf(context).bottom + s(12);
 
   /// Category grid: two columns, fixed by the reference design.
   double get categoryArt => s(104);

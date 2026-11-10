@@ -1,7 +1,7 @@
 name: pishkan_app
 description: اپلیکیشن اندروید مشتریان پیشخوان — متصل به همان سامانه و پایگاه داده نسخه وب.
 publish_to: 'none'
-version: 1.10.1+62
+version: 1.11.0+63
 
 environment:
   # >=3.7: wildcard variables (`(_, _)`) used across the codebase.
@@ -54,6 +54,12 @@ flutter:
     - assets/service_art/large/
     - assets/category_art/
     - assets/avatars/
+    # Bespoke banner art. One folder, one style: the first banner is the hero
+    # the app opens with and the rest introduce individual services, so they
+    # are drawn as a set rather than assembled from the service catalogue —
+    # a banner that reuses a service thumbnail looks like a catalogue row
+    # with a headline on it.
+    - assets/banners/
   fonts:
     - family: Vazirmatn
       fonts:

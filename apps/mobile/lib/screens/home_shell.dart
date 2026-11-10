@@ -8,6 +8,7 @@ import '../core/sizes.dart';
 import '../core/theme.dart';
 import '../services/notifier.dart';
 import '../services/services.dart';
+import '../widgets/wave_nav_bar.dart';
 import '../widgets/widgets.dart';
 import 'home.dart';
 import 'login.dart';
@@ -178,102 +179,23 @@ class _HomeShellState extends State<HomeShell> with WidgetsBindingObserver {
   }
 
   Widget _navPill() {
-    final sizes = context.sizes;
-    return Padding(
-      padding: EdgeInsets.fromLTRB(sizes.s(14), 0, sizes.s(14), sizes.s(10)),
-      child: DecoratedBox(
-        decoration: BoxDecoration(
-          borderRadius: BorderRadius.circular(sizes.s(26)),
-          boxShadow: [
-            BoxShadow(
-              color: context.isDark ? const Color(0x99000000) : const Color(0x1F0B1F3A),
-              blurRadius: sizes.s(22),
-              offset: Offset(0, sizes.s(8)),
-            ),
-          ],
-        ),
-        child: ClipRRect(
-          borderRadius: BorderRadius.circular(sizes.s(26)),
-          child: Container(
-            decoration: BoxDecoration(
-              color: context.isDark ? PishkanColors.darkSurface : Colors.white,
-              border: Border.all(color: context.hairline),
-              borderRadius: BorderRadius.circular(sizes.s(26)),
-            ),
-            child: SafeArea(
-              top: false,
-              child: Padding(
-                padding: EdgeInsets.symmetric(horizontal: sizes.s(6), vertical: sizes.s(6)),
-                child: Row(children: [
-                  _tabItem(0, Icons.home_rounded, Icons.home_outlined, 'خانه'),
-                  _tabItem(1, Icons.grid_view_rounded, Icons.grid_view_outlined, 'خدمات'),
-                  _tabItem(2, Icons.fact_check_rounded, Icons.fact_check_outlined, 'پیگیری‌ها'),
-                  _tabItem(3, Icons.person_rounded, Icons.person_outline_rounded, 'پروفایل'),
-                ]),
-              ),
-            ),
-          ),
-        ),
-      ),
-    );
-  }
-
-  Widget _tabItem(int index, IconData activeIcon, IconData icon, String label) {
-    final sizes = context.sizes;
-    final active = _index == index;
-    return Expanded(
-      child: Semantics(
-        button: true,
-        selected: active,
-        label: label,
-        child: GestureDetector(
-          behavior: HitTestBehavior.opaque,
-          // No sound here. A tick on every tab press is the one piece of
-          // feedback people actively dislike: it fires dozens of times a
-          // session and cannot be turned off without muting notifications too.
-          onTap: () {
-            // Selecting a tab is the most frequent deliberate action in the
-            // app; the tick is what confirms the tap landed before the new
-            // body has painted.
-            if (!active) Haptics.select();
-            selectTab(index);
-          },
-          child: AnimatedContainer(
-            duration: PishkanMotion.standard,
-            curve: PishkanMotion.enter,
-            margin: EdgeInsets.symmetric(horizontal: sizes.s(2)),
-            padding: EdgeInsets.symmetric(vertical: sizes.s(8)),
-            decoration: BoxDecoration(
-              // The selected tab is a filled pill, as in the reference. The old
-              // 10%-tint background was almost invisible against white and the
-              // only cue left was the label weight.
-              color: active ? context.brand.withOpacity(0.12) : Colors.transparent,
-              borderRadius: BorderRadius.circular(sizes.s(18)),
-            ),
-            child: Column(mainAxisSize: MainAxisSize.min, children: [
-              AnimatedScale(
-                scale: active && !PishkanMotion.reduced(context) ? 1.06 : 1,
-                duration: PishkanMotion.scaled(context, PishkanMotion.quick),
-                curve: PishkanMotion.spring,
-                child: Icon(active ? activeIcon : icon,
-                    color: active ? context.brand : context.inkMuted, size: sizes.s(23)),
-              ),
-              SizedBox(height: sizes.s(2)),
-              AnimatedDefaultTextStyle(
-                duration: PishkanMotion.quick,
-                curve: PishkanMotion.enter,
-                style: TextStyle(
-                  fontFamily: 'Vazirmatn',
-                  fontSize: sizes.s(10.5),
-                  fontWeight: active ? FontWeight.w800 : FontWeight.w500,
-                  color: active ? context.brand : context.inkMuted,
-                ),
-                child: Text(label, maxLines: 1, overflow: TextOverflow.ellipsis),
-              ),
-            ]),
-          ),
-        ),
-      ),
+    // The bar owns its own painting, shadows and hill; the shell only says
+    // which destination is selected and what the four of them are.
+    //
+    // Order is left-to-right on screen. The app is RTL, so `Row` lays the
+    // first child on the right — which is where «خانه» sits in the reference.
+    return WaveNavBar(
+      index: _index,
+      onSelect: (i) {
+        if (i != _index) Haptics.select();
+        selectTab(i);
+      },
+      items: const [
+        WaveNavItem(icon: Icons.home_outlined, activeIcon: Icons.home_rounded, label: 'خانه'),
+        WaveNavItem(icon: Icons.grid_view_outlined, activeIcon: Icons.grid_view_rounded, label: 'خدمات'),
+        WaveNavItem(icon: Icons.fact_check_outlined, activeIcon: Icons.fact_check_rounded, label: 'پیگیری‌ها'),
+        WaveNavItem(icon: Icons.person_outline_rounded, activeIcon: Icons.person_rounded, label: 'پروفایل'),
+      ],
     );
   }
 
