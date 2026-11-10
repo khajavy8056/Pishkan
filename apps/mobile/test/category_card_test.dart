@@ -39,25 +39,25 @@ void main() {
   testWidgets('category card renders real RTL title and accepts a tap', (tester) async {
     var taps = 0;
     final category = ServiceCategory.fromJson({'slug': 'housing-land', 'title': 'مسکن و زمین', 'color': '#15803d'});
-    await tester.pumpWidget(MaterialApp(home: Scaffold(body: Center(child: SizedBox(
-      width: 160, height: 95, child: CategoryCard(category: category, onTap: () => taps++),
-    )))));
+    // `disableAnimations: false` explicitly: the press hold is zero under
+    // reduced motion by design, and the ambient default is not this test's to
+    // depend on.
+    await tester.pumpWidget(MaterialApp(home: MediaQuery(
+      data: const MediaQueryData(disableAnimations: false),
+      child: Scaffold(body: Center(child: SizedBox(
+        width: 160, height: 95, child: CategoryCard(category: category, onTap: () => taps++),
+      ))),
+    )));
     await tester.pumpAndSettle();
     expect(find.text('مسکن و زمین'), findsOneWidget);
     expect(find.byType(CategoryArtImage), findsOneWidget);
     expect(tester.takeException(), isNull);
-    await tester.tap(find.byType(CategoryCard));
-    // The tap is deliberately *not* instant: `TactileTap` holds the pressed
-    // state for ~120 ms before it calls `onTap`, so the customer sees the card
-    // dip before the next page covers it. Asserting the callback fires on the
-    // same frame would lock in the dead-feeling behaviour this replaced.
-    expect(taps, 0);
-    // `pumpAndSettle` cannot wait for this: the hold is a bare timer and a
-    // timer schedules no frames, so settling returns while it is still
-    // pending. Pump past it explicitly.
-    await tester.pump(const Duration(milliseconds: 200));
-    // The hold fires on that pump; `_handle`'s own `await` then resumes on a
+    // The hold is a real 120 ms beat *when animation is enabled*, which the
+    // `MediaQuery` above states explicitly. `pump` past it, then pump once more:
+    // the delay fires on the first pump and the continuation resumes on a
     // microtask, so the callback is only observable on the next frame.
+    await tester.tap(find.byType(CategoryCard));
+    await tester.pump(const Duration(milliseconds: 200));
     await tester.pump();
     expect(taps, 1);
     // 160x95 is the tightest box the home grid can produce (two columns on a

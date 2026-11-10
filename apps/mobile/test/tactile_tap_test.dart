@@ -6,9 +6,17 @@ import 'package:pishkan_app/core/motion.dart';
 /// a tap must *show* something before it navigates, and every tappable surface
 /// must behave the same way.
 void main() {
+  /// `disableAnimations: false` is stated explicitly, not inherited.
+  ///
+  /// The hold is zero under reduced motion by design, and the ambient value of
+  /// that flag depends on the test binding rather than on this test. Leaving it
+  /// implicit made a correct widget fail here once already.
   Widget host(Widget child) => MaterialApp(
         theme: ThemeData(colorSchemeSeed: const Color(0xFF1F6FEE)),
-        home: Scaffold(body: Center(child: SizedBox(width: 220, height: 96, child: child))),
+        home: MediaQuery(
+          data: const MediaQueryData(disableAnimations: false),
+          child: Scaffold(body: Center(child: SizedBox(width: 220, height: 96, child: child))),
+        ),
       );
 
   testWidgets('the press is shown before onTap runs', (tester) async {
