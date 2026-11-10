@@ -350,109 +350,124 @@ class _SplashStageState extends State<SplashStage> with TickerProviderStateMixin
 
           // ---- the mark ---------------------------------------------------
           SafeArea(
-            child: Column(children: [
-              const Spacer(flex: 3),
-              FadeTransition(
-                opacity: _logoIn,
-                child: ScaleTransition(
-                  scale: Tween<double>(begin: 0.70, end: 1).animate(_logoIn),
-                  child: SizedBox(
-                    width: 214,
-                    height: 214,
-                    child: Stack(alignment: Alignment.center, children: [
-                      // Halo: breathes in on the beat.
-                      Container(
+            // The mark is a fixed 214 px and the copy under it is fixed, so on
+            // a short viewport (a small phone in landscape, or the 600 px
+            // window a widget test uses) the column overflowed and the splash
+            // threw on its first paint. Keeping every size and making the
+            // layout scrollable only when height is actually insufficient means
+            // nothing changes on a normal phone and nothing breaks on a short
+            // one.
+            child: LayoutBuilder(builder: (context, constraints) {
+              return SingleChildScrollView(
+                physics: const NeverScrollableScrollPhysics(),
+                child: ConstrainedBox(
+                  constraints: BoxConstraints(minHeight: constraints.maxHeight),
+                  child: Column(children: [
+                  const Spacer(flex: 3),
+                  FadeTransition(
+                    opacity: _logoIn,
+                    child: ScaleTransition(
+                      scale: Tween<double>(begin: 0.70, end: 1).animate(_logoIn),
+                      child: SizedBox(
                         width: 214,
                         height: 214,
-                        decoration: BoxDecoration(
-                          shape: BoxShape.circle,
-                          gradient: RadialGradient(colors: [
-                            Colors.white.withOpacity(0.20 + 0.09 * (0.5 + 0.5 * wave)),
-                            Colors.white.withOpacity(0),
-                          ]),
-                        ),
-                      ),
-                      // Two rings expanding outward on a 2.6s cycle, fading as
-                      // they grow — a pulse you can actually see, unlike the
-                      // old static border.
-                      if (!reduceMotion) ...[
-                        for (final offsetPhase in const [0.0, 0.5])
-                          _PulseRing(
-                            progress: (t * 2.6 + offsetPhase) % 1,
-                            baseSize: 132,
-                            color: Colors.white,
+                        child: Stack(alignment: Alignment.center, children: [
+                          // Halo: breathes in on the beat.
+                          Container(
+                            width: 214,
+                            height: 214,
+                            decoration: BoxDecoration(
+                              shape: BoxShape.circle,
+                              gradient: RadialGradient(colors: [
+                                Colors.white.withOpacity(0.20 + 0.09 * (0.5 + 0.5 * wave)),
+                                Colors.white.withOpacity(0),
+                              ]),
+                            ),
                           ),
-                      ],
-                      Container(
-                        padding: const EdgeInsets.all(13),
-                        decoration: BoxDecoration(
-                          color: Colors.white,
-                          shape: BoxShape.circle,
-                          boxShadow: [
-                            BoxShadow(color: const Color(0xFF0B1F3A).withOpacity(0.34), blurRadius: 34, offset: const Offset(0, 14)),
-                            BoxShadow(color: const Color(0xFF5AA0FF).withOpacity(0.45), blurRadius: 52, spreadRadius: 4),
+                          // Two rings expanding outward on a 2.6s cycle, fading as
+                          // they grow — a pulse you can actually see, unlike the
+                          // old static border.
+                          if (!reduceMotion) ...[
+                            for (final offsetPhase in const [0.0, 0.5])
+                              _PulseRing(
+                                progress: (t * 2.6 + offsetPhase) % 1,
+                                baseSize: 132,
+                                color: Colors.white,
+                              ),
                           ],
+                          Container(
+                            padding: const EdgeInsets.all(13),
+                            decoration: BoxDecoration(
+                              color: Colors.white,
+                              shape: BoxShape.circle,
+                              boxShadow: [
+                                BoxShadow(color: const Color(0xFF0B1F3A).withOpacity(0.34), blurRadius: 34, offset: const Offset(0, 14)),
+                                BoxShadow(color: const Color(0xFF5AA0FF).withOpacity(0.45), blurRadius: 52, spreadRadius: 4),
+                              ],
+                            ),
+                            child: ClipOval(child: Image.asset('assets/icon.png', width: 86, height: 86)),
+                          ),
+                        ]),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(height: 26),
+                  // The brand line, with a highlight travelling through it.
+                  ShaderMask(
+                    shaderCallback: (rect) => LinearGradient(
+                      begin: AlignmentDirectional(-1 + 2 * ((t * 2) % 1), 0),
+                      end: AlignmentDirectional(1 + 2 * ((t * 2) % 1), 0),
+                      colors: [Colors.white, const Color(0xFFBFE3FF), Colors.white],
+                      stops: const [0.35, 0.5, 0.65],
+                    ).createShader(rect),
+                    child: Text(
+                      widget.brand,
+                      style: TextStyle(
+                        color: Colors.white,
+                        fontSize: size.width * 0.078,
+                        fontWeight: FontWeight.w900,
+                        letterSpacing: 0.4,
+                        shadows: [Shadow(color: const Color(0xFF06203F).withOpacity(0.45), blurRadius: 18, offset: const Offset(0, 6))],
+                      ),
+                    ),
+                  ),
+                  const SizedBox(height: 8),
+                  Text(
+                    widget.tagline,
+                    style: TextStyle(color: Colors.white.withOpacity(0.86), fontSize: 12.5, height: 1.7, fontWeight: FontWeight.w500),
+                  ),
+                  const Spacer(flex: 4),
+                  // ---- progress -------------------------------------------------
+                  SizedBox(
+                    width: size.width * 0.62,
+                    child: Column(children: [
+                      // A determinate-looking arc driven by real elapsed time
+                      // against the splash's own floor, not a fake value: by the
+                      // time the bar is full the screen is genuinely leaving.
+                      _SplashArc(progress: widget.progress),
+                      const SizedBox(height: 18),
+                      AnimatedSwitcher(
+                        duration: const Duration(milliseconds: 320),
+                        transitionBuilder: (child, animation) => FadeTransition(
+                          opacity: animation,
+                          child: SlideTransition(
+                            position: Tween<Offset>(begin: const Offset(0, 0.25), end: Offset.zero).animate(animation),
+                            child: child,
+                          ),
                         ),
-                        child: ClipOval(child: Image.asset('assets/icon.png', width: 86, height: 86)),
+                        child: Text(
+                          widget.status,
+                          key: ValueKey(widget.status),
+                          style: TextStyle(color: Colors.white.withOpacity(0.92), fontSize: 12.5, fontWeight: FontWeight.w600),
+                        ),
                       ),
                     ]),
                   ),
+                  const SizedBox(height: 34),
+                  ]),
                 ),
-              ),
-              const SizedBox(height: 26),
-              // The brand line, with a highlight travelling through it.
-              ShaderMask(
-                shaderCallback: (rect) => LinearGradient(
-                  begin: AlignmentDirectional(-1 + 2 * ((t * 2) % 1), 0),
-                  end: AlignmentDirectional(1 + 2 * ((t * 2) % 1), 0),
-                  colors: [Colors.white, const Color(0xFFBFE3FF), Colors.white],
-                  stops: const [0.35, 0.5, 0.65],
-                ).createShader(rect),
-                child: Text(
-                  widget.brand,
-                  style: TextStyle(
-                    color: Colors.white,
-                    fontSize: size.width * 0.078,
-                    fontWeight: FontWeight.w900,
-                    letterSpacing: 0.4,
-                    shadows: [Shadow(color: const Color(0xFF06203F).withOpacity(0.45), blurRadius: 18, offset: const Offset(0, 6))],
-                  ),
-                ),
-              ),
-              const SizedBox(height: 8),
-              Text(
-                widget.tagline,
-                style: TextStyle(color: Colors.white.withOpacity(0.86), fontSize: 12.5, height: 1.7, fontWeight: FontWeight.w500),
-              ),
-              const Spacer(flex: 4),
-              // ---- progress -------------------------------------------------
-              SizedBox(
-                width: size.width * 0.62,
-                child: Column(children: [
-                  // A determinate-looking arc driven by real elapsed time
-                  // against the splash's own floor, not a fake value: by the
-                  // time the bar is full the screen is genuinely leaving.
-                  _SplashArc(progress: widget.progress),
-                  const SizedBox(height: 18),
-                  AnimatedSwitcher(
-                    duration: const Duration(milliseconds: 320),
-                    transitionBuilder: (child, animation) => FadeTransition(
-                      opacity: animation,
-                      child: SlideTransition(
-                        position: Tween<Offset>(begin: const Offset(0, 0.25), end: Offset.zero).animate(animation),
-                        child: child,
-                      ),
-                    ),
-                    child: Text(
-                      widget.status,
-                      key: ValueKey(widget.status),
-                      style: TextStyle(color: Colors.white.withOpacity(0.92), fontSize: 12.5, fontWeight: FontWeight.w600),
-                    ),
-                  ),
-                ]),
-              ),
-              const SizedBox(height: 34),
-            ]),
+              );
+            }),
           ),
         ]);
       },

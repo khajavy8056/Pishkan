@@ -71,6 +71,24 @@ void main() {
     await tester.pump();
   });
 
+  testWidgets('the splash survives a short viewport', (tester) async {
+    // The mark is a fixed 214 px with fixed copy under it. On a short window —
+    // landscape on a small phone, or the 600 px default test viewport — the
+    // column overflowed and four tests failed together because of it. Height
+    // safety is part of the design, not an accident of the phone it was built on.
+    tester.view.physicalSize = const Size(800, 600);
+    tester.view.devicePixelRatio = 1.0;
+    addTearDown(tester.view.reset);
+
+    await tester.pumpWidget(const MaterialApp(home: SplashStage()));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 400));
+    expect(tester.takeException(), isNull);
+
+    await tester.pumpWidget(const SizedBox.shrink());
+    await tester.pump();
+  });
+
   testWidgets('a zero and a full progress arc both paint', (tester) async {
     for (final p in const [0.0, 1.0]) {
       await tester.pumpWidget(MaterialApp(home: SplashStage(progress: p)));

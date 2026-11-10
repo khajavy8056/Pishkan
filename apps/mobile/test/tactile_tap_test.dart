@@ -11,6 +11,10 @@ void main() {
         home: Scaffold(body: Center(child: SizedBox(width: 220, height: 96, child: child))),
       );
 
+  /// A touch point in the middle of the tile. `tester.tap` uses the widget's
+  /// centre anyway; being explicit keeps the ripple's origin meaningful.
+  Future<void> tapCentre(WidgetTester tester) => tester.tap(find.byType(TactileTap));
+
   testWidgets('the press is shown before onTap runs', (tester) async {
     var fired = 0;
     await tester.pumpWidget(host(TactileTap(onTap: () async => fired++, child: const ColoredBox(color: Colors.blue))));
