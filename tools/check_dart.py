@@ -200,6 +200,56 @@ def nullable_callback_calls(source: str) -> list[str]:
             problems.append(f'line {line}: {name} is nullable but is called without ?')
     return problems
 
+def directional_shader_mismatches(source: str) -> list[str]:
+    """Catch a `createShader` fed by an `AlignmentDirectional` gradient.
+
+    `Gradient.createShader(rect, [textDirection])` cannot resolve directional
+    stops without a `textDirection`, and it throws "No TextDirection found" on
+    *every paint* — which renders as an error page, not a slow animation. This
+    cost four red builds and two wrong diagnoses; the check is cheap because the
+    two tokens have to appear inside the same call.
+    """
+    code = strip_code(source)
+    problems: list[str] = []
+    for match in re.finditer(r'createShader\s*\(', code):
+        # Walk back to the gradient that produces the shader. `shaderCallback:`
+        # sits one widget up, so the window has to clear the whole gradient
+        # literal — 400 characters was short and the check silently never fired.
+        window = code[max(0, match.start() - 1200):match.start()]
+        if 'AlignmentDirectional' not in window:
+            continue
+        # `createShader(rect, textDirection)` is the correct form.
+        depth = 0
+        i = match.end() - 1
+        while i < len(code):
+            if code[i] == '(':
+                depth += 1
+            elif code[i] == ')':
+                depth -= 1
+                if depth == 0:
+                    break
+            i += 1
+        args = code[match.end():i]
+        # Count top-level arguments. A nested `,` inside `Rect.fromLTWH(0, 0,
+        # w, h)` is not a second argument, and counting characters instead of
+        # arguments is what made this check pass the bug it was written for.
+        depth = 0
+        arg_count = 1
+        for ch in args:
+            if ch in '([{':
+                depth += 1
+            elif ch in ')]}':
+                depth -= 1
+            elif ch == ',' and depth == 0:
+                arg_count += 1
+        if arg_count < 2:
+            line = code[:match.start()].count('\n') + 1
+            problems.append(
+                f'line {line}: directional gradient used in createShader() without a textDirection arg '
+                '(throws "No TextDirection found" on every paint)'
+            )
+    return problems
+
 def check_file(path: Path) -> list[str]:
     source = path.read_text(encoding='utf-8')
     code = strip_code(source)
@@ -263,6 +313,7 @@ def main(argv: list[str]) -> int:
         problems.extend(sibling_type_mismatches(path, source, global_fields))
         problems.extend(future_void_arrow_mismatches(source))
         problems.extend(nullable_callback_calls(source))
+        problems.extend(directional_shader_mismatches(source))
         if problems:
             total += len(problems)
             print(f'{path.relative_to(ROOT)}')

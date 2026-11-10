@@ -268,15 +268,7 @@ class _SplashStageState extends State<SplashStage> with TickerProviderStateMixin
 
   @override
   Widget build(BuildContext context) {
-    // This widget returns a bare `Stack` full of `AlignmentDirectional`s, and
-    // `Align` resolves those during *layout*, not build — so it needs a
-    // `Directionality` above it or every orb throws "No TextDirection found".
-    // `MaterialApp` normally supplies one, but the stage is also used directly
-    // (in tests, and as a preview), and a widget that only works inside one
-    // particular ancestor is a trap. Declaring it here costs nothing.
-    return Directionality(
-      textDirection: Directionality.maybeOf(context) ?? TextDirection.rtl,
-      child: AnimatedBuilder(
+    return AnimatedBuilder(
       animation: _ambient,
       builder: (context, _) {
         final size = MediaQuery.of(context).size;
@@ -356,122 +348,121 @@ class _SplashStageState extends State<SplashStage> with TickerProviderStateMixin
               ),
             ),
 
-          // ---- the mark ---------------------------------------------------
-          // `Positioned.fill`, not a bare `SafeArea`: a non-positioned child
-          // of a `Stack` receives *loose* constraints, so the column below had
-          // an unbounded height — and `Spacer` inside an unbounded column
-          // throws on every frame. That was 41 exceptions per test, and on a
-          // real device it is a red error screen instead of a splash.
-          Positioned.fill(
-            child: SafeArea(
-              child: Column(children: [
-              const Spacer(flex: 3),
-              FadeTransition(
-                opacity: _logoIn,
-                child: ScaleTransition(
-                  scale: Tween<double>(begin: 0.70, end: 1).animate(_logoIn),
-                  child: SizedBox(
-                    width: 214,
-                    height: 214,
-                    child: Stack(alignment: Alignment.center, children: [
-                      // Halo: breathes in on the beat.
-                      Container(
-                        width: 214,
-                        height: 214,
-                        decoration: BoxDecoration(
-                          shape: BoxShape.circle,
-                          gradient: RadialGradient(colors: [
-                            Colors.white.withOpacity(0.20 + 0.09 * (0.5 + 0.5 * wave)),
-                            Colors.white.withOpacity(0),
-                          ]),
-                        ),
+          SafeArea(
+            child: Column(children: [
+            const Spacer(flex: 3),
+            FadeTransition(
+              opacity: _logoIn,
+              child: ScaleTransition(
+                scale: Tween<double>(begin: 0.70, end: 1).animate(_logoIn),
+                child: SizedBox(
+                  width: 214,
+                  height: 214,
+                  child: Stack(alignment: Alignment.center, children: [
+                    // Halo: breathes in on the beat.
+                    Container(
+                      width: 214,
+                      height: 214,
+                      decoration: BoxDecoration(
+                        shape: BoxShape.circle,
+                        gradient: RadialGradient(colors: [
+                          Colors.white.withOpacity(0.20 + 0.09 * (0.5 + 0.5 * wave)),
+                          Colors.white.withOpacity(0),
+                        ]),
                       ),
-                      // Two rings expanding outward on a 2.6s cycle, fading as
-                      // they grow — a pulse you can actually see, unlike the
-                      // old static border.
-                      if (!reduceMotion) ...[
-                        for (final offsetPhase in const [0.0, 0.5])
-                          _PulseRing(
-                            progress: (t * 2.6 + offsetPhase) % 1,
-                            baseSize: 132,
-                            color: Colors.white,
-                          ),
-                      ],
-                      Container(
-                        padding: const EdgeInsets.all(13),
-                        decoration: BoxDecoration(
+                    ),
+                    // Two rings expanding outward on a 2.6s cycle, fading as
+                    // they grow — a pulse you can actually see, unlike the
+                    // old static border.
+                    if (!reduceMotion) ...[
+                      for (final offsetPhase in const [0.0, 0.5])
+                        _PulseRing(
+                          progress: (t * 2.6 + offsetPhase) % 1,
+                          baseSize: 132,
                           color: Colors.white,
-                          shape: BoxShape.circle,
-                          boxShadow: [
-                            BoxShadow(color: const Color(0xFF0B1F3A).withOpacity(0.34), blurRadius: 34, offset: const Offset(0, 14)),
-                            BoxShadow(color: const Color(0xFF5AA0FF).withOpacity(0.45), blurRadius: 52, spreadRadius: 4),
-                          ],
                         ),
-                        child: ClipOval(child: Image.asset('assets/icon.png', width: 86, height: 86)),
+                    ],
+                    Container(
+                      padding: const EdgeInsets.all(13),
+                      decoration: BoxDecoration(
+                        color: Colors.white,
+                        shape: BoxShape.circle,
+                        boxShadow: [
+                          BoxShadow(color: const Color(0xFF0B1F3A).withOpacity(0.34), blurRadius: 34, offset: const Offset(0, 14)),
+                          BoxShadow(color: const Color(0xFF5AA0FF).withOpacity(0.45), blurRadius: 52, spreadRadius: 4),
+                        ],
                       ),
-                    ]),
-                  ),
+                      child: ClipOval(child: Image.asset('assets/icon.png', width: 86, height: 86)),
+                    ),
+                  ]),
                 ),
               ),
-              const SizedBox(height: 26),
-              // The brand line, with a highlight travelling through it.
-              ShaderMask(
-                shaderCallback: (rect) => LinearGradient(
-                  begin: AlignmentDirectional(-1 + 2 * ((t * 2) % 1), 0),
-                  end: AlignmentDirectional(1 + 2 * ((t * 2) % 1), 0),
-                  colors: [Colors.white, const Color(0xFFBFE3FF), Colors.white],
-                  stops: const [0.35, 0.5, 0.65],
-                ).createShader(rect),
-                child: Text(
-                  widget.brand,
-                  style: TextStyle(
-                    color: Colors.white,
-                    fontSize: size.width * 0.078,
-                    fontWeight: FontWeight.w900,
-                    letterSpacing: 0.4,
-                    shadows: [Shadow(color: const Color(0xFF06203F).withOpacity(0.45), blurRadius: 18, offset: const Offset(0, 6))],
-                  ),
+            ),
+            const SizedBox(height: 26),
+            // The brand line, with a highlight travelling through it.
+            ShaderMask(
+              // The gradient travels left-to-right as a highlight sweeps the
+              // brand line. It is deliberately built from plain `Alignment`
+              // and not `AlignmentDirectional`: `createShader(rect)` takes an
+              // optional `textDirection`, and a directional gradient without
+              // one cannot resolve its stops — it throws "No TextDirection
+              // found" on every paint. A horizontal sweep has no leading or
+              // trailing side to mirror, so a plain axis is also the correct
+              // description of the effect.
+              shaderCallback: (rect) => LinearGradient(
+                begin: Alignment(-1 + 2 * ((t * 2) % 1), 0),
+                end: Alignment(1 + 2 * ((t * 2) % 1), 0),
+                colors: [Colors.white, const Color(0xFFBFE3FF), Colors.white],
+                stops: const [0.35, 0.5, 0.65],
+              ).createShader(rect),
+              child: Text(
+                widget.brand,
+                style: TextStyle(
+                  color: Colors.white,
+                  fontSize: size.width * 0.078,
+                  fontWeight: FontWeight.w900,
+                  letterSpacing: 0.4,
+                  shadows: [Shadow(color: const Color(0xFF06203F).withOpacity(0.45), blurRadius: 18, offset: const Offset(0, 6))],
                 ),
               ),
-              const SizedBox(height: 8),
-              Text(
-                widget.tagline,
-                style: TextStyle(color: Colors.white.withOpacity(0.86), fontSize: 12.5, height: 1.7, fontWeight: FontWeight.w500),
-              ),
-              const Spacer(flex: 4),
-              // ---- progress -------------------------------------------------
-              SizedBox(
-                width: size.width * 0.62,
-                child: Column(children: [
-                  // A determinate-looking arc driven by real elapsed time
-                  // against the splash's own floor, not a fake value: by the
-                  // time the bar is full the screen is genuinely leaving.
-                  _SplashArc(progress: widget.progress),
-                  const SizedBox(height: 18),
-                  AnimatedSwitcher(
-                    duration: const Duration(milliseconds: 320),
-                    transitionBuilder: (child, animation) => FadeTransition(
-                      opacity: animation,
-                      child: SlideTransition(
-                        position: Tween<Offset>(begin: const Offset(0, 0.25), end: Offset.zero).animate(animation),
-                        child: child,
-                      ),
-                    ),
-                    child: Text(
-                      widget.status,
-                      key: ValueKey(widget.status),
-                      style: TextStyle(color: Colors.white.withOpacity(0.92), fontSize: 12.5, fontWeight: FontWeight.w600),
+            ),
+            const SizedBox(height: 8),
+            Text(
+              widget.tagline,
+              style: TextStyle(color: Colors.white.withOpacity(0.86), fontSize: 12.5, height: 1.7, fontWeight: FontWeight.w500),
+            ),
+            const Spacer(flex: 4),
+            // ---- progress -------------------------------------------------
+            SizedBox(
+              width: size.width * 0.62,
+              child: Column(children: [
+                // A determinate-looking arc driven by real elapsed time
+                // against the splash's own floor, not a fake value: by the
+                // time the bar is full the screen is genuinely leaving.
+                _SplashArc(progress: widget.progress),
+                const SizedBox(height: 18),
+                AnimatedSwitcher(
+                  duration: const Duration(milliseconds: 320),
+                  transitionBuilder: (child, animation) => FadeTransition(
+                    opacity: animation,
+                    child: SlideTransition(
+                      position: Tween<Offset>(begin: const Offset(0, 0.25), end: Offset.zero).animate(animation),
+                      child: child,
                     ),
                   ),
-                ]),
-              ),
-              const SizedBox(height: 34),
+                  child: Text(
+                    widget.status,
+                    key: ValueKey(widget.status),
+                    style: TextStyle(color: Colors.white.withOpacity(0.92), fontSize: 12.5, fontWeight: FontWeight.w600),
+                  ),
+                ),
               ]),
             ),
+            const SizedBox(height: 34),
+            ]),
           ),
         ]);
       },
-      ),
     );
   }
 }
