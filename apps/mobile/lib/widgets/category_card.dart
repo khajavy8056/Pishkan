@@ -138,7 +138,7 @@ class CategoryCard extends StatelessWidget {
         hold: const Duration(milliseconds: 120),
         // 2 px of travel, which on a ~95 px card is the difference between
         // "the picture resized" and "the key went down".
-        sink: 2,
+        sink: 0.02,
         child: DecoratedBox(
           decoration: BoxDecoration(
             borderRadius: BorderRadius.circular(22),

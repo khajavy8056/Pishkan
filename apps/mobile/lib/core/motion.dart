@@ -579,12 +579,13 @@ class TactileTap extends StatefulWidget {
   final Duration hold;
   final bool enabled;
 
-  /// Extra downward travel, in logical pixels, on top of [scale].
+  /// Extra downward travel while pressed, as a fraction of the widget's own
+  /// height (0.012 is ~1 px on an 85 px card).
   ///
   /// This is the part that actually sells a press on a flat surface. A tile
-  /// that keeps its size but *sinks* — its shadow tightening and its top edge
-  /// dropping a couple of pixels — reads as a physical key being pushed. Pure
-  /// scaling reads as a picture being resized.
+  /// that keeps its size but *sinks* reads as a physical key being pushed;
+  /// pure scaling reads as a picture being resized. A fraction rather than a
+  /// pixel value because the same widget is used at several sizes.
   final double sink;
 
   /// Whether to brighten the surface slightly while pressed, like light
@@ -648,17 +649,27 @@ class _TactileTapState extends State<TactileTap> {
       // The press is applied to the *child's own paint*, not to a wrapper:
       // wrapping changes the constraints the child receives, which once made a
       // correctly sized card overflow its box.
-      child: AnimatedContainer(
+      //
+      // Built from `Transform` widgets rather than a matrix on
+      // `AnimatedContainer`: `Matrix4.translate`/`scale` are deprecated in
+      // current `vector_math` and their signatures moved, so a raw matrix here
+      // is a build failure waiting for an SDK bump. Two nested `Transform`s
+      // express the same thing with APIs that have not changed in years.
+      child: AnimatedScale(
+        scale: pressed ? widget.scale : 1,
+        alignment: Alignment.center,
         duration: animate ? const Duration(milliseconds: 90) : Duration.zero,
         curve: Curves.easeOut,
-        // `translate` then `scale`, both from the long-standing Matrix4 API:
-        // `translateByDouble`/`scaleByDouble` are newer and would fail to
-        // resolve on the Flutter version this project builds with.
-        transform: Matrix4.identity()
-          ..translate(0.0, pressed ? widget.sink : 0.0)
-          ..scale(pressed ? widget.scale : 1.0),
-        transformAlignment: Alignment.center,
-        child: widget.child,
+        child: AnimatedSlide(
+          // `offset` is in fractions of the child's own size, so a fixed number
+          // of pixels is expressed as a ratio of the widget's height only where
+          // that height is known. `AnimatedSlide` with a small fraction is the
+          // portable way to get "sinks a little" without measuring.
+          offset: Offset(0, pressed ? 0.012 : 0),
+          duration: animate ? const Duration(milliseconds: 90) : Duration.zero,
+          curve: Curves.easeOut,
+          child: widget.child,
+        ),
       ),
     );
   }

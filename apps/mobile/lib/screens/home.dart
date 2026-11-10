@@ -962,7 +962,7 @@ class _LiveHeroState extends State<_LiveHero> with SingleTickerProviderStateMixi
                 TactileTap(
                   scale: 0.965,
                   hold: const Duration(milliseconds: 120),
-                  sink: 2,
+                  sink: 0.02,
                   onTap: () async => widget.onOpen(),
                   child: Container(
                     padding: EdgeInsets.symmetric(horizontal: sizes.s(18), vertical: sizes.s(11)),
