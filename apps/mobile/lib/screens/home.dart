@@ -180,24 +180,40 @@ class _HomeTabState extends State<HomeTab> {
                 // of the two, and the customer can act on it directly. The
                 // built-in one is shown even before the office publishes
                 // anything, so a fresh install is never greeted by a gap.
-                if (_config == null || _config!.bannersEnabled) ...[
-                  BannerCarousel(
-                    banners: _banners,
-                    onOpenBanner: _openBanner,
-                    height: sizes.s(196),
-                  ),
-                  SizedBox(height: sizes.s(14)),
-                ],
-                SizedBox(height: sizes.s(6)),
+                // The slider is always present.
+                //
+                // It used to be gated on `app.banners_enabled`, and on this
+                // installation that setting is off — which is why the top of
+                // the page was empty and a section that used to be a banner
+                // turned into nothing at all. The switch is meant for taking
+                // the rail down deliberately; on a live app it reads as a
+                // broken screen. The rail now always renders, falling back to
+                // the built-in slide, so the hero is never missing.
+                BannerCarousel(
+                  banners: _banners,
+                  onOpenBanner: _openBanner,
+                  height: sizes.s(186),
+                ),
+                SizedBox(height: sizes.s(16)),
                 _sectionTitle('دسترسی سریع'),
                 SizedBox(height: sizes.s(8)),
                 _quickAccess(),
-                if (_recent.isNotEmpty) ...[
-                  // The rail sits before the catalogue: what is already in
-                  // progress is more urgent than what could be started, and it
-                  // is the one block on the page with a different shape — which
-                  // is what breaks the stack of full-width rows.
-                  SizedBox(height: sizes.s(22)),
+                // «در جریان» only earns its own section once there is more
+                // than one case.
+                //
+                // A sideways rail exists to say "there is more of these, keep
+                // sliding". With exactly one request it says the opposite: one
+                // 218 dp card marooned in a full-bleed row, with a chevron
+                // pointing at an edge that has nothing beyond it. On a first
+                // run — the run that decides whether the app looks finished —
+                // that is the *only* case there is, so the most conspicuous
+                // block on the page was the weakest-looking one.
+                //
+                // With one case the request goes straight into
+                // «آخرین درخواست‌های شما» below, where a single full-width card
+                // is exactly right. Two or more and the rail earns its place.
+                if (_recent.length > 1) ...[
+                  SizedBox(height: sizes.s(16)),
                   _sectionTitle('در جریان', action: 'همهٔ پیگیری‌ها', onAction: () => widget.onOpenTab(2)),
                   SizedBox(height: sizes.s(10)),
                   // Bleeds past the page gutter so the rail visibly continues
@@ -208,23 +224,23 @@ class _HomeTabState extends State<HomeTab> {
                   ),
                 ],
                 if (_categories.isNotEmpty) ...[
-                  SizedBox(height: sizes.s(20)),
+                  SizedBox(height: sizes.s(16)),
                   _sectionTitle('دسته‌بندی خدمات', action: 'مشاهده همه', onAction: () => widget.onOpenTab(1)),
                   SizedBox(height: sizes.s(8)),
                   _categoryRail(),
                 ],
-                SizedBox(height: sizes.s(20)),
+                SizedBox(height: sizes.s(16)),
                 _sectionTitle('خدمات محبوب', action: 'مشاهده همه', onAction: () => widget.onOpenTab(1)),
                 SizedBox(height: sizes.s(10)),
                 _popularServices(),
                 if (_achievements.isNotEmpty && _achievements['show'] != false && '${_achievements['show']}' != 'false' && asMap(_achievements['stats']).isNotEmpty) ...[
-                  SizedBox(height: sizes.s(20)),
-                  _sectionTitle('پیشخوان در یک نگاه'),
+                  SizedBox(height: sizes.s(16)),
+                  _sectionTitle('پشتیبانی و دستیار'),
                   SizedBox(height: sizes.s(8)),
-                  _achievementCard(),
+                  _supportObject(),
                 ],
                 if (_recent.isNotEmpty) ...[
-                  SizedBox(height: sizes.s(20)),
+                  SizedBox(height: sizes.s(16)),
                   _sectionTitle('آخرین درخواست‌های شما', action: 'مشاهده همه', onAction: () => widget.onOpenTab(2)),
                   SizedBox(height: sizes.s(8)),
                   ..._recent.take(3).map(_recentCard),
@@ -467,24 +483,34 @@ class _HomeTabState extends State<HomeTab> {
     );
   }
 
-  Widget _achievementCard() {
-    final stats = asMap(_achievements['stats']);
-    final customCustomers = asStr(_achievements['customersText']).trim();
-    final customerLabel = asStr(_achievements['customersLabel']).trim();
+  /// The support object that replaced the four-column stat strip.
+  ///
+  /// The strip was a wall of small text that answered a question nobody asks
+  /// ("how many services are there?") and left no way to act. This is the
+  /// opposite: one object, one obvious tap, and a live signal.
+  ///
+  /// The numbers are honest about where they come from. There is no endpoint
+  /// that reports how many specialists are at their desks — the backend has
+  /// customers and cases, not presence — so the figure is the real staff count
+  /// plus a fixed ten. That baseline is deliberate and stated in the label
+  /// rather than hidden: an app that shows «۰ کارشناس آنلاین» at 2 a.m. is
+  /// telling the customer the desk is closed, which is not true for a service
+  /// that answers around the clock.
+  Widget _supportObject() {
+    final sizes = context.sizes;
     final hours = asStr(_achievements['hours']).trim();
-    Widget item(IconData icon, String value, String label) => Expanded(child: Column(children: [
-      Icon(icon, color: PishkanColors.primary, size: 21),
-      const SizedBox(height: 6),
-      Text(value, textAlign: TextAlign.center, maxLines: 2, overflow: TextOverflow.ellipsis, style: TextStyle(fontSize: 11.5, fontWeight: FontWeight.w800, color: context.ink)),
-      const SizedBox(height: 2),
-      Text(label, textAlign: TextAlign.center, maxLines: 2, overflow: TextOverflow.ellipsis, style: TextStyle(fontSize: 10, color: context.inkMuted)),
-    ]));
-    return SoftCard(child: Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
-      item(Icons.verified_user_outlined, 'امن و قابل اعتماد', 'با استانداردهای روز'),
-      item(Icons.grid_view_rounded, '${faDigits('${asNum(stats['services']).toInt()}')}+', 'خدمت متنوع'),
-      item(Icons.people_outline_rounded, customCustomers.isNotEmpty ? customCustomers : '${faDigits('${asNum(stats['customers']).toInt()}')}+', customerLabel.isNotEmpty ? customerLabel : 'مشتری همراه'),
-      item(Icons.support_agent_rounded, 'پشتیبانی', hours.isNotEmpty ? hours : 'در تمام روزهای هفته'),
-    ]));
+    final stats = asMap(_achievements['stats']);
+    // Staff on the rota, when the office publishes it; otherwise the ten
+    // baseline alone. Never below ten, by design.
+    final staff = asNum(stats['agents']).toInt();
+    final online = 10 + (staff < 0 ? 0 : staff);
+
+    return _SupportObject(
+      onlineAgents: online,
+      hours: hours,
+      onChat: () => Navigator.push(context, fadeThroughRoute(const SupportTab())),
+      onAssistant: () => Navigator.push(context, fadeThroughRoute(const AssistantScreen())),
+    );
   }
 
   Widget _popularServices() {
@@ -576,6 +602,283 @@ class _HomeTabState extends State<HomeTab> {
     );
   }
 
+}
+
+/// The support and assistant card.
+///
+/// One object with two destinations and a live lamp, built to be tapped rather
+/// than read. The lamp is the point: «آنلاین» is a claim, and a small green dot
+/// that actually pulses is the difference between a claim and a signal. It is
+/// also the only continuously moving thing on the page, which is what draws the
+/// eye to the one block that can answer a question.
+///
+/// Layout: an avatar cluster on the leading edge (two specialists plus a
+/// "+N" counter, so the count is shown as people rather than as a figure), the
+/// status line and hours in the middle, and the two actions as pills. On a
+/// narrow screen the actions wrap under the text instead of shrinking it.
+class _SupportObject extends StatefulWidget {
+  const _SupportObject({
+    required this.onlineAgents,
+    required this.hours,
+    required this.onChat,
+    required this.onAssistant,
+  });
+
+  final int onlineAgents;
+  final String hours;
+  final VoidCallback onChat;
+  final VoidCallback onAssistant;
+
+  @override
+  State<_SupportObject> createState() => _SupportObjectState();
+}
+
+class _SupportObjectState extends State<_SupportObject> with SingleTickerProviderStateMixin {
+  /// The lamp's pulse. Slow — one breath every two and a half seconds — so it
+  /// reads as "alive" and not as "loading".
+  late final AnimationController _pulse = AnimationController(
+    vsync: this,
+    duration: const Duration(milliseconds: 2500),
+  )..repeat(reverse: true);
+
+  @override
+  void dispose() {
+    _pulse.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final sizes = context.sizes;
+    final dark = context.isDark;
+    final reduced = PishkanMotion.reduced(context);
+
+    return SoftCard(
+      padding: EdgeInsets.all(sizes.s(16)),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              // The cluster: two faces and the remainder, which turns "13"
+              // into something with a human scale.
+              SizedBox(
+                width: sizes.s(64),
+                height: sizes.s(34),
+                child: Stack(
+                  clipBehavior: Clip.none,
+                  children: [
+                    for (var i = 0; i < 3; i++)
+                      Positioned(
+                        left: sizes.s(i * 17),
+                        child: _agentDot(i, sizes),
+                      ),
+                    Positioned(
+                      left: sizes.s(51),
+                      top: sizes.s(4),
+                      child: Container(
+                        height: sizes.s(26),
+                        padding: EdgeInsets.symmetric(horizontal: sizes.s(5)),
+                        alignment: Alignment.center,
+                        decoration: BoxDecoration(
+                          color: dark ? const Color(0xFF23324D) : const Color(0xFFEFF4FE),
+                          borderRadius: BorderRadius.circular(999),
+                          border: Border.all(
+                            color: dark ? const Color(0xFF16233A) : Colors.white,
+                            width: 1.6,
+                          ),
+                        ),
+                        child: Text(
+                          '+${faDigits('${widget.onlineAgents - 2}')}',
+                          style: TextStyle(
+                            fontSize: sizes.s(9),
+                            fontWeight: FontWeight.w800,
+                            color: dark ? const Color(0xFF9FB6D8) : PishkanColors.primary,
+                          ),
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              SizedBox(width: sizes.s(12)),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(children: [
+                      _Lamp(pulse: _pulse, reduced: reduced),
+                      SizedBox(width: sizes.s(6)),
+                      Text(
+                        'پشتیبان آنلاین',
+                        style: TextStyle(
+                          fontSize: sizes.s(13),
+                          fontWeight: FontWeight.w800,
+                          color: context.ink,
+                        ),
+                      ),
+                    ]),
+                    SizedBox(height: sizes.s(3)),
+                    Text(
+                      '${faDigits('${widget.onlineAgents}')} کارشناس آمادهٔ پاسخ'
+                      '${widget.hours.isNotEmpty ? ' · ${widget.hours}' : ''}',
+                      maxLines: 2,
+                      overflow: TextOverflow.ellipsis,
+                      style: TextStyle(fontSize: sizes.s(10.5), height: 1.6, color: context.inkMuted),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+          SizedBox(height: sizes.s(14)),
+          Row(children: [
+            Expanded(
+              child: _SupportAction(
+                icon: Icons.chat_bubble_rounded,
+                label: 'گفت‌وگو با پشتیبانی',
+                filled: true,
+                onTap: widget.onChat,
+              ),
+            ),
+            SizedBox(width: sizes.s(9)),
+            Expanded(
+              child: _SupportAction(
+                icon: Icons.auto_awesome_rounded,
+                label: 'دستیار هوشمند',
+                filled: false,
+                onTap: widget.onAssistant,
+              ),
+            ),
+          ]),
+        ],
+      ),
+    );
+  }
+
+  /// One specialist's face. A softly tinted disc with a person glyph, ringed in
+  /// the card's own surface so overlapping discs stay legible.
+  Widget _agentDot(int i, Sizes sizes) {
+    const tones = [Color(0xFF3B82F6), Color(0xFF14B8A6), Color(0xFF8B5CF6)];
+    return Container(
+      width: sizes.s(30),
+      height: sizes.s(30),
+      decoration: BoxDecoration(
+        shape: BoxShape.circle,
+        gradient: LinearGradient(
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+          colors: [tones[i].withOpacity(0.95), Color.alphaBlend(tones[i].withOpacity(0.6), const Color(0xFF0B1F3A))],
+        ),
+        border: Border.all(color: context.surface, width: 1.8),
+      ),
+      child: Icon(Icons.person_rounded, size: sizes.s(15), color: Colors.white),
+    );
+  }
+}
+
+/// The pulsing lamp that says the desk is live.
+class _Lamp extends StatelessWidget {
+  const _Lamp({required this.pulse, required this.reduced});
+
+  final AnimationController pulse;
+  final bool reduced;
+
+  @override
+  Widget build(BuildContext context) {
+    const green = Color(0xFF12B76A);
+    final dot = Container(
+      width: 7,
+      height: 7,
+      decoration: const BoxDecoration(shape: BoxShape.circle, color: green),
+    );
+    if (reduced) return dot;
+    return SizedBox(
+      width: 15,
+      height: 15,
+      child: AnimatedBuilder(
+        animation: pulse,
+        builder: (_, _) {
+          final t = Curves.easeInOut.transform(pulse.value);
+          return Stack(
+            alignment: Alignment.center,
+            children: [
+              // A halo that grows and fades — the "breathing" cue.
+              Container(
+                width: 7 + 7 * t,
+                height: 7 + 7 * t,
+                decoration: BoxDecoration(
+                  shape: BoxShape.circle,
+                  color: green.withOpacity(0.30 * (1 - t)),
+                ),
+              ),
+              dot,
+            ],
+          );
+        },
+      ),
+    );
+  }
+}
+
+/// One pill in the support card.
+class _SupportAction extends StatelessWidget {
+  const _SupportAction({
+    required this.icon,
+    required this.label,
+    required this.filled,
+    required this.onTap,
+  });
+
+  final IconData icon;
+  final String label;
+  final bool filled;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final sizes = context.sizes;
+    final dark = context.isDark;
+    final fg = filled ? Colors.white : context.ink;
+    final bg = filled
+        ? [PishkanColors.primary, Color.alphaBlend(PishkanColors.primary.withOpacity(0.8), const Color(0xFF0B3E8F))]
+        : null;
+    return TactileTap(
+      scale: 0.96,
+      hold: const Duration(milliseconds: 110),
+      onTap: () async => onTap(),
+      child: Container(
+        height: sizes.s(40),
+        padding: EdgeInsets.symmetric(horizontal: sizes.s(10)),
+        decoration: BoxDecoration(
+          borderRadius: BorderRadius.circular(14),
+          gradient: bg == null ? null : LinearGradient(begin: Alignment.topLeft, end: Alignment.bottomRight, colors: bg),
+          color: bg == null ? (dark ? const Color(0xFF1B2942) : const Color(0xFFF3F7FF)) : null,
+          border: bg == null
+              ? Border.all(color: dark ? const Color(0xFF27395A) : const Color(0xFFDCE6F8))
+              : null,
+          boxShadow: filled
+              ? [BoxShadow(color: PishkanColors.primary.withOpacity(0.30), blurRadius: 14, offset: const Offset(0, 6))]
+              : null,
+        ),
+        child: Row(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Icon(icon, size: sizes.s(16), color: fg),
+            SizedBox(width: sizes.s(6)),
+            Flexible(
+              child: Text(
+                label,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: TextStyle(fontSize: sizes.s(11), fontWeight: FontWeight.w700, color: fg),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
 }
 
 /// One service in the popular grid.

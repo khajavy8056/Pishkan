@@ -48,6 +48,16 @@ class _RequestFormScreenState extends State<RequestFormScreen> {
   bool _submitting = false;
   bool _loadingAutofill = false;
   List<Map<String, dynamic>> _profileDocs = [];
+
+  /// Whether this upload should also go into the customer's document archive.
+  ///
+  /// It defaults on, and it is now a visible switch rather than something the
+  /// app did quietly behind the customer's back. Archiving a passport scan into
+  /// a profile is the kind of thing a person should be told about and allowed
+  /// to refuse — and the payoff is real: the next request with the same
+  /// requirement fills itself in instead of asking for the same photograph
+  /// again.
+  bool _saveToProfile = true;
   String _createdRequestId = '';
   String _createdTrackingCode = '';
 
@@ -139,8 +149,10 @@ class _RequestFormScreenState extends State<RequestFormScreen> {
       if (screenPhoto && isPhoto && !checked) throw ApiException('سرور هنوز بررسی کیفیت تصویر را پشتیبانی نمی‌کند؛ از دفتر بخواهید سرور را به‌روزرسانی کند.');
       if (mounted) {
         setState(() => _requirementFiles[requirement.key] = (fileId: fileId, name: name, checked: checked, profileId: ''));
-        await saveMappedProfileDocument(context, fileId, requirement.title, requirement.documentType);
-        await _loadProfileDocs();
+        if (_saveToProfile) {
+          await saveMappedProfileDocument(context, fileId, requirement.title, requirement.documentType);
+          await _loadProfileDocs();
+        }
       }
     } on ApiException catch (error) {
       if (mounted) setState(() => _requirementErrors[requirement.key] = error.message);
@@ -342,6 +354,8 @@ class _RequestFormScreenState extends State<RequestFormScreen> {
     final service = widget.service;
     return Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
       const SectionTitle(title: 'بارگذاری مدارک'),
+      _saveToProfileSwitch(),
+      const SizedBox(height: 10),
       if (service.requirements.isEmpty)
         SoftCard(child: Text('این خدمت مدرک از پیش‌تعریف‌شده‌ای ندارد. اگر بعداً مدرکی لازم شد، کارشناس در پرونده اطلاع می‌دهد و از همین اپ ارسالش می‌کنید.', style: TextStyle(color: context.inkMuted, fontSize: 13, height: 1.9)))
       else
@@ -356,6 +370,70 @@ class _RequestFormScreenState extends State<RequestFormScreen> {
       const SizedBox(height: 10),
       Text('عکس واضح و خوانا از اصل مدرک بفرستید؛ کیفیت پایین، بررسی را عقب می‌اندازد.', textAlign: TextAlign.center, style: TextStyle(fontSize: 11.5, color: context.inkMuted)),
     ]);
+  }
+
+  /// The archive opt-in.
+  ///
+  /// Stated as a benefit rather than as a warning, because that is what it is:
+  /// a school certificate uploaded once is never asked for again, and the
+  /// customer's own profile already shows these files. Turning it off does not
+  /// weaken the current request — the document still reaches the case — it only
+  /// means the next one will ask again.
+  Widget _saveToProfileSwitch() {
+    final sizes = context.sizes;
+    final dark = context.isDark;
+    return Padding(
+      padding: EdgeInsets.only(bottom: sizes.s(2)),
+      child: InkWell(
+        borderRadius: BorderRadius.circular(14),
+        onTap: () => setState(() => _saveToProfile = !_saveToProfile),
+        child: Container(
+          padding: EdgeInsets.symmetric(horizontal: sizes.s(12), vertical: sizes.s(10)),
+          decoration: BoxDecoration(
+            color: _saveToProfile
+                ? PishkanColors.primary.withOpacity(dark ? 0.16 : 0.07)
+                : (dark ? const Color(0xFF17233A) : const Color(0xFFF4F7FC)),
+            borderRadius: BorderRadius.circular(14),
+            border: Border.all(
+              color: _saveToProfile
+                  ? PishkanColors.primary.withOpacity(0.45)
+                  : (dark ? const Color(0xFF27395A) : const Color(0xFFE3EAF6)),
+            ),
+          ),
+          child: Row(children: [
+            Icon(
+              _saveToProfile ? Icons.bookmark_added_rounded : Icons.bookmark_border_rounded,
+              size: sizes.s(19),
+              color: _saveToProfile ? PishkanColors.primary : context.inkMuted,
+            ),
+            SizedBox(width: sizes.s(9)),
+            Expanded(
+              child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                Text(
+                  'ذخیره در پروفایل من',
+                  style: TextStyle(
+                    fontSize: sizes.s(12.5),
+                    fontWeight: FontWeight.w800,
+                    color: _saveToProfile ? PishkanColors.primary : context.ink,
+                  ),
+                ),
+                SizedBox(height: sizes.s(2)),
+                Text(
+                  'برای درخواست‌های بعدی دوباره بارگذاری نکنید؛ همین مدرک از پروفایل انتخاب می‌شود.',
+                  style: TextStyle(fontSize: sizes.s(10.5), height: 1.6, color: context.inkMuted),
+                ),
+              ]),
+            ),
+            SizedBox(width: sizes.s(8)),
+            Switch.adaptive(
+              value: _saveToProfile,
+              onChanged: (v) => setState(() => _saveToProfile = v),
+              activeColor: PishkanColors.primary,
+            ),
+          ]),
+        ),
+      ),
+    );
   }
 
   Widget _requirementRow(DocumentRequirement requirement) {

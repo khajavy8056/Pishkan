@@ -457,13 +457,30 @@ class _ScrollDrivenRevealState extends State<ScrollDrivenReveal> with SingleTick
     // Reduced motion, and anything that has already been seen and rebuilt:
     // render at rest, with no controller work.
     if (PishkanMotion.reduced(context)) return widget.child;
+    // Nothing is ever left invisible-but-taking-up-space.
+    //
+    // A reveal that has not fired yet still lays its child out at full height,
+    // so a section that never crossed the trigger line is a blank block the
+    // height of its content — which is exactly how the home page ended up with
+    // a 130 dp hole between the shortcut grid and «پیشخوان در یک نگاه». The
+    // animation is meant to be a flourish on content that is already there, not
+    // a gate that can disagree about whether content exists.
+    //
+    // So the child is never fully transparent: it starts at 55% and rises to
+    // full. Present enough to read as content that is arriving, never absent
+    // enough to read as a gap. The animation is idempotent — arriving twice
+    // changes nothing.
     return AnimatedBuilder(
       animation: _curved,
       builder: (_, child) {
         final t = _curved.value;
+        // Floor the opacity. At rest the child is fully visible; while it
+        // travels in it is never so faint that a dropped frame or a missed
+        // trigger can leave a section looking empty.
+        final opacity = 0.55 + 0.45 * t;
         final shift = (1 - t) * widget.offset;
         return Opacity(
-          opacity: t,
+          opacity: opacity,
           child: Transform.translate(
             offset: widget.horizontal ? Offset(shift, 0) : Offset(0, shift),
             child: widget.scaleFrom == 1

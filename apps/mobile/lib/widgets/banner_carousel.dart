@@ -162,6 +162,71 @@ class _BannerCarouselState extends State<BannerCarousel> {
   }
 }
 
+/// Slow, endless drift for a banner's artwork.
+///
+/// Own class rather than an inline animation so that each card owns its own
+/// ticker and they do not all breathe in lockstep — a row of five cards pulsing
+/// together looks like a rendering glitch, not like life.
+///
+/// The scale range is deliberately tiny. At 1.06 over fourteen seconds the
+/// movement is below the threshold where the eye tracks it as motion, which is
+/// what makes it read as "this is a picture of something, not a static tile"
+/// rather than as an animation competing with the headline.
+class _KenBurns extends StatefulWidget {
+  const _KenBurns({required this.child});
+
+  final Widget child;
+
+  @override
+  State<_KenBurns> createState() => _KenBurnsState();
+}
+
+class _KenBurnsState extends State<_KenBurns> with SingleTickerProviderStateMixin {
+  late final AnimationController _drift = AnimationController(
+    vsync: this,
+    duration: const Duration(milliseconds: 14000),
+  );
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    if (PishkanMotion.reduced(context)) {
+      _drift.stop();
+      return;
+    }
+    if (!_drift.isAnimating) {
+      // Start each card at a different point in the cycle, so the rail never
+      // looks synchronised.
+      _drift.value = (widget.hashCode % 1000) / 1000;
+      _drift.repeat(reverse: true);
+    }
+  }
+
+  @override
+  void dispose() {
+    // A repeating controller must be stopped *and* disposed. Disposing alone
+    // is enough for the ticker, but stopping first means the final frame is
+    // never built against a disposed listener, and it keeps a widget test that
+    // tears the tree down mid-drift from reporting a pending timer.
+    _drift.stop();
+    _drift.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    if (PishkanMotion.reduced(context)) return widget.child;
+    return AnimatedBuilder(
+      animation: _drift,
+      builder: (_, child) {
+        final t = Curves.easeInOut.transform(_drift.value);
+        return Transform.scale(scale: 1.0 + 0.06 * t, child: child);
+      },
+      child: widget.child,
+    );
+  }
+}
+
 /// The bundled banner art, keyed by the service slug a banner is about.
 ///
 /// These are drawn as one set — same blue field, same light arch, same floating
@@ -231,16 +296,26 @@ class BannerCard extends StatelessWidget {
           children: [
             // The drawn art first, so the card is never a grey box while a
             // remote picture loads.
-            Image.asset(
-              _asset,
-              fit: BoxFit.cover,
-              filterQuality: FilterQuality.medium,
-              errorBuilder: (_, _, _) => DecoratedBox(
-                decoration: BoxDecoration(
-                  gradient: LinearGradient(
-                    begin: AlignmentDirectional.topStart,
-                    end: AlignmentDirectional.bottomEnd,
-                    colors: [accent, Color.alphaBlend(accent.withOpacity(0.55), const Color(0xFF22D3EE))],
+            //
+            // It drifts. A still photograph filling a 186 dp card is a poster;
+            // the same picture at 1.0 → 1.06 scale over ~14 s is a *slider*, and
+            // it is the cheapest motion this app can have — no frames to ship,
+            // no GIF to decode, no battery spent on a video. Deliberately slow
+            // and small: anything faster turns a background into a distraction
+            // from the copy sitting on top of it. Off under reduced motion,
+            // where it would be the one thing moving on the page.
+            _KenBurns(
+              child: Image.asset(
+                _asset,
+                fit: BoxFit.cover,
+                filterQuality: FilterQuality.medium,
+                errorBuilder: (_, _, _) => DecoratedBox(
+                  decoration: BoxDecoration(
+                    gradient: LinearGradient(
+                      begin: AlignmentDirectional.topStart,
+                      end: AlignmentDirectional.bottomEnd,
+                      colors: [accent, Color.alphaBlend(accent.withOpacity(0.55), const Color(0xFF22D3EE))],
+                    ),
                   ),
                 ),
               ),
