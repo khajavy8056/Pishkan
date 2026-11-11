@@ -57,11 +57,26 @@ void main() {
     final lastBottom = tester.getRect(heroes.at(7)).bottom;
     expect(lastBottom, lessThanOrEqualTo(sectionRect.bottom + 0.5),
         reason: 'a tile must never overflow the section and fake a gap');
-    // And it must not fall short either: the section's bottom is the label
-    // band's bottom, not a reserved empty strip.
-    expect(sectionRect.bottom - lastBottom, lessThan(40),
-        reason: 'the section must end just under its last label, not leave slack');
-    expect(section.height, greaterThan(0));
+    // The `Hero` wraps only the medallion, which sits at the top of a tile, so
+    // it must be *inside* the section — not a proxy for the section's bottom.
+    for (final element in heroes.evaluate()) {
+      final rect = tester.getRect(find.byWidget(element.widget));
+      expect(rect.top, greaterThanOrEqualTo(sectionRect.top - 0.5));
+      expect(rect.bottom, lessThanOrEqualTo(sectionRect.bottom + 0.5));
+    }
+
+    // The section's height must be the two rows it painted, and no more: two
+    // tiles plus the gap between them, with no reserved empty strip.
+    final oneRow = section.height;
+    await tester.pumpWidget(host(PopularServicesSection(
+      services: [for (var i = 0; i < 4; i++) service(i)],
+      loading: false,
+      onOpenService: (_) {},
+    )));
+    await tester.pump();
+    final singleRow = tester.getSize(find.byType(PopularServicesSection)).height;
+    expect(oneRow, closeTo(singleRow * 2 + 14, 2),
+        reason: 'two rows must be exactly two tiles plus one run gap');
   });
 
   testWidgets('an empty catalogue shows one line, not a grid-shaped hole', (tester) async {
