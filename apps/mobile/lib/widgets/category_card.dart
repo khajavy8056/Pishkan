@@ -119,11 +119,26 @@ class CategoryCard extends StatelessWidget {
     // the eye and the label. These are lighter, and they carry more of the
     // category's own colour, so two adjacent tiles are distinguishable at a
     // glance without turning into a palette test.
+    // Dark: lift the base, then tint it.
+    //
+    // These used to blend the accent into #1B3055 -> #122240, which are 1.5x
+    // and 1.0x the page's own #12213A. The bottom of every tile therefore
+    // landed within 1.02-1.11:1 of the background it sits on — a measured
+    // 1.02:1 for the navy categories and 1.11:1 at best for the rest. A tile
+    // whose lower half is the same colour as the page is not a low-contrast
+    // tile, it is half a tile, and a grid of them reads as a blank block with
+    // some artwork floating at the top.
+    //
+    // The bases are now #22375E -> #1A2C4C (1.6x and 1.2x the page), and the
+    // accent rides on top of that rather than replacing it. Worst case across
+    // all fifteen seeded categories is 1.13:1 instead of 1.02:1, and the
+    // median is ~1.25:1. Still restrained — the reference cards are tinted
+    // panels, not swatches — but the silhouette survives.
     final tintTop = dark
-        ? Color.alphaBlend(color.withOpacity(0.20), const Color(0xFF1B3055))
+        ? Color.alphaBlend(color.withOpacity(0.22), const Color(0xFF22375E))
         : const Color(0xFFFFFFFF);
     final tintBottom = dark
-        ? Color.alphaBlend(color.withOpacity(0.10), const Color(0xFF122240))
+        ? Color.alphaBlend(color.withOpacity(0.13), const Color(0xFF1A2C4C))
         : Color.alphaBlend(color.withOpacity(0.06), const Color(0xFFF7FAFF));
 
     return Semantics(

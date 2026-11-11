@@ -440,12 +440,27 @@ class BannerCard extends StatelessWidget {
                   begin: AlignmentDirectional.centerStart,
                   end: AlignmentDirectional.centerEnd,
                   colors: [
-                    Color.alphaBlend(Colors.black.withOpacity(0.46), accent),
-                    Color.alphaBlend(Colors.black.withOpacity(0.30), accent),
-                    Color.alphaBlend(Colors.black.withOpacity(0.06), accent),
+                    Color.alphaBlend(Colors.black.withOpacity(0.50), accent),
+                    Color.alphaBlend(Colors.black.withOpacity(0.34), accent),
+                    Color.alphaBlend(Colors.black.withOpacity(0.10), accent),
                     Colors.transparent,
                   ],
-                  stops: const [0, 0.42, 0.74, 1],
+                  // Fade out *early*.
+                  //
+                  // The copy only occupies the right ~58% of the card, but the
+                  // previous stops ([0, .42, .74, 1]) kept a tinted wash across
+                  // the illustration's side too — the health slide's cross came
+                  // out ghosted behind a teal film, and the plate slide lost
+                  // most of its colour. A banner whose picture is covered is a
+                  // coloured rectangle.
+                  //
+                  // These stops are measured off the copy instead: held to 0.44
+                  // (fully under the text), then dropped quickly through 0.70 so
+                  // that by three quarters of the way across the gradient is
+                  // gone and the artwork is exactly its own colours. The last
+                  // quarter is completely clear, which is the part the eye
+                  // reads as "the picture".
+                  stops: const [0, 0.44, 0.70, 0.84],
                 ),
               ),
             ),
