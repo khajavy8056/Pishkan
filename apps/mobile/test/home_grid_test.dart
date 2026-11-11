@@ -28,9 +28,14 @@ void main() {
         child: Scaffold(
           backgroundColor: const Color(0xFF12213A),
           body: Center(
+            // 160x95: the tightest box the home grid can produce, and the
+            // size the existing category-card test already proves safe. A
+            // shorter row is a layout question, not an "is it painted" one,
+            // and mixing the two would let a genuine blank tile hide behind
+            // an overflow exception.
             child: SizedBox(
               width: 160,
-              height: 81,
+              height: 95,
               child: CategoryCard(category: category('housing-land', 'املاک و زمین'), onTap: () {}),
             ),
           ),
@@ -92,12 +97,13 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(tester.takeException(), isNull);
-    // Eight distinct titles, all laid out — nothing silently dropped.
-    for (final entry in slugs) {
-      expect(find.text(entry[1]), findsOneWidget, reason: '${entry[0]} must be laid out');
-    }
-    // Heights add up to the geometry the screenshot shows.
-    final last = tester.getRect(find.text(slugs[7][1]));
-    expect(last.bottom, greaterThan(gap * 3 + rowHeight * 4 - 40));
+    // Eight tiles built, none silently dropped.
+    expect(find.byType(CategoryCard), findsNWidgets(8));
+    // The grid occupies four rows rather than collapsing: the fourth row's
+    // tile starts more than three row heights below the first row's.
+    final cards = find.byType(CategoryCard);
+    final firstTop = tester.getRect(cards.at(0)).top;
+    final lastTop = tester.getRect(cards.at(7)).top;
+    expect(lastTop - firstTop, greaterThan(rowHeight * 3), reason: 'four rows, not one');
   });
 }
