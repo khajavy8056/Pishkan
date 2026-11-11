@@ -111,34 +111,58 @@ void main() {
     }
   });
 
-  testWidgets('the dome follows the selection through RTL, not against it', (tester) async {
-    // The bug this exists for: `Row` lays the first child on the *right* in
-    // this app, so `width / count * (index + 0.5)` put the dome under the wrong
-    // icon — the selected label went white on a white surface and all but
-    // disappeared. The painter now measures from the right edge.
+  testWidgets('destinations run left to right in index order', (tester) async {
+    // The layout the app has always had on device: «خانه» (destination 0) on
+    // the left, «پروفایل» (3) on the right — one cell apart, in index order.
+    // The Persian text inside each cell still runs RTL; it is the *cells*, not
+    // the glyphs, that this asserts.
     //
-    // The dome is painted, so it cannot be found in the widget tree. What can
-    // be checked is that every destination ends up selected in turn without
-    // throwing, and that the bar still builds at each — which is what the tap
-    // loop below does. The *geometry* is covered by the separation of concerns:
-    // one `_edge` function feeds both the outline and the fill, so they cannot
-    // disagree.
-    var selected = 0;
-    await tester.pumpWidget(
-      StatefulBuilder(
-        builder: (context, setState) => host(
-          index: selected,
-          onSelect: (i) => setState(() => selected = i),
-        ),
-      ),
-    );
+    // This was the crux of four broken releases: the cells were in index order
+    // while the dome was mirrored, so the blue curve sat under the destination
+    // on the opposite side every time.
+    await tester.pumpWidget(host(index: 0, onSelect: (_) {}));
     await tester.pumpAndSettle();
 
-    for (final index in [0, 1, 2, 3, 0]) {
-      await tester.tap(find.text(items[index].label));
-      await tester.pumpAndSettle();
-      expect(selected, index);
-      expect(tester.takeException(), isNull, reason: 'selecting $index');
+    final bar = tester.getRect(find.byType(WaveNavBar));
+    final home = tester.getCenter(find.text('خانه')).dx;
+    final profile = tester.getCenter(find.text('پروفایل')).dx;
+
+    expect(home, lessThan(profile), reason: 'destination 0 is the left-most cell');
+    expect(home, lessThan(bar.center.dx));
+    expect(profile, greaterThan(bar.center.dx));
+
+    // Evenly spread, one quarter of the bar apart, symmetric about the middle.
+    final services = tester.getCenter(find.text('خدمات')).dx;
+    final follow = tester.getCenter(find.text('پیگیری‌ها')).dx;
+    expect(home, lessThan(services));
+    expect(services, lessThan(follow));
+    expect(follow, lessThan(profile));
+    expect(services - home, moreOrLessEquals(follow - services, epsilon: 1.0));
+    expect(follow - services, moreOrLessEquals(profile - follow, epsilon: 1.0));
+  });
+
+  testWidgets('the dome follows the selection, measured on the curve itself', (tester) async {
+    // The dome is painted, so it cannot be found in the widget tree — but the
+    // painter's own geometry function can be exercised directly, and it is the
+    // same function the cells are positioned with. Asserting on it is what
+    // closes the gap between "the four cells look right" and "the blue curve is
+    // on top of the one you picked".
+    for (final width in [320.0, 390.0, 720.0]) {
+      const count = 4;
+      for (var index = 0; index < count; index++) {
+        final cellLeft = navCellLeft(index, count, width);
+        final dome = navDomeCentre(index.toDouble(), count, width);
+        // The apex must land inside the cell it belongs to...
+        expect(
+          dome,
+          inInclusiveRange(cellLeft, cellLeft + width / count),
+          reason: 'width $width, index $index: dome $dome outside cell $cellLeft',
+        );
+        // ...exactly on that cell's middle. This is the assertion that matters:
+        // three releases shipped with the dome under the wrong icon because
+        // nothing checked it, and "it looks right in a mock" is not a check.
+        expect(dome, moreOrLessEquals(cellLeft + width / count / 2, epsilon: 0.01));
+      }
     }
   });
 

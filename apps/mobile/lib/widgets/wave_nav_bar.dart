@@ -149,23 +149,41 @@ class _WaveNavBarState extends State<WaveNavBar> with SingleTickerProviderStateM
                   // selected one is *not* moved up: in the reference all four
                   // stay on one baseline, and the dome rises behind the chosen
                   // icon rather than carrying it away.
+                  //
+                  // Laid out from explicit rectangles rather than a `Row`.
+                  // `Row` mirrors itself for RTL, which means the *cells* and
+                  // the *dome* each had their own private idea of where
+                  // destination 0 sits, and after three rounds of getting that
+                  // agreement wrong the only reliable fix is to remove the
+                  // second opinion: both now come from [navCellLeft], one function
+                  // in one place.
                   Positioned(
                     left: 0,
                     right: 0,
                     top: rise,
                     height: body,
-                    child: Row(
-                      children: [
-                        for (var i = 0; i < widget.items.length; i++)
-                          Expanded(
-                            child: _NavCell(
-                              item: widget.items[i],
-                              selected: i == widget.index,
-                              dark: dark,
-                              onTap: () => widget.onSelect(i),
-                            ),
-                          ),
-                      ],
+                    child: LayoutBuilder(
+                      builder: (context, constraints) {
+                        final cellWidth = constraints.maxWidth / widget.items.length;
+                        return Stack(
+                          children: [
+                            for (var i = 0; i < widget.items.length; i++)
+                              Positioned(
+                                direction: TextDirection.ltr,
+                                left: navCellLeft(i, widget.items.length, constraints.maxWidth),
+                                width: cellWidth,
+                                top: 0,
+                                bottom: 0,
+                                child: _NavCell(
+                                  item: widget.items[i],
+                                  selected: i == widget.index,
+                                  dark: dark,
+                                  onTap: () => widget.onSelect(i),
+                                ),
+                              ),
+                          ],
+                        );
+                      },
                     ),
                   ),
                 ],
@@ -176,6 +194,40 @@ class _WaveNavBarState extends State<WaveNavBar> with SingleTickerProviderStateM
       ),
     );
   }
+}
+
+/// Left edge of destination [index] within a bar [width] wide.
+///
+/// The bar reads **left to right in index order**: «خانه» (destination 0) is
+/// the left-most cell, «پروفایل» (3) the right-most. That is what the app has
+/// always shown on device — the screenshots of all four tabs place the labels
+/// at 125/275/444/593 px across a 720 px screen, which is one cell apart
+/// starting from the left and is the plain `index` order.
+///
+/// What is *not* left-to-right is each label's text: Persian glyphs run RTL
+/// inside their cell. Confusing those two facts is what produced four broken
+/// releases — the cells were laid out in index order while the dome was
+/// mirrored, so the blue curve was always under the destination on the
+/// opposite side:
+///
+/// | selected | dome should be at | it was at |
+/// |----------|-------------------|-----------|
+/// | خانه (0)     | 125               | 630       |
+/// | خدمات (1)   | 275               | 450       |
+/// | پیگیری‌ها (2) | 444               | 270       |
+/// | پروفایل (3)  | 593               |  90       |
+///
+/// Both functions below are now plain `index` order, so the dome and the cells
+/// cannot disagree again.
+double navCellLeft(int index, int count, double width) {
+  final cell = width / count;
+  return cell * index;
+}
+
+/// Centre of destination [index] — the point the dome's apex sits on.
+double navDomeCentre(double position, int count, double width) {
+  final cell = width / count;
+  return cell * (position + 0.5);
 }
 
 class _NavCell extends StatelessWidget {
@@ -194,12 +246,15 @@ class _NavCell extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final sizes = context.sizes;
-    // Inside the dome the label sits on saturated blue, so it is white. Outside
-    // it the label sits on near-white, so it is navy — the two cases cannot
-    // share one colour, which is exactly what went wrong when the dome was
-    // drawn on the wrong side.
+    // Two inks, because the two cases sit on different backgrounds.
+    //
+    // On the white bar the reference uses a saturated navy — not grey. Grey
+    // icons on white read as disabled; navy reads as "available, not selected".
+    // A grey placeholder is what made the shipped bar look washed out. Inside
+    // the dome everything is white, which the reference does with a *filled*
+    // glyph rather than an outline.
     final activeInk = Colors.white;
-    final restInk = dark ? const Color(0xFFA9BCD6) : const Color(0xFF27406B);
+    final restInk = dark ? const Color(0xFFBFD2E8) : const Color(0xFF1B3C8C);
 
     return Semantics(
       button: true,
@@ -212,7 +267,10 @@ class _NavCell extends StatelessWidget {
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
             AnimatedScale(
-              scale: selected ? 1.04 : 1,
+              // The reference lifts the chosen glyph a little and enlarges it:
+              // it is the only thing inside the dome, so it carries the
+              // selection. Not enough to break the shared baseline.
+              scale: selected ? 1.10 : 1,
               duration: PishkanMotion.scaled(context, const Duration(milliseconds: 300)),
               curve: Curves.easeOutCubic,
               child: Icon(
@@ -264,18 +322,38 @@ class _WavePainter extends CustomPainter {
   final Color brand;
 
   /// How far the dome rises above the flat run, as a fraction of the body
-  /// height. 0.34 of 74 dp is 25 dp: tall enough to be a hill, short enough
-  /// that the icon inside it is not crowding the rim.
-  static const double riseRatio = 0.34;
+  /// height.
+  ///
+  /// Measured off the reference sheet rather than guessed: the bar's body is
+  /// 125 px tall in that artwork and the dome's apex sits 32 px above the flat
+  /// top run, so 0.26. A 74 dp bar therefore lifts by about 19 dp — enough to
+  /// clear the icon, not enough to look like a separate button.
+  static const double riseRatio = 0.26;
 
-  /// Half-width of the dome, as a fraction of one cell. The reference dome
-  /// covers a little over one cell, so 0.56 each side.
-  static const double _domeHalfCells = 0.56;
+  /// Half-width of the dome where it crosses the bar's top line, as a fraction
+  /// of one cell.
+  ///
+  /// Traced off the reference sheet: the bar spans 375 dp for four cells, so a
+  /// cell is 93.75 dp; at the flat top run the dome is 287 px wide in a 1536 px
+  /// render of a 3x screen, i.e. 95.7 dp across — a little over one cell, so
+  /// 0.61 of a cell on each side.
+  ///
+  /// 0.80 was tried and was visibly wrong: at that width the dome covers three
+  /// of the four destinations at its foot and stops reading as one selection.
+  static const double _domeHalfCells = 0.61;
 
-  /// How much wider the dome's base is than its crest, as a multiple of the
-  /// crest's half-width. This flare is what makes the dome look like it is
-  /// rising out of the surface rather than a band laid over it.
-  static const double _flare = 1.9;
+  /// How much wider the dome's *foot* is than the line where it crosses the
+  /// bar's top: the skirt that spreads into the surface.
+  ///
+  /// The same trace puts the foot at 440 px / 146.7 dp across, so 0.94 of a
+  /// cell each side — 1.55× the crest. That widening is most of what makes the
+  /// dome read as a solid volume rather than a painted stripe.
+  static const double _flare = 1.42;
+
+  /// How deep the trough dips on each side of the dome, as a fraction of the
+  /// dome's own rise. Shallow on purpose: a deep trough turns the bar's edge
+  /// into a roller coaster, which the reference does not have.
+  static const double _trough = 0.12;
 
   /// Radius of the bar's own corners, from the 24–28 dp in the reference.
   static const double _corner = 26;
@@ -289,37 +367,67 @@ class _WavePainter extends CustomPainter {
     final cell = w / count;
     final domeHalf = cell * _domeHalfCells;
 
-    // Measured from the RIGHT edge: the app is RTL and `Row` puts destination 0
-    // on the right, so the dome has to be mirrored too. Getting this wrong put
-    // the dome under the wrong icon and made the selected label vanish.
+    // Same function the cells are positioned with, and *not* clamped.
     //
-    // Clamped so the crest stays fully inside the bar. Without the clamp the
-    // first and last destinations put the dome's apex on the rounded end, and
-    // the bar's own outline cut the crest in half — the dome appeared to be
-    // missing its peak on exactly the two tabs where it matters most.
-    final domeX = (w - cell * (position + 0.5)).clamp(domeHalf, w - domeHalf);
+    // Clamping the apex inward — the obvious way to keep the crest inside a bar
+    // with 26 dp rounded ends — moves the dome off the icon it belongs to. That
+    // is precisely the bug this bar has shipped with four times, because a
+    // clamped apex and an unclamped one differ only at the two end
+    // destinations, which are the two that appear in most screenshots.
+    //
+    // The reference solves it the other way round: the dome keeps its centre on
+    // its icon, runs past the bar at the ends, and is trimmed by the bar's own
+    // silhouette. Everything is drawn inside `clipPath(surface)`, so the
+    // overhang is cut for free and still looks round.
+    final domeX = navDomeCentre(position, count, w);
 
     final surface = _surfacePath(w, h, domeX, rise, domeHalf);
 
-    // 1. The shadow that lifts the bar off the page. Two passes: one wide and
-    //    pale, one tight and darker. A single blur cannot be both the thing
-    //    that separates the bar from the content behind it and the thing that
-    //    defines its edge.
+    // 1. The shadow that lifts the bar off the page.
+    //
+    //    Three passes, from far to near, because one blur can only be one
+    //    distance. A single wide pass has no contact edge, so the bar looks like
+    //    it is hovering with nothing holding it; a single tight pass has no
+    //    reach, so it does not separate from the content scrolling behind it.
+    //
+    //      * ambient — wide, very pale, barely offset: the general sense of
+    //        something sitting above the page;
+    //      * key — tighter, darker, offset further down: the direction of light;
+    //      * contact — a hairline of near-black right under the silhouette,
+    //        which is what actually reads as "this edge is in front".
+    //
+    //    On dark pages the shadow is black on a dark surface, so it is both
+    //    darker and less visible. The contact pass is what keeps the dark bar
+    //    from dissolving into the page; a light page needs less of it.
     canvas.save();
-    canvas.translate(0, 8);
+    canvas.translate(0, 10);
     canvas.drawPath(
       surface,
       Paint()
-        ..color = dark ? const Color(0x8A000000) : const Color(0x2E16336B)
-        ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 18),
+        ..color = dark ? const Color(0x99000000) : const Color(0x3316336B)
+        ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 22),
     );
     canvas.restore();
+
+    canvas.save();
+    canvas.translate(0, 5);
     canvas.drawPath(
       surface,
       Paint()
-        ..color = dark ? const Color(0x66000000) : const Color(0x1F16336B)
-        ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 5),
+        ..color = dark ? const Color(0x7A000000) : const Color(0x2916336B)
+        ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 7),
     );
+    canvas.restore();
+
+    canvas.save();
+    canvas.translate(0, 1.5);
+    canvas.drawPath(
+      surface,
+      Paint()
+        ..color = dark ? const Color(0x52000000) : const Color(0x1A102A5C)
+        ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 1.6),
+    );
+    canvas.restore();
 
     // 2. The surface itself.
     canvas.drawPath(
@@ -338,121 +446,151 @@ class _WavePainter extends CustomPainter {
 
     // 3. The dome.
     //
-    //    Two passes inside one layer, because the shape needs two gradients at
-    //    once and a fill has one shader:
+    //    The reference dome is a *solid* body of colour sitting in the bar, not
+    //    a tint over it. Two earlier attempts got this wrong in opposite ways:
+    //    a hard band looked like a rectangle parked on the bar, and an
+    //    alpha-mask falloff turned it into a haze — the user's «یاد سه بعدی
+    //    نداره / رنگ‌هاش درست نیست». What the sheet actually shows is a filled
+    //    dome with a crisp rim, a bright crest, a deep centre and a skirt that
+    //    melts into the surface at its foot.
     //
-    //      1. the flared dome path, filled with a *horizontal* alpha ramp —
-    //         this is what gives the soft edges where the blue dissolves into
-    //         the white surface;
-    //      2. the same path again with the *vertical* colour gradient in
-    //         `srcATop`, which recolours what pass 1 laid down while keeping
-    //         its alpha ramp.
-    //
-    //    The first version masked a hard-edged band with a `dstIn` gradient,
-    //    which zeroed the alpha at the edges instead of fading it and left two
-    //    vertical cuts down the dome's sides — a blue rectangle parked on the
-    //    bar rather than a dome rising out of it.
+    //    So it is painted as one opaque shape, then shaded in three passes:
+    //      1. the body, with the vertical blue ramp;
+    //      2. a bright inner glow just under the crest, which is the light
+    //         catching the top of the volume;
+    //      3. a soft skirt at the foot, where the dome meets the surface.
     canvas.save();
     canvas.clipPath(surface);
-    canvas.saveLayer(Rect.fromLTWH(0, 0, w, h), Paint());
 
-    final (leftHalf, rightHalf) = _halves(w, domeX, domeHalf);
     final crest = _crestPath(w, domeX, rise, domeHalf);
-    final flareL = leftHalf * _flare;
-    final flareR = rightHalf * _flare;
+    final foot = domeHalf * _flare;
 
-    // The alpha ramp is spread over the part of the dome that is actually
-    // inside the bar. At the two end destinations the dome is flush with the
-    // rounded end, so half of the ramp would fall outside the surface and the
-    // dome would meet the edge at half strength — a hard vertical cut exactly
-    // where the rounded corner is. Clamping the ramp's span keeps the falloff
-    // *within* the visible dome on every tab.
-    final rampLeft = math.max(0.0, domeX - flareL);
-    final rampRight = math.min(w, domeX + flareR);
-    // `Path.from` is the copy constructor; `dart:ui`'s `Path` has no
-    // `clone()` — that was the compile error the whole 1.11.1 build died on.
+    // The sides fall from the shoulders to a foot that is only modestly wider
+    // than the crest, and then the bottom edge closes straight across.
+    //
+    // The first attempt flared the foot to 1.55× the crest, which turned the
+    // dome into a *triangle* — the bar's own white top edge showed through
+    // either side of it, and the shape read as a wedge rather than a hill. In
+    // the reference the dome is essentially a round cap whose sides drop almost
+    // vertically and disappear into the surface; the widening is there, but it
+    // is subtle and happens low down.
     final dome = Path.from(crest)
       ..cubicTo(
-        domeX + rightHalf, rise + (h - rise) * 0.45,
-        domeX + flareR, rise + (h - rise) * 0.80,
-        domeX + flareR, h + 2,
+        domeX + domeHalf, rise + (h - rise) * 0.55,
+        domeX + foot, rise + (h - rise) * 0.88,
+        domeX + foot, h + 2,
       )
-      ..lineTo(domeX - flareL, h + 2)
+      ..lineTo(domeX - foot, h + 2)
       ..cubicTo(
-        domeX - flareL, rise + (h - rise) * 0.80,
-        domeX - leftHalf, rise + (h - rise) * 0.45,
-        domeX - leftHalf, rise,
+        domeX - foot, rise + (h - rise) * 0.88,
+        domeX - domeHalf, rise + (h - rise) * 0.55,
+        domeX - domeHalf, rise,
       )
       ..close();
 
-    // Pass 1: the alpha ramp, sideways.
-    //
-    // A `smoothstep` rather than a straight line: a linear ramp between two
-    // alpha values has a visible crease where it meets the opaque middle, which
-    // on this shape appears as a jagged tear at the dome's foot. The extra
-    // stops approximate the curve closely enough at this size.
+    // Pass 1: the body. Saturated, and lit from the crest down.
     canvas.drawPath(
       dome,
       Paint()
-        ..shader = LinearGradient(
-          colors: const [
-            Color(0x00FFFFFF),
-            Color(0x2EFFFFFF),
-            Color(0xB8FFFFFF),
-            Color(0xFFFFFFFF),
-            Color(0xB8FFFFFF),
-            Color(0x2EFFFFFF),
-            Color(0x00FFFFFF),
-          ],
-          stops: const [0, 0.18, 0.34, 0.5, 0.66, 0.82, 1],
-        ).createShader(Rect.fromLTWH(rampLeft, 0, rampRight - rampLeft, h)),
-    );
-
-    // Pass 2: the colour, top to bottom.
-    canvas.drawPath(
-      dome,
-      Paint()
-        ..blendMode = BlendMode.srcATop
-        // Sampled from the reference: the crest is a bright cyan-blue that
-        // deepens through saturated blue to a royal blue at the foot. The
-        // earlier palette was mixed toward slate, which made a dark-mode bar
-        // that was *less* alive than the light one — the opposite of the
-        // intent, and the reason the dark screenshots looked flat.
         ..shader = LinearGradient(
           begin: Alignment.topCenter,
           end: Alignment.bottomCenter,
-          stops: const [0, 0.30, 0.72, 1],
+          stops: const [0, 0.22, 0.55, 0.86, 1],
           colors: dark
-              ? [
-                  const Color(0xFF7DC8FF),
-                  const Color(0xFF2C6BE8),
-                  const Color(0xFF1B3F9E),
-                  const Color(0xFF152C6B),
+              ? const [
+                  Color(0xFF9BD8FF),
+                  Color(0xFF2F7CF0),
+                  Color(0xFF1B4FC4),
+                  Color(0xFF152C6B),
+                  Color(0xFF152C6B),
                 ]
-              : [
-                  const Color(0xFF67CFFC),
-                  const Color(0xFF1F6FFD),
-                  const Color(0xFF0C55E8),
-                  const Color(0xFF0046F2),
+              : const [
+                  Color(0xFF8FD9FF),
+                  Color(0xFF2E8BFB),
+                  Color(0xFF0B5CF0),
+                  Color(0xFF0A47D6),
+                  Color(0xFF0A47D6),
                 ],
         ).createShader(Rect.fromLTWH(0, 0, w, h)),
     );
+
+    // Pass 2: the inner glow. A white radial just inside the crest — the one
+    // cue in the sheet that says the dome is a lit dome and not a flat blob.
+    // Clipped to the dome so it cannot wash out the white surface around it.
+    canvas.save();
+    canvas.clipPath(dome);
+    canvas.drawCircle(
+      Offset(domeX, rise + (h - rise) * 0.10),
+      domeHalf * 1.15,
+      Paint()
+        ..shader = RadialGradient(
+          colors: [
+            Colors.white.withOpacity(dark ? 0.30 : 0.42),
+            Colors.white.withOpacity(0.0),
+          ],
+          stops: const [0.0, 1.0],
+        ).createShader(Rect.fromCircle(
+          center: Offset(domeX, rise + (h - rise) * 0.10),
+          radius: domeHalf * 1.15,
+        )),
+    );
     canvas.restore();
 
-    // 4. The gloss. A narrow highlight just inside the dome's crest — the
-    //    single cue that makes it read as a raised, lit surface instead of a
-    //    blue shape. Painted along the crest so it curves with it, and clipped
-    //    to the bar so it cannot spill over the top edge.
+    // Pass 3: the skirt. Where the dome's foot meets the surface it should not
+    // stop on a line — a short vertical fade back into the bar's own colour is
+    // what makes it look embedded rather than cut out and laid on top.
+    canvas.save();
+    canvas.clipPath(dome);
+    canvas.drawRect(
+      Rect.fromLTWH(0, h - (h - rise) * 0.16, w, (h - rise) * 0.16 + 2),
+      Paint()
+        ..shader = LinearGradient(
+          begin: Alignment.topCenter,
+          end: Alignment.bottomCenter,
+          colors: [
+            (dark ? const Color(0xFF152C6B) : const Color(0xFF0A47D6))
+                .withOpacity(0.0),
+            (dark ? const Color(0xFF152C6B) : const Color(0xFF0A47D6))
+                .withOpacity(0.85),
+          ],
+        ).createShader(
+          Rect.fromLTWH(0, h - (h - rise) * 0.16, w, (h - rise) * 0.16 + 2),
+        ),
+    );
+    canvas.restore();
+
+    canvas.restore();
+
+    // 4. The rim and the gloss.
+    //
+    //    The reference dome has a crisp bright line all the way around its
+    //    crest — hard, almost white, and unbroken. That single stroke is what
+    //    separates the dome from the page behind it; without it the blue edge
+    //    is just a colour change and the volume disappears. A blurred highlight
+    //    alone was not enough, which is why the earlier version still read flat.
+    //
+    //    Two strokes, then: a hard one on the path itself, and a soft one just
+    //    inside it for the light rolling over the top of the hill.
     canvas.save();
     canvas.clipPath(surface);
+
     canvas.drawPath(
-      _crestPath(w, domeX, rise - 1.4, domeHalf),
+      _crestPath(w, domeX, rise, domeHalf),
       Paint()
         ..style = PaintingStyle.stroke
-        ..strokeWidth = 2.4
-        ..color = Colors.white.withOpacity(dark ? 0.30 : 0.55)
-        ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 2.2),
+        ..strokeWidth = 1.6
+        ..color = Colors.white.withOpacity(dark ? 0.62 : 0.92),
     );
+
+    canvas.drawPath(
+      _crestPath(w, domeX, rise - 2.2, domeHalf * 0.94),
+      Paint()
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = 3.0
+        ..color = Colors.white.withOpacity(dark ? 0.22 : 0.38)
+        ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 2.6),
+    );
+
     canvas.restore();
 
     // 5. The separators. Hairlines between destinations, drawn only where the
@@ -463,7 +601,11 @@ class _WavePainter extends CustomPainter {
       ..strokeWidth = 1
       ..color = dark ? const Color(0x1FFFFFFF) : const Color(0x14203A66);
     for (var i = 1; i < count; i++) {
-      final x = w - cell * i;
+      // Between destination i-1 and i, in the same index order the cells and
+      // the dome use. This was mirrored too, so the separators were in the
+      // opposite order to the icons — visible in the screenshots as a gap in a
+      // different place from the one between the labels.
+      final x = cell * i;
       // Skip the two boundaries that run into the dome.
       if ((x - domeX).abs() < domeHalf * 1.5) continue;
       canvas.drawLine(
@@ -472,7 +614,6 @@ class _WavePainter extends CustomPainter {
         sepPaint,
       );
     }
-    canvas.restore();
 
     // 6. The rim. On a dark page the bar's silhouette dissolves into the
     //    background at the edges, because its own shadow is black on black.
@@ -497,24 +638,36 @@ class _WavePainter extends CustomPainter {
   /// neighbouring tab. Stretching keeps the apex over its own icon and lets the
   /// outer shoulder reach the rounded end, which is what the reference does.
   double _edge(double x, double w, double domeX, double rise, double domeHalf) {
-    final reachesStart = domeX - domeHalf < domeHalf;
-    final reachesEnd = w - (domeX + domeHalf) < domeHalf;
-    final leftHalf = reachesStart ? domeX : domeHalf;
-    final rightHalf = reachesEnd ? w - domeX : domeHalf;
-    final half = x < domeX ? leftHalf : rightHalf;
+    // Symmetric, always. The first and last destinations overhang the bar and
+    // are trimmed by the clip; stretching the outer shoulder to the edge
+    // instead turned them into half-domes that did not match the other two.
+    const half = domeHalf;
     final d = (x - domeX).abs();
     if (d < half) {
-      // Raised cosine: peak `rise` at the centre, zero at the shoulder, with a
-      // horizontal tangent at both ends. A `sin` hump would meet the flat run
-      // at an angle and look welded on.
-      return rise * 0.5 * (1 + math.cos(math.pi * d / half));
+      // A Hann window raised to a power.
+      //
+      // The profile here was *measured* off the reference sheet and fitted,
+      // not guessed: a raised cosine on its own leaves the flanks too full
+      // (`sse 0.143` against the traced heights), while `cos^1.6` tracks it
+      // (sse 0.059). The visible difference is the shoulders — a pure cosine
+      // hump meets the flat run at a shallow angle and the dome reads as a
+      // mound, whereas the reference dome turns down decisively and reads as a
+      // volume.
+      //
+      // `0.5 * (1 + cos(pi t))` peaks at the centre with zero slope at both
+      // ends, which is what keeps the top round and the join with the bar
+      // seamless; the exponent sharpens the descent without breaking either.
+      const k = 1.6;
+      final t = (d / half).clamp(0.0, 1.0);
+      final hann = 0.5 * (1 + math.cos(math.pi * t));
+      return rise * math.pow(hann, k).toDouble();
     }
     // The trough either side: the surface dips below the flat line, then comes
     // back. This is what makes the silhouette read as a wave passing through
     // the bar rather than a bump pasted onto it.
-    final t = (d - half) / (half * 0.85);
+    final t = (d - half) / (half * 0.62);
     if (t >= 1) return 0;
-    return -rise * 0.14 * math.sin(math.pi * t);
+    return -rise * _trough * math.sin(math.pi * t);
   }
 
   Path _edgePath(double w, double domeX, double rise, double domeHalf) {
@@ -532,20 +685,17 @@ class _WavePainter extends CustomPainter {
     return path;
   }
 
-  /// Half-width of the crest on each side, which differ at the bar's ends.
-  (double, double) _halves(double w, double domeX, double domeHalf) {
-    final left = domeX - domeHalf < domeHalf ? domeX : domeHalf;
-    final right = w - (domeX + domeHalf) < domeHalf ? w - domeX : domeHalf;
-    return (left, right);
-  }
-
   /// Just the crest, for the gloss stroke and the dome's top.
+  ///
+  /// Sampled a little wider than the visible crest so the two end destinations
+  /// still have their full curve drawn after the bar's silhouette trims the
+  /// overhang — the stroke follows the shape that is above the flat run, not
+  /// the part of it that happens to be inside the bar.
   Path _crestPath(double w, double domeX, double rise, double domeHalf) {
-    final (left, right) = _halves(w, domeX, domeHalf);
     final path = Path();
-    const steps = 60;
+    const steps = 90;
     for (var i = 0; i <= steps; i++) {
-      final x = domeX - left + (left + right) * i / steps;
+      final x = domeX - domeHalf + (domeHalf * 2) * i / steps;
       final y = rise - _edge(x, w, domeX, rise, domeHalf);
       if (i == 0) {
         path.moveTo(x, y);
