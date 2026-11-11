@@ -153,6 +153,12 @@ void main() {
     await tester.pump(const Duration(milliseconds: 50));
     final skeleton = tester.getSize(find.byType(PopularServicesSection)).height;
 
+    // `ShimmerBox` drives a repeating animation, so the tree never settles.
+    // Tear it down before measuring the loaded state: a live ticker at the end
+    // of a test is a failure that says nothing about the layout.
+    await tester.pumpWidget(const SizedBox.shrink());
+    await tester.pump();
+
     await tester.pumpWidget(host(PopularServicesSection(
       services: [for (var i = 0; i < 8; i++) service(i)],
       loading: false,
