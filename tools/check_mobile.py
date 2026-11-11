@@ -61,6 +61,12 @@ STEPS: list[tuple[str, list[str]]] = [
     ('scope shadowing', ['tools/checks/dart_scope.py', 'apps/mobile/lib']),
 ]
 
+# The deployment checks are a bash script, not a dart-tooling step, but they
+# belong in the same gate: an update that drops a column, or a config key that
+# nothing reads, is exactly as fatal as a Dart syntax error — and it is only
+# discovered on a customer's server otherwise.
+DEPLOY_CHECK = ROOT / 'tools' / 'check_deploy.sh'
+
 
 def main() -> int:
     quiet = '-q' in sys.argv or '--quiet' in sys.argv
@@ -87,11 +93,29 @@ def main() -> int:
             tail = output.splitlines()[-1] if output else 'ok'
             print(f'  ok   {label} — {tail}')
 
+    if DEPLOY_CHECK.exists():
+        result = subprocess.run(
+            ['bash', str(DEPLOY_CHECK)], cwd=ROOT, capture_output=True, text=True,
+        )
+        output = (result.stdout + result.stderr).strip()
+        if result.returncode != 0:
+            failures.append(('deployment logic', output))
+            print('  FAIL deployment logic')
+            for line in output.splitlines():
+                if 'FAIL' in line or 'check_deploy:' in line or 'failed:' in line:
+                    print(f'       {line}')
+        elif not quiet:
+            tail = output.splitlines()[-1] if output else 'ok'
+            print(f'  ok   deployment logic — {tail}')
+        total_steps = len(STEPS) + 1
+    else:
+        total_steps = len(STEPS)
+
     print()
     if failures:
         print(f'check_mobile: {len(failures)} check(s) failed.')
         return 1
-    print(f'check_mobile: all {len(STEPS)} check(s) clean.')
+    print(f'check_mobile: all {total_steps} check(s) clean.')
     return 0
 
 

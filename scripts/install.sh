@@ -19,20 +19,29 @@ INSTALL_SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")" 2>/dev/null && pwd
 if [ -f "${INSTALL_SCRIPT_DIR}/lib/common.sh" ]; then
   # shellcheck source=lib/common.sh
   . "${INSTALL_SCRIPT_DIR}/lib/common.sh"
+  # shellcheck source=lib/config.sh
+  . "${INSTALL_SCRIPT_DIR}/lib/config.sh"
+  # shellcheck source=lib/net.sh
+  . "${INSTALL_SCRIPT_DIR}/lib/net.sh"
 else
-  # Piped execution: fetch the helpers next to this script.
+  # Piped execution: fetch the helpers next to this script. The library is
+  # pinned to the same commit as the code, so a half-updated helper set is
+  # impossible.
   TMP_LIB="$(mktemp -d)"
   trap 'rm -rf "$TMP_LIB"' EXIT
   COMMONS_REF="${PISHKAN_COMMIT:-main}"
-  curl -fsSL "https://raw.githubusercontent.com/khajavy8056/Pishkan/${COMMONS_REF}/scripts/lib/common.sh" -o "${TMP_LIB}/common.sh" \
-    || { echo "دریافت فایل‌های نصب ناموفق بود. اتصال شبکه و مرجع نسخه را بررسی کنید." >&2; exit 1; }
+  for helper in common.sh config.sh net.sh; do
+    curl -fsSL "https://raw.githubusercontent.com/khajavy8056/Pishkan/${COMMONS_REF}/scripts/lib/${helper}" -o "${TMP_LIB}/${helper}" \
+      || { echo "دریافت فایل‌های نصب (${helper}) ناموفق بود. اتصال شبکه و مرجع نسخه را بررسی کنید." >&2; exit 1; }
+  done
   # shellcheck source=lib/common.sh
   . "${TMP_LIB}/common.sh"
+  # shellcheck source=lib/config.sh
+  . "${TMP_LIB}/config.sh"
+  # shellcheck source=lib/net.sh
+  . "${TMP_LIB}/net.sh"
 fi
 
-DOMAIN="${DOMAIN:-}"
-EMAIL="${EMAIL:-}"
-SKIP_TLS="${SKIP_TLS:-0}"
 NODE_MAJOR="${NODE_MAJOR:-22}"
 
 on_error() {
@@ -85,6 +94,138 @@ if [ -f /etc/pishkan/pishkan.env ] && is_installed; then
   EXISTING_INSTALL=1
 else
   EXISTING_INSTALL=0
+fi
+
+# ---------------------------------------------------------------------------
+# 0b. Deployment configuration — read and validate BEFORE touching the system.
+#
+# Everything the install writes later (nginx server_name, certificates, CORS,
+# cookie flags, the public URL) is derived from deploy.conf. Validating first
+# means a typo in the domain aborts on an untouched server instead of halfway
+# through, with nginx already pointed at a hostname that does not exist.
+# ---------------------------------------------------------------------------
+heading "خواندن تنظیمات استقرار"
+
+CONFIG_FILE_SOURCE=""
+if [ -n "${PISHKAN_DEPLOY_CONF:-}" ] && [ -f "${PISHKAN_DEPLOY_CONF}" ]; then
+  CONFIG_FILE_SOURCE="$PISHKAN_DEPLOY_CONF"
+elif [ -f "${INSTALL_SCRIPT_DIR}/../deploy/deploy.conf" ]; then
+  # Running from a checkout: the repo copy is the template.
+  CONFIG_FILE_SOURCE="$(cd "${INSTALL_SCRIPT_DIR}/.." && pwd)/deploy/deploy.conf"
+elif [ -f "${CONFIG_DIR}/deploy.conf" ]; then
+  CONFIG_FILE_SOURCE="${CONFIG_DIR}/deploy.conf"
+fi
+
+# No config anywhere: this is a piped install on a fresh server. The whole point
+# of the one-command install is that nobody has to clone the repo first, so fetch
+# the template ourselves and fill in the two values that cannot be guessed.
+if [ -z "$CONFIG_FILE_SOURCE" ]; then
+  install -d -m 0750 "$CONFIG_DIR"
+  TEMPLATE_URL="https://raw.githubusercontent.com/khajavy8056/Pishkan/${PISHKAN_COMMIT:-main}/deploy/deploy.conf"
+  if curl -fsSL "$TEMPLATE_URL" -o "${CONFIG_DIR}/deploy.conf"; then
+    chmod 0640 "${CONFIG_DIR}/deploy.conf"
+    ok "قالب تنظیمات از مخزن دریافت شد: ${CONFIG_DIR}/deploy.conf"
+    CONFIG_FILE_SOURCE="${CONFIG_DIR}/deploy.conf"
+  fi
+fi
+
+if [ -z "$CONFIG_FILE_SOURCE" ]; then
+  err "فایل تنظیمات استقرار پیدا نشد و دریافت قالب از مخزن هم ناموفق بود."
+  err "  اتصال شبکه را بررسی کنید، یا فایل را دستی بسازید:"
+  err "    sudo mkdir -p ${CONFIG_DIR}"
+  err "    sudo nano ${CONFIG_DIR}/deploy.conf   # از deploy/deploy.conf مخزن کپی کنید"
+  exit 1
+fi
+
+# Ask for the domain only when it was not supplied on the command line and the
+# file still holds the example value. Everything else has a safe default.
+config_load "$CONFIG_FILE_SOURCE"
+CURRENT_DOMAIN="$(config_get DOMAIN)"
+
+needs_domain() {
+  case "${1:-}" in
+    ''|*example.com*|*example.ir*) return 0 ;;
+    *) return 1 ;;
+  esac
+}
+
+if [ -n "${DOMAIN:-}" ]; then
+  config_set DOMAIN "$DOMAIN"
+  config_write "$CONFIG_FILE_SOURCE" DOMAIN "$DOMAIN"
+elif needs_domain "$CURRENT_DOMAIN"; then
+  if [ -t 0 ]; then
+    printf '\n'
+    printf 'دامنه‌ای که این سامانه روی آن اجرا می‌شود را وارد کنید\n'
+    printf '(مثلاً pishkan.example.ir — بدون https:// و بدون مسیر): '
+    read -r REPLY_DOMAIN || REPLY_DOMAIN=""
+    if [ -n "$REPLY_DOMAIN" ]; then
+      config_set DOMAIN "$REPLY_DOMAIN"
+      config_write "$CONFIG_FILE_SOURCE" DOMAIN "$REPLY_DOMAIN"
+      ok "دامنه ذخیره شد: ${REPLY_DOMAIN}"
+    fi
+  else
+    warn "دامنه تنظیم نشده و ورودی تعاملی در دسترس نیست."
+    warn "  نسخه در حالت IP-only نصب می‌شود؛ بعداً dامنه را در deploy.conf بنویسید و provision بزنید."
+  fi
+fi
+
+config_load "$CONFIG_FILE_SOURCE"
+
+# Same for the ACME address, but only when TLS will actually be requested.
+if [ -z "${EMAIL:-}" ] && [ "$(config_get TLS_MODE auto)" = "auto" ] \
+   && needs_domain "$(config_get ACME_EMAIL)" ; then
+  if [ -t 0 ]; then
+    printf 'ایمیل برای گواهی HTTPS (Let'\''s Encrypt — برای هشدار انقضا): '
+    read -r REPLY_EMAIL || REPLY_EMAIL=""
+    if [ -n "$REPLY_EMAIL" ]; then
+      config_set ACME_EMAIL "$REPLY_EMAIL"
+      config_write "$CONFIG_FILE_SOURCE" ACME_EMAIL "$REPLY_EMAIL"
+    fi
+  fi
+fi
+[ -n "${EMAIL:-}" ] && config_set ACME_EMAIL "$EMAIL"
+
+config_load "$CONFIG_FILE_SOURCE"
+
+ok "تنظیمات خوانده شد: ${CONFIG_FILE_SOURCE}"
+
+if ! config_validate; then
+  config_report
+  err ""
+  err "نصب متوقف شد و هیچ تغییری روی سیستم اعمال نشد. ${CONFIG_FILE_SOURCE} را اصلاح کنید."
+  exit 1
+fi
+config_report
+
+CONFIG_DOMAIN="$(config_get DOMAIN)"
+CONFIG_EMAIL="$(config_get ACME_EMAIL)"
+CONFIG_TLS_MODE="$(config_get TLS_MODE auto)"
+CONFIG_APP_URL="$(config_app_url)"
+CONFIG_TLS_HOSTS="$(config_tls_hosts)"
+CONFIG_CORS="$(config_cors_origins)"
+CONFIG_BLOG_SUB="$(config_blog_subdomain || true)"
+CONFIG_TIMEZONE="$(config_get TIMEZONE Asia/Tehran)"
+
+ok "دامنه: ${CONFIG_DOMAIN}"
+[ -n "$CONFIG_BLOG_SUB" ] && ok "زیردامنهٔ وبلاگ: ${CONFIG_BLOG_SUB}"
+ok "نشانی عمومی: ${CONFIG_APP_URL}"
+ok "HTTPS: ${CONFIG_TLS_MODE}"
+
+# Persist the file for later runs (update, provision, rollback all re-read it).
+if [ "$CONFIG_FILE_SOURCE" != "${CONFIG_DIR}/deploy.conf" ]; then
+  install -d -m 0750 "$CONFIG_DIR"
+  install -m 0640 "$CONFIG_FILE_SOURCE" "${CONFIG_DIR}/deploy.conf"
+  ok "نسخه‌ای از تنظیمات در ${CONFIG_DIR}/deploy.conf ذخیره شد."
+fi
+
+# DNS pre-flight: report, never block. A fresh server whose DNS has not
+# propagated yet must still install; TLS is retried later by `pishkan provision`.
+heading "بررسی DNS"
+for host in $(config_main_hosts); do
+  dns_explain "$host" "$(dns_classify "$host")"
+done
+if [ -n "$CONFIG_BLOG_SUB" ]; then
+  dns_explain "$CONFIG_BLOG_SUB" "$(dns_classify "$CONFIG_BLOG_SUB")"
 fi
 
 export DEBIAN_FRONTEND=noninteractive
@@ -194,9 +335,10 @@ if [ -f "$ENV_FILE" ]; then
   ok "فایل تنظیمات موجود است؛ فقط شناسه commit نسخهٔ فعال در صورت نیاز تکمیل می‌شود: ${ENV_FILE}"
 else
   APP_ENCRYPTION_KEY="$(random_hex 32)"
-  APP_URL_VALUE="${APP_URL:-}"
-  if [ -z "$APP_URL_VALUE" ] && [ -n "$DOMAIN" ]; then APP_URL_VALUE="https://${DOMAIN}"; fi
-  if [ -n "$APP_URL_VALUE" ]; then APP_URL_VALUE="${APP_URL_VALUE%/}"; fi
+  # Derived from deploy.conf — the single source of truth for the domain.
+  APP_URL_VALUE="${CONFIG_APP_URL}"
+  APP_NAME_VALUE="$(node -p "require('${RELEASE_DIR}/apps/api/package.json').name" 2>/dev/null || echo pishkan)"
+  APP_VERSION_VALUE="$(node -p "require('${RELEASE_DIR}/apps/api/package.json').version" 2>/dev/null || echo 0.0.0)"
 
   cat >"$ENV_FILE" <<EOF
 # Pishkan production configuration — generated $(date -u +%Y-%m-%dT%H:%M:%SZ)
@@ -211,9 +353,13 @@ DB_PASSWORD=${DB_PASSWORD}
 
 APP_URL=${APP_URL_VALUE}
 API_URL=${APP_URL_VALUE}
-CORS_ORIGINS=${APP_URL_VALUE}
-TRUST_PROXY=true
-COOKIE_SECURE=$([ -n "$APP_URL_VALUE" ] && echo true || echo false)
+# Every origin the app is served from: the main domain plus any sub-domain.
+# A mismatch here shows up as a CORS error on the first API call.
+CORS_ORIGINS=${CONFIG_CORS}
+TRUST_PROXY=$(config_get TRUST_PROXY true)
+# HTTPS-only cookies behind TLS. Off only for a plain-HTTP smoke test, where
+# the browser would otherwise drop the session cookie on login.
+COOKIE_SECURE=$([ "$CONFIG_TLS_MODE" = "off" ] && echo false || echo true)
 SESSION_COOKIE=pishkan_session
 SESSION_TTL_HOURS=168
 
@@ -229,7 +375,8 @@ BOOTSTRAP_ADMIN_NAME=مدیر سامانه
 LOG_LEVEL=info
 LOG_FILE=${LOG_DIR}/api.log
 DEMO_MODE=false
-APP_VERSION=1.0.0
+APP_VERSION=${APP_VERSION_VALUE}
+TZ=${CONFIG_TIMEZONE}
 PISHKAN_RELEASE_REF=${RELEASE_COMMIT}
 EOF
   chown "root:${APP_GROUP}" "$ENV_FILE"
@@ -316,21 +463,78 @@ else
 fi
 
 # ---------------------------------------------------------------------------
-# 8. Nginx reverse proxy
+# 8. Nginx — every hostname derived from deploy.conf
+#
+# The same template is rendered twice: once for HTTP (which must keep serving
+# ACME challenges and the app while a certificate is missing) and once for
+# HTTPS. Sharing the routing rules is what stops the blog sub-domain and the
+# main site from drifting apart.
 # ---------------------------------------------------------------------------
 heading "تنظیم Nginx"
-NGINX_SERVER_NAME="${DOMAIN:-_}"
+
+ACME_ROOT="/var/www/letsencrypt"
+install -d -m 0755 "${ACME_ROOT}/.well-known/acme-challenge"
 install -d -m 0755 /etc/nginx/snippets
 install -m 0644 "${CURRENT_LINK}/deploy/nginx/snippets/pishkan-proxy.conf" /etc/nginx/snippets/pishkan-proxy.conf
-sed -e "s|__SERVER_NAME__|${NGINX_SERVER_NAME}|g" \
-    -e "s|__API_PORT__|$(api_port)|g" \
-    -e "s|__WEB_ROOT__|${CURRENT_LINK}/apps/web/dist|g" \
-    "${CURRENT_LINK}/deploy/nginx/pishkan.conf" > "/etc/nginx/sites-available/${APP_NAME}.conf"
+
+# Build the two render fragments from deploy.conf.
+NGINX_LISTEN_HTTP="    listen 80;\n    listen [::]:80;\n"
+NGINX_SSL=""
+NGINX_REDIRECT=""
+
+BLOG_HOST="$(config_blog_subdomain || true)"
+BLOG_REDIRECT_BLOCK=""
+if [ -n "$BLOG_HOST" ]; then
+  BLOG_REDIRECT_BLOCK="    # The blog moved to its own hostname. Permanent redirects keep every
+    # shared link and every indexed URL working.
+    location ~ ^/blog(/.*)?$ {
+        return 301 https://${BLOG_HOST}\$1;
+    }
+"
+fi
+
+MAIN_HOSTS="$(config_main_hosts)"
+NGINX_SERVER_NAME="${MAIN_HOSTS:-_}"
+if [ -n "$BLOG_HOST" ]; then
+  # One server block answers for both hosts; `/blog*` redirects, everything
+  # else is the app. This keeps a single vhost and a single certificate.
+  NGINX_SERVER_NAME="${MAIN_HOSTS} ${BLOG_HOST}"
+fi
+
+# Literal, in-order substitution with bash parameter expansion. Not sed/perl:
+# the replacement values contain `/`, `&`, `$` and newlines, and every one of
+# those is a metacharacter in some tool along the way. Bash expansion treats
+# them as plain text, which is exactly what a template renderer needs.
+render_site() {
+  local listen="$1" ssl="$2" redirect="$3" out="$4" content port web_root
+
+  port="$(api_port)"
+  web_root="${CURRENT_LINK}/apps/web/dist"
+  content="$(cat "${CURRENT_LINK}/deploy/nginx/pishkan.conf")"
+
+  content="${content//__LISTEN__/$listen}"
+  content="${content//__SSL__/$ssl}"
+  content="${content//__REDIRECT__/$redirect}"
+  content="${content//__BLOG_REDIRECT__/$BLOG_REDIRECT_BLOCK}"
+  content="${content//__SERVER_NAME__/$NGINX_SERVER_NAME}"
+  content="${content//__API_PORT__/$port}"
+  content="${content//__WEB_ROOT__/$web_root}"
+  content="${content//__ACME_ROOT__/$ACME_ROOT}"
+
+  printf '%s\n' "$content" >"$out"
+}
+
+render_site "$NGINX_LISTEN_HTTP" "" "" "/etc/nginx/sites-available/${APP_NAME}.conf"
 ln -sfn "/etc/nginx/sites-available/${APP_NAME}.conf" "/etc/nginx/sites-enabled/${APP_NAME}.conf"
 rm -f /etc/nginx/sites-enabled/default
-nginx -t >/dev/null
+
+if ! nginx -t >/dev/null 2>&1; then
+  err "پیکربندی Nginx معتبر نیست. نصب متوقف شد؛ سرویس فعلی دست‌نخورده ماند."
+  err "برای دیدن خطا: nginx -t"
+  exit 1
+fi
 systemctl reload nginx
-ok "Nginx پیکربندی و بارگذاری شد."
+ok "Nginx پیکربندی و بارگذاری شد (${NGINX_SERVER_NAME})."
 
 if command -v ufw >/dev/null 2>&1 && ufw status | grep -q "Status: active"; then
   ufw allow 'Nginx Full' >/dev/null 2>&1 || true
@@ -338,27 +542,86 @@ if command -v ufw >/dev/null 2>&1 && ufw status | grep -q "Status: active"; then
 fi
 
 # ---------------------------------------------------------------------------
-# 9. TLS (only when a real domain is provided)
+# 9. TLS — one certificate covering every hostname
 # ---------------------------------------------------------------------------
 heading "گواهی HTTPS"
-if [ -n "$DOMAIN" ] && [ "$SKIP_TLS" != "1" ]; then
-  if [ -n "$EMAIL" ]; then
-    if certbot --nginx -d "$DOMAIN" --non-interactive --agree-tos -m "$EMAIL" --redirect >/dev/null 2>&1; then
-      ok "گواهی Let's Encrypt برای ${DOMAIN} نصب شد."
+
+if [ "$CONFIG_TLS_MODE" = "off" ]; then
+  warn "TLS_MODE=off است؛ سامانه روی HTTP اجرا می‌شود."
+  warn "برای فعال‌سازی بعداً: sudo pishkan provision --tls"
+else
+  CERT_HOSTS="$(config_tls_hosts)"
+  CERT_PRIMARY="$(config_get DOMAIN)"
+  CERT_ARGS=()
+  for host in $CERT_HOSTS; do CERT_ARGS+=(-d "$host"); done
+
+  log "درخواست گواهی برای: ${CERT_HOSTS}"
+  # --cert-name keeps one renewable lineage. Without it, adding an alias later
+  # creates a second certificate that shadows the first, and renewals start
+  # failing silently.
+  if certbot certonly --nginx --cert-name "$CERT_PRIMARY" \
+       "${CERT_ARGS[@]}" \
+       --non-interactive --agree-tos --email "$CONFIG_EMAIL" \
+       --keep-until-expiring --expand >/dev/null 2>&1; then
+    ok "گواهی Let's Encrypt صادر شد: ${CERT_HOSTS}"
+
+    NGINX_LISTEN_TLS="    listen 443 ssl;\n    listen [::]:443 ssl;\n    http2 on;\n"
+    NGINX_SSL=""
+    NGINX_SSL="${NGINX_SSL}    ssl_certificate     /etc/letsencrypt/live/${CERT_PRIMARY}/fullchain.pem;\n"
+    NGINX_SSL="${NGINX_SSL}    ssl_certificate_key /etc/letsencrypt/live/${CERT_PRIMARY}/privkey.pem;\n"
+    NGINX_SSL="${NGINX_SSL}    ssl_trusted_certificate /etc/letsencrypt/live/${CERT_PRIMARY}/chain.pem;\n"
+    NGINX_SSL="${NGINX_SSL}    ssl_protocols TLSv1.2 TLSv1.3;\n"
+    NGINX_SSL="${NGINX_SSL}    ssl_prefer_server_ciphers off;\n"
+    NGINX_SSL="${NGINX_SSL}    ssl_session_cache shared:SSL:10m;\n"
+    NGINX_SSL="${NGINX_SSL}    ssl_session_timeout 1d;\n"
+    NGINX_SSL="${NGINX_SSL}    ssl_stapling on;\n"
+    NGINX_SSL="${NGINX_SSL}    ssl_stapling_verify on;\n"
+    NGINX_SSL="${NGINX_SSL}    add_header Strict-Transport-Security \"max-age=31536000; includeSubDomains\" always;\n"
+
+    # The :80 vhost keeps serving ACME while redirecting everything else. Using
+    # our own redirect instead of `certbot --redirect` matters: certbot rewrites
+    # the vhost, and our template would overwrite that rewrite on the next
+    # update, silently breaking renewals.
+    NGINX_REDIRECT="    location / {\n        return 301 https://\$host\$request_uri;\n    }\n"
+
+    render_site "$NGINX_LISTEN_TLS" "$NGINX_SSL" "" \
+      "/etc/nginx/sites-available/${APP_NAME}-tls.conf"
+
+    # With TLS on, the plain HTTP render redirects but still serves ACME.
+    render_site "$NGINX_LISTEN_HTTP" "" "$NGINX_REDIRECT" \
+      "/etc/nginx/sites-available/${APP_NAME}.conf"
+
+    ln -sfn "/etc/nginx/sites-available/${APP_NAME}-tls.conf" "/etc/nginx/sites-enabled/${APP_NAME}-tls.conf"
+
+    if nginx -t >/dev/null 2>&1; then
+      systemctl reload nginx
+      ok "HTTPS فعال شد؛ HTTP به HTTPS هدایت می‌شود."
     else
-      warn "دریافت گواهی ناموفق بود. بررسی کنید رکورد A دامنه به این سرور اشاره کند و پورت 80 باز باشد."
-      warn "سپس اجرا کنید: certbot --nginx -d ${DOMAIN} -m you@example.com --agree-tos"
+      err "بلوک HTTPS خطا دارد؛ به HTTP برمی‌گردیم تا سایت در دسترس بماند."
+      rm -f "/etc/nginx/sites-enabled/${APP_NAME}-tls.conf"
+      render_site "$NGINX_LISTEN_HTTP" "" "" "/etc/nginx/sites-available/${APP_NAME}.conf"
+      nginx -t >/dev/null 2>&1 && systemctl reload nginx
     fi
   else
-    warn "برای دریافت گواهی HTTPS، متغیر EMAIL را مشخص کنید: EMAIL=you@example.com sudo -E bash $0"
+    warn "دریافت گواهی ناموفق بود."
+    warn "  رایج‌ترین علت‌ها: DNS هنوز منتشر نشده، پورت ۸۰ بسته است، یا Cloudflare روی Flexible است."
+    warn "  سایت روی HTTP کار می‌کند. پس از اصلاح DNS:"
+    warn "    sudo pishkan provision --tls"
   fi
-else
-  warn "دامنه تنظیم نشده است؛ سامانه فقط روی IP و HTTP در دسترس است. برای HTTPS دامنه را در Cloudflare و Nginx تنظیم کنید."
 fi
+
+systemctl enable --now certbot.timer >/dev/null 2>&1 || true
 
 # ---------------------------------------------------------------------------
 # 10. Timer for scheduled backups
 # ---------------------------------------------------------------------------
+heading "تنظیم منطقه زمانی"
+if [ -n "$CONFIG_TIMEZONE" ] && timedatectl set-timezone "$CONFIG_TIMEZONE" >/dev/null 2>&1; then
+  ok "منطقه زمانی: ${CONFIG_TIMEZONE}"
+else
+  warn "تنظیم منطقه زمانی ${CONFIG_TIMEZONE} ممکن نشد؛ ساعت سرور UTC می‌ماند."
+fi
+
 heading "پشتیبان‌گیری زمان‌بندی‌شده"
 install -m 0755 "${CURRENT_LINK}/scripts/pishkan" /usr/local/bin/pishkan
 cat >/etc/systemd/system/pishkan-backup.service <<EOF
@@ -383,8 +646,13 @@ RandomizedDelaySec=600
 WantedBy=timers.target
 EOF
 systemctl daemon-reload
-systemctl enable --now pishkan-backup.timer >/dev/null 2>&1 || true
-ok "پشتیبان‌گیری روزانه ساعت ۰۲:۳۰ فعال شد."
+if [ "$(config_get BACKUP_ENABLED true)" = "true" ]; then
+  systemctl enable --now pishkan-backup.timer >/dev/null 2>&1 || true
+  ok "پشتیبان‌گیری روزانه ساعت ۰۲:۳۰ (${CONFIG_TIMEZONE}) فعال شد."
+else
+  warn "BACKUP_ENABLED=false است؛ پشتیبان‌گیری خودکار نصب نشد."
+  warn "  فعال‌سازی: sudo systemctl enable --now pishkan-backup.timer"
+fi
 
 # ---------------------------------------------------------------------------
 # Summary

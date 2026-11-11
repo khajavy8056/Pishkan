@@ -23,9 +23,17 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 if [ -f "${SCRIPT_DIR}/lib/common.sh" ]; then
   # shellcheck source=lib/common.sh
   . "${SCRIPT_DIR}/lib/common.sh"
+  # shellcheck source=lib/config.sh
+  . "${SCRIPT_DIR}/lib/config.sh"
+  # shellcheck source=lib/net.sh
+  . "${SCRIPT_DIR}/lib/net.sh"
 else
   # shellcheck source=/dev/null
   . /opt/pishkan/current/scripts/lib/common.sh
+  # shellcheck source=/dev/null
+  . /opt/pishkan/current/scripts/lib/config.sh
+  # shellcheck source=/dev/null
+  . /opt/pishkan/current/scripts/lib/net.sh
 fi
 
 BACKUP_KEEP_DAYS="${BACKUP_KEEP_DAYS:-14}"
@@ -40,6 +48,7 @@ usage() {
   pishkan logs [api|nginx] [-f]  مشاهده لاگ‌ها
   pishkan restart                راه‌اندازی مجدد سرویس API
   pishkan update [--ref SHA]     به‌روزرسانی از commit کامل تأییدشده؛ در خطا بازمی‌گردد
+  pishkan provision [--tls]      اعمال دوبارهٔ deploy.conf روی nginx، TLS و تنظیمات
   pishkan rollback [--to ID]     بازگشت به نسخه قبلی
   pishkan backup [--dest DIR]    پشتیبان‌گیری از پایگاه داده و مدارک
   pishkan restore FILE [--yes]   بازیابی (نیازمند تأیید صریح)
@@ -348,22 +357,97 @@ PYMANIFEST
 # update / rollback
 # ---------------------------------------------------------------------------
 
+# Resolve the newest commit on the tracking branch, without cloning the whole
+# repository history. `git ls-remote` is a single round trip and needs no
+# workspace, which is what makes `pishkan update` usable with no arguments.
+resolve_remote_branch_commit() {
+  local branch="${1:-$REPO_BRANCH}" out
+  out="$(git ls-remote --heads "$REPO_URL" "refs/heads/${branch}" 2>/dev/null | awk '{print $1; exit}')"
+  if ! is_full_commit "$out"; then
+    return 1
+  fi
+  printf '%s' "$out"
+}
+
+# Delete old releases, keeping the newest KEEP_RELEASES plus the one `previous`
+# points at. Running out of disk is the failure that makes the *next* update
+# fail, and it is always discovered too late, so this runs after every
+# successful update rather than on a schedule.
+prune_releases() {
+  local keep="${1:-5}" protected name removed=0
+  protected="$(readlink -f "${APP_ROOT}/previous" 2>/dev/null | xargs -r basename 2>/dev/null || true)"
+
+  [ -d "$RELEASES_DIR" ] || return 0
+
+  local -a all
+  mapfile -t all < <(find "$RELEASES_DIR" -mindepth 1 -maxdepth 1 -type d -printf '%f\n' | sort)
+
+  local total=${#all[@]}
+  [ "$total" -gt "$keep" ] || return 0
+
+  local to_remove=$((total - keep))
+  for name in "${all[@]}"; do
+    [ "$to_remove" -gt 0 ] || break
+    [ "$name" = "$protected" ] && continue
+    [ "$name" = "$(readlink -f "$CURRENT_LINK" 2>/dev/null | xargs -r basename 2>/dev/null)" ] && continue
+    rm -rf "${RELEASES_DIR:?}/${name}"
+    removed=$((removed + 1))
+    to_remove=$((to_remove - 1))
+  done
+  [ "$removed" -gt 0 ] && log "${removed} نسخه قدیمی حذف شد (نگه‌داشتن ${keep} نسخهٔ آخر)."
+  return 0
+}
+
 cmd_update() {
   require_root
-  local ref="${PISHKAN_COMMIT:-$(read_env_value PISHKAN_RELEASE_REF)}" no_backup=0
+  local ref="" no_backup=0 dry_run=0
   while [ $# -gt 0 ]; do
     case "$1" in
       --ref) shift; ref="${1:-}" ;;
       --no-backup) no_backup=1 ;;
+      --dry-run) dry_run=1 ;;
       *) die "پارامتر ناشناخته برای update: $1" ;;
     esac
     shift
   done
 
   is_installed || die "Pishkan نصب نشده است."
+
+  # With no --ref, look up the branch tip. An explicit PISHKAN_COMMIT still
+  # wins, so the piped installer examples keep working unchanged.
+  if [ -z "$ref" ]; then
+    ref="${PISHKAN_COMMIT:-}"
+  fi
+  if [ -z "$ref" ]; then
+    log "بررسی مخزن برای نسخهٔ تازه…"
+    ref="$(resolve_remote_branch_commit "$REPO_BRANCH" || true)"
+    if ! is_full_commit "$ref"; then
+      die "دریافت آخرین نسخه از مخزن ناموفق بود. اتصال شبکه یا دسترسی مخزن را بررسی کنید."
+    fi
+  fi
+
   is_full_commit "$ref" || die 'به‌روزرسانی فقط با SHA کامل ۴۰ رقمی commit مجاز است: pishkan update --ref <SHA>'
-  local old_release new_dir commit
+
+  local old_release new_dir commit old_commit
   old_release="$(current_release)"
+  old_commit="$(read_env_value PISHKAN_RELEASE_REF)"
+
+  if [ "${ref,,}" = "${old_commit,,}" ]; then
+    ok "نسخهٔ نصب‌شده همین ${ref:0:12} است؛ چیزی برای به‌روزرسانی نیست."
+    return 0
+  fi
+
+  if [ "$dry_run" = "1" ]; then
+    heading "بررسی به‌روزرسانی (آزمایشی)"
+    echo "  نسخه فعلی:   ${old_commit:0:12}"
+    echo "  نسخه تازه:   ${ref:0:12}"
+    echo "  پشتیبان:     $(config_get BACKUP_ENABLED true | sed 's/true/بله/;s/false/خیر/')"
+    echo "  نسخه‌های نگه‌داشته: $(config_get KEEP_RELEASES 5)"
+    echo
+    log "هیچ تغییری اعمال نشد. برای اجرا: sudo pishkan update"
+    return 0
+  fi
+
   new_dir="${RELEASES_DIR}/$(date -u +%Y%m%d%H%M%S)"
 
   heading "به‌روزرسانی پشکان (${ref})"
@@ -411,6 +495,23 @@ cmd_update() {
     ok "به‌روزرسانی انجام شد (commit تأییدشده ${commit})."
     install -m 0755 "${CURRENT_LINK}/scripts/pishkan" /usr/local/bin/pishkan
     install -m 0644 "${CURRENT_LINK}/deploy/systemd/pishkan-backup.service" /etc/systemd/system/ 2>/dev/null || true
+
+    # A new release may change the nginx template itself (a new header, a new
+    # cache rule, a fixed ACME block). Re-provisioning after the switch is what
+    # makes those changes reach the running config; without it, template edits
+    # only take effect on a fresh install and drift silently forever.
+    if [ -f "${CONFIG_DIR}/deploy.conf" ]; then
+      log "اعمال تنظیمات استقرار روی نسخه جدید…"
+      if cmd_provision >/dev/null 2>&1; then
+        ok "پیکربندی Nginx و TLS با نسخه جدید هم‌راستا شد."
+      else
+        warn "بازاعمال تنظیمات استقرار ناموفق بود؛ سایت با تنظیمات قبلی کار می‌کند."
+        warn "  برای بررسی: sudo pishkan provision"
+      fi
+    fi
+
+    # Old releases are what fill the disk and, eventually, break an update.
+    prune_releases "$(config_get KEEP_RELEASES 5)"
   else
     err "سرویس جدید سالم نبود؛ بازگشت به نسخه قبلی…"
     ln -sfn "$old_release" "$CURRENT_LINK"
@@ -521,6 +622,234 @@ cmd_doctor() {
 }
 
 # ---------------------------------------------------------------------------
+# provision — re-apply deploy.conf to nginx, TLS and the API environment
+#
+# This is the command that makes the domain file authoritative. After editing
+# DOMAIN, DOMAIN_WWW, DOMAIN_ALIASES, BLOG_MODE or BLOG_SUBDOMAIN, one
+# `pishkan provision` rewrites nginx, expands the certificate and restarts the
+# API so CORS and cookie settings follow. No reinstall, no data touched.
+# ---------------------------------------------------------------------------
+
+provision_render() {
+  local template="$1" out="$2" server_name="$3" blog_block="$4" port="$5"
+  local web_root="$6" acme="$7" listen="$8" ssl="$9" redirect="${10}"
+  local content
+
+  content="$(cat "$template")"
+  content="${content//__LISTEN__/$listen}"
+  content="${content//__SSL__/$ssl}"
+  content="${content//__REDIRECT__/$redirect}"
+  content="${content//__BLOG_REDIRECT__/$blog_block}"
+  content="${content//__SERVER_NAME__/$server_name}"
+  content="${content//__API_PORT__/$port}"
+  content="${content//__WEB_ROOT__/$web_root}"
+  content="${content//__ACME_ROOT__/$acme}"
+  printf '%s\n' "$content" >"$out"
+}
+
+cmd_provision() {
+  require_root
+  local force_tls=0 arg
+  while [ $# -gt 0 ]; do
+    case "$1" in
+      --tls) force_tls=1 ;;
+      --dry-run) PROVISION_DRY_RUN=1 ;;
+      *) die "پارامتر ناشناخته برای provision: $1" ;;
+    esac
+    shift
+  done
+
+  is_installed || die "Pishkan نصب نشده است. ابتدا نصب‌کننده را اجرا کنید."
+  local deploy_file
+  deploy_file="$(config_resolve_file)"
+  [ -n "$deploy_file" ] || die "فایل deploy.conf پیدا نشد. آن را در ${CONFIG_DIR}/deploy.conf بسازید."
+  config_load "$deploy_file" || die "خواندن ${deploy_file} ناموفق بود."
+
+  heading "اعمال تنظیمات استقرار"
+  ok "فایل: ${deploy_file}"
+
+  if ! config_validate; then
+    config_report
+    die "تنظیمات معتبر نیست؛ هیچ تغییری اعمال نشد."
+  fi
+  config_report
+
+  local domain tls_mode blog_sub cors app_url tls_hosts
+  domain="$(config_get DOMAIN)"
+  tls_mode="$(config_get TLS_MODE auto)"
+  blog_sub="$(config_blog_subdomain || true)"
+  cors="$(config_cors_origins)"
+  app_url="$(config_app_url)"
+  tls_hosts="$(config_tls_hosts)"
+  [ "$force_tls" = "1" ] && tls_mode="auto"
+
+  ok "دامنه: ${domain}"
+  [ -n "$blog_sub" ] && ok "وبلاگ: ${blog_sub} (زیردامنه)"
+  ok "CORS: ${cors}"
+
+  if [ "${PROVISION_DRY_RUN:-0}" = "1" ]; then
+    echo
+    log "حالت آزمایشی — هیچ فایلی نوشته نشد. تغییرات زیر اعمال می‌شد:"
+    log "  • nginx server_name: $(config_main_hosts)${blog_sub:+ $blog_sub}"
+    log "  • گواهی برای: ${tls_hosts}"
+    log "  • APP_URL=${app_url}"
+    log "  • CORS_ORIGINS=${cors}"
+    return 0
+  fi
+
+  # --- 1. environment file: the API must agree with nginx -------------------
+  log "به‌روزرسانی تنظیمات API…"
+  local changed=0
+  if [ "$(read_env_value APP_URL)" != "$app_url" ]; then
+    set_env_value APP_URL "$app_url"; set_env_value API_URL "$app_url"; changed=1
+  fi
+  if [ "$(read_env_value CORS_ORIGINS)" != "$cors" ]; then
+    set_env_value CORS_ORIGINS "$cors"; changed=1
+  fi
+  local cookie_secure
+  cookie_secure="$([ "$tls_mode" = "off" ] && echo false || echo true)"
+  if [ "$(read_env_value COOKIE_SECURE)" != "$cookie_secure" ]; then
+    set_env_value COOKIE_SECURE "$cookie_secure"; changed=1
+  fi
+  [ "$changed" = "1" ] && ok "تنظیمات API به‌روز شد." || ok "تنظیمات API از قبل هم‌راستا بود."
+
+  # --- 2. nginx -------------------------------------------------------------
+  log "بازنویسی پیکربندی Nginx…"
+  local acme_root="/var/www/letsencrypt"
+  install -d -m 0755 "${acme_root}/.well-known/acme-challenge"
+  install -d -m 0755 /etc/nginx/snippets
+  install -m 0644 "${CURRENT_LINK}/deploy/nginx/snippets/pishkan-proxy.conf" \
+    /etc/nginx/snippets/pishkan-proxy.conf
+
+  local main_hosts server_name blog_block=""
+  main_hosts="$(config_main_hosts)"
+  server_name="$main_hosts"
+  if [ -n "$blog_sub" ]; then
+    server_name="${main_hosts} ${blog_sub}"
+    blog_block="    # The blog moved to its own hostname. Permanent redirects keep every
+    # shared link and every indexed URL working.
+    location ~ ^/blog(/.*)?\$ {
+        return 301 https://${blog_sub}\$1;
+    }
+"
+  fi
+
+  local listen_http listen_tls ssl_lines redirect_lines
+  listen_http="    listen 80;
+    listen [::]:80;
+"
+  listen_tls="    listen 443 ssl;
+    listen [::]:443 ssl;
+    http2 on;
+"
+  ssl_lines=""
+  redirect_lines=""
+
+  local cert_hosts="$(config_tls_hosts)" cert_primary
+  cert_primary="$(config_get DOMAIN)"
+
+  if [ "$tls_mode" != "off" ]; then
+    local -a cert_args=()
+    local host
+    for host in $cert_hosts; do cert_args+=(-d "$host"); done
+    log "گسترش/تمدید گواهی برای: ${cert_hosts}"
+    if certbot certonly --nginx --cert-name "$cert_primary" "${cert_args[@]}" \
+         --non-interactive --agree-tos --email "$(config_get ACME_EMAIL)" \
+         --keep-until-expiring --expand >/dev/null 2>&1; then
+      ok "گواهی آماده است."
+      ssl_lines=""
+      ssl_lines="${ssl_lines}    ssl_certificate     /etc/letsencrypt/live/${cert_primary}/fullchain.pem;
+"
+      ssl_lines="${ssl_lines}    ssl_certificate_key /etc/letsencrypt/live/${cert_primary}/privkey.pem;
+"
+      ssl_lines="${ssl_lines}    ssl_trusted_certificate /etc/letsencrypt/live/${cert_primary}/chain.pem;
+"
+      ssl_lines="${ssl_lines}    ssl_protocols TLSv1.2 TLSv1.3;
+"
+      ssl_lines="${ssl_lines}    ssl_prefer_server_ciphers off;
+"
+      ssl_lines="${ssl_lines}    ssl_session_cache shared:SSL:10m;
+"
+      ssl_lines="${ssl_lines}    ssl_session_timeout 1d;
+"
+      ssl_lines="${ssl_lines}    ssl_stapling on;
+"
+      ssl_lines="${ssl_lines}    ssl_stapling_verify on;
+"
+      ssl_lines="${ssl_lines}    add_header Strict-Transport-Security \"max-age=31536000; includeSubDomains\" always;
+"
+      redirect_lines="    location / {
+        return 301 https://\$host\$request_uri;
+    }
+"
+    else
+      warn "گواهی صادر نشد؛ سایت روی HTTP می‌ماند. DNS و پورت ۸۰ را بررسی کنید."
+    fi
+  fi
+
+  local nginx_backup
+  nginx_backup="$(mktemp -d)"
+  cp -a /etc/nginx/sites-available/. "$nginx_backup/" 2>/dev/null || true
+
+  provision_render "${CURRENT_LINK}/deploy/nginx/pishkan.conf" \
+    "/etc/nginx/sites-available/${APP_NAME}.conf" \
+    "$server_name" "$blog_block" "$(api_port)" \
+    "${CURRENT_LINK}/apps/web/dist" "$acme_root" "$listen_http" "" ""
+
+  ln -sfn "/etc/nginx/sites-available/${APP_NAME}.conf" "/etc/nginx/sites-enabled/${APP_NAME}.conf"
+  rm -f /etc/nginx/sites-enabled/default
+
+  if [ -n "$ssl_lines" ]; then
+    provision_render "${CURRENT_LINK}/deploy/nginx/pishkan.conf" \
+      "/etc/nginx/sites-available/${APP_NAME}-tls.conf" \
+      "$server_name" "$blog_block" "$(api_port)" \
+      "${CURRENT_LINK}/apps/web/dist" "$acme_root" "$listen_tls" "$ssl_lines" ""
+    provision_render "${CURRENT_LINK}/deploy/nginx/pishkan.conf" \
+      "/etc/nginx/sites-available/${APP_NAME}.conf" \
+      "$server_name" "$blog_block" "$(api_port)" \
+      "${CURRENT_LINK}/apps/web/dist" "$acme_root" "$listen_http" "" "$redirect_lines"
+    ln -sfn "/etc/nginx/sites-available/${APP_NAME}-tls.conf" "/etc/nginx/sites-enabled/${APP_NAME}-tls.conf"
+  else
+    rm -f "/etc/nginx/sites-enabled/${APP_NAME}-tls.conf"
+  fi
+
+  if ! nginx -t >/dev/null 2>&1; then
+    err "پیکربندی تازه معتبر نیست؛ به نسخه قبلی برمی‌گردیم."
+    cp -a "${nginx_backup}/." /etc/nginx/sites-available/ 2>/dev/null || true
+    rm -rf "$nginx_backup"
+    nginx -t >/dev/null 2>&1 && systemctl reload nginx
+    die "تغییری اعمال نشد. برای دیدن خطا: nginx -t"
+  fi
+  rm -rf "$nginx_backup"
+  systemctl reload nginx
+  ok "Nginx بارگذاری شد."
+
+  # --- 3. restart only if the environment actually changed ------------------
+  if [ "$changed" = "1" ]; then
+    log "راه‌اندازی مجدد API برای اعمال تنظیمات…"
+    systemctl restart "$SERVICE_NAME"
+    if wait_for_health 60; then
+      ok "API سالم است."
+    else
+      err "API پس از تغییر تنظیمات پاسخ نداد."
+      err "بررسی: journalctl -u ${SERVICE_NAME} -n 100 --no-pager"
+      exit 1
+    fi
+  fi
+
+  # --- 4. record what was applied -------------------------------------------
+  if [ -f "$deploy_file" ] && [ "$deploy_file" = "${CONFIG_DIR}/deploy.conf" ]; then
+    : # already the live file
+  elif [ -f "$deploy_file" ]; then
+    install -m 0640 "$deploy_file" "${CONFIG_DIR}/deploy.conf"
+  fi
+
+  echo
+  ok "تنظیمات استقرار اعمال شد."
+  ok "نشانی سامانه: ${app_url}"
+}
+
+# ---------------------------------------------------------------------------
 
 CMD="${1:-help}"
 shift || true
@@ -539,6 +868,7 @@ case "$CMD" in
   migrate)  cmd_migrate ;;
   seed)     cmd_seed "$@" ;;
   reset-admin) cmd_reset_admin "$@" ;;
+  provision) require_root; cmd_provision "$@" ;;
   doctor)   require_root; cmd_doctor ;;
   help|-h|--help) usage ;;
   *) err "دستور ناشناخته: $CMD"; echo; usage; exit 1 ;;
