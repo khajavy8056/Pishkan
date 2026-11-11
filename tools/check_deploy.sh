@@ -54,9 +54,6 @@ warn() { :; }
 err() { :; }
 die() { return 1; }
 
-CURRENT_LINK="$REPO_ROOT"
-APP_NAME="pishkan"
-
 # ---------------------------------------------------------------------------
 section "config: parsing"
 # ---------------------------------------------------------------------------
@@ -191,6 +188,42 @@ config_load "$CONF"
 check "inline mode has no blog sub-domain" bash -c '! config_blog_subdomain'
 check "inline mode keeps CORS to the main origin" \
   test "$(config_cors_origins)" = "https://pishkan.test-domain.ir"
+
+# ---------------------------------------------------------------------------
+section "config: stale values from the template"
+# ---------------------------------------------------------------------------
+
+# The commonest operator mistake: change DOMAIN, forget DOMAIN_WWW and
+# BLOG_SUBDOMAIN. Asking Let's Encrypt for a hostname you do not own fails the
+# WHOLE certificate, including the one domain that was correct.
+write_conf "$CONF" \
+  'DOMAIN=pishkan.mysite.ir' \
+  'DOMAIN_WWW=www.pishkan.example.ir' \
+  'ACME_EMAIL=ops@mysite.ir'
+config_load "$CONF"
+config_validate
+check "a stale DOMAIN_WWW is dropped, not certified" \
+  test "$(config_tls_hosts)" = "pishkan.mysite.ir"
+
+write_conf "$CONF" \
+  'DOMAIN=pishkan.mysite.ir' \
+  'BLOG_MODE=subdomain' \
+  'BLOG_SUBDOMAIN=blog.pishkan.example.ir' \
+  'ACME_EMAIL=ops@mysite.ir'
+config_load "$CONF"
+check "a stale BLOG_SUBDOMAIN is an error, not a silent miss" bash -c '! config_validate'
+
+# A consistent file must be left alone.
+write_conf "$CONF" \
+  'DOMAIN=pishkan.mysite.ir' \
+  'DOMAIN_WWW=www.pishkan.mysite.ir' \
+  'BLOG_MODE=subdomain' \
+  'BLOG_SUBDOMAIN=blog.pishkan.mysite.ir' \
+  'ACME_EMAIL=ops@mysite.ir'
+config_load "$CONF"
+check "a consistent file validates" config_validate
+check "a consistent file certifies all three hosts" \
+  test "$(config_tls_hosts)" = "pishkan.mysite.ir www.pishkan.mysite.ir blog.pishkan.mysite.ir"
 
 # ---------------------------------------------------------------------------
 section "config: IP-only install (no domain yet)"
@@ -456,6 +489,27 @@ mkdir -p "$REL3"
 for i in 1 2 3 4; do mkdir -p "$REL3/2026010${i}000000"; done
 prune_releases "$REL3" 2 "20260101000000"
 check "an old but protected release survives" test -d "$REL3/20260101000000"
+
+# ---------------------------------------------------------------------------
+section "shell: static analysis"
+# ---------------------------------------------------------------------------
+
+# ShellCheck catches the class of bug that only shows up at 3am on a customer's
+# server: a word-split path, an unquoted glob, a `local x=$(cmd)` that swallows
+# the exit code. It is optional so the suite still runs without it, but it is
+# wired into CI whenever it is installed.
+if command -v shellcheck >/dev/null 2>&1; then
+  for script in scripts/install.sh scripts/pishkan scripts/lib/common.sh \
+                scripts/lib/config.sh scripts/lib/net.sh tools/check_deploy.sh; do
+    if shellcheck -S warning -f gcc "$REPO_ROOT/$script" >"$WORK/sc.txt" 2>&1; then
+      pass "shellcheck: ${script}"
+    else
+      fail "shellcheck: ${script}" "$(head -5 "$WORK/sc.txt")"
+    fi
+  done
+else
+  printf '  --   shellcheck not installed; skipped (install: pip install shellcheck-py)\n'
+fi
 
 # ---------------------------------------------------------------------------
 section "update: rollback safety of migrations"

@@ -166,6 +166,17 @@ config_validate() {
   tz="$(config_get TIMEZONE Asia/Tehran)"
   aliases="$(config_get DOMAIN_ALIASES)"
 
+  # DOMAIN_WWW and BLOG_SUBDOMAIN that still point at the template's example
+  # domain are stale: the operator changed DOMAIN and forgot the rest. Taking
+  # them literally asks Let's Encrypt for a certificate covering a domain they
+  # do not own, which fails the whole certificate — including the real domain.
+  local www_cfg
+  www_cfg="$(config_get DOMAIN_WWW)"
+  if [ -n "$www_cfg" ] && is_placeholder_domain "$www_cfg" && ! is_placeholder_domain "$domain"; then
+    config_caution "DOMAIN_WWW هنوز مقدار نمونه است (${www_cfg}) و نادیده گرفته شد. آن را با دامنهٔ واقعی هماهنگ کنید."
+    config_set DOMAIN_WWW ""
+  fi
+
   # An empty or example domain is not an error: it means "serve on the IP".
   # That is a legitimate first install before DNS is pointed anywhere, and the
   # installer then skips TLS entirely. What IS an error is a domain that looks
@@ -201,7 +212,9 @@ config_validate() {
   case "$blog_mode" in
     inline) ;;
     subdomain)
-      if [ -z "$blog_sub" ]; then
+      if [ -n "$blog_sub" ] && is_placeholder_domain "$blog_sub" && ! is_placeholder_domain "$domain"; then
+        config_problem "BLOG_SUBDOMAIN هنوز مقدار نمونه است (${blog_sub}); آن را زیر DOMAIN=${domain} اصلاح کنید (مثلاً blog.${domain})."
+      elif [ -z "$blog_sub" ]; then
         config_problem "BLOG_MODE=subdomain است ولی BLOG_SUBDOMAIN خالی است."
       elif ! is_domain_name "$blog_sub"; then
         config_problem "BLOG_SUBDOMAIN نامعتبر است: «${blog_sub}»."

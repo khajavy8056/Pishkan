@@ -208,6 +208,7 @@ CONFIG_TIMEZONE="$(config_get TIMEZONE Asia/Tehran)"
 
 ok "دامنه: ${CONFIG_DOMAIN}"
 [ -n "$CONFIG_BLOG_SUB" ] && ok "زیردامنهٔ وبلاگ: ${CONFIG_BLOG_SUB}"
+[ -n "$CONFIG_TLS_HOSTS" ] && ok "نام‌هایی که گواهی پوشش می‌دهد: ${CONFIG_TLS_HOSTS}"
 ok "نشانی عمومی: ${CONFIG_APP_URL}"
 ok "HTTPS: ${CONFIG_TLS_MODE}"
 
@@ -337,7 +338,6 @@ else
   APP_ENCRYPTION_KEY="$(random_hex 32)"
   # Derived from deploy.conf — the single source of truth for the domain.
   APP_URL_VALUE="${CONFIG_APP_URL}"
-  APP_NAME_VALUE="$(node -p "require('${RELEASE_DIR}/apps/api/package.json').name" 2>/dev/null || echo pishkan)"
   APP_VERSION_VALUE="$(node -p "require('${RELEASE_DIR}/apps/api/package.json').version" 2>/dev/null || echo 0.0.0)"
 
   cat >"$ENV_FILE" <<EOF

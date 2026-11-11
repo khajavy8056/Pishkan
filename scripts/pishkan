@@ -789,6 +789,28 @@ cmd_provision() {
       ok "گواهی آماده است."
       ssl_fragment="$(nginx_fragment_ssl "$cert_primary")"
       redirect_fragment="$(nginx_fragment_http_redirect)"
+
+      # A hostname that is no longer served should leave the certificate. It is
+      # not an emergency — a SAN nobody visits is harmless while it is valid —
+      # but it becomes one at renewal: certbot validates every SAN, and a name
+      # whose DNS was already deleted fails validation for the whole
+      # certificate, taking the working domain down with it.
+      local renewal_conf="/etc/letsencrypt/renewal/${cert_primary}.conf"
+      if [ -f "$renewal_conf" ] && grep -q '^domains' "$renewal_conf" 2>/dev/null; then
+        local old_domains h stray=""
+        old_domains="$(grep '^domains' "$renewal_conf" | cut -d= -f2- | tr ',' '\n' | tr -d ' ')"
+        for h in $old_domains; do
+          case " $(echo $cert_hosts) " in
+            *" $h "*) ;;
+            *) stray="${stray}${stray:+, }${h}" ;;
+          esac
+        done
+        if [ -n "$stray" ]; then
+          warn "این نام‌ها دیگر سرو نمی‌شوند ولی روی گواهی مانده‌اند: ${stray}"
+          warn "  در تمدید بعدی، اگر DNS‌شان حذف شده باشد، تمدید کل گواهی شکست می‌خورد."
+          warn "  برای برداشتنشان: sudo certbot --nginx --cert-name ${cert_primary} -d $(echo $cert_hosts | tr ' ' ',' | sed 's/,/ -d /g') --force-renewal"
+        fi
+      fi
     else
       warn "گواهی صادر نشد؛ سایت روی HTTP می‌ماند. DNS و پورت ۸۰ را بررسی کنید."
     fi
