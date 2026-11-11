@@ -16,6 +16,21 @@ import { adminSession, app, newCustomer } from './helpers.js';
  *    by an anonymous request;
  *  - the notify switch must reach the notification feed exactly once.
  */
+/**
+ * Poll `read` until `done` accepts its value. Used where the code under test is
+ * intentionally asynchronous and best-effort, so the assertion is about the
+ * end state rather than about how many microseconds it took to get there.
+ */
+async function waitFor<T>(read: () => Promise<T>, done: (value: T) => boolean, timeoutMs = 5000): Promise<T> {
+  const deadline = Date.now() + timeoutMs;
+  let last = await read();
+  while (!done(last) && Date.now() < deadline) {
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    last = await read();
+  }
+  return last;
+}
+
 describe('app banners', () => {
   const png = async (colour = '#3574ab') =>
     sharp({ create: { width: 320, height: 180, channels: 3, background: colour } }).png().toBuffer();
@@ -137,8 +152,16 @@ describe('app banners', () => {
     await request(server).patch(`/api/app/admin/banners/${created.id}`)
       .set('Cookie', admin.cookie).send({ status: 'published' }).expect(200);
 
-    const after = await request(server).get('/api/customers/me/notifications').set('Authorization', bearer).expect(200);
-    const matches = after.body.data.filter((item: any) => item.title === 'بنر اعلانی');
+    // The fan-out on publish is deliberately fire-and-forget (`void
+    // notifyCustomersAboutBanner`): announcing must never fail a publish. On
+    // SQLite every statement resolves in the same tick, so the notification was
+    // always already there; on PostgreSQL each statement is a real round trip
+    // and the read can win the race. Poll the observable outcome instead of
+    // assuming the timing of an explicitly best-effort path.
+    const matches = await waitFor(async () => {
+      const after = await request(server).get('/api/customers/me/notifications').set('Authorization', bearer).expect(200);
+      return after.body.data.filter((item: any) => item.title === 'بنر اعلانی');
+    }, (list) => list.length > 0);
     expect(matches.length).toBe(1);
     expect(matches[0].link).toBe('/app/banners');
 

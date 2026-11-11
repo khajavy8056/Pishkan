@@ -266,8 +266,14 @@ async function onShiftToday(userId: string): Promise<boolean> {
 async function activeLoad(userId: string): Promise<number> {
   const weightPercent = Math.max(0, Math.min(100, await getNumber('workforce.waiting_case_weight')));
   const weight = weightPercent / 100;
+  // The weight is fractional (0.25), so the whole SUM must be numeric. Writing
+  // `ELSE 1` makes PostgreSQL infer the parameter type from the integer literal
+  // and reject "0.25" with `invalid input syntax for type integer`, whereas
+  // SQLite silently coerces. Both branches are cast explicitly so the result is
+  // identical on SQLite and PostgreSQL and never depends on literal inference.
   const row = await one<{ w: number }>(
-    `SELECT COALESCE(SUM(CASE WHEN work_bucket IN ('waiting_customer','waiting_organization') THEN ? ELSE 1 END), 0) AS w
+    `SELECT COALESCE(SUM(CASE WHEN work_bucket IN ('waiting_customer','waiting_organization')
+        THEN CAST(? AS NUMERIC) ELSE 1 END), 0) AS w
      FROM requests WHERE assigned_to = ? AND work_bucket NOT IN ('completed','cancelled')`,
     [weight, userId],
   );

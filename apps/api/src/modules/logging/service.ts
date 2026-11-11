@@ -12,7 +12,7 @@
  *     gateway payloads (key-based redaction + `sanitizeLogText`);
  *   - writes are bounded (details are truncated, message length capped).
  */
-import { one, q, run, nowIso } from '../../db/index.js';
+import { one, q, run, nowIso, txSavepoint } from '../../db/index.js';
 import { id } from '../../lib/crypto.js';
 import { sanitizeLogText } from '../../lib/safe-log.js';
 
@@ -100,7 +100,10 @@ export async function logEvent(input: LogInput): Promise<void> {
     const correlationId = input.correlationId
       ? String(input.correlationId).slice(0, 100)
       : input.requestId ? String(input.requestId).slice(0, 100) : id('corr');
-    await run(
+    // Savepoint: a failed log write must not abort the enclosing PostgreSQL
+    // transaction, or the request that was otherwise fine would fail later with
+    // "current transaction is aborted". SQLite tolerated it silently.
+    await txSavepoint((db) => db.run(
       `INSERT INTO system_logs (id, created_at, level, category, action, actor_id, actor_name, actor_role, ip,
         request_id, correlation_id, entity_type, entity_id, transaction_id, result, message, error_code, details,
         duration_ms, source)
@@ -119,7 +122,7 @@ export async function logEvent(input: LogInput): Promise<void> {
         input.durationMs === undefined || input.durationMs === null ? null : Math.max(0, Math.round(input.durationMs)),
         input.source ?? 'api',
       ],
-    );
+    ));
   } catch (error) {
     // Logging failure must never break the caller; keep a bounded console note.
     console.error('[log] persist failed:', sanitizeLogText(error instanceof Error ? error.message : error, 200));

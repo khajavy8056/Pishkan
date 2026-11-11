@@ -4,7 +4,7 @@ import path from 'node:path';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import request from 'supertest';
 import AdmZip from 'adm-zip';
-import { app, adminSession, customerSession, ADMIN } from './helpers.js';
+import { app, adminSession, customerSession, ADMIN, isSqlite } from './helpers.js';
 import { env } from '../src/env.js';
 import { closeDb, one, run } from '../src/db/index.js';
 import { migrate } from '../src/db/migrate.js';
@@ -18,8 +18,12 @@ import {
  * HTTP surface of one-file restore: package creation, upload + inspection,
  * guards. Execution itself is covered in the isolated block below so the
  * shared test database is never swapped under other suites.
+ *
+ * SQLite-only by design: the package contains a literal `database.sqlite`, and
+ * on PostgreSQL the production route answers with an explicit "unsupported"
+ * message. `describe.skipIf` keeps a PostgreSQL run honest instead of red.
  */
-describe('restore package HTTP surface', () => {
+describe.skipIf(!isSqlite)('restore package HTTP surface', () => {
   it('creates a downloadable one-file package and inspects an uploaded one', async () => {
     const server = await app();
     const admin = await adminSession();
@@ -89,7 +93,7 @@ describe('restore package HTTP surface', () => {
  * package → stage → execute → database + uploads really swap, sessions are
  * cleared, and a safety backup stays behind.
  */
-describe('restore package execution (isolated)', () => {
+describe.skipIf(!isSqlite)('restore package execution (isolated)', () => {
   const original = { sqliteFile: env.sqliteFile, uploadDir: env.uploadDir, backupDir: env.backupDir };
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'pishkan-package-test-'));
 

@@ -317,6 +317,16 @@ PYMANIFEST
       --single-transaction --exit-on-error --clean --if-exists --no-owner --no-privileges "${workdir}/database.dump" \
       || die "pg_restore ناموفق بود؛ تراکنش بازیابی برگشت داده شد و سرویس متوقف است. از پشتیبان ایمنی استفاده کنید."
   elif [ -f "${workdir}/database.sqlite" ]; then
+    # A SQLite snapshot is a file. If this server runs PostgreSQL, copying that
+    # file somewhere changes nothing: the service keeps reading the (empty)
+    # PostgreSQL database and comes up healthy with no data. The old code did
+    # exactly that and then declared success, so a backup taken on a Windows
+    # machine looked restored while every table was empty. Refuse explicitly and
+    # point at the supported path instead of silently losing the data.
+    if [ "$driver" != "sqlite" ]; then
+      rm -rf "$workdir"
+      die "این نسخه پشتیبان از پایگاه دادهٔ SQLite است، اما این سرور روی ${driver} اجرا می‌شود. بازیابی مستقیم ممکن نیست و داده‌ها منتقل نمی‌شوند. برای انتقال از نسخهٔ ویندوزی به سرور، از «pishkan migrate-sqlite <فایل>» استفاده کنید."
+    fi
     log "بازیابی پایگاه داده SQLite…"
     systemctl stop "$SERVICE_NAME" || die "توقف سرویس ناموفق بود؛ بازیابی لغو شد."
     local sqlite_target

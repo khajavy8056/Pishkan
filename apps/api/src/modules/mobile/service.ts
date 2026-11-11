@@ -639,8 +639,13 @@ export async function appStats() {
      FROM app_devices d JOIN users u ON u.id = d.user_id
      ORDER BY d.last_seen_at DESC LIMIT 20`,
   );
+  // `SUM(status = 'published')` is SQLite-only: there a comparison yields 0/1
+  // integers, while PostgreSQL has a real boolean type and rejects
+  // `sum(boolean)` outright. Always sum an explicit CASE so both engines agree.
   const bannerCounts = await one<{ published: number; draft: number }>(
-    `SELECT COALESCE(SUM(status = 'published'), 0) AS published, COALESCE(SUM(status = 'draft'), 0) AS draft FROM app_banners`,
+    `SELECT COALESCE(SUM(CASE WHEN status = 'published' THEN 1 ELSE 0 END), 0) AS published,
+            COALESCE(SUM(CASE WHEN status = 'draft' THEN 1 ELSE 0 END), 0) AS draft
+     FROM app_banners`,
   );
   return {
     devices: {
