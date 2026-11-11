@@ -315,6 +315,82 @@ check "no stale subdomain.conf reference" \
   bash -c "! grep -rq 'subdomain.conf' '$REPO_ROOT/scripts'"
 
 # ---------------------------------------------------------------------------
+section "nginx: install and provision render identically"
+# ---------------------------------------------------------------------------
+
+# The renderer moved into lib/config.sh precisely because two copies drift.
+# This proves both callers go through it and produce the same bytes.
+T1="$WORK/from-lib-http.conf"
+render_nginx_template "$TEMPLATE" "$T1" \
+  "$(nginx_fragment_listen_http)" "" "" \
+  "$(nginx_fragment_blog_redirect 'blog.pishkan.test-domain.ir')" \
+  "pishkan.test-domain.ir blog.pishkan.test-domain.ir" 3000 "/srv/app" "/acme"
+
+check "the shared renderer emits no placeholder" bash -c "! grep -q '__[A-Z_]*__' '$T1'"
+check "the shared renderer writes the listen line" grep -q 'listen 80;' "$T1"
+check "the shared renderer writes the server_name" \
+  grep -q 'server_name pishkan.test-domain.ir blog.pishkan.test-domain.ir;' "$T1"
+check "the blog redirect fragment carries the host" \
+  grep -q 'return 301 https://blog.pishkan.test-domain.ir' "$T1"
+
+# TLS fragments: every line the vhost needs must be present, or nginx starts
+# but refuses to serve 443.
+SSL_FRAG="$(nginx_fragment_ssl 'pishkan.test-domain.ir')"
+for needle in 'ssl_certificate ' 'ssl_certificate_key ' 'ssl_protocols' \
+              'ssl_stapling on' 'Strict-Transport-Security'; do
+  if printf '%s' "$SSL_FRAG" | grep -q "$needle"; then
+    pass "ssl fragment contains '${needle}'"
+  else
+    fail "ssl fragment contains '${needle}'"
+  fi
+done
+
+if nginx_fragment_listen_tls | grep -q 'listen 443 ssl'; then
+  pass "listen tls mentions 443 ssl"
+else
+  fail "listen tls mentions 443 ssl"
+fi
+if nginx_fragment_http_redirect | grep -q 'return 301 https://'; then
+  pass "the http redirect points at https"
+else
+  fail "the http redirect points at https"
+fi
+check "no blog fragment when no host is given" \
+  test -z "$(nginx_fragment_blog_redirect '')"
+
+# Command substitution strips trailing newlines, which used to glue
+# `http2 on;` and the first ssl_certificate line together into one broken
+# directive. Every fragment line must start on its own line.
+TLS_OUT="$WORK/tls.conf"
+render_nginx_template "$TEMPLATE" "$TLS_OUT" \
+  "$(nginx_fragment_listen_tls)" "$(nginx_fragment_ssl 'pishkan.test-domain.ir')" "" \
+  "" "pishkan.test-domain.ir" 3000 "/srv/app" "/acme"
+
+check "http2 is its own directive" grep -qxE '[[:space:]]*http2 on;' "$TLS_OUT"
+check "ssl_certificate starts a line" \
+  grep -qxE '[[:space:]]*ssl_certificate[[:space:]]+/etc/letsencrypt/live/pishkan\.test-domain\.ir/fullchain\.pem;' "$TLS_OUT"
+check "listen 443 and http2 are not merged" \
+  bash -c "! grep -qE 'http2 on;.*ssl_certificate' '$TLS_OUT'"
+# The template's own description lines mention "ssl_certificate" and the
+# redirect, but must stay COMMENTED. A renderer that substitutes inside
+# comments turns them into live directives and nginx refuses to start.
+check "no uncommented line came from the template's comment block" \
+  bash -c "! grep -qE '^[[:space:]]*ssl_certificate / protocol' '$TLS_OUT' && \
+           ! grep -qE '^[[:space:]]*:80 → :443' '$TLS_OUT'"
+check "the template comment block is still present and commented" \
+  grep -qE '^#.*server_name[[:space:]]+every hostname' "$TLS_OUT"
+
+# Neither caller may keep a private copy of the substitution logic.
+check "install.sh uses the shared renderer" \
+  grep -q 'render_nginx_template' "$REPO_ROOT/scripts/install.sh"
+check "the CLI uses the shared renderer" \
+  grep -q 'render_nginx_template' "$REPO_ROOT/scripts/pishkan"
+check "install.sh has no private placeholder substitution" \
+  bash -c "! grep -q '__SERVER_NAME__' '$REPO_ROOT/scripts/install.sh'"
+check "the CLI has no private placeholder substitution" \
+  bash -c "! grep -q '__SERVER_NAME__' '$REPO_ROOT/scripts/pishkan'"
+
+# ---------------------------------------------------------------------------
 section "dns: classification without network"
 # ---------------------------------------------------------------------------
 
@@ -465,7 +541,10 @@ done
 TEMPLATE_PLACEHOLDERS="$(sed 's/__LISTEN____SSL__/__LISTEN__ __SSL__/' "$TEMPLATE" \
   | grep -o '__[A-Z_]*__' | sort -u)"
 for ph in $TEMPLATE_PLACEHOLDERS; do
-  if grep -q "${ph}" "$REPO_ROOT/scripts/install.sh"; then
+  # The renderer lives in lib/config.sh; if a placeholder is not there, the
+  # template will ship it verbatim into nginx.conf and break the next reload.
+  if grep -q "${ph}" "$REPO_ROOT/scripts/lib/config.sh" \
+     || grep -q "${ph}" "$REPO_ROOT/scripts/install.sh"; then
     pass "template placeholder ${ph} is substituted"
   else
     fail "template placeholder ${ph} is substituted"

@@ -477,21 +477,8 @@ install -d -m 0755 "${ACME_ROOT}/.well-known/acme-challenge"
 install -d -m 0755 /etc/nginx/snippets
 install -m 0644 "${CURRENT_LINK}/deploy/nginx/snippets/pishkan-proxy.conf" /etc/nginx/snippets/pishkan-proxy.conf
 
-# Build the two render fragments from deploy.conf.
-NGINX_LISTEN_HTTP="    listen 80;\n    listen [::]:80;\n"
-NGINX_SSL=""
-NGINX_REDIRECT=""
-
 BLOG_HOST="$(config_blog_subdomain || true)"
-BLOG_REDIRECT_BLOCK=""
-if [ -n "$BLOG_HOST" ]; then
-  BLOG_REDIRECT_BLOCK="    # The blog moved to its own hostname. Permanent redirects keep every
-    # shared link and every indexed URL working.
-    location ~ ^/blog(/.*)?$ {
-        return 301 https://${BLOG_HOST}\$1;
-    }
-"
-fi
+BLOG_REDIRECT_BLOCK="$(nginx_fragment_blog_redirect "$BLOG_HOST")"
 
 MAIN_HOSTS="$(config_main_hosts)"
 NGINX_SERVER_NAME="${MAIN_HOSTS:-_}"
@@ -501,30 +488,18 @@ if [ -n "$BLOG_HOST" ]; then
   NGINX_SERVER_NAME="${MAIN_HOSTS} ${BLOG_HOST}"
 fi
 
-# Literal, in-order substitution with bash parameter expansion. Not sed/perl:
-# the replacement values contain `/`, `&`, `$` and newlines, and every one of
-# those is a metacharacter in some tool along the way. Bash expansion treats
-# them as plain text, which is exactly what a template renderer needs.
+# The renderer lives in lib/config.sh so the installer and `pishkan provision`
+# cannot drift. Everything below only decides *what* to render, never how.
 render_site() {
-  local listen="$1" ssl="$2" redirect="$3" out="$4" content port web_root
-
-  port="$(api_port)"
-  web_root="${CURRENT_LINK}/apps/web/dist"
-  content="$(cat "${CURRENT_LINK}/deploy/nginx/pishkan.conf")"
-
-  content="${content//__LISTEN__/$listen}"
-  content="${content//__SSL__/$ssl}"
-  content="${content//__REDIRECT__/$redirect}"
-  content="${content//__BLOG_REDIRECT__/$BLOG_REDIRECT_BLOCK}"
-  content="${content//__SERVER_NAME__/$NGINX_SERVER_NAME}"
-  content="${content//__API_PORT__/$port}"
-  content="${content//__WEB_ROOT__/$web_root}"
-  content="${content//__ACME_ROOT__/$ACME_ROOT}"
-
-  printf '%s\n' "$content" >"$out"
+  local listen="$1" ssl="$2" redirect="$3" out="$4"
+  render_nginx_template \
+    "${CURRENT_LINK}/deploy/nginx/pishkan.conf" "$out" \
+    "$listen" "$ssl" "$redirect" "$BLOG_REDIRECT_BLOCK" \
+    "$NGINX_SERVER_NAME" "$(api_port)" \
+    "${CURRENT_LINK}/apps/web/dist" "$ACME_ROOT"
 }
 
-render_site "$NGINX_LISTEN_HTTP" "" "" "/etc/nginx/sites-available/${APP_NAME}.conf"
+render_site "$(nginx_fragment_listen_http)" "" "" "/etc/nginx/sites-available/${APP_NAME}.conf"
 ln -sfn "/etc/nginx/sites-available/${APP_NAME}.conf" "/etc/nginx/sites-enabled/${APP_NAME}.conf"
 rm -f /etc/nginx/sites-enabled/default
 
@@ -565,30 +540,16 @@ else
        --keep-until-expiring --expand >/dev/null 2>&1; then
     ok "گواهی Let's Encrypt صادر شد: ${CERT_HOSTS}"
 
-    NGINX_LISTEN_TLS="    listen 443 ssl;\n    listen [::]:443 ssl;\n    http2 on;\n"
-    NGINX_SSL=""
-    NGINX_SSL="${NGINX_SSL}    ssl_certificate     /etc/letsencrypt/live/${CERT_PRIMARY}/fullchain.pem;\n"
-    NGINX_SSL="${NGINX_SSL}    ssl_certificate_key /etc/letsencrypt/live/${CERT_PRIMARY}/privkey.pem;\n"
-    NGINX_SSL="${NGINX_SSL}    ssl_trusted_certificate /etc/letsencrypt/live/${CERT_PRIMARY}/chain.pem;\n"
-    NGINX_SSL="${NGINX_SSL}    ssl_protocols TLSv1.2 TLSv1.3;\n"
-    NGINX_SSL="${NGINX_SSL}    ssl_prefer_server_ciphers off;\n"
-    NGINX_SSL="${NGINX_SSL}    ssl_session_cache shared:SSL:10m;\n"
-    NGINX_SSL="${NGINX_SSL}    ssl_session_timeout 1d;\n"
-    NGINX_SSL="${NGINX_SSL}    ssl_stapling on;\n"
-    NGINX_SSL="${NGINX_SSL}    ssl_stapling_verify on;\n"
-    NGINX_SSL="${NGINX_SSL}    add_header Strict-Transport-Security \"max-age=31536000; includeSubDomains\" always;\n"
+    render_site "$(nginx_fragment_listen_tls)" \
+      "$(nginx_fragment_ssl "$CERT_PRIMARY")" "" \
+      "/etc/nginx/sites-available/${APP_NAME}-tls.conf"
 
     # The :80 vhost keeps serving ACME while redirecting everything else. Using
     # our own redirect instead of `certbot --redirect` matters: certbot rewrites
     # the vhost, and our template would overwrite that rewrite on the next
     # update, silently breaking renewals.
-    NGINX_REDIRECT="    location / {\n        return 301 https://\$host\$request_uri;\n    }\n"
-
-    render_site "$NGINX_LISTEN_TLS" "$NGINX_SSL" "" \
-      "/etc/nginx/sites-available/${APP_NAME}-tls.conf"
-
-    # With TLS on, the plain HTTP render redirects but still serves ACME.
-    render_site "$NGINX_LISTEN_HTTP" "" "$NGINX_REDIRECT" \
+    render_site "$(nginx_fragment_listen_http)" "" \
+      "$(nginx_fragment_http_redirect)" \
       "/etc/nginx/sites-available/${APP_NAME}.conf"
 
     ln -sfn "/etc/nginx/sites-available/${APP_NAME}-tls.conf" "/etc/nginx/sites-enabled/${APP_NAME}-tls.conf"
@@ -599,7 +560,7 @@ else
     else
       err "بلوک HTTPS خطا دارد؛ به HTTP برمی‌گردیم تا سایت در دسترس بماند."
       rm -f "/etc/nginx/sites-enabled/${APP_NAME}-tls.conf"
-      render_site "$NGINX_LISTEN_HTTP" "" "" "/etc/nginx/sites-available/${APP_NAME}.conf"
+      render_site "$(nginx_fragment_listen_http)" "" "" "/etc/nginx/sites-available/${APP_NAME}.conf"
       nginx -t >/dev/null 2>&1 && systemctl reload nginx
     fi
   else

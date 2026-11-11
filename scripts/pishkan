@@ -630,23 +630,6 @@ cmd_doctor() {
 # API so CORS and cookie settings follow. No reinstall, no data touched.
 # ---------------------------------------------------------------------------
 
-provision_render() {
-  local template="$1" out="$2" server_name="$3" blog_block="$4" port="$5"
-  local web_root="$6" acme="$7" listen="$8" ssl="$9" redirect="${10}"
-  local content
-
-  content="$(cat "$template")"
-  content="${content//__LISTEN__/$listen}"
-  content="${content//__SSL__/$ssl}"
-  content="${content//__REDIRECT__/$redirect}"
-  content="${content//__BLOG_REDIRECT__/$blog_block}"
-  content="${content//__SERVER_NAME__/$server_name}"
-  content="${content//__API_PORT__/$port}"
-  content="${content//__WEB_ROOT__/$web_root}"
-  content="${content//__ACME_ROOT__/$acme}"
-  printf '%s\n' "$content" >"$out"
-}
-
 cmd_provision() {
   require_root
   local force_tls=0 arg
@@ -721,34 +704,17 @@ cmd_provision() {
   install -m 0644 "${CURRENT_LINK}/deploy/nginx/snippets/pishkan-proxy.conf" \
     /etc/nginx/snippets/pishkan-proxy.conf
 
-  local main_hosts server_name blog_block=""
+  local main_hosts server_name blog_block
   main_hosts="$(config_main_hosts)"
-  server_name="$main_hosts"
-  if [ -n "$blog_sub" ]; then
-    server_name="${main_hosts} ${blog_sub}"
-    blog_block="    # The blog moved to its own hostname. Permanent redirects keep every
-    # shared link and every indexed URL working.
-    location ~ ^/blog(/.*)?\$ {
-        return 301 https://${blog_sub}\$1;
-    }
-"
-  fi
+  blog_block="$(nginx_fragment_blog_redirect "$blog_sub")"
+  server_name="${main_hosts:-_}"
+  [ -n "$blog_sub" ] && server_name="${main_hosts} ${blog_sub}"
 
-  local listen_http listen_tls ssl_lines redirect_lines
-  listen_http="    listen 80;
-    listen [::]:80;
-"
-  listen_tls="    listen 443 ssl;
-    listen [::]:443 ssl;
-    http2 on;
-"
-  ssl_lines=""
-  redirect_lines=""
-
-  local cert_hosts="$(config_tls_hosts)" cert_primary
+  local cert_hosts cert_primary ssl_fragment="" redirect_fragment=""
+  cert_hosts="$(config_tls_hosts)"
   cert_primary="$(config_get DOMAIN)"
 
-  if [ "$tls_mode" != "off" ]; then
+  if [ "$tls_mode" != "off" ] && [ -n "$cert_primary" ]; then
     local -a cert_args=()
     local host
     for host in $cert_hosts; do cert_args+=(-d "$host"); done
@@ -757,72 +723,38 @@ cmd_provision() {
          --non-interactive --agree-tos --email "$(config_get ACME_EMAIL)" \
          --keep-until-expiring --expand >/dev/null 2>&1; then
       ok "گواهی آماده است."
-      ssl_lines=""
-      ssl_lines="${ssl_lines}    ssl_certificate     /etc/letsencrypt/live/${cert_primary}/fullchain.pem;
-"
-      ssl_lines="${ssl_lines}    ssl_certificate_key /etc/letsencrypt/live/${cert_primary}/privkey.pem;
-"
-      ssl_lines="${ssl_lines}    ssl_trusted_certificate /etc/letsencrypt/live/${cert_primary}/chain.pem;
-"
-      ssl_lines="${ssl_lines}    ssl_protocols TLSv1.2 TLSv1.3;
-"
-      ssl_lines="${ssl_lines}    ssl_prefer_server_ciphers off;
-"
-      ssl_lines="${ssl_lines}    ssl_session_cache shared:SSL:10m;
-"
-      ssl_lines="${ssl_lines}    ssl_session_timeout 1d;
-"
-      ssl_lines="${ssl_lines}    ssl_stapling on;
-"
-      ssl_lines="${ssl_lines}    ssl_stapling_verify on;
-"
-      ssl_lines="${ssl_lines}    add_header Strict-Transport-Security \"max-age=31536000; includeSubDomains\" always;
-"
-      redirect_lines="    location / {
-        return 301 https://\$host\$request_uri;
-    }
-"
+      ssl_fragment="$(nginx_fragment_ssl "$cert_primary")"
+      redirect_fragment="$(nginx_fragment_http_redirect)"
     else
       warn "گواهی صادر نشد؛ سایت روی HTTP می‌ماند. DNS و پورت ۸۰ را بررسی کنید."
     fi
   fi
 
-  local nginx_backup
+  local nginx_backup template
+  template="${CURRENT_LINK}/deploy/nginx/pishkan.conf"
   nginx_backup="$(mktemp -d)"
   cp -a /etc/nginx/sites-available/. "$nginx_backup/" 2>/dev/null || true
 
-  provision_render "${CURRENT_LINK}/deploy/nginx/pishkan.conf" \
-    "/etc/nginx/sites-available/${APP_NAME}.conf" \
-    "$server_name" "$blog_block" "$(api_port)" \
-    "${CURRENT_LINK}/apps/web/dist" "$acme_root" "$listen_http" "" ""
+  local web_root="${CURRENT_LINK}/apps/web/dist"
 
-  ln -sfn "/etc/nginx/sites-available/${APP_NAME}.conf" "/etc/nginx/sites-enabled/${APP_NAME}.conf"
-  rm -f /etc/nginx/sites-enabled/default
-
-  if [ -n "$ssl_lines" ]; then
-    provision_render "${CURRENT_LINK}/deploy/nginx/pishkan.conf" \
+  if [ -n "$ssl_fragment" ]; then
+    render_nginx_template "$template" \
       "/etc/nginx/sites-available/${APP_NAME}-tls.conf" \
-      "$server_name" "$blog_block" "$(api_port)" \
-      "${CURRENT_LINK}/apps/web/dist" "$acme_root" "$listen_tls" "$ssl_lines" ""
-    provision_render "${CURRENT_LINK}/deploy/nginx/pishkan.conf" \
-      "/etc/nginx/sites-available/${APP_NAME}.conf" \
-      "$server_name" "$blog_block" "$(api_port)" \
-      "${CURRENT_LINK}/apps/web/dist" "$acme_root" "$listen_http" "" "$redirect_lines"
-    ln -sfn "/etc/nginx/sites-available/${APP_NAME}-tls.conf" "/etc/nginx/sites-enabled/${APP_NAME}-tls.conf"
+      "$(nginx_fragment_listen_tls)" "$ssl_fragment" "" \
+      "$blog_block" "$server_name" "$(api_port)" "$web_root" "$acme_root"
+    ln -sfn "/etc/nginx/sites-available/${APP_NAME}-tls.conf" \
+            "/etc/nginx/sites-enabled/${APP_NAME}-tls.conf"
   else
     rm -f "/etc/nginx/sites-enabled/${APP_NAME}-tls.conf"
   fi
 
-  if ! nginx -t >/dev/null 2>&1; then
-    err "پیکربندی تازه معتبر نیست؛ به نسخه قبلی برمی‌گردیم."
-    cp -a "${nginx_backup}/." /etc/nginx/sites-available/ 2>/dev/null || true
-    rm -rf "$nginx_backup"
-    nginx -t >/dev/null 2>&1 && systemctl reload nginx
-    die "تغییری اعمال نشد. برای دیدن خطا: nginx -t"
-  fi
-  rm -rf "$nginx_backup"
-  systemctl reload nginx
-  ok "Nginx بارگذاری شد."
+  render_nginx_template "$template" \
+    "/etc/nginx/sites-available/${APP_NAME}.conf" \
+    "$(nginx_fragment_listen_http)" "" "$redirect_fragment" \
+    "$blog_block" "$server_name" "$(api_port)" "$web_root" "$acme_root"
+  ln -sfn "/etc/nginx/sites-available/${APP_NAME}.conf" \
+          "/etc/nginx/sites-enabled/${APP_NAME}.conf"
+  rm -f /etc/nginx/sites-enabled/default
 
   # --- 3. restart only if the environment actually changed ------------------
   if [ "$changed" = "1" ]; then

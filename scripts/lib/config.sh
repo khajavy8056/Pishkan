@@ -364,12 +364,83 @@ config_resolve_file() {
     printf '%s' "$PISHKAN_DEPLOY_CONF"
     return 0
   fi
-  local release
-  release="$(current_release 2>/dev/null || true)"
-  if [ -n "$release" ] && [ -f "${release}/deploy/deploy.conf" ]; then
-    printf '%s' "${release}/deploy/deploy.conf"
-    return 0
-  fi
+  # Deliberately NOT falling back to the release's own deploy.conf: that copy
+  # is the template, and its example domain would be read as "no domain" —
+  # which on an already-installed server would rewrite nginx to answer on the
+  # bare IP and drop HTTPS. A missing live config is an error to surface, not
+  # something to paper over.
   printf ''
   return 1
+}
+
+# ---------------------------------------------------------------------------
+# nginx template rendering
+#
+# Lives here, not in the installer and not in the CLI, because both render the
+# same template and two copies drift. Bash parameter expansion is used on
+# purpose: the replacement values contain `/`, `&`, `$`, `\` and newlines, and
+# every one of those is a metacharacter in sed, perl or awk. Bash treats them
+# as plain text.
+# ---------------------------------------------------------------------------
+
+# render_nginx_template <template> <out> <listen> <ssl> <redirect> <blog_block> \
+#                       <server_name> <api_port> <web_root> <acme_root>
+render_nginx_template() {
+  local template="$1" out="$2" listen="$3" ssl="$4" redirect="$5"
+  local blog_block="$6" server_name="$7" port="$8" web_root="$9" acme="${10}"
+  local content
+
+  [ -f "$template" ] || return 1
+
+  content="$(cat "$template")"
+  content="${content//__LISTEN__/$listen}"
+  content="${content//__SSL__/$ssl}"
+  content="${content//__REDIRECT__/$redirect}"
+  content="${content//__BLOG_REDIRECT__/$blog_block}"
+  content="${content//__SERVER_NAME__/$server_name}"
+  content="${content//__API_PORT__/$port}"
+  content="${content//__WEB_ROOT__/$web_root}"
+  content="${content//__ACME_ROOT__/$acme}"
+
+  printf '%s\n' "$content" >"$out"
+}
+
+# The listen/ssl/redirect fragments, built once so install and provision emit
+# byte-identical vhosts.
+nginx_fragment_listen_http() {
+  printf '    listen 80;\n    listen [::]:80;\n'
+}
+
+nginx_fragment_listen_tls() {
+  printf '    listen 443 ssl;\n    listen [::]:443 ssl;\n    http2 on;\n'
+}
+
+nginx_fragment_ssl() {
+  local cert_primary="$1"
+  local live="/etc/letsencrypt/live/${cert_primary}"
+  printf '    ssl_certificate     %s/fullchain.pem;\n' "$live"
+  printf '    ssl_certificate_key %s/privkey.pem;\n' "$live"
+  printf '    ssl_trusted_certificate %s/chain.pem;\n' "$live"
+  printf '    ssl_protocols TLSv1.2 TLSv1.3;\n'
+  printf '    ssl_prefer_server_ciphers off;\n'
+  printf '    ssl_session_cache shared:SSL:10m;\n'
+  printf '    ssl_session_timeout 1d;\n'
+  printf '    ssl_stapling on;\n'
+  printf '    ssl_stapling_verify on;\n'
+  printf '    add_header Strict-Transport-Security "max-age=31536000; includeSubDomains" always;\n'
+}
+
+nginx_fragment_http_redirect() {
+  printf '    location / {\n        return 301 https://$host$request_uri;\n    }\n'
+}
+
+# The /blog* -> sub-domain redirect, when one is configured.
+nginx_fragment_blog_redirect() {
+  local blog_host="${1:-}"
+  [ -n "$blog_host" ] || return 0
+  printf '    # The blog moved to its own hostname. Permanent redirects keep every\n'
+  printf '    # shared link and every indexed URL working.\n'
+  printf '    location ~ ^/blog(/.*)?$ {\n'
+  printf '        return 301 https://%s$1;\n' "$blog_host"
+  printf '    }\n'
 }
