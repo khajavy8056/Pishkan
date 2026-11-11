@@ -139,3 +139,79 @@ port_80_open_locally() {
   listening="$(ss -H -ltn 2>/dev/null | awk '$4 ~ /:80$/ {print $4; exit}')"
   [ -n "$listening" ]
 }
+
+# ---------------------------------------------------------------------------
+# Post-install verification
+#
+# `wait_for_health` proves the process answered on 127.0.0.1. It does not prove
+# anything a user cares about: that the domain resolves, that nginx answers on
+# it, that TLS terminates correctly, or that the SPA actually loads. Those
+# failures are exactly the ones that survive to the customer, so they are
+# checked here, after install, while the operator is still watching the output.
+# ---------------------------------------------------------------------------
+
+# verify_url <url> <expect-substring> <label>
+verify_url() {
+  local url="$1" needle="$2" label="$3" body
+  body="$(curl -fsS --max-time 15 -L "$url" 2>/dev/null || true)"
+  if [ -z "$body" ]; then
+    err "${label}: پاسخی از ${url} نرسید."
+    return 1
+  fi
+  if ! printf '%s' "$body" | grep -q "$needle"; then
+    err "${label}: پاسخ آمد ولی محتوای مورد انتظار نبود (${url})."
+    return 1
+  fi
+  ok "${label}"
+  return 0
+}
+
+# verify_api_health <url> <label>
+verify_api_health() {
+  local url="$1" label="$2" body
+  body="$(curl -fsS --max-time 10 "$url" 2>/dev/null || true)"
+  if printf '%s' "$body" | grep -q '"status"'; then
+    ok "${label}"
+    return 0
+  fi
+  err "${label}: ${url} پاسخ سلامت نداد."
+  return 1
+}
+
+# verify_acme_reachable <host>
+# The single most expensive failure to discover late: the challenge path is
+# swallowed by the SPA and every renewal silently fails for 60 days.
+verify_acme_reachable() {
+  local host="$1" code
+  code="$(curl -s -o /dev/null -w '%{http_code}' --max-time 10 \
+    -L "http://${host}/.well-known/acme-challenge/pishkan-probe" 2>/dev/null || true)"
+  case "$code" in
+    404|403)
+      # 404 is the correct answer: nginx looked for the file and did not find
+      # it. A 200 here means the SPA answered instead, which breaks certbot.
+      ok "مسیر چالش ACME روی ${host} به nginx می‌رسد (${code})."
+      return 0 ;;
+    200)
+      err "مسیر چالش ACME روی ${host} به SPA می‌رسد نه nginx — تمدید گواهی شکست می‌خورد."
+      return 1 ;;
+    ''|000)
+      warn "بررسی مسیر ACME روی ${host} ممکن نشد (پاسخ نداد)."
+      return 0 ;;
+    *)
+      warn "مسیر ACME روی ${host} کد ${code} داد؛ بررسی دستی لازم است."
+      return 0 ;;
+  esac
+}
+
+# verify_certificate <host>
+verify_certificate() {
+  local host="$1" expiry
+  expiry="$(echo | timeout 15 openssl s_client -servername "$host" -connect "${host}:443" 2>/dev/null \
+    | openssl x509 -noout -enddate 2>/dev/null | cut -d= -f2)"
+  if [ -n "$expiry" ]; then
+    ok "گواهی TLS روی ${host} معتبر است (تا ${expiry})."
+    return 0
+  fi
+  err "گواهی TLS روی ${host} خوانده نشد."
+  return 1
+}

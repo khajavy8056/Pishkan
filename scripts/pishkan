@@ -613,6 +613,70 @@ cmd_doctor() {
   if nginx -t >/dev/null 2>&1; then ok "پیکربندی Nginx معتبر است."; else warn "پیکربندی Nginx ایراد دارد."; fi
   if systemctl is-active --quiet pishkan-backup.timer; then ok "پشتیبان‌گیری خودکار فعال است."; else warn "پشتیبان‌گیری خودکار غیرفعال است."; fi
 
+  # Deployment: the domain file, what it resolves to, and the hop a browser
+  # actually takes. These are the failures that look like "the site is down"
+  # while every process on the box is healthy.
+  local deploy_file domain kind
+  deploy_file="$(config_resolve_file || true)"
+  if [ -z "$deploy_file" ]; then
+    err "فایل deploy.conf پیدا نشد؛ تنظیمات دامنه مدیریت نمی‌شود."
+    problems=$((problems + 1))
+  else
+    if config_load "$deploy_file" && config_validate; then
+      ok "deploy.conf معتبر است (${deploy_file})."
+    else
+      config_report
+      err "deploy.conf ایراد دارد؛ «pishkan provision» اجرا نمی‌شود تا اصلاح شود."
+      problems=$((problems + 1))
+    fi
+
+    domain="$(config_get DOMAIN)"
+    if [ -n "$domain" ]; then
+      kind="$(dns_classify "$domain")"
+      case "$kind" in
+        cloudflare|direct) ok "DNS ${domain}: ${kind}" ;;
+        elsewhere)
+          err "DNS ${domain} به این سرور اشاره نمی‌کند."
+          problems=$((problems + 1)) ;;
+        unresolved)
+          err "DNS ${domain} منتشر نشده است."
+          problems=$((problems + 1)) ;;
+      esac
+
+      if verify_url "$(config_app_url)/" 'id="root"' 'صفحهٔ اصلی از دامنه بارگذاری می‌شود'; then :; else
+        problems=$((problems + 1))
+      fi
+      if verify_api_health "$(config_app_url)/api/health" 'API از طریق دامنه سالم است'; then :; else
+        problems=$((problems + 1))
+      fi
+      if verify_acme_reachable "$domain"; then :; else
+        problems=$((problems + 1))
+      fi
+
+      # Certificate expiry: a renewal that has been failing for weeks looks
+      # exactly like a working server until the day it is not.
+      local cert
+      cert="/etc/letsencrypt/live/${domain}/fullchain.pem"
+      if [ -f "$cert" ]; then
+        local enddate days_left
+        enddate="$(openssl x509 -enddate -noout -in "$cert" 2>/dev/null | cut -d= -f2)"
+        if [ -n "$enddate" ]; then
+          days_left=$(( ( $(date -d "$enddate" +%s) - $(date +%s) ) / 86400 ))
+          if [ "$days_left" -lt 10 ]; then
+            err "گواهی TLS فقط ${days_left} روز اعتبار دارد — تمدید خودکار کار نمی‌کند."
+            problems=$((problems + 1))
+          else
+            ok "گواهی TLS: ${days_left} روز باقی مانده."
+          fi
+        fi
+      else
+        warn "گواهی TLS برای ${domain} پیدا نشد (HTTPS فعال نیست)."
+      fi
+    else
+      warn "دامنه تنظیم نشده؛ سامانه روی IP کار می‌کند."
+    fi
+  fi
+
   local free_gb
   free_gb="$(df -Pm "$STATE_DIR" 2>/dev/null | awk 'NR==2 {printf "%d", $4/1024}')"
   if [ -n "$free_gb" ] && [ "$free_gb" -lt 2 ]; then warn "فضای دیسک کم است: ${free_gb}GB آزاد."; fi
@@ -774,6 +838,24 @@ cmd_provision() {
     : # already the live file
   elif [ -f "$deploy_file" ]; then
     install -m 0640 "$deploy_file" "${CONFIG_DIR}/deploy.conf"
+  fi
+
+  # --- 5. verify the path a browser actually takes ---------------------------
+  if [ -n "$domain" ]; then
+    echo
+    log "بررسی نهایی از طریق دامنه…"
+    local problems=0
+    verify_url "${app_url}/" 'id="root"' 'صفحهٔ اصلی بارگذاری می‌شود' \
+      || problems=$((problems + 1))
+    verify_api_health "${app_url}/api/health" 'API از طریق دامنه سالم است' \
+      || problems=$((problems + 1))
+    verify_acme_reachable "$domain" || problems=$((problems + 1))
+    if [ -f "/etc/letsencrypt/live/${domain}/fullchain.pem" ]; then
+      verify_certificate "$domain" || problems=$((problems + 1))
+    fi
+    if [ "$problems" -gt 0 ]; then
+      warn "${problems} مورد ناموفق بود؛ برای جزئیات بیشتر: sudo pishkan doctor"
+    fi
   fi
 
   echo

@@ -616,6 +616,51 @@ else
 fi
 
 # ---------------------------------------------------------------------------
+# 11. Verification — what a user actually cares about
+#
+# The API health check above ran against 127.0.0.1:3000. Everything that can
+# still be wrong at this point involves the path a real browser takes: DNS,
+# nginx, TLS, and whether the SPA loads at all. Checking it here means the
+# install either confirms itself or names the broken hop, instead of handing
+# over a server that only looks finished.
+# ---------------------------------------------------------------------------
+heading "بررسی نهایی"
+
+VERIFY_PROBLEMS=0
+if [ -n "$CONFIG_DOMAIN" ]; then
+  verify_url "${CONFIG_APP_URL}/" 'id="root"' 'صفحهٔ اصلی از طریق دامنه بارگذاری می‌شود' \
+    || VERIFY_PROBLEMS=$((VERIFY_PROBLEMS + 1))
+
+  verify_api_health "${CONFIG_APP_URL}/api/health" 'API از طریق دامنه سالم است' \
+    || VERIFY_PROBLEMS=$((VERIFY_PROBLEMS + 1))
+
+  verify_acme_reachable "$CONFIG_DOMAIN" || VERIFY_PROBLEMS=$((VERIFY_PROBLEMS + 1))
+
+  if [ "$CONFIG_TLS_MODE" != "off" ] && [ -f "/etc/letsencrypt/live/${CONFIG_DOMAIN}/fullchain.pem" ]; then
+    verify_certificate "$CONFIG_DOMAIN" || VERIFY_PROBLEMS=$((VERIFY_PROBLEMS + 1))
+  else
+    warn "گواهی TLS نصب نشده؛ بررسی HTTPS انجام نشد. بعد از اصلاح DNS: sudo pishkan provision --tls"
+  fi
+else
+  SERVER_IP="$(server_public_ip)"
+  if [ -n "$SERVER_IP" ]; then
+    verify_url "http://${SERVER_IP}/" 'id="root"' 'صفحهٔ اصلی روی IP بارگذاری می‌شود' \
+      || VERIFY_PROBLEMS=$((VERIFY_PROBLEMS + 1))
+    verify_api_health "http://${SERVER_IP}/api/health" 'API روی IP سالم است' \
+      || VERIFY_PROBLEMS=$((VERIFY_PROBLEMS + 1))
+  fi
+  warn "دامنه تنظیم نشده؛ سامانه روی IP نصب شد. برای HTTPS: دامنه را در ${CONFIG_DIR}/deploy.conf بنویسید و sudo pishkan provision --tls بزنید."
+fi
+
+if [ "$VERIFY_PROBLEMS" -gt 0 ]; then
+  warn "${VERIFY_PROBLEMS} مورد در بررسی نهایی ناموفق بود."
+  warn "  رایج‌ترین علت‌ها: DNS هنوز منتشر نشده (تا چند ساعت)، پورت ۸۰ بسته، یا Cloudflare روی Flexible."
+  warn "  بعد از اصلاح: sudo pishkan doctor"
+else
+  ok "همهٔ بررسی‌های نهایی موفق بودند."
+fi
+
+# ---------------------------------------------------------------------------
 # Summary
 # ---------------------------------------------------------------------------
 PUBLIC_URL="$(read_env_value APP_URL)"
