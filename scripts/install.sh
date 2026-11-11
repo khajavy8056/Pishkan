@@ -122,10 +122,19 @@ fi
 if [ -z "$CONFIG_FILE_SOURCE" ]; then
   install -d -m 0750 "$CONFIG_DIR"
   TEMPLATE_URL="https://raw.githubusercontent.com/khajavy8056/Pishkan/${PISHKAN_COMMIT:-main}/deploy/deploy.conf"
-  if curl -fsSL "$TEMPLATE_URL" -o "${CONFIG_DIR}/deploy.conf"; then
-    chmod 0640 "${CONFIG_DIR}/deploy.conf"
-    ok "قالب تنظیمات از مخزن دریافت شد: ${CONFIG_DIR}/deploy.conf"
-    CONFIG_FILE_SOURCE="${CONFIG_DIR}/deploy.conf"
+  if curl -fsSL --max-time 30 "$TEMPLATE_URL" -o "${CONFIG_DIR}/deploy.conf.tmp"; then
+    # A truncated download (captive portal, proxy error page, dropped
+    # connection) would otherwise be parsed as a config with no keys and
+    # treated as "no domain" — an install that silently skips TLS.
+    if grep -q '^DOMAIN=' "${CONFIG_DIR}/deploy.conf.tmp"; then
+      mv "${CONFIG_DIR}/deploy.conf.tmp" "${CONFIG_DIR}/deploy.conf"
+      chmod 0640 "${CONFIG_DIR}/deploy.conf"
+      ok "قالب تنظیمات از مخزن دریافت شد: ${CONFIG_DIR}/deploy.conf"
+      CONFIG_FILE_SOURCE="${CONFIG_DIR}/deploy.conf"
+    else
+      rm -f "${CONFIG_DIR}/deploy.conf.tmp"
+      warn "فایل دریافتی قالب معتبری نبود؛ نصب بدون دامنه ادامه می‌یابد."
+    fi
   fi
 fi
 
@@ -675,15 +684,25 @@ cat <<EOF
   ورود مشترک:      ${PUBLIC_URL}/login
   ورود به پنل نقش: ${PUBLIC_URL}/panel
   سرویس:           systemctl status ${SERVICE_NAME}
-  تنظیمات:         ${ENV_FILE}
+  تنظیمات محرمانه:  ${ENV_FILE}
+  تنظیمات دامنه:    ${CONFIG_DIR}/deploy.conf
+
+  تغییر دامنه، زیردامنه یا HTTPS:
+    ۱) فایل ${CONFIG_DIR}/deploy.conf را ویرایش کنید
+    ۲) sudo pishkan provision
+    (نصب دوباره لازم نیست و داده‌ها دست نمی‌خورند)
 
   دستورهای مدیریت سامانه:
-    pishkan status          وضعیت سرویس و سلامت
-    pishkan logs -f         مشاهده زنده لاگ‌ها
-    pishkan update          به‌روزرسانی امن با امکان بازگشت
-    pishkan backup          پشتیبان‌گیری دستی
-    pishkan restore FILE    بازیابی نسخه پشتیبان
-    pishkan health          بررسی سلامت API
+    pishkan status             وضعیت سرویس و سلامت
+    pishkan doctor             بررسی کامل: دامنه، DNS، گواهی، پایگاه داده
+    pishkan logs -f            مشاهده زنده لاگ‌ها
+    pishkan update             به‌روزرسانی امن با امکان بازگشت
+    pishkan update --dry-run   نمایش تغییرات بدون اجرا
+    pishkan provision          اعمال دوبارهٔ deploy.conf
+    pishkan rollback           بازگشت به نسخه قبلی
+    pishkan backup             پشتیبان‌گیری دستی
+    pishkan restore FILE       بازیابی نسخه پشتیبان
+    pishkan health             بررسی سلامت API
 
 EOF
 

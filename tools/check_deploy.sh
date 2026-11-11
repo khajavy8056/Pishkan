@@ -544,6 +544,36 @@ else
 fi
 
 # ---------------------------------------------------------------------------
+section "cli: commands that must not change anything"
+# ---------------------------------------------------------------------------
+
+# --dry-run is the command an operator runs *before* trusting an update. If it
+# writes anything at all, it is worse than not existing.
+DRY_BODY="$(sed -n '/^cmd_provision() {/,/^}/p' "$REPO_ROOT/scripts/pishkan")"
+# Between the dry-run guard and its `return 0`, nothing may write.
+DRY_HEAD="${DRY_BODY%%PROVISION_DRY_RUN*}"
+
+check "provision --dry-run is implemented" \
+  bash -c "grep -q 'PROVISION_DRY_RUN' '$REPO_ROOT/scripts/pishkan'"
+if printf '%s' "$DRY_HEAD" | grep -qE '(set_env_value|install -m|sed -i|ln -sfn|systemctl restart)'; then
+  fail "dry-run is checked before the first write in provision" \
+    "a write appears before the PROVISION_DRY_RUN guard"
+else
+  pass "dry-run is checked before the first write in provision"
+fi
+
+UPDATE_BODY="$(sed -n '/^cmd_update() {/,/^}/p' "$REPO_ROOT/scripts/pishkan")"
+UPDATE_HEAD="${UPDATE_BODY%%dry_run*}"
+check "update --dry-run is implemented" \
+  bash -c "grep -q -- '--dry-run' '$REPO_ROOT/scripts/pishkan'"
+if printf '%s' "$UPDATE_HEAD" | grep -qE '(npm ci|ln -sfn|systemctl restart)'; then
+  fail "update checks dry-run before creating a release directory" \
+    "a write appears before the dry_run guard"
+else
+  pass "update checks dry-run before creating a release directory"
+fi
+
+# ---------------------------------------------------------------------------
 section "docs: the contract is written down"
 # ---------------------------------------------------------------------------
 
