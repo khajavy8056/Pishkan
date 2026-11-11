@@ -182,6 +182,10 @@ export const DEFAULT_ROLES: {
       'support.view', 'support.create', 'support.edit', 'support.cancel',
       'discounts.view',
       'audit.view',
+      // The Android app's banners and settings live in one screen; whoever can
+      // run the office's content should be able to publish a slide without
+      // holding the whole settings grid.
+      'app.manage',
       'wallet.view',
       'monitoring.view',
       'logs.view',

@@ -338,9 +338,19 @@ export { upsertRolesOnly, adminRoleId, syncSystemRolePermissions };
  *   v2 → wallet / monitoring / logs / alerts  (1.3.0)
  *   v3 → payroll.withdraw / payroll.approve   (1.4.0)
  *   v4 → support / discounts / backup.restore (1.5.0)
+ *   v5 → app.manage on the manager role   (1.13.0)
  * Permissions an administrator removed earlier are not re-created.
+ *
+ * v5 exists because the Android-app screen was reachable only by super admins:
+ * its endpoints require `app.manage`, which no other shipped role granted. An
+ * office whose day-to-day account is the manager saw the banners tab, opened
+ * the editor and watched «ذخیره» do nothing — the list and the targets had both
+ * been swallowed by a `.catch()` that turned the 403 into an empty array, so
+ * the service picker was empty and the save button stayed disabled with no
+ * explanation. The permission belongs with the role that already runs
+ * services, content and reports.
  */
-const PERMISSIONS_VERSION = 4;
+const PERMISSIONS_VERSION = 5;
 async function syncSystemRolePermissions() {
   const marker = await one<{ value: string }>('SELECT value FROM settings WHERE key = ?', ['system.permissions_version']);
   const current = Number(marker?.value ?? 1);

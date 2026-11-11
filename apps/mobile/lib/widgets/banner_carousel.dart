@@ -162,35 +162,65 @@ class _BannerCarouselState extends State<BannerCarousel> {
   }
 }
 
-/// Slow drift for a banner's artwork.
+/// Gentle drift for a banner's artwork.
 ///
 /// `dart:ui` cannot play a GIF at this size without shipping thirty megabytes
-/// of frames, so the motion here is the one that costs nothing: the picture
-/// creeps from 1.0 to 1.06 and stays there. That is enough to stop a card from
-/// reading as a static poster, and it leaves the headline — the thing the
-/// customer is meant to read — perfectly still.
+/// of frames, so the motion here is the kind that costs nothing: the picture
+/// creeps outward over about fourteen seconds and rests. That is enough to stop
+/// a card reading as a static poster, and it leaves the headline — the thing
+/// the customer is meant to read — perfectly still.
+///
+/// Each slide drifts differently. A single uniform zoom on every card is
+/// noticeably mechanical once the rail advances: five pictures doing the same
+/// thing stops looking like five slides and starts looking like one slide that
+/// changes colour. So the pass is parameterised — how far it travels, from which
+/// anchor, and in which direction of the two axes — and the card passes a
+/// variant derived from its own identity.
 ///
 /// It is a *bounded* animation on purpose. An earlier version repeated forever,
 /// which is a Ticker that never stops: it burns a frame callback for as long as
 /// the page is alive, and it makes the widget impossible to test, because a
 /// test that ends with the tree still mounted fails on the active ticker. A
-/// single 14-second pass has none of those problems and looks the same, because
-/// nobody watches a banner for fourteen seconds.
+/// single pass has none of those problems and looks the same, because nobody
+/// watches a banner for fourteen seconds.
 ///
 /// Off under reduced motion, where it would be the only thing moving.
 class _KenBurns extends StatefulWidget {
-  const _KenBurns({required this.child});
+  const _KenBurns({
+    required this.child,
+    this.seed = 0,
+    this.duration = const Duration(milliseconds: 14000),
+  });
 
   final Widget child;
+
+  /// Picks which drift variant this card uses. Stable per card, so the same
+  /// slide animates the same way every time it comes back around.
+  final int seed;
+
+  final Duration duration;
 
   @override
   State<_KenBurns> createState() => _KenBurnsState();
 }
 
+/// The drift variants, as `(scaleTo, startAlignment)`.
+///
+/// Every one of them keeps the subject side of the picture — the leading left —
+/// inside the frame, and every one is slow enough to read as breathing rather
+/// than as movement. The choice is made from the card's seed so the rail never
+/// shows the same motion twice in a row.
+const _driftVariants = <(double, Alignment)>[
+  (1.06, Alignment.center),
+  (1.04, Alignment.topLeft),
+  (1.07, Alignment.bottomLeft),
+  (1.05, Alignment.centerLeft),
+];
+
 class _KenBurnsState extends State<_KenBurns> with SingleTickerProviderStateMixin {
   late final AnimationController _drift = AnimationController(
     vsync: this,
-    duration: const Duration(milliseconds: 14000),
+    duration: widget.duration,
   );
 
   @override
@@ -200,7 +230,7 @@ class _KenBurnsState extends State<_KenBurns> with SingleTickerProviderStateMixi
     if (!_drift.isAnimating && _drift.value == 0) {
       // A staggered start so a rail of five cards does not breathe in
       // lockstep, which reads as a rendering fault rather than as life.
-      final phase = (widget.hashCode % 40) / 100;
+      final phase = (widget.seed.abs() % 40) / 100;
       _drift.value = phase.clamp(0.0, 0.35);
       _drift.animateTo(1.0, curve: Curves.easeOutSine);
     }
@@ -208,6 +238,10 @@ class _KenBurnsState extends State<_KenBurns> with SingleTickerProviderStateMixi
 
   @override
   void dispose() {
+    // Both, in this order: `dispose` on a controller that is still animating
+    // leaves the ticker attached and trips the "Ticker was active when the test
+    // ended" failure in any test that tears the tree down mid-drift.
+    _drift.stop();
     _drift.dispose();
     super.dispose();
   }
@@ -215,30 +249,83 @@ class _KenBurnsState extends State<_KenBurns> with SingleTickerProviderStateMixi
   @override
   Widget build(BuildContext context) {
     if (PishkanMotion.reduced(context)) return widget.child;
+    final (scaleTo, start) = _driftVariants[widget.seed.abs() % _driftVariants.length];
     return AnimatedBuilder(
       animation: _drift,
       builder: (_, child) {
         final t = Curves.easeInOut.transform(_drift.value.clamp(0.0, 1.0));
-        return Transform.scale(scale: 1.0 + 0.06 * t, child: child);
+        // Ease from a slightly smaller frame into the variant's own target,
+        // anchored away from the copy so the text edge never reveals a seam.
+        return Transform.scale(
+          scale: 1.0 + (scaleTo - 1.0) * t,
+          alignment: start,
+          child: child,
+        );
       },
       child: widget.child,
     );
   }
 }
 
-/// The bundled banner art, keyed by the service slug a banner is about.
+/// The bundled banner art, keyed by the *service* a banner points at.
 ///
 /// These are drawn as one set — same blue field, same light arch, same floating
-/// spheres — so the rail reads as a series of posters for one app rather than
-/// as five unrelated images. A banner whose subject has no bespoke art falls
-/// back to the hero, which is still the right thing to show: the app's own
-/// promise, not somebody else's photograph.
+/// spheres, and the subject on the leading left so the Persian copy on the
+/// right never lands on top of it — so the rail reads as a series of posters
+/// for one app rather than as five unrelated images.
+///
+/// They are also the pictures the server seeds its five default slides with
+/// (`/images/banners/slide-*.webp` in the web build), which is what makes the
+/// rail instant: the app can paint the right artwork on the very first frame,
+/// before the network has answered, and the server's copy then replaces it
+/// pixel for pixel. When a manager swaps a slide's picture, the uploaded image
+/// wins — see [BannerCard] — so the bundled file never fights the office's
+/// choice, it only fills the gap until the real one arrives.
+///
+/// Keyed by service slug rather than by category: the old map was keyed by
+/// category slug, but a banner's `destinationSlug` is always a service
+/// (`plate-replacement-appointment`, `register-llc`, …), so every lookup missed
+/// and all five slides fell back to the hero. That is why the rail showed the
+/// same picture five times.
 const bannerArtAssets = <String, String>{
-  'vehicle-services': 'assets/banners/banner-vehicle.webp',
-  'housing-land': 'assets/banners/banner-property.webp',
-  'business-licenses': 'assets/banners/banner-business.webp',
-  'insurance-health': 'assets/banners/banner-health.webp',
+  'plate-replacement-appointment': 'assets/banners/slide-vehicles.webp',
+  'vehicle-transfer-tax': 'assets/banners/slide-vehicles.webp',
+  'car-insurance-inquiry': 'assets/banners/slide-vehicles.webp',
+  'property-deed-inquiry': 'assets/banners/slide-property.webp',
+  'register-llc': 'assets/banners/slide-business.webp',
+  'business-license-issue': 'assets/banners/slide-business.webp',
+  'health-insurance-renewal': 'assets/banners/slide-health.webp',
+  'smart-national-card-registration': 'assets/banners/slide-identity.webp',
+  'no-criminal-record': 'assets/banners/slide-identity.webp',
 };
+
+/// The bundled artwork for a banner, resolved in three steps.
+///
+/// 1. The service it points at, so a slide about plate replacement always gets
+///    the car.
+/// 2. The server's own slide path, so a manager who replaced
+///    `/images/banners/slide-health.webp` with a new picture still gets *a*
+///    bundled stand-in that belongs to the same subject while it loads.
+/// 3. The hero, which is the app's own promise rather than somebody else's
+///    photograph.
+String bundledBannerArt(AppBanner banner) {
+  final byService = bannerArtAssets[banner.destinationSlug.trim()];
+  if (byService != null) return byService;
+  final byPath = banner.imageUrl.split('?').first.split('/').last;
+  switch (byPath) {
+    case 'slide-vehicles.webp':
+      return 'assets/banners/slide-vehicles.webp';
+    case 'slide-property.webp':
+      return 'assets/banners/slide-property.webp';
+    case 'slide-business.webp':
+      return 'assets/banners/slide-business.webp';
+    case 'slide-health.webp':
+      return 'assets/banners/slide-health.webp';
+    case 'slide-identity.webp':
+      return 'assets/banners/slide-identity.webp';
+  }
+  return defaultBanners['asset']!;
+}
 
 /// The banner shown when the office has not published one.
 ///
@@ -249,7 +336,7 @@ const defaultBanners = <String, String>{
   'title': 'تک پیشخوان',
   'subtitle': 'همراه شما در دسترسی آسان به خدمات دولتی',
   'action': 'شروع کنید',
-  'asset': 'assets/banners/banner-hero.webp',
+  'asset': 'assets/banners/slide-identity.webp',
 };
 
 /// A single banner card.
@@ -276,8 +363,7 @@ class BannerCard extends StatelessWidget {
   final VoidCallback onTap;
 
   /// The bundled art for this banner, or the hero when there is none.
-  String get _asset =>
-      bannerArtAssets[banner.destinationSlug] ?? defaultBanners['asset']!;
+  String get _asset => bundledBannerArt(banner);
 
   @override
   Widget build(BuildContext context) {
@@ -293,48 +379,73 @@ class BannerCard extends StatelessWidget {
         child: Stack(
           fit: StackFit.expand,
           children: [
-            // The drawn art first, so the card is never a grey box while a
-            // remote picture loads.
+            // The artwork, and the drift, as one layer.
             //
-            // It drifts. A still photograph filling a 186 dp card is a poster;
-            // the same picture at 1.0 → 1.06 scale over ~14 s is a *slider*, and
-            // it is the cheapest motion this app can have — no frames to ship,
-            // no GIF to decode, no battery spent on a video. Deliberately slow
-            // and small: anything faster turns a background into a distraction
-            // from the copy sitting on top of it. Off under reduced motion,
-            // where it would be the one thing moving on the page.
+            // Two pictures share this box: the bundled illustration, drawn
+            // first so the card is never a grey rectangle while the network
+            // answers, and the server's picture on top once it has actually
+            // decoded. Both live *inside* the drift, which is the part that
+            // used to be wrong: the remote image was a sibling of the
+            // animation, so the moment the office published a slide the
+            // animation was buried under a still photograph and the rail
+            // snapped back to being a poster. Stacking them under one
+            // transform means whichever picture is visible, it breathes.
+            //
+            // The drift itself: a still picture filling a 186 dp card is a
+            // poster; the same picture easing outward over ~14 s is a
+            // *slider*, and it is the cheapest motion this app can have — no
+            // frames to ship, no GIF to decode, no battery spent on a video.
+            // Deliberately slow and small: anything faster turns a background
+            // into a distraction from the copy sitting on top of it. Off under
+            // reduced motion, where it would be the one thing moving.
             _KenBurns(
-              child: Image.asset(
-                _asset,
-                fit: BoxFit.cover,
-                filterQuality: FilterQuality.medium,
-                errorBuilder: (_, _, _) => DecoratedBox(
-                  decoration: BoxDecoration(
-                    gradient: LinearGradient(
-                      begin: AlignmentDirectional.topStart,
-                      end: AlignmentDirectional.bottomEnd,
-                      colors: [accent, Color.alphaBlend(accent.withOpacity(0.55), const Color(0xFF22D3EE))],
+              seed: banner.id.hashCode,
+              child: Stack(
+                fit: StackFit.expand,
+                children: [
+                  Image.asset(
+                    _asset,
+                    fit: BoxFit.cover,
+                    filterQuality: FilterQuality.medium,
+                    errorBuilder: (_, _, _) => DecoratedBox(
+                      decoration: BoxDecoration(
+                        gradient: LinearGradient(
+                          begin: AlignmentDirectional.topStart,
+                          end: AlignmentDirectional.bottomEnd,
+                          colors: [accent, Color.alphaBlend(accent.withOpacity(0.55), const Color(0xFF22D3EE))],
+                        ),
+                      ),
                     ),
                   ),
-                ),
+                  // Only once it has actually decoded, so it never covers the
+                  // artwork with a blank rectangle.
+                  if (banner.hasImage) AuthImageOrNothing(url: banner.imageCacheKey),
+                ],
               ),
             ),
-            // An uploaded image, if there is one, on top — and only once it has
-            // actually decoded, so it never covers the artwork with a blank.
-            if (banner.hasImage) AuthImageOrNothing(url: banner.imageCacheKey),
-            // The scrim. It reaches full strength only under the text block,
-            // which is the leading half; the artwork keeps its own colour.
+            // The scrim. It reaches full strength only under the text block;
+            // the artwork keeps its own colour.
+            //
+            // `begin: centerStart` matters and is easy to get backwards: the
+            // copy is laid out at `CrossAxisAlignment.start`, which in Persian
+            // is the **right** edge, and `AlignmentDirectional.centerStart` is
+            // the right edge in RTL. This gradient used to begin at
+            // `centerEnd` — the left — so the rail spent its darkness on the
+            // empty half of the picture and left white 19 px text sitting on
+            // the bright subject. It looked like a styling mistake because it
+            // was one.
             DecoratedBox(
               decoration: BoxDecoration(
                 gradient: LinearGradient(
-                  begin: AlignmentDirectional.centerEnd,
-                  end: AlignmentDirectional.centerStart,
+                  begin: AlignmentDirectional.centerStart,
+                  end: AlignmentDirectional.centerEnd,
                   colors: [
-                    Color.alphaBlend(Colors.black.withOpacity(0.42), accent),
-                    Color.alphaBlend(Colors.black.withOpacity(0.16), accent),
+                    Color.alphaBlend(Colors.black.withOpacity(0.46), accent),
+                    Color.alphaBlend(Colors.black.withOpacity(0.30), accent),
+                    Color.alphaBlend(Colors.black.withOpacity(0.06), accent),
                     Colors.transparent,
                   ],
-                  stops: const [0, 0.48, 1],
+                  stops: const [0, 0.42, 0.74, 1],
                 ),
               ),
             ),

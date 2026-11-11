@@ -44,9 +44,15 @@ async function bootstrap() {
   await seedCatalog((m) => console.log(`[boot] ${m}`));
   // Starter banners for the customer app on a completely fresh install
   // (no-op afterwards; the same idempotent pattern as the catalogue seed).
-  const { seedDefaultBanners } = await import('./modules/mobile/service.js');
+  const { seedDefaultBanners, upgradeStarterBanners } = await import('./modules/mobile/service.js');
   await seedDefaultBanners((m) => console.log(`[boot] ${m}`)).catch((error) => {
     console.error(`[boot] starter banners failed: ${safeErrorText(error)}`);
+  });
+  // An install seeded before the five-slide set keeps its first-generation
+  // cards until this runs once. Idempotent, and it only rewrites cards the
+  // office has never edited.
+  await upgradeStarterBanners((m) => console.log(`[boot] ${m}`)).catch((error) => {
+    console.error(`[boot] starter banner upgrade failed: ${safeErrorText(error)}`);
   });
   setMinimumLevel(await getString('monitoring.log_level').catch(() => 'INFO'));
 

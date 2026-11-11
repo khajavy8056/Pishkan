@@ -116,10 +116,16 @@ export function AdminAndroidApp() {
     setLoading(true);
     setError('');
     Promise.all([
-      api.get<{ data: Banner[] }>('/api/app/admin/banners').catch(() => ({ data: [] as Banner[] })),
-      api.get<{ data: BannerTarget[] }>('/api/app/admin/banner-targets').catch(() => ({ data: [] as BannerTarget[] })),
+      // These two are *not* `catch`-ed away. They used to be, and that turned
+      // the one failure a manager actually hit — a 403 from a missing
+      // `app.manage` grant — into an empty banner list and an empty service
+      // picker. The screen then looked merely unfinished: no error, no banner,
+      // and a Save button that stayed disabled. A failure here has to reach
+      // `setError` so the reason is on screen.
+      api.get<{ data: Banner[] }>('/api/app/admin/banners'),
+      api.get<{ data: BannerTarget[] }>('/api/app/admin/banner-targets'),
       api.get<{ data: any }>('/api/app/admin/stats').catch(() => ({ data: null })),
-      api.get<{ data: any }>('/api/settings/admin'),
+      api.get<{ data: any }>('/api/settings/admin').catch(() => ({ data: null })),
       api.get<{ data: any }>('/api/app/admin/connection').catch(() => ({ data: null })),
     ]).then(async ([bn, tg, stat, settings, conn]) => {
       setBanners(bn.data ?? []);

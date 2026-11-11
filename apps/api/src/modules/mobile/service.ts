@@ -352,81 +352,80 @@ export async function reorderBanners(orderedIds: string[], actor: { id: string; 
  */
 const DEFAULT_BANNERS: Array<Omit<BannerInput, 'status'> & { sortOrder: number }> = [
   /*
-   * Six banners, not one. A single card is a poster; a set is a front page:
-   * the customer sees what the office is best at, then a few specific services
-   * they can start in one tap. Each has its own picture and its own real
-   * destination, and the mix of kinds (general / service / ad / info) is the
-   * point — the rail has to prove it can carry all four.
+   * Five slides, drawn as one set.
    *
-   * The service ones deliberately point at slugs that exist in the seeded
-   * catalogue; `seedDefaultBanners` skips any that do not, so a customised
-   * install never gets a card that throws when tapped.
+   * This is the slider a fresh install opens with, and it is deliberately not
+   * assembled from the catalogue: a banner that reuses a service thumbnail is a
+   * catalogue row with a headline on it. These five illustrations were drawn at
+   * the rail's own 1000x460 aspect ratio — subject on the leading left, clean
+   * field on the trailing right where the Persian copy sits — so the same five
+   * read as one campaign rather than five accidents.
+   *
+   * The artwork lives twice on purpose. `assets/banners/slide-*.webp` is the
+   * copy the app ships with, used as the instant first-paint while the network
+   * catches up (and as the entire rail when offline). The path below is the
+   * copy the web build serves, which is what the admin panel previews and what
+   * the app fetches — so a manager editing a slide sees exactly the picture a
+   * customer sees, and swapping the file updates both sides at once.
+   *
+   * Every slide points at a real service or a real in-app page. `seedDefault
+   * Banners` skips a service that a customised install does not have rather
+   * than shipping a card that throws when it is tapped.
    */
   {
-    kind: 'general',
-    title: 'همهٔ خدمات، بدون مراجعه حضوری',
-    subtitle: 'درخواست ثبت کنید، مدرک بفرستید و نتیجه را همین‌جا تحویل بگیرید.',
-    imageUrl: '/images/services/backdrops/insurance-health.webp',
+    kind: 'service',
+    title: 'تعویض پلاک خودرو',
+    subtitle: 'نوبت و مدارک، بدون صف و مراجعهٔ حضوری؛ پیگیری تا تحویل.',
+    imageUrl: '/images/banners/slide-vehicles.webp',
     accentColor: '#1F6FEE',
-    destinationKind: 'url',
-    destinationUrl: '/app/services',
-    actionLabel: 'دیدن خدمات',
+    destinationKind: 'service',
+    destinationSlug: 'plate-replacement-appointment',
+    actionLabel: 'شروع',
     sortOrder: 1,
   },
   {
     kind: 'service',
-    title: 'تعویض پلاک، بدون صف',
-    subtitle: 'نوبت و مدارک را همین‌جا انجام دهید؛ پیگیری تا تحویل با ما.',
-    imageUrl: '/images/services/individual/plate-replacement-appointment.webp',
-    accentColor: '#0EA5A4',
+    title: 'خدمات ملکی و اسناد',
+    subtitle: 'استعلام سند، ثبت‌نام مسکن و امور زمین، یک‌جا.',
+    imageUrl: '/images/banners/slide-property.webp',
+    accentColor: '#2563EB',
     destinationKind: 'service',
-    destinationSlug: 'plate-replacement-appointment',
-    actionLabel: 'شروع',
+    destinationSlug: 'property-deed-inquiry',
+    actionLabel: 'مشاهده',
     sortOrder: 2,
   },
   {
     kind: 'service',
-    title: 'ثبت شرکت با مسئولیت محدود',
+    title: 'ثبت و مجوز کسب‌وکار',
     subtitle: 'از انتخاب نام تا آگهی رسمی؛ پرونده‌تان را قدم‌به‌قدم ببینید.',
-    imageUrl: '/images/services/backdrops/companies-institutions.webp',
-    accentColor: '#7C3AED',
+    imageUrl: '/images/banners/slide-business.webp',
+    accentColor: '#4338CA',
     destinationKind: 'service',
     destinationSlug: 'register-llc',
-    actionLabel: 'شروع ثبت',
+    actionLabel: 'شروع',
     sortOrder: 3,
   },
   {
     kind: 'service',
-    title: 'وام ازدواج، بی‌دغدغه',
-    subtitle: 'ثبت‌نام وام ازدواج و پیگیری تا واریز، بدون مراجعهٔ حضوری.',
-    imageUrl: '/images/services/backdrops/banking-services.webp',
-    accentColor: '#DB2777',
+    title: 'بیمه و خدمات درمان',
+    subtitle: 'ثبت‌نام و تمدید بیمه، با یادآوری به‌موقع پیش از انقضا.',
+    imageUrl: '/images/banners/slide-health.webp',
+    accentColor: '#0EA5A4',
     destinationKind: 'service',
-    destinationSlug: 'marriage-loan-registration',
-    actionLabel: 'ثبت‌نام وام',
+    destinationSlug: 'health-insurance-renewal',
+    actionLabel: 'مشاهده',
     sortOrder: 4,
   },
   {
     kind: 'service',
-    title: 'کارت ملی هوشمند',
-    subtitle: 'ثبت‌نام و پیگیری صدور کارت ملی، با اعلان در هر مرحله.',
-    imageUrl: '/images/services/individual/smart-national-card-registration.webp',
-    accentColor: '#D97706',
+    title: 'کارت ملی و هویت',
+    subtitle: 'ثبت‌نام صدور و پیگیری وضعیت در هر مرحله، با اعلان.',
+    imageUrl: '/images/banners/slide-identity.webp',
+    accentColor: '#7C3AED',
     destinationKind: 'service',
     destinationSlug: 'smart-national-card-registration',
-    actionLabel: 'ثبت‌نام',
+    actionLabel: 'شروع',
     sortOrder: 5,
-  },
-  {
-    kind: 'info',
-    title: 'پیگیری لحظه‌ای پرونده',
-    subtitle: 'هر تغییر وضعیت را همان لحظه اعلان می‌گیرید و در «درخواست‌های من» می‌بینید.',
-    imageUrl: '/images/services/backdrops/judicial-services.webp',
-    accentColor: '#0F766E',
-    destinationKind: 'url',
-    destinationUrl: '/app/requests',
-    actionLabel: 'پیگیری',
-    sortOrder: 6,
   },
 ];
 
@@ -476,6 +475,120 @@ export async function seedDefaultBanners(log?: (message: string) => void) {
   });
   if (seeded) log?.(`seeded ${seeded} starter app banners`);
   return seeded;
+}
+
+/**
+ * Move an installation that was seeded with the first-generation starter
+ * banners onto the five-slide set.
+ *
+ * The first generation reused catalogue thumbnails and pointed at five
+ * unrelated services; the rail looked like a catalogue row with headlines on
+ * it, and only one of its pictures was ever drawn for this screen. The new set
+ * is five illustrations in one style at the rail's own aspect ratio.
+ *
+ * The hard part is doing this *once* and never after. An office that has since
+ * deleted, reordered, retitled or replaced these cards owns them now; re-running
+ * this every boot would resurrect deleted slides and overwrite real edits. So it
+ * is gated on the same kind of one-shot marker as the seed itself, and it only
+ * touches cards that are still byte-for-byte the ones this function installed:
+ * a row whose title still matches a first-generation title and whose image still
+ * matches the first-generation image is one nobody has edited.
+ *
+ * A card the office already edited is left exactly as it is, and a card whose
+ * service this installation does not have is skipped rather than inserted as a
+ * dead tap target.
+ */
+const LEGACY_STARTER_TITLES = new Set<string>([
+  'همهٔ خدمات، بدون مراجعه حضوری',
+  'تعویض پلاک، بدون صف',
+  'ثبت شرکت با مسئولیت محدود',
+  'وام ازدواج، بی‌دغدغه',
+  'کارت ملی هوشمند',
+  'پیگیری لحظه‌ای پرونده',
+]);
+
+export async function upgradeStarterBanners(log?: (message: string) => void) {
+  const marker = await one<{ value: string }>(
+    "SELECT value FROM settings WHERE key = 'internal.starter_banners_v2'",
+  );
+  if (marker) return 0;
+
+  const updated = await tx(async () => {
+    const rows = await q<any>('SELECT * FROM app_banners ORDER BY sort_order ASC');
+    const legacy = rows.filter(
+      (row) => LEGACY_STARTER_TITLES.has(String(row.title ?? '')) && !row.notified_at,
+    );
+    // No first-generation cards left: the office cleared or rewrote them all.
+    // Stamp the marker anyway so this check never runs again.
+    if (legacy.length === 0) {
+      await stampBannerUpgrade();
+      return 0;
+    }
+
+    let changed = 0;
+    for (const [index, banner] of DEFAULT_BANNERS.entries()) {
+      // Reuse a legacy row in place when there is one, so a card keeps its id,
+      // its sort position and any statistics attached to it.
+      const target = legacy[index];
+      if (target) {
+        await run(
+          `UPDATE app_banners
+              SET kind = ?, title = ?, subtitle = ?, image_file_id = NULL,
+                  image_url = ?, accent_color = ?, destination_kind = ?,
+                  destination_slug = ?, destination_url = NULL, action_label = ?,
+                  sort_order = ?, updated_at = ?
+            WHERE id = ?`,
+          [
+            banner.kind ?? 'general', banner.title, banner.subtitle ?? null,
+            banner.imageUrl ?? null, banner.accentColor ?? null,
+            banner.destinationKind ?? 'none', banner.destinationSlug ?? null,
+            banner.actionLabel ?? null, banner.sortOrder, nowIso(), target.id,
+          ],
+        );
+        changed += 1;
+        continue;
+      }
+      if (banner.destinationKind === 'service' && banner.destinationSlug) {
+        const exists = await one<{ id: string }>(
+          'SELECT id FROM services WHERE slug = ? AND archived_at IS NULL',
+          [banner.destinationSlug],
+        );
+        if (!exists) continue;
+      }
+      await run(
+        `INSERT INTO app_banners
+          (id, kind, title, subtitle, image_file_id, image_url, accent_color,
+           destination_kind, destination_slug, destination_url, action_label,
+           sort_order, starts_at, expires_at, status, notify_customers, created_by, created_at, updated_at)
+         VALUES (?, ?, ?, ?, NULL, ?, ?, ?, ?, NULL, ?, ?, NULL, NULL, 'published', 0, 'system', ?, ?)`,
+        [
+          id('banner'), banner.kind ?? 'general', banner.title, banner.subtitle ?? null,
+          banner.imageUrl ?? null, banner.accentColor ?? null,
+          banner.destinationKind ?? 'none', banner.destinationSlug ?? null,
+          banner.actionLabel ?? null, banner.sortOrder, nowIso(), nowIso(),
+        ],
+      );
+      changed += 1;
+    }
+    // A legacy card left over from a longer first-generation set would sit at
+    // the end of the rail forever. They are only removed when they are still
+    // unedited, which is exactly the set collected above beyond the new count.
+    for (const stale of legacy.slice(DEFAULT_BANNERS.length)) {
+      await run('DELETE FROM app_banners WHERE id = ?', [stale.id]);
+    }
+    await stampBannerUpgrade();
+    return changed;
+  });
+  if (updated) log?.(`upgraded ${updated} starter app banners to the five-slide set`);
+  return updated;
+}
+
+async function stampBannerUpgrade() {
+  await run(
+    `INSERT INTO settings (key, value, group_name, is_secret, updated_at)
+     VALUES ('internal.starter_banners_v2', 'true', 'internal', 0, ?)`,
+    [nowIso()],
+  );
 }
 
 /* --------------------------------- devices -------------------------------- */
