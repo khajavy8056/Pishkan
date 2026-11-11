@@ -45,9 +45,9 @@ class CategoryArtImage extends StatelessWidget {
     final asset = categoryArtAssets[category.slug];
     Widget fallback() {
       if (asset != null) {
-        return Image.asset(asset, fit: BoxFit.cover, errorBuilder: (_, _, _) => _icon(art));
+        return Image.asset(asset, fit: BoxFit.cover, errorBuilder: (context, _, _) => _icon(context, art));
       }
-      return _icon(art);
+      return _icon(context, art);
     }
     final url = categoryRemoteImage(category);
     if (url.isEmpty) return fallback();
@@ -57,7 +57,7 @@ class CategoryArtImage extends StatelessWidget {
     );
   }
 
-  Widget _icon(ServiceArtwork art) {
+  Widget _icon(BuildContext context, ServiceArtwork art) {
     // New or unavailable categories receive a relevant vector, never a random
     // photo from an unrelated category.
     final icon = switch (category.slug) {
@@ -68,14 +68,38 @@ class CategoryArtImage extends StatelessWidget {
       'other-services' => Icons.folder_special_rounded,
       _ => art.icon,
     };
+    final dark = context.isDark;
+    // This is the tile's *whole* picture area, so it has to fill that area.
+    //
+    // It used to be `Container(color: art.color.withOpacity(.08), child: circle
+    // with 12 px padding)`. Two things were wrong with that, and together they
+    // produced a blank band on the home page:
+    //
+    //  * 8% of an accent on a navy page is not a colour, it is a rounding
+    //    error — (26,43,71) against a page of (18,33,58);
+    //  * with no explicit size, the child box took its size from the icon (28 px
+    //    + 24 px padding = 52 dp) rather than from the tile, so most of the
+    //    picture area stayed page-coloured.
+    //
+    // When several categories' artwork fails to decode at once, that is a rail
+    // of near-invisible rectangles. The well is now a real tinted panel that
+    // fills the area it is given, with the glyph on a solid disc so the tile
+    // reads as a tile even with no image at all.
     return Container(
-      color: art.color.withOpacity(.08),
+      color: dark
+          ? Color.alphaBlend(art.color.withOpacity(.18), const Color(0xFF1E3358))
+          : Color.alphaBlend(art.color.withOpacity(.14), const Color(0xFFF3F8FF)),
       alignment: Alignment.center,
       child: Container(
         padding: const EdgeInsets.all(12),
-        decoration: BoxDecoration(shape: BoxShape.circle, color: Colors.white.withOpacity(.8),
-          boxShadow: [BoxShadow(color: art.color.withOpacity(.14), blurRadius: 14, offset: const Offset(0, 5))]),
-        child: Icon(icon, color: art.color, size: 28),
+        decoration: BoxDecoration(
+          shape: BoxShape.circle,
+          color: dark ? const Color(0xFF2A4270) : Colors.white.withOpacity(.92),
+          boxShadow: [
+            BoxShadow(color: art.color.withOpacity(dark ? .28 : .18), blurRadius: 14, offset: const Offset(0, 5)),
+          ],
+        ),
+        child: Icon(icon, color: dark ? art.color.withOpacity(.95) : art.color, size: 28),
       ),
     );
   }
