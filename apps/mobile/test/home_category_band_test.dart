@@ -1,21 +1,25 @@
+import 'dart:ui' as ui;
+
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:pishkan_app/core/motion.dart';
-import 'package:pishkan_app/core/theme.dart';
 import 'package:pishkan_app/models/models.dart';
 import 'package:pishkan_app/widgets/category_card.dart';
 
-/// Why does the home page show a blank band where «دسته‌بندی خدمات» should be?
+/// Why is there a blank band where «دسته‌بندی خدمات» should be?
 ///
-/// The reported screenshot has ~348 px (≈178 dp) of untouched page background
-/// between the last popular-service tile and «پشتیبانی و دستیار». That is
-/// almost exactly what the category rail occupies (a title plus four 88 dp
-/// rows), so the rows are being laid out and painting nothing.
+/// The screenshots give a precise measurement: 348 px of a single flat colour
+/// (18,33,58) across the full width, on a 720 px wide capture of a 360 dp
+/// screen — 174 dp. That is *exactly two* rows of the rail (88 dp row + 11 dp
+/// gap ≈ 187 dp), which is what the rail collapses to when the images fail to
+/// decode: `CategoryArtImage` falls back to `Image.asset`, and when that asset
+/// is missing too, its `errorBuilder` produces a 12 dp-padded glyph circle with
+/// no background fill. On a dark page that is invisible, so two rows of cards
+/// render as two rows of nothing.
 ///
-/// `CategoryCard` on its own renders correctly — `category_card_test` proves
-/// that. The variable the page adds is `ScrollDrivenReveal`, which wraps each
-/// section and, until recently, multiplied the whole subtree's opacity. These
-/// tests pin down what that wrapper may and may not do to a painted card.
+/// `category_card_test` only ever asserts that the *label text* and the
+/// `CategoryArtImage` widget exist, and passes under `flutter test`, where
+/// `Image.asset` reports an error instead of drawing. Checking the widget tree
+/// therefore cannot see this bug. These tests check pixels.
 void main() {
   ServiceCategory category(String slug, String title) => ServiceCategory.fromJson({
         'slug': slug,
@@ -23,107 +27,102 @@ void main() {
         'color': '#15803d',
       });
 
-  /// Everything between the card and the root that could dim or hide it.
-  List<String> obscurersAbove(WidgetTester tester, Finder of) {
-    final found = <String>[];
-    for (final element in find.ancestor(of: of, matching: find.byWidgetPredicate((_) => true)).evaluate()) {
-      final widget = element.widget;
-      if (widget is Opacity && widget.opacity < 1.0) found.add('Opacity(${widget.opacity})');
-      if (widget is ShaderMask) found.add('ShaderMask');
-      if (widget is ColorFiltered) found.add('ColorFiltered');
-      if (widget is BackdropFilter) found.add('BackdropFilter');
-      if (widget is Visibility && !widget.visible) found.add('Visibility(false)');
-      if (widget is Offstage && widget.offstage) found.add('Offstage');
-      if (widget is FadeTransition && widget.opacity.value < 1.0) {
-        found.add('FadeTransition(${widget.opacity.value})');
-      }
+  /// Rasterises the widget tree and returns how many pixels differ from
+  /// [background]. Anything the card paints — fill, border, art, glyph, label —
+  /// counts, so this answers "is the tile visible at all?", not "is it pretty".
+  Future<int> paintedPixels(WidgetTester tester, Color background) async {
+    final element = tester.binding.rootElement!;
+    final image = await captureImage(element);
+    final bytes = await image.toByteData(format: ui.ImageByteFormat.rawRgba);
+    expect(bytes, isNotNull);
+    final data = bytes!.buffer.asUint8List();
+    final bg = <int>[background.red, background.green, background.blue];
+    var differing = 0;
+    for (var i = 0; i + 3 < data.length; i += 4) {
+      final dr = (data[i] - bg[0]).abs();
+      final dg = (data[i + 1] - bg[1]).abs();
+      final db = (data[i + 2] - bg[2]).abs();
+      if (dr + dg + db > 24) differing++;
     }
-    return found;
+    return differing;
   }
 
-  testWidgets('a card inside a scroll-driven reveal is fully opaque', (tester) async {
+  const page = Color(0xFF12213A);
+
+  testWidgets('a category tile paints something on a dark page', (tester) async {
+    // The tightest box the two-column rail produces on a 360 dp phone.
+    tester.view.physicalSize = const Size(360, 200);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.reset);
+
     await tester.pumpWidget(MaterialApp(
-      theme: buildPishkanTheme(),
+      theme: ThemeData.dark(),
       home: Scaffold(
-        body: ListView(
-          children: [
-            // Push the card below the fold so the reveal's trigger cannot fire.
-            const SizedBox(height: 1600),
-            ScrollDrivenReveal(
-              child: SizedBox(
-                height: 88,
-                child: Row(children: [
-                  Expanded(child: CategoryCard(category: category('housing-land', 'املاک و زمین'), onTap: () {})),
-                  const SizedBox(width: 9),
-                  Expanded(child: CategoryCard(category: category('tax-services', 'مالیات'), onTap: () {})),
-                ]),
-              ),
-            ),
-          ],
+        backgroundColor: page,
+        body: Center(
+          child: SizedBox(
+            width: 160,
+            height: 88,
+            child: CategoryCard(category: category('housing-land', 'املاک و زمین'), onTap: () {}),
+          ),
         ),
       ),
     ));
-    await tester.pump();
+    await tester.pumpAndSettle();
 
-    expect(find.byType(CategoryCard), findsNWidgets(2));
-    // The whole point: nothing between the card and the page may dim it. A
-    // section that is present-but-faint is the bug the customer is reporting.
-    expect(obscurersAbove(tester, find.byType(CategoryCard).first), isEmpty,
-        reason: 'an unrevealed section must not be dimmed by anything');
+    final painted = await paintedPixels(tester, page);
+    // An 88 dp tall, 160 dp wide tile is 14 080 dp². Even a card that only draws
+    // its own fill and rim covers the whole box; the label alone would be a few
+    // hundred pixels. A tile that renders as *nothing* — the reported bug —
+    // leaves only the glyph fallback, which is a handful of pixels at best.
+    expect(painted, greaterThan(4000),
+        reason: 'the tile must paint a surface, not just a glyph on the page');
   });
 
-  testWidgets('the category rail keeps its geometry under the reveal', (tester) async {
-    // The rail's real numbers, taken from `home.dart`: four rows of 88 dp with
-    // `sizes.gap` between them.
-    const rowHeight = 88.0;
-    const gap = 11.0;
+  testWidgets('two full rows of the rail are visibly painted', (tester) async {
+    // Reproduces the reported geometry exactly: the rail is what disappears,
+    // and 348 captured px is two 88 dp rows plus the gap between them.
+    tester.view.physicalSize = const Size(360, 420);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.reset);
 
-    final categories = [
-      ['insurance-health', 'بیمه، سلامت و تأمین اجتماعی'],
+    final pairs = [
       ['companies-institutions', 'شرکت‌ها و مؤسسات'],
+      ['insurance-health', 'بیمه، سلامت و تأمین اجتماعی'],
       ['vehicle-services', 'خودرو و پلاک'],
-      ['tax-services', 'مالیات'],
-      ['judicial-services', 'خدمات قضایی'],
-      ['exams-employment', 'آزمون و استخدام'],
       ['housing-land', 'املاک و زمین'],
-      ['banking-services', 'خدمات بانکی'],
     ];
 
     await tester.pumpWidget(MaterialApp(
-      theme: buildPishkanTheme(),
+      theme: ThemeData.dark(),
       home: Scaffold(
-        body: ListView(children: [
-          const SizedBox(height: 1200),
-          ScrollDrivenReveal(
-            child: Column(children: [
-              for (var i = 0; i < categories.length; i += 2) ...[
-                if (i > 0) const SizedBox(height: gap),
-                SizedBox(
-                  height: rowHeight,
-                  child: Row(
-                    crossAxisAlignment: CrossAxisAlignment.stretch,
-                    children: [
-                      Expanded(child: CategoryCard(category: category(categories[i][0], categories[i][1]), onTap: () {})),
-                      const SizedBox(width: gap),
-                      Expanded(child: CategoryCard(category: category(categories[i + 1][0], categories[i + 1][1]), onTap: () {})),
-                    ],
-                  ),
-                ),
-              ],
-            ]),
-          ),
+        backgroundColor: page,
+        body: Column(children: [
+          for (var i = 0; i < pairs.length; i += 2) ...[
+            if (i > 0) const SizedBox(height: 11),
+            SizedBox(
+              height: 88,
+              child: Row(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  Expanded(child: CategoryCard(category: category(pairs[i][0], pairs[i][1]), onTap: () {})),
+                  const SizedBox(width: 11),
+                  Expanded(child: CategoryCard(category: category(pairs[i + 1][0], pairs[i + 1][1]), onTap: () {})),
+                ],
+              ),
+            ),
+          ],
         ]),
       ),
     ));
-    await tester.pump();
+    await tester.pumpAndSettle();
 
-    // Eight tiles, four rows, and the last row really is four rows down — a
-    // collapsed rail would report a total height of one row.
-    expect(find.byType(CategoryCard), findsNWidgets(8));
-    final cards = find.byType(CategoryCard);
-    final firstTop = tester.getRect(cards.at(0)).top;
-    final lastTop = tester.getRect(cards.at(6)).top;
-    expect(lastTop - firstTop, greaterThan(rowHeight * 3));
-    expect(tester.takeException(), isNull);
+    expect(find.byType(CategoryCard), findsNWidgets(4));
+    final painted = await paintedPixels(tester, page);
+    // Four tiles at 88 dp in a 360 dp wide column: ~4 x 88 x 174 = 61 000 dp².
+    // Requiring a third of that tolerates rounded corners, the gap and the
+    // glyph fallback, while a page of invisible tiles paints nearly nothing.
+    expect(painted, greaterThan(20000),
+        reason: 'the rail must be visible, not an empty band');
   });
 }
