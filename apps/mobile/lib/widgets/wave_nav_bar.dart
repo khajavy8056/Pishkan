@@ -141,7 +141,6 @@ class _WaveNavBarState extends State<WaveNavBar> with SingleTickerProviderStateM
                         count: widget.items.length,
                         bodyHeight: body,
                         dark: dark,
-                        brand: context.brand,
                       ),
                     ),
                   ),
@@ -168,8 +167,14 @@ class _WaveNavBarState extends State<WaveNavBar> with SingleTickerProviderStateM
                         return Stack(
                           children: [
                             for (var i = 0; i < widget.items.length; i++)
+                              // `left` here is a literal pixel offset: a plain
+                              // `Positioned` inside a `Stack` takes its geometry
+                              // from the numbers given to it and not from the
+                              // ambient `Directionality` (only
+                              // `Positioned.directional` mirrors). So the cells
+                              // follow `navCellLeft` exactly, which is the whole
+                              // point of that function.
                               Positioned(
-                                direction: TextDirection.ltr,
                                 left: navCellLeft(i, widget.items.length, constraints.maxWidth),
                                 width: cellWidth,
                                 top: 0,
@@ -308,7 +313,6 @@ class _WavePainter extends CustomPainter {
     required this.count,
     required this.bodyHeight,
     required this.dark,
-    required this.brand,
   });
 
   /// Where the dome is, in destination units. Animated, so it can be 2.37.
@@ -319,7 +323,6 @@ class _WavePainter extends CustomPainter {
   final double bodyHeight;
 
   final bool dark;
-  final Color brand;
 
   /// How far the dome rises above the flat run, as a fraction of the body
   /// height.
@@ -462,7 +465,7 @@ class _WavePainter extends CustomPainter {
     canvas.save();
     canvas.clipPath(surface);
 
-    final crest = _crestPath(w, domeX, rise, domeHalf);
+    final crest = _crestPath(domeX, rise, domeHalf);
     final foot = domeHalf * _flare;
 
     // The sides fall from the shoulders to a foot that is only modestly wider
@@ -575,7 +578,7 @@ class _WavePainter extends CustomPainter {
     canvas.clipPath(surface);
 
     canvas.drawPath(
-      _crestPath(w, domeX, rise, domeHalf),
+      _crestPath(domeX, rise, domeHalf),
       Paint()
         ..style = PaintingStyle.stroke
         ..strokeWidth = 1.6
@@ -583,7 +586,7 @@ class _WavePainter extends CustomPainter {
     );
 
     canvas.drawPath(
-      _crestPath(w, domeX, rise - 2.2, domeHalf * 0.94),
+      _crestPath(domeX, rise - 2.2, domeHalf * 0.94),
       Paint()
         ..style = PaintingStyle.stroke
         ..strokeWidth = 3.0
@@ -632,18 +635,15 @@ class _WavePainter extends CustomPainter {
   /// fill, so the two can never disagree and leave a hairline of the wrong
   /// colour along the crest.
   ///
-  /// The outward shoulder stretches to the bar's end for the first and last
-  /// destinations. Sliding the apex inward instead — the obvious clamp — moves
-  /// the crest off the icon it belongs to, so the dome ends up under the
-  /// neighbouring tab. Stretching keeps the apex over its own icon and lets the
-  /// outer shoulder reach the rounded end, which is what the reference does.
-  double _edge(double x, double w, double domeX, double rise, double domeHalf) {
-    // Symmetric, always. The first and last destinations overhang the bar and
-    // are trimmed by the clip; stretching the outer shoulder to the edge
-    // instead turned them into half-domes that did not match the other two.
-    const half = domeHalf;
+  /// The profile is symmetric and does not depend on the bar's width: at the
+  /// first and last destinations the dome simply overhangs and the surface clip
+  /// trims it. Two earlier versions tried to keep the whole crest inside the
+  /// bar — one by clamping the apex inward, one by stretching the outward
+  /// shoulder — and both produced an end tab whose dome did not match the
+  /// middle two.
+  double _edge(double x, double domeX, double rise, double domeHalf) {
     final d = (x - domeX).abs();
-    if (d < half) {
+    if (d < domeHalf) {
       // A Hann window raised to a power.
       //
       // The profile here was *measured* off the reference sheet and fitted,
@@ -658,14 +658,14 @@ class _WavePainter extends CustomPainter {
       // ends, which is what keeps the top round and the join with the bar
       // seamless; the exponent sharpens the descent without breaking either.
       const k = 1.6;
-      final t = (d / half).clamp(0.0, 1.0);
+      final t = (d / domeHalf).clamp(0.0, 1.0);
       final hann = 0.5 * (1 + math.cos(math.pi * t));
       return rise * math.pow(hann, k).toDouble();
     }
     // The trough either side: the surface dips below the flat line, then comes
     // back. This is what makes the silhouette read as a wave passing through
     // the bar rather than a bump pasted onto it.
-    final t = (d - half) / (half * 0.62);
+    final t = (d - domeHalf) / (domeHalf * 0.62);
     if (t >= 1) return 0;
     return -rise * _trough * math.sin(math.pi * t);
   }
@@ -675,7 +675,7 @@ class _WavePainter extends CustomPainter {
     final path = Path();
     for (var i = 0; i <= steps; i++) {
       final x = w * i / steps;
-      final y = rise - _edge(x, w, domeX, rise, domeHalf);
+      final y = rise - _edge(x, domeX, rise, domeHalf);
       if (i == 0) {
         path.moveTo(x, y);
       } else {
@@ -691,12 +691,12 @@ class _WavePainter extends CustomPainter {
   /// still have their full curve drawn after the bar's silhouette trims the
   /// overhang — the stroke follows the shape that is above the flat run, not
   /// the part of it that happens to be inside the bar.
-  Path _crestPath(double w, double domeX, double rise, double domeHalf) {
+  Path _crestPath(double domeX, double rise, double domeHalf) {
     final path = Path();
     const steps = 90;
     for (var i = 0; i <= steps; i++) {
       final x = domeX - domeHalf + (domeHalf * 2) * i / steps;
-      final y = rise - _edge(x, w, domeX, rise, domeHalf);
+      final y = rise - _edge(x, domeX, rise, domeHalf);
       if (i == 0) {
         path.moveTo(x, y);
       } else {
@@ -723,6 +723,5 @@ class _WavePainter extends CustomPainter {
       old.position != position ||
       old.count != count ||
       old.bodyHeight != bodyHeight ||
-      old.dark != dark ||
-      old.brand != brand;
+      old.dark != dark;
 }
