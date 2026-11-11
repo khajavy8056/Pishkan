@@ -12,6 +12,7 @@ import '../widgets/avatar.dart';
 import '../widgets/banner_carousel.dart';
 import '../widgets/banner_route.dart';
 import '../widgets/category_card.dart';
+import '../widgets/popular_services.dart';
 import '../widgets/screen_header.dart';
 import '../widgets/widgets.dart';
 import 'assistant.dart';
@@ -232,7 +233,13 @@ class _HomeTabState extends State<HomeTab> {
                 SizedBox(height: sizes.s(16)),
                 _sectionTitle('خدمات محبوب', action: 'مشاهده همه', onAction: () => widget.onOpenTab(1)),
                 SizedBox(height: sizes.s(10)),
-                _popularServices(),
+                PopularServicesSection(
+                  services: _popular,
+                  loading: _loadingServices,
+                  onOpenService: (service) async {
+                    await Navigator.push(context, fadeThroughRoute(ServiceDetailScreen(service: service)));
+                  },
+                ),
                 if (_achievements.isNotEmpty && _achievements['show'] != false && '${_achievements['show']}' != 'false' && asMap(_achievements['stats']).isNotEmpty) ...[
                   SizedBox(height: sizes.s(16)),
                   _sectionTitle('پشتیبانی و دستیار'),
@@ -510,36 +517,6 @@ class _HomeTabState extends State<HomeTab> {
       hours: hours,
       onChat: () => Navigator.push(context, fadeThroughRoute(const SupportTab())),
       onAssistant: () => Navigator.push(context, fadeThroughRoute(const AssistantScreen())),
-    );
-  }
-
-  Widget _popularServices() {
-    if (_services.isEmpty) {
-      // A skeleton shaped like the real grid: the page keeps its layout while
-      // the network catches up, so nothing jumps when the tiles arrive.
-      return _loadingServices
-          ? GridView.count(
-              crossAxisCount: 4,
-              shrinkWrap: true,
-              physics: const NeverScrollableScrollPhysics(),
-              mainAxisSpacing: 14,
-              crossAxisSpacing: 10,
-              childAspectRatio: 0.8,
-              children: [for (var i = 0; i < 8; i++) const _ServiceTileSkeleton()],
-            )
-          :  SoftCard(child: Text('اتصال به سامانه برقرار نیست؛ برای مشاهدهٔ خدمات اتصال شبکه را بررسی کنید.', style: TextStyle(color: context.inkMuted, fontSize: 13, height: 1.8)));
-    }
-    final items = _popular;
-    return GridView.count(
-      crossAxisCount: 4,
-      shrinkWrap: true,
-      physics: const NeverScrollableScrollPhysics(),
-      mainAxisSpacing: 14,
-      crossAxisSpacing: 10,
-      childAspectRatio: 0.8,
-      children: [
-        for (final service in items) _ServicePill(service: service),
-      ],
     );
   }
 
@@ -892,109 +869,6 @@ class _SupportAction extends StatelessWidget {
         ),
       ),
     );
-  }
-}
-
-/// One service in the popular grid.
-///
-/// This used to be a bare `GestureDetector` around a circle and a label: it
-/// worked, and it had nothing to say. No pressed state, so a tap gave no
-/// feedback until the next screen arrived; no card, so the tiles floated on the
-/// page wash with a single 4% shadow that disappeared entirely in dark mode.
-///
-/// The plate is what makes the grid read as objects you can pick up: a soft
-/// surface, a tinted drop shadow in the artwork's own colour, a hairline rim,
-/// and a press that scales the whole tile. The tint is what stops four white
-/// squares from looking like a spreadsheet — each tile is lit by the colour of
-/// the service it opens.
-class _ServicePill extends StatelessWidget {
-  const _ServicePill({required this.service});
-
-  final CatalogService service;
-
-  @override
-  Widget build(BuildContext context) {
-    final dark = context.isDark;
-    final art = artworkForService(service);
-    final tint = art.color;
-    return TactileTap(
-      scale: 0.93,
-      hold: const Duration(milliseconds: 110),
-      // The tile is a circle of artwork, not a rounded card.
-      // A block body, not `=> Navigator.push(...)`: that returns `Future<T?>`,
-      // which is not assignable to this widget's `Future<void> Function()`.
-      onTap: () async {
-        await Navigator.push(context, fadeThroughRoute(ServiceDetailScreen(service: service)));
-      },
-      child: Column(children: [
-        // A circle, not a rounded square: the medallion inside is round, and a
-        // square plate behind a round picture reads as a mistake.
-        //
-        // The shadow is tinted rather than black — at this size a black shadow
-        // is a grey smudge, while the service's own hue reads as light falling
-        // off the object.
-        Container(
-          padding: const EdgeInsets.all(7),
-          decoration: BoxDecoration(
-            color: dark ? PishkanColors.darkSurfaceHigh : Colors.white,
-            shape: BoxShape.circle,
-            border: Border.all(
-              color: dark ? PishkanColors.darkBorder : Colors.white,
-              width: 1.5,
-            ),
-            boxShadow: [
-              BoxShadow(
-                color: tint.withOpacity(dark ? 0.26 : 0.20),
-                blurRadius: 14,
-                offset: const Offset(0, 7),
-              ),
-              // A hairline highlight on the top edge: the same trick the
-              // glass cards use, one level down.
-              BoxShadow(
-                color: Colors.white.withOpacity(dark ? 0.06 : 0.55),
-                blurRadius: 3,
-                offset: const Offset(0, -1),
-              ),
-            ],
-          ),
-          child: Hero(
-            tag: 'service-art-${service.slug}',
-            child: IconMedallion(artwork: art, size: 40, glyphBadge: true),
-          ),
-        ),
-        const SizedBox(height: 7),
-        Flexible(
-          child: Text(
-            service.title,
-            maxLines: 2,
-            overflow: TextOverflow.ellipsis,
-            textAlign: TextAlign.center,
-            style: TextStyle(
-              fontSize: 10.5,
-              fontWeight: FontWeight.w700,
-              color: context.ink,
-              height: 1.4,
-            ),
-          ),
-        ),
-      ]),
-    );
-  }
-}
-
-/// One cell of the popular-services grid while it loads.
-class _ServiceTileSkeleton extends StatelessWidget {
-  const _ServiceTileSkeleton();
-
-  @override
-  Widget build(BuildContext context) {
-    return Column(children: [
-      const ShimmerBox(width: 54, height: 54, radius: 27),
-      const SizedBox(height: 8),
-      const ShimmerBox(width: 44, height: 9, radius: 5),
-      const SizedBox(height: 4),
-      const ShimmerBox(width: 28, height: 9, radius: 5),
-    ]);
   }
 }
 
