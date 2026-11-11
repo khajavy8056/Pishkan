@@ -54,6 +54,15 @@ async function bootstrap() {
   await upgradeStarterBanners((m) => console.log(`[boot] ${m}`)).catch((error) => {
     console.error(`[boot] starter banner upgrade failed: ${safeErrorText(error)}`);
   });
+  // Requirements seeded before they carried a `documentType` cannot be matched
+  // to anything in the customer's archive, so «ذخیره مدارک» looks like it did
+  // nothing and every new request asks for the same national card again. This
+  // files the types the titles already imply. Idempotent; it never overwrites a
+  // type the office set by hand.
+  const { backfillServiceDocumentTypes } = await import('./modules/catalog/service.js');
+  await backfillServiceDocumentTypes((m) => console.log(`[boot] ${m}`)).catch((error) => {
+    console.error(`[boot] document type backfill failed: ${safeErrorText(error)}`);
+  });
   setMinimumLevel(await getString('monitoring.log_level').catch(() => 'INFO'));
 
   if (env.bootstrapAdmin.username && env.bootstrapAdmin.password) {

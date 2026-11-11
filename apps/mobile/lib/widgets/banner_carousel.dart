@@ -423,47 +423,50 @@ class BannerCard extends StatelessWidget {
                 ],
               ),
             ),
-            // The scrim. It reaches full strength only under the text block;
-            // the artwork keeps its own colour.
+            // The scrim under the copy.
+            //
+            // This was `Color.alphaBlend(black.withOpacity(0.50), accent)`.
+            // `alphaBlend` returns the *premultiplied result*, and compositing
+            // a half-transparent black onto a fully opaque accent yields an
+            // **opaque** colour (alpha 255). So the "scrim" was three solid
+            // paints, not a wash: a flat coloured panel over the whole banner,
+            // and moving the stops or lowering the alpha of the black did
+            // nothing visible, because every stop stayed 100% opaque. That is
+            // why the banner looked designed-over rather than seen through.
+            //
+            // It is now a genuinely translucent tint with an explicit opacity
+            // ramp, so the artwork keeps its own colour everywhere and the copy
+            // still has something to sit on:
+            //
+            //  * it is *weak from the first pixel* — 34% effective darkness at
+            //    the copy edge (a 0.38 tint under a 0.90 mask), not a heavy slab
+            //    that only softens later;
+            //  * it starts fading immediately (stop 0.06) instead of holding at
+            //    full strength across the first third;
+            //  * it is gone by 0.62, so the right of the card — the half the
+            //    artwork owns — is untouched.
             //
             // `begin: centerStart` matters and is easy to get backwards: the
             // copy is laid out at `CrossAxisAlignment.start`, which in Persian
-            // is the **right** edge, and `AlignmentDirectional.centerStart` is
-            // the right edge in RTL. This gradient used to begin at
-            // `centerEnd` — the left — so the rail spent its darkness on the
-            // empty half of the picture and left white 19 px text sitting on
-            // the bright subject. It looked like a styling mistake because it
-            // was one.
-            DecoratedBox(
-              decoration: BoxDecoration(
-                gradient: LinearGradient(
+            // is the **right** edge.
+            // `textDirection` is required on a *directional* gradient used as a
+            // shader: unlike the widget path, `createShader` has no ambient
+            // direction and throws on every paint without it.
+            Builder(builder: (context) {
+              final textDirection = Directionality.of(context);
+              return ShaderMask(
+                blendMode: BlendMode.dstIn,
+                shaderCallback: (rect) => const LinearGradient(
                   begin: AlignmentDirectional.centerStart,
                   end: AlignmentDirectional.centerEnd,
-                  colors: [
-                    Color.alphaBlend(Colors.black.withOpacity(0.50), accent),
-                    Color.alphaBlend(Colors.black.withOpacity(0.34), accent),
-                    Color.alphaBlend(Colors.black.withOpacity(0.10), accent),
-                    Colors.transparent,
-                  ],
-                  // Fade out *early*.
-                  //
-                  // The copy only occupies the right ~58% of the card, but the
-                  // previous stops ([0, .42, .74, 1]) kept a tinted wash across
-                  // the illustration's side too — the health slide's cross came
-                  // out ghosted behind a teal film, and the plate slide lost
-                  // most of its colour. A banner whose picture is covered is a
-                  // coloured rectangle.
-                  //
-                  // These stops are measured off the copy instead: held to 0.44
-                  // (fully under the text), then dropped quickly through 0.70 so
-                  // that by three quarters of the way across the gradient is
-                  // gone and the artwork is exactly its own colours. The last
-                  // quarter is completely clear, which is the part the eye
-                  // reads as "the picture".
-                  stops: const [0, 0.44, 0.70, 0.84],
+                  colors: [Color(0xE6FFFFFF), Color(0xD9FFFFFF), Color(0x99FFFFFF), Color(0x3DFFFFFF), Color(0x00FFFFFF)],
+                  stops: [0, 0.16, 0.38, 0.54, 0.66],
+                ).createShader(rect, textDirection: textDirection),
+                child: ColoredBox(
+                  color: Color.alphaBlend(Colors.black.withOpacity(0.38), accent),
                 ),
-              ),
-            ),
+              );
+            }),
             Padding(
               padding: const EdgeInsets.fromLTRB(20, 16, 20, 16),
               child: Column(

@@ -5,7 +5,7 @@ import { badRequest, conflict, notFound } from '../../http/errors.js';
 import { getBool, getString } from '../settings/service.js';
 import { writeAudit } from '../audit/service.js';
 import { resolveServiceArtwork } from './default-artwork.js';
-import { DOCUMENT_TYPES } from '../documents/service.js';
+import { DOCUMENT_TYPES, inferDocumentType } from '../documents/service.js';
 import type { FormField, WorkflowStep } from './seed-data.js';
 
 export interface ServiceRow {
@@ -444,6 +444,55 @@ function validateDocuments(docs: unknown): ServiceDocumentRequirement[] {
     if (documentType && (documentType === 'other' || !DOCUMENT_TYPES.some(type => type.code === documentType))) throw badRequest(`نوع مدرک پروفایل شماره ${i + 1} نامعتبر است.`);
     return { key, title: String(doc.title).trim(), required: Boolean(doc.required), note: doc.note ? String(doc.note).trim().slice(0, 300) : undefined, ...(documentType ? { documentType } : {}) };
   });
+}
+
+/**
+ * Give already-seeded services the `documentType` their titles imply.
+ *
+ * The catalogue seed only creates a service the first time it sees the slug
+ * (`seed.ts` then refreshes search text and nothing else), so adding
+ * `documentType` to `docs` fixes new installs and no existing one. On an
+ * existing install every requirement stayed title-only, which is precisely why
+ * «ذخیره مدارک» produced an archive that could never be matched back to a
+ * requirement — the reuse feature had nothing to compare.
+ *
+ * Idempotent and non-destructive: a requirement that already has a type keeps
+ * it (the office may have corrected it by hand), and a title the inferrer does
+ * not recognise is left alone rather than mis-filed.
+ */
+export async function backfillServiceDocumentTypes(log?: (message: string) => void): Promise<number> {
+  const marker = await one<{ value: string }>(
+    "SELECT value FROM settings WHERE key = 'internal.service_document_types_v1'",
+  );
+  if (marker) return 0;
+  const rows = await q<{ id: string; slug: string; documents: string }>(
+    'SELECT id, slug, documents FROM services',
+  );
+  let changed = 0;
+  for (const row of rows) {
+    const documents = jsonParse<any[]>(row.documents, []);
+    if (!Array.isArray(documents) || documents.length === 0) continue;
+    let touched = false;
+    const next = documents.map((document) => {
+      if (document?.documentType && document.documentType !== 'other') return document;
+      const inferred = inferDocumentType(document?.title);
+      if (!inferred) return document;
+      touched = true;
+      return { ...document, documentType: inferred };
+    });
+    if (!touched) continue;
+    await run('UPDATE services SET documents = ?, updated_at = ? WHERE id = ?', [
+      jsonStringify(next), nowIso(), row.id,
+    ]);
+    changed += 1;
+  }
+  await run(
+    `INSERT INTO settings (key, value, group_name, is_secret, updated_at)
+     VALUES ('internal.service_document_types_v1', 'true', 'internal', 0, ?)`,
+    [nowIso()],
+  );
+  if (changed) log?.(`filed document types for ${changed} service(s) that predated the tagging`);
+  return changed;
 }
 
 export async function createService(input: ServiceInput, actor: { id: string; name: string; ip?: string }) {

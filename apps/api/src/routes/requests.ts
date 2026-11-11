@@ -12,7 +12,7 @@ import {
 } from '../modules/requests/service.js';
 import { getServiceById } from '../modules/catalog/service.js';
 import { one, q } from '../db/index.js';
-import { documentTypeLabel, reuseDocumentInRequest } from '../modules/documents/service.js';
+import { archiveRequestDocument, documentTypeLabel, reuseDocumentInRequest } from '../modules/documents/service.js';
 import { notifyDocumentApproval, notifyUser } from '../modules/notifications/service.js';
 import { param } from '../http/params.js';
 import { writeAudit } from '../modules/audit/service.js';
@@ -402,6 +402,31 @@ requestsRouter.post('/:id/documents', asyncRoute(async (req, res) => {
   await attachDocument(param(req, 'id'), body.fileId!, attachmentTitle,
     { id: req.auth!.user.id, name: req.auth!.user.fullName }, isCustomer ? 'customer' : 'staff',
     { requirementKey: body.requirementKey ?? null, replacesDocumentId: body.replacesDocumentId ?? null });
+
+  // Keep the customer's archive in step, on the server.
+  //
+  // "The office already has my national card, so why am I uploading it again?"
+  // is only answerable if the copy that was attached to the *first* request is
+  // also in the archive. The app did that after an upload; the web request page
+  // made it an optional modal, so the archive filled up on one client and
+  // stayed empty on the other, and the next request re-asked for everything.
+  // Doing it here means both clients — and the next one — behave the same, and
+  // it needs no new checkbox for the customer to forget.
+  //
+  // Crucially this is a `pending` archive entry, not an approval: the next
+  // request still shows it, the customer still confirms reuse, and a reviewer
+  // still decides. What must never happen is the app silently treating an
+  // unreviewed upload as approved.
+  if (isCustomer && requirement?.documentType) {
+    await archiveRequestDocument({
+      customerId: req.auth!.user.id,
+      fileId: body.fileId!,
+      docType: requirement.documentType,
+      title: attachmentTitle,
+      actor: { id: req.auth!.user.id, name: req.auth!.user.fullName, ip: req.ip },
+    });
+  }
+
   ok(res, await safeRequest(req, param(req, 'id')));
 }));
 

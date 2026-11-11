@@ -28,6 +28,40 @@ export const DOCUMENT_TYPES = [
 export type DocumentTypeCode = (typeof DOCUMENT_TYPES)[number]['code'];
 export const DOCUMENT_TYPE_CODES = DOCUMENT_TYPES.map((type) => type.code) as unknown as [DocumentTypeCode, ...DocumentTypeCode[]];
 
+/**
+ * Guess a document type from a Persian title.
+ *
+ * The seeded requirements carry only a title, so without this the archive can
+ * never recognise "تصویر کارت ملی" as a national card, and every new request
+ * asks for it again. The patterns are deliberately narrow and checked
+ * most-specific-first (پروانه کسب before کسب, گذرنامه before نامه): a wrong
+ * guess would file a document under a type it does not satisfy, which is worse
+ * than filing nothing at all.
+ */
+const DOCUMENT_TYPE_HINTS: { type: DocumentTypeCode; pattern: RegExp }[] = [
+  { type: 'business_license', pattern: /پروانه\s*(کسب|کسب\s*و\s*کار)|مجوز\s*(کسب|فعالیت)/ },
+  { type: 'birth_certificate', pattern: /شناسنامه/ },
+  { type: 'national_card', pattern: /کارت\s*ملی|کارت\s*ملى/ },
+  { type: 'passport', pattern: /گذرنامه|پاسپورت/ },
+  { type: 'residence_permit', pattern: /اقامت|ویزا/ },
+  { type: 'insurance_card', pattern: /کارت\s*بیمه/ },
+  { type: 'personal_photo', pattern: /عکس\s*(پرسنلی|شخصی)|۳[\s-]*۴|3[\s-]*4/ },
+  { type: 'bank_card', pattern: /کارت\s*بانک|شماره\s*کارت/ },
+  { type: 'utility_bill', pattern: /قبض|صورتحساب\s*(آب|برق|گاز|تلفن)/ },
+];
+
+export function inferDocumentType(title: string | null | undefined): DocumentTypeCode | null {
+  const text = String(title ?? '').replace(/\u200c/g, ' ').trim();
+  if (!text) return null;
+  const matches = DOCUMENT_TYPE_HINTS.filter((hint) => hint.pattern.test(text));
+  // A title naming two different documents — «تصویر شناسنامه و کارت ملی همسر»
+  // asks for both in one slot — has no single correct type. Filing it under
+  // either one would let a future request offer the wrong paper, so it stays
+  // untyped and is simply uploaded per request.
+  if (new Set(matches.map((hint) => hint.type)).size > 1) return null;
+  return matches[0]?.type ?? null;
+}
+
 export function documentTypeLabel(code: string): string {
   return DOCUMENT_TYPES.find((type) => type.code === code)?.label ?? code;
 }
@@ -159,6 +193,60 @@ export interface AddDocumentInput {
   issuedAt?: string | null;
   expiresAt?: string | null;
   replacesDocumentId?: string | null;
+}
+
+/**
+ * Mirror a request's freshly-attached document into the customer's archive.
+ *
+ * The app does this client-side after an upload, but the web request form made
+ * the customer tick a modal to do it, so the archive filled up on one client and
+ * stayed empty on the other. Whether a document the office already holds comes
+ * back automatically on the *next* request is a property of the server's data,
+ * not of which browser the customer used — so the mirror belongs here, where
+ * both clients and any future one get it.
+ *
+ * Deliberately quiet and strictly additive:
+ *  - No `docType` means we do not know what the document *is* (free-form
+ *    uploads, personal photos). Guessing `other` would create an archive entry
+ *    that can never satisfy a later requirement, so it is skipped.
+ *  - The file must be the customer's own, private, and an image or PDF:
+ *    `addCustomerDocument` enforces that, and this helper simply respects a
+ *    rejection instead of failing the request the customer is submitting.
+ *  - A file already in the archive is left alone.
+ *  - The entry lands as `pending`, exactly like a manual upload. Archiving is
+ *    not approval; an unapproved document is still offered on the next request,
+ *    the customer confirms reuse, and the reviewer decides. What it must never
+ *    do is pretend the document was approved.
+ */
+export async function archiveRequestDocument(input: {
+  customerId: string;
+  fileId: string;
+  docType?: string | null;
+  title?: string | null;
+  actor: { id: string; name: string; ip?: string };
+}): Promise<string | null> {
+  const docType = String(input.docType ?? '').trim();
+  if (!docType || docType === 'other') return null;
+  if (!DOCUMENT_TYPE_CODES.includes(docType as (typeof DOCUMENT_TYPE_CODES)[number])) return null;
+  const already = await one<{ id: string }>(
+    'SELECT id FROM customer_documents WHERE file_id = ? AND customer_id = ?',
+    [input.fileId, input.customerId],
+  );
+  if (already) return already.id;
+  try {
+    const created = await addCustomerDocument({
+      customerId: input.customerId,
+      fileId: input.fileId,
+      docType,
+      title: input.title?.trim() || documentTypeLabel(docType),
+    }, input.actor);
+    return String((created as any)?.id ?? '') || null;
+  } catch {
+    // A duplicate, an unsupported file or a missing one must not fail the
+    // request submission that triggered this. The request keeps its document
+    // either way; only the archive mirror is skipped.
+    return null;
+  }
 }
 
 export async function addCustomerDocument(input: AddDocumentInput, actor: { id: string; name: string; ip?: string }) {

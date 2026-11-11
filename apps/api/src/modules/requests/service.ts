@@ -10,7 +10,7 @@ import { writeAudit } from '../audit/service.js';
 import { assertWalletUsable } from '../wallet/service.js';
 import { settleInvoiceWithWallet } from '../payments/service.js';
 import { logEvent } from '../logging/service.js';
-import { reuseDocumentInRequest, reviewCustomerDocument } from '../documents/service.js';
+import { archiveRequestDocument, inferDocumentType, reuseDocumentInRequest, reviewCustomerDocument } from '../documents/service.js';
 import { toPersianDigits } from '../../lib/text.js';
 
 import { requireCompleteProfile, requireCoverage, validNationalId } from '../profiles/service.js';
@@ -447,6 +447,23 @@ function canonicalJson(value: unknown): string {
 
 type RequestDocumentAttachment = { fileId?: string; customerDocumentId?: string; confirmReuse?: boolean; title: string; requirementKey: string | null };
 
+/**
+ * The archive type a requirement should be filed under.
+ *
+ * Seeded requirements only carry a title ("تصویر کارت ملی"); the optional
+ * `documentType` field is what an operator can add afterwards. Without a type
+ * the archive cannot match the document to a later requirement, so fall back to
+ * reading the type out of the title rather than filing nothing — but never
+ * invent one when the title says nothing recognisable.
+ */
+function documentTypeForRequirement(service: ServiceDTO, requirementKey: string | null): string | null {
+  if (!requirementKey) return null;
+  const requirement = (service.documents ?? []).find((document) => document.key === requirementKey);
+  if (!requirement) return null;
+  if (requirement.documentType && requirement.documentType !== 'other') return requirement.documentType;
+  return inferDocumentType(requirement.title);
+}
+
 function documentAttachmentsForSubmission(
   service: ServiceDTO,
   formData: Record<string, unknown>,
@@ -756,6 +773,18 @@ export async function createRequest(input: CreateRequestInput, actor?: { id: str
     await attachDocument(requestId, document.fileId!, document.title,
       { id: actor?.id ?? input.customerId, name: actor?.name ?? customer.full_name }, 'customer',
       { ownerId: input.customerId, requirementKey: document.requirementKey });
+    // Mirror the upload into the customer's profile archive, here rather than
+    // in each client, so a document sent from the web and the same document
+    // sent from the app both come back on the next request. `pending`, never
+    // `approved`: the archive records that we hold the document, the reviewer
+    // still decides whether it is any good.
+    await archiveRequestDocument({
+      customerId: input.customerId,
+      fileId: document.fileId!,
+      docType: documentTypeForRequirement(service, document.requirementKey),
+      title: document.title,
+      actor: { id: actor?.id ?? input.customerId, name: actor?.name ?? customer.full_name },
+    });
   }
   for (const document of documentAttachments.filter(item => item.customerDocumentId)) {
     await reuseDocumentInRequest({ documentId: document.customerDocumentId!, requestId, customerId: input.customerId,

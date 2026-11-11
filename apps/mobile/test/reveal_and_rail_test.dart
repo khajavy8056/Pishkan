@@ -7,12 +7,17 @@ import 'package:pishkan_app/core/theme.dart';
 /// page", and both had the same shape: a section that takes up space without
 /// showing anything.
 void main() {
-  testWidgets('a reveal that has not fired is still visible, not a blank block', (tester) async {
-    // `ScrollDrivenReveal` used to render `Opacity(0)` until the scroll
-    // threshold was crossed. A section that had been *built* — so it was
-    // occupying its full height — but whose trigger the customer had not
-    // reached drew nothing at all. That is exactly the ~130 dp hole that
-    // appeared between the shortcut grid and the section after it.
+  testWidgets('a reveal that has not fired is fully visible, not a faint block', (tester) async {
+    // `ScrollDrivenReveal` has produced the "blank hole in the home page" twice.
+    // First at `Opacity(0)`: a section built below the fold occupied its full
+    // height and drew nothing. Then at a 55% floor, which on the dark navy page
+    // is still indistinguishable from the page — the customer saw a ~340 dp
+    // blank band between the service tiles and the support card.
+    //
+    // The reveal is now a travel-and-settle with no opacity at all, so this
+    // test asserts the strong property rather than a floor: an untriggered
+    // section must be painted at exactly 1.0, or not wrapped in an Opacity at
+    // all. Anything less is a section the customer cannot read.
     //
     // The widget has to be built for this test to mean anything, so the page is
     // an eager `SingleChildScrollView` rather than a lazy `ListView`: in a lazy
@@ -40,16 +45,22 @@ void main() {
     // Scoped to the reveal's own subtree: `Material` puts `Opacity` widgets in
     // the tree for unrelated reasons (ink, elevation), and an unscoped
     // `find.ancestor` would happily find one of those and test nothing.
-    final opacity = tester.widget<Opacity>(
-      find
-          .descendant(of: find.byType(ScrollDrivenReveal), matching: find.byType(Opacity))
-          .first,
+    final opacities = find.descendant(
+      of: find.byType(ScrollDrivenReveal),
+      matching: find.byType(Opacity),
     );
-    expect(
-      opacity.opacity,
-      greaterThanOrEqualTo(0.5),
-      reason: 'content below the fold must not be invisible-but-present',
-    );
+    for (final element in opacities.evaluate()) {
+      expect(
+        (element.widget as Opacity).opacity,
+        1.0,
+        reason: 'an untriggered section must never be dimmed into the background',
+      );
+    }
+
+    // And the content really is on screen, not merely present: it must be at
+    // full opacity and inside the painted subtree.
+    final target = find.byKey(const Key('target'));
+    expect(tester.getSize(target).height, 80);
   });
 
   testWidgets('reduced motion renders the reveal with no animation wrapper', (tester) async {

@@ -45,7 +45,7 @@ export interface SeedService {
   baseFee: number;
   estimatedDays: number;
   form: FormField[];
-  documents: { title: string; required: boolean; note?: string }[];
+  documents: { title: string; required: boolean; note?: string; documentType?: string }[];
   workflow: WorkflowStep[];
   contactNotice?: string;
   paymentMethods?: string[];
@@ -223,25 +223,41 @@ const f = {
   accountNumber: { key: 'account_number', label: 'شماره حساب', type: 'text', required: false } as FormField,
 };
 
+/**
+ * Every requirement names the profile-document type it corresponds to.
+ *
+ * Without `documentType` the reuse button had nothing to match on and the
+ * archive could never answer "you already gave us your national card". The
+ * field is optional in the schema, which is why this shipped empty; these are
+ * the types the office's own document list already implies.
+ *
+ * `carCard`, `greenSheet`, `diploma`, `leaseOrDeed`, `boardResolution`,
+ * `powerOfAttorney`, `companyDocs` and `militaryCard` deliberately have no type:
+ * the archive has no category for them, and inventing one would file them where
+ * a later request would never look. They stay title-only, so the customer just
+ * uploads them per request.
+ */
 const docs = {
-  nationalCard: { title: 'تصویر کارت ملی', required: true },
-  idPage: { title: 'تصویر صفحه اول شناسنامه', required: true },
-  selfie: { title: 'تصویر کارت ملی پشت و رو (واضح)', required: true },
-  lastReceipt: { title: 'آخرین فیش حقوقی یا سابقه بیمه', required: false },
+  nationalCard: { title: 'تصویر کارت ملی', required: true, documentType: 'national_card' as const },
+  idPage: { title: 'تصویر صفحه اول شناسنامه', required: true, documentType: 'birth_certificate' as const },
+  selfie: { title: 'تصویر کارت ملی پشت و رو (واضح)', required: true, documentType: 'national_card' as const },
+  lastReceipt: { title: 'آخرین فیش حقوقی یا سابقه بیمه', required: false, documentType: 'insurance_card' as const },
   powerOfAttorney: { title: 'وکالت‌نامه یا معرفی‌نامه', required: false },
   companyDocs: { title: 'اساسنامه و آگهی تأسیس', required: true },
   boardResolution: { title: 'صورتجلسه هیئت‌مدیره', required: false },
-  bankStatement: { title: 'تصویر کارت بانکی به نام متقاضی', required: true },
+  bankStatement: { title: 'تصویر کارت بانکی به نام متقاضی', required: true, documentType: 'bank_card' as const },
   greenSheet: { title: 'تصویر برگ سبز خودرو (سند مالکیت)', required: true },
   carCard: { title: 'تصویر کارت خودرو (پشت و رو)', required: true },
   insurancePolicy: { title: 'بیمه‌نامه شخص ثالث معتبر', required: false },
   marriageCertificate: { title: 'تصویر سند ازدواج (عقدنامه)', required: true },
+  // Two documents in one slot (شناسنامه *and* کارت ملی); no single archive
+  // type is correct, so this one stays per-request.
   spouseId: { title: 'تصویر شناسنامه و کارت ملی همسر', required: true },
-  childIdBook: { title: 'تصویر شناسنامه فرزند', required: true },
+  childIdBook: { title: 'تصویر شناسنامه فرزند', required: true, documentType: 'birth_certificate' as const },
   diploma: { title: 'تصویر آخرین مدرک تحصیلی', required: true },
-  photo34: { title: 'عکس پرسنلی ۳×۴ جدید', required: true },
+  photo34: { title: 'عکس پرسنلی ۳×۴ جدید', required: true, documentType: 'personal_photo' as const },
   leaseOrDeed: { title: 'سند مالکیت یا اجاره‌نامه رسمی محل', required: true },
-  residenceProof: { title: 'مدرک احراز محل سکونت (قبض خدماتی / اجاره‌نامه / سند)', required: true },
+  residenceProof: { title: 'مدرک احراز محل سکونت (قبض خدماتی / اجاره‌نامه / سند)', required: true, documentType: 'utility_bill' as const },
   militaryCard: { title: 'تصویر کارت پایان خدمت یا معافیت', required: false },
   drivingLicense: { title: 'تصویر گواهینامه رانندگی', required: true },
 };

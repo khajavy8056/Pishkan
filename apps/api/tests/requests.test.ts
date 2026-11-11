@@ -562,8 +562,16 @@ describe('request lifecycle', () => {
       .send(await requestInput(server, customer, serviceResponse.body.data, { paymentMethod: 'online' })).expect(201);
     const requestId = created.body.data.id;
     const rejected = created.body.data.documents.find((document: any) => document.requirementKey === 'identity_front');
-    const savedFirst = await request(server).post('/api/documents/mine').set('Cookie', customer.cookie)
-      .send({ fileId: rejected.file.id, docType: 'national_card' }).expect(201);
+    // Submitting the request already put the document in the profile archive:
+    // the mirror is server-side so the web form and the app behave the same.
+    // No separate «save to profile» call is needed, and a second one is still
+    // refused as a duplicate.
+    const archivedAlready = await request(server).get('/api/documents/mine').set('Cookie', customer.cookie).expect(200);
+    const savedFirst = { body: { data: archivedAlready.body.data.find((item: any) => item.file?.id === rejected.file.id) } };
+    expect(savedFirst.body.data, 'the submitted document must be archived automatically').toBeTruthy();
+    expect(savedFirst.body.data.status).toBe('pending');
+    await request(server).post('/api/documents/mine').set('Cookie', customer.cookie)
+      .send({ fileId: rejected.file.id, docType: 'national_card' }).expect(409);
     await request(server).post(`/api/requests/${requestId}/documents/${rejected.id}/review`).set('Cookie', admin.cookie)
       .send({ decision: 'rejected', note: 'تصویر مدرک باید دوباره بررسی شود.' }).expect(200);
     const archiveAfterReview = await request(server).get('/api/documents/mine').set('Cookie', customer.cookie).expect(200);

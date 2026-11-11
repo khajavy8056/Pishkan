@@ -422,6 +422,7 @@ class _ScrollDrivenRevealState extends State<ScrollDrivenReveal> with SingleTick
     // Already on screen at first paint: animate now rather than on a scroll
     // that will never happen.
     WidgetsBinding.instance.addPostFrameCallback((_) => _check());
+    _armFallback();
   }
 
   @override
@@ -432,6 +433,24 @@ class _ScrollDrivenRevealState extends State<ScrollDrivenReveal> with SingleTick
   }
 
   void _onScroll() => _check();
+
+  /// Guarantees the reveal settles even if its trigger is never observed.
+  ///
+  /// The trigger relies on this widget sitting inside a scrollable whose
+  /// position we can listen to, plus a layout pass that gives it a size. Both
+  /// are usually true — but "usually" is how the hide-a-section bug survived two
+  /// fixes. A section rendered outside a scroll view (a section inside another
+  /// list, a rebuilt subtree, an off-screen route that scrolls itself) would
+  /// never call `_check()` and would sit permanently offset. A timer that fires
+  /// once, shortly after mount, makes the animation a flourish that is always
+  /// over rather than a state the widget can get stuck in.
+  void _armFallback() {
+    Future<void>.delayed(const Duration(milliseconds: 900), () {
+      if (!mounted || _seen) return;
+      _seen = true;
+      _controller.forward();
+    });
+  }
 
   void _check() {
     if (_seen || !mounted) return;
@@ -457,36 +476,35 @@ class _ScrollDrivenRevealState extends State<ScrollDrivenReveal> with SingleTick
     // Reduced motion, and anything that has already been seen and rebuilt:
     // render at rest, with no controller work.
     if (PishkanMotion.reduced(context)) return widget.child;
-    // Nothing is ever left invisible-but-taking-up-space.
+    // Nothing is ever left faint-but-taking-up-space.
     //
-    // A reveal that has not fired yet still lays its child out at full height,
-    // so a section that never crossed the trigger line is a blank block the
-    // height of its content — which is exactly how the home page ended up with
-    // a 130 dp hole between the shortcut grid and «پیشخوان در یک نگاه». The
-    // animation is meant to be a flourish on content that is already there, not
-    // a gate that can disagree about whether content exists.
+    // This wrapper has now caused the same bug twice, and the first fix only
+    // half-worked, so the reveal is no longer allowed to touch opacity at all.
     //
-    // So the child is never fully transparent: it starts at 55% and rises to
-    // full. Present enough to read as content that is arriving, never absent
-    // enough to read as a gap. The animation is idempotent — arriving twice
-    // changes nothing.
+    // * It used to paint the child at `Opacity(0)` until the trigger fired, so
+    //   a section built below the fold was a hole the height of its own
+    //   content.
+    // * It was then changed to *start* at 55% and rise to full. That still
+    //   means an unrevealed section renders at 55% — and on a dark navy page,
+    //   55% of a tile or a category card is indistinguishable from the
+    //   background. The customer saw a completely blank band roughly 340 dp
+    //   tall between the service tiles and «پشتیبانی و دستیار», which is those
+    //   sections sitting there, laid out and nearly invisible.
+    //
+    // So opacity is out of the question: content is either readable or it is
+    // not there. The reveal is now a short travel-and-settle — the child slides
+    // up and scales to 1, both of which are legible at every intermediate
+    // value. A missed trigger costs the customer a flourish, never a section.
     return AnimatedBuilder(
       animation: _curved,
       builder: (_, child) {
         final t = _curved.value;
-        // Floor the opacity. At rest the child is fully visible; while it
-        // travels in it is never so faint that a dropped frame or a missed
-        // trigger can leave a section looking empty.
-        final opacity = 0.55 + 0.45 * t;
         final shift = (1 - t) * widget.offset;
-        return Opacity(
-          opacity: opacity,
-          child: Transform.translate(
-            offset: widget.horizontal ? Offset(shift, 0) : Offset(0, shift),
-            child: widget.scaleFrom == 1
-                ? child
-                : Transform.scale(scale: widget.scaleFrom + (1 - widget.scaleFrom) * t, child: child),
-          ),
+        return Transform.translate(
+          offset: widget.horizontal ? Offset(shift, 0) : Offset(0, shift),
+          child: widget.scaleFrom == 1
+              ? child
+              : Transform.scale(scale: widget.scaleFrom + (1 - widget.scaleFrom) * t, child: child),
         );
       },
       child: widget.child,
