@@ -162,16 +162,22 @@ class _BannerCarouselState extends State<BannerCarousel> {
   }
 }
 
-/// Slow, endless drift for a banner's artwork.
+/// Slow drift for a banner's artwork.
 ///
-/// Own class rather than an inline animation so that each card owns its own
-/// ticker and they do not all breathe in lockstep — a row of five cards pulsing
-/// together looks like a rendering glitch, not like life.
+/// `dart:ui` cannot play a GIF at this size without shipping thirty megabytes
+/// of frames, so the motion here is the one that costs nothing: the picture
+/// creeps from 1.0 to 1.06 and stays there. That is enough to stop a card from
+/// reading as a static poster, and it leaves the headline — the thing the
+/// customer is meant to read — perfectly still.
 ///
-/// The scale range is deliberately tiny. At 1.06 over fourteen seconds the
-/// movement is below the threshold where the eye tracks it as motion, which is
-/// what makes it read as "this is a picture of something, not a static tile"
-/// rather than as an animation competing with the headline.
+/// It is a *bounded* animation on purpose. An earlier version repeated forever,
+/// which is a Ticker that never stops: it burns a frame callback for as long as
+/// the page is alive, and it makes the widget impossible to test, because a
+/// test that ends with the tree still mounted fails on the active ticker. A
+/// single 14-second pass has none of those problems and looks the same, because
+/// nobody watches a banner for fourteen seconds.
+///
+/// Off under reduced motion, where it would be the only thing moving.
 class _KenBurns extends StatefulWidget {
   const _KenBurns({required this.child});
 
@@ -190,25 +196,18 @@ class _KenBurnsState extends State<_KenBurns> with SingleTickerProviderStateMixi
   @override
   void didChangeDependencies() {
     super.didChangeDependencies();
-    if (PishkanMotion.reduced(context)) {
-      _drift.stop();
-      return;
-    }
-    if (!_drift.isAnimating) {
-      // Start each card at a different point in the cycle, so the rail never
-      // looks synchronised.
-      _drift.value = (widget.hashCode % 1000) / 1000;
-      _drift.repeat(reverse: true);
+    if (PishkanMotion.reduced(context)) return;
+    if (!_drift.isAnimating && _drift.value == 0) {
+      // A staggered start so a rail of five cards does not breathe in
+      // lockstep, which reads as a rendering fault rather than as life.
+      final phase = (widget.hashCode % 40) / 100;
+      _drift.value = phase.clamp(0.0, 0.35);
+      _drift.animateTo(1.0, curve: Curves.easeOutSine);
     }
   }
 
   @override
   void dispose() {
-    // A repeating controller must be stopped *and* disposed. Disposing alone
-    // is enough for the ticker, but stopping first means the final frame is
-    // never built against a disposed listener, and it keeps a widget test that
-    // tears the tree down mid-drift from reporting a pending timer.
-    _drift.stop();
     _drift.dispose();
     super.dispose();
   }
@@ -219,7 +218,7 @@ class _KenBurnsState extends State<_KenBurns> with SingleTickerProviderStateMixi
     return AnimatedBuilder(
       animation: _drift,
       builder: (_, child) {
-        final t = Curves.easeInOut.transform(_drift.value);
+        final t = Curves.easeInOut.transform(_drift.value.clamp(0.0, 1.0));
         return Transform.scale(scale: 1.0 + 0.06 * t, child: child);
       },
       child: widget.child,

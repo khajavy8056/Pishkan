@@ -636,10 +636,24 @@ class _SupportObject extends StatefulWidget {
 class _SupportObjectState extends State<_SupportObject> with SingleTickerProviderStateMixin {
   /// The lamp's pulse. Slow — one breath every two and a half seconds — so it
   /// reads as "alive" and not as "loading".
+  ///
+  /// It breathes a handful of times and then rests at full brightness rather
+  /// than repeating forever. A never-ending ticker keeps a frame callback alive
+  /// for the whole life of the page (this widget sits inside a `ListView` that
+  /// rebuilds on every notification tick), and it makes the tree impossible to
+  /// settle in a widget test. Six breaths is about fifteen seconds, which is
+  /// longer than anyone looks at a card before tapping it, so the difference is
+  /// invisible in the hand and free in the frame budget.
   late final AnimationController _pulse = AnimationController(
     vsync: this,
     duration: const Duration(milliseconds: 2500),
-  )..repeat(reverse: true);
+  );
+
+  @override
+  void initState() {
+    super.initState();
+    _pulse.repeat(reverse: true, count: 12);
+  }
 
   @override
   void dispose() {
