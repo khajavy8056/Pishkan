@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
@@ -427,6 +429,7 @@ class _ScrollDrivenRevealState extends State<ScrollDrivenReveal> with SingleTick
 
   @override
   void dispose() {
+    _fallback?.cancel();
     _position?.removeListener(_onScroll);
     _controller.dispose();
     super.dispose();
@@ -439,13 +442,20 @@ class _ScrollDrivenRevealState extends State<ScrollDrivenReveal> with SingleTick
   /// The trigger relies on this widget sitting inside a scrollable whose
   /// position we can listen to, plus a layout pass that gives it a size. Both
   /// are usually true — but "usually" is how the hide-a-section bug survived two
-  /// fixes. A section rendered outside a scroll view (a section inside another
-  /// list, a rebuilt subtree, an off-screen route that scrolls itself) would
-  /// never call `_check()` and would sit permanently offset. A timer that fires
-  /// once, shortly after mount, makes the animation a flourish that is always
-  /// over rather than a state the widget can get stuck in.
+  /// fixes. A section rendered outside a scroll view (inside another list, in a
+  /// rebuilt subtree, on an off-screen route) would never call `_check()` and
+  /// would sit permanently offset. One timer, armed shortly after mount, makes
+  /// the animation a flourish that is always over rather than a state the
+  /// widget can get stuck in.
+  ///
+  /// A cancellable `Timer`, not `Future.delayed`: a bare delayed future cannot
+  /// be cancelled and outlives `dispose`, which is a "timer still pending"
+  /// failure in tests and a callback into a dead `State` in production.
+  Timer? _fallback;
+
   void _armFallback() {
-    Future<void>.delayed(const Duration(milliseconds: 900), () {
+    _fallback?.cancel();
+    _fallback = Timer(const Duration(milliseconds: 900), () {
       if (!mounted || _seen) return;
       _seen = true;
       _controller.forward();

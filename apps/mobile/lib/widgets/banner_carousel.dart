@@ -368,6 +368,11 @@ class BannerCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final accent = banner.accentColor ?? context.brand;
+    // The slide's own colour, darkened — the scrim tints the artwork towards it
+    // rather than greying it. The opacity is applied per gradient stop below;
+    // the colour itself stays opaque on purpose so the alpha is never baked in
+    // twice.
+    final tint = Color.alphaBlend(Colors.black.withOpacity(0.38), accent);
 
     return TactileTap(
       onTap: () async => onTap(),
@@ -425,48 +430,51 @@ class BannerCard extends StatelessWidget {
             ),
             // The scrim under the copy.
             //
-            // This was `Color.alphaBlend(black.withOpacity(0.50), accent)`.
-            // `alphaBlend` returns the *premultiplied result*, and compositing
-            // a half-transparent black onto a fully opaque accent yields an
-            // **opaque** colour (alpha 255). So the "scrim" was three solid
-            // paints, not a wash: a flat coloured panel over the whole banner,
-            // and moving the stops or lowering the alpha of the black did
-            // nothing visible, because every stop stayed 100% opaque. That is
-            // why the banner looked designed-over rather than seen through.
+            // It shipped as `Color.alphaBlend(Colors.black.withOpacity(0.50),
+            // accent)`. `alphaBlend` composites the two colours and returns the
+            // *result*; compositing a half-transparent black over a fully
+            // opaque accent yields an **opaque** colour (alpha 255). So the
+            // "scrim" was three solid paints, not a wash: a flat coloured panel
+            // over the whole banner. Every previous attempt to weaken it moved
+            // gradient stops or lowered the black's alpha, and none of it
+            // changed what the customer saw, because every stop stayed 100%
+            // opaque and the panel simply moved its edges.
             //
-            // It is now a genuinely translucent tint with an explicit opacity
-            // ramp, so the artwork keeps its own colour everywhere and the copy
-            // still has something to sit on:
+            // The gradient below is translucent per stop, so the artwork keeps
+            // its own colour everywhere and the copy still has something to sit
+            // on:
             //
-            //  * it is *weak from the first pixel* — 34% effective darkness at
-            //    the copy edge (a 0.38 tint under a 0.90 mask), not a heavy slab
-            //    that only softens later;
-            //  * it starts fading immediately (stop 0.06) instead of holding at
-            //    full strength across the first third;
-            //  * it is gone by 0.62, so the right of the card — the half the
+            //  * weak from the first pixel — 34% effective darkness where the
+            //    text begins (0.90 opacity over a 0.38 tint), not a slab;
+            //  * fading immediately (by stop 0.16) instead of holding full
+            //    strength across the first third;
+            //  * completely clear by 66%, so the left of the card — the half the
             //    artwork owns — is untouched.
             //
             // `begin: centerStart` matters and is easy to get backwards: the
             // copy is laid out at `CrossAxisAlignment.start`, which in Persian
             // is the **right** edge.
-            // `textDirection` is required on a *directional* gradient used as a
-            // shader: unlike the widget path, `createShader` has no ambient
-            // direction and throws on every paint without it.
-            Builder(builder: (context) {
-              final textDirection = Directionality.of(context);
-              return ShaderMask(
-                blendMode: BlendMode.dstIn,
-                shaderCallback: (rect) => const LinearGradient(
+            // A plain translucent gradient: the tint colour at decreasing
+            // opacity. `Color.alphaBlend` only decides *which* dark tint (it
+            // returns an opaque colour, which is exactly the trap above), and
+            // the opacity is applied to that result per stop, so what reaches
+            // the screen is a wash rather than a solid fill.
+            DecoratedBox(
+              decoration: BoxDecoration(
+                gradient: LinearGradient(
                   begin: AlignmentDirectional.centerStart,
                   end: AlignmentDirectional.centerEnd,
-                  colors: [Color(0xE6FFFFFF), Color(0xD9FFFFFF), Color(0x99FFFFFF), Color(0x3DFFFFFF), Color(0x00FFFFFF)],
-                  stops: [0, 0.16, 0.38, 0.54, 0.66],
-                ).createShader(rect, textDirection: textDirection),
-                child: ColoredBox(
-                  color: Color.alphaBlend(Colors.black.withOpacity(0.38), accent),
+                  colors: [
+                    tint.withOpacity(0.90),
+                    tint.withOpacity(0.85),
+                    tint.withOpacity(0.60),
+                    tint.withOpacity(0.24),
+                    Colors.transparent,
+                  ],
+                  stops: const [0, 0.16, 0.38, 0.54, 0.66],
                 ),
-              );
-            }),
+              ),
+            ),
             Padding(
               padding: const EdgeInsets.fromLTRB(20, 16, 20, 16),
               child: Column(

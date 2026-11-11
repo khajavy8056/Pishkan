@@ -57,10 +57,15 @@ void main() {
       );
     }
 
-    // And the content really is on screen, not merely present: it must be at
-    // full opacity and inside the painted subtree.
+    // And the content is really laid out, not merely present.
     final target = find.byKey(const Key('target'));
     expect(tester.getSize(target).height, 80);
+
+    // The reveal arms a one-shot fallback timer so it can never sit offset
+    // forever; tear the tree down and let it run out, or the test ends with a
+    // pending timer and fails for a reason unrelated to what it asserts.
+    await tester.pumpWidget(const SizedBox.shrink());
+    await tester.pump(const Duration(seconds: 1));
   });
 
   testWidgets('reduced motion renders the reveal with no animation wrapper', (tester) async {
@@ -82,5 +87,8 @@ void main() {
       findsNothing,
       reason: 'reduced motion must not wrap the child in an opacity animation',
     );
+
+    await tester.pumpWidget(const SizedBox.shrink());
+    await tester.pump(const Duration(seconds: 1));
   });
 }

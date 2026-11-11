@@ -103,13 +103,33 @@ void main() {
     // bright subject.
     expect(scrim.single.begin, AlignmentDirectional.centerStart);
     expect(scrim.single.end, AlignmentDirectional.centerEnd);
-    // Its first stop is the dark one and it fades to nothing at the far edge.
-    // The comparison is against `Colors.transparent` rather than an alpha
-    // accessor: `Color.a` only exists on newer Flutter versions, and this test
-    // must not be the reason a stable-channel build fails.
-    expect(scrim.single.stops, isNotNull);
-    expect(scrim.single.colors.last, Colors.transparent);
-    expect(scrim.single.colors.first, isNot(Colors.transparent));
+
+    // It must be a *wash*, not a panel — the bug the customer reported.
+    //
+    // It shipped as `Color.alphaBlend(black@0.5, accent)`, whose result is a
+    // fully opaque colour, so all three stops painted solid and buried the
+    // artwork. Moving the stops or lowering the black did nothing, because
+    // alpha was never being applied. These assertions pin the two properties
+    // that make it a wash:
+    //
+    // Alpha is read off the raw channel rather than `Color.a`: that accessor
+    // only exists on newer Flutter channels and this test must not be the
+    // reason a stable build fails.
+    int alphaOf(Color color) => (color.value >> 24) & 0xFF;
+    final colors = scrim.single.colors;
+    expect(alphaOf(colors.last), 0,
+        reason: 'the artwork edge must be completely clear');
+    expect(alphaOf(colors.first), lessThan(255),
+        reason: 'the scrim must be weak from the first pixel, not an opaque slab');
+    // Weak enough to see the picture through, at the copy edge.
+    expect(alphaOf(colors.first) / 255 * 0.38, lessThanOrEqualTo(0.35),
+        reason: 'the tint where the text sits must read as a wash');
+    // Monotonically weaker towards the artwork: a ramp that dips and returns
+    // reads as a coloured band across the picture.
+    for (var i = 1; i < colors.length; i++) {
+      expect(alphaOf(colors[i]), lessThanOrEqualTo(alphaOf(colors[i - 1])),
+          reason: 'the scrim must only ever get lighter towards the artwork');
+    }
 
     await tester.pumpWidget(const SizedBox.shrink());
   });
