@@ -135,6 +135,11 @@ describe('editable landing surface', () => {
     const { settings, stats } = res.body.data;
     expect(settings['landing.hero_subtitle']).toContain('همراه شما');
     expect(settings['landing.app_android_url']).toBe('');
+    // Round-2 install surface: three destinations, all unpublished by default,
+    // and the coming-soon cards switched on so the page can ship before release.
+    expect(settings['landing.app_bazaar_url']).toBe('');
+    expect(settings['landing.app_myket_url']).toBe('');
+    expect(settings['landing.app_coming_soon']).toBe(true);
     expect(settings['site.name_en']).toBeTruthy();
     expect(JSON.parse(settings['landing.features'])).toHaveLength(6);
     expect(stats.services).toBeGreaterThanOrEqual(190);

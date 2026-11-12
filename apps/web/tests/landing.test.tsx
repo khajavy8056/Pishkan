@@ -21,6 +21,7 @@ import { AuthProvider } from '../src/lib/auth';
 import { SiteProvider } from '../src/lib/site';
 import { ToastProvider } from '../src/components/ui';
 import { HomePage } from '../src/pages/public/Home';
+import { AppStoreButtons } from '../src/components/app-store-buttons';
 
 /** Same provider stack the app mounts at the root. */
 function renderAt(path: string, element: React.ReactElement) {
@@ -108,6 +109,50 @@ describe('landing page', () => {
     const device = container.querySelector('.device');
     const cards = container.querySelector('[role="tablist"]');
     expect(device && cards).toBeTruthy();
+  });
+
+  it('offers all three Android install routes', async () => {
+    const { container } = renderAt('/', <HomePage />);
+    // Direct APK plus the two stores the office will publish on. They ship as
+    // disabled cards until the links exist, so the page never has a dead anchor.
+    const buttons = container.querySelectorAll('.app-store-btn');
+    expect(buttons.length).toBe(3);
+    const labels = Array.from(buttons).map((el) => el.textContent ?? '');
+    expect(labels.some((t) => t.includes('دانلود مستقیم'))).toBe(true);
+    expect(labels.some((t) => t.includes('کافه‌بازار'))).toBe(true);
+    expect(labels.some((t) => t.includes('مایکت'))).toBe(true);
+    // Until the settings are filled in, every one of them is the coming-soon
+    // variant: an <span>, never an <a href="#"> or a link to nowhere.
+    buttons.forEach((el) => {
+      expect(el.tagName).toBe('SPAN');
+      expect(el.getAttribute('aria-disabled')).toBe('true');
+      expect(el.textContent).toContain('به‌زودی');
+    });
+  });
+
+  it('turns an install card into a real link once a store URL is set', async () => {
+    // Render the component directly: the settings payload lives in the API, so
+    // this asserts the switching logic itself rather than faking a whole site.
+    const { container } = render(
+      <AppStoreButtons
+        links={{ direct: 'https://example.ir/app.apk', bazaar: 'https://cafebazaar.ir/app/x', myket: '' }}
+      />,
+    );
+    const anchors = container.querySelectorAll('a.app-store-btn');
+    expect(anchors.length).toBe(2);
+    expect(anchors[0].getAttribute('href')).toBe('https://example.ir/app.apk');
+    expect(anchors[1].getAttribute('href')).toBe('https://cafebazaar.ir/app/x');
+    // Myket still has no link, so it stays a card rather than a broken anchor.
+    const soon = container.querySelectorAll('span.app-store-btn');
+    expect(soon.length).toBe(1);
+    expect(soon[0].textContent).toContain('مایکت');
+  });
+
+  it('can hide unpublished stores entirely when the office prefers', async () => {
+    const { container } = render(
+      <AppStoreButtons links={{ direct: 'https://example.ir/app.apk', showComingSoon: false }} />,
+    );
+    expect(container.querySelectorAll('.app-store-btn').length).toBe(1);
   });
 
   it('labels the interactive carousel controls for screen readers', async () => {

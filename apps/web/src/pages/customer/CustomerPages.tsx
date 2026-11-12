@@ -1,4 +1,5 @@
 import { MobileVerification } from '../../components/mobile-verification';
+import { AppStoreButtons } from '../../components/app-store-buttons';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import {
@@ -301,24 +302,16 @@ export function CustomerDashboard() {
                     </li>
                   ))}
                 </ul>
-                {appUrl ? (
-                  <a
-                    href={appUrl}
-                    target="_blank"
-                    rel="noreferrer"
-                    className="btn-primary mt-5"
-                    style={{
-                      backgroundImage: 'linear-gradient(180deg,#34d399 0%,#059669 55%,#047857 100%)',
-                      boxShadow: '0 14px 28px -10px rgb(5 150 105 / .55), inset 0 1px 0 rgb(255 255 255 / .4), inset 0 -2px 0 rgb(0 0 0 / .15)',
-                    }}
-                  >
-                    <Download className="size-5" /> {setting('landing.app_button_label') || 'دانلود اپلیکیشن'}
-                  </a>
-                ) : (
-                  <p className="mt-5 inline-flex items-center gap-2 rounded-2xl bg-white/10 px-4 py-2.5 text-xs font-semibold text-white/85 ring-1 ring-white/15">
-                    <Sparkles className="size-4 text-amber-300" /> نسخهٔ اندروید به‌زودی منتشر می‌شود.
-                  </p>
-                )}
+                <AppStoreButtons
+                  links={{
+                    direct: appUrl || undefined,
+                    bazaar: setting('landing.app_bazaar_url') || undefined,
+                    myket: setting('landing.app_myket_url') || undefined,
+                    directLabel: setting('landing.app_button_label') || 'دانلود مستقیم',
+                    showComingSoon: setting('landing.app_coming_soon') !== 'false',
+                  }}
+                  className="mt-5 max-w-md"
+                />
               </div>
               <div className="mx-auto hidden rotate-[7deg] sm:block">
                 <Tilt maxX={8} maxY={10}>

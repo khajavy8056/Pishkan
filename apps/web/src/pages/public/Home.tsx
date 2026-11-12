@@ -30,7 +30,8 @@ import { Button } from '../../components/ui';
 import { CategoryArt, CategoryIcon, CustomHtml, FeatureIcon, ShieldArt } from '../../components/visual';
 import { HeroField } from '../../components/landing-hero-field';
 import { HeroStage } from '../../components/landing-hero-stage';
-import { AppDevice, AppDeviceCards, AppTrustRow } from '../../components/landing-app-device';
+import { AppDevice, AppDeviceCards } from '../../components/landing-app-device';
+import { AppInstallNote, AppStoreButtons } from '../../components/app-store-buttons';
 import { RequestStack } from '../../components/landing-stack';
 import { ParallaxBand } from '../../components/landing-parallax-band';
 import {
@@ -155,7 +156,15 @@ export function HomePage() {
   const heroTitle = setting('landing.hero_title') || brand.name;
   const featuresTitle = setting('landing.features_title') || `چرا ${brand.name}؟`;
   const appTitle = setting('landing.app_title') || `اپلیکیشن اندروید ${brand.name}`;
-  const appUrl = setting('landing.app_android_url');
+  // Three install destinations, each with its own setting. Empty means "not
+  // published yet": the button still appears, as a disabled coming-soon card.
+  const appLinks = {
+    direct: setting('landing.app_android_url') || undefined,
+    bazaar: setting('landing.app_bazaar_url') || undefined,
+    myket: setting('landing.app_myket_url') || undefined,
+    directLabel: setting('landing.app_button_label') || 'دانلود مستقیم',
+    showComingSoon: setting('landing.app_coming_soon') !== 'false',
+  };
   const showApp = setting('landing.show_app_section') !== 'false';
   const showStats = setting('landing.show_stats') !== 'false';
   const stats = site?.stats;
@@ -402,26 +411,14 @@ export function HomePage() {
                       ))}
                     </ul>
 
-                    <div className="mt-7 flex flex-wrap items-center gap-3">
-                      {appUrl ? (
-                        <a
-                          href={appUrl} target="_blank" rel="noreferrer"
-                          className="btn-primary btn-lg"
-                          style={{
-                            backgroundImage: 'linear-gradient(180deg,#34d399 0%,#059669 55%,#047857 100%)',
-                            boxShadow: '0 14px 28px -10px rgb(5 150 105 / .55), inset 0 1px 0 rgb(255 255 255 / .4), inset 0 -2px 0 rgb(0 0 0 / .15)',
-                          }}
-                        >
-                          <Download className="size-5" />
-                          {setting('landing.app_button_label') || 'دریافت اپلیکیشن'}
-                        </a>
-                      ) : (
-                        <span className="inline-flex items-center gap-2 rounded-2xl bg-amber-400/15 px-4 py-2.5 text-xs font-semibold text-amber-200 ring-1 ring-amber-300/30">
-                          <Sparkles className="size-4" /> نسخهٔ اندروید به‌زودی منتشر می‌شود
-                        </span>
-                      )}
+                    <div className="mt-7">
+                      <p className="mb-2.5 flex items-center gap-1.5 text-[11px] font-bold text-white/50">
+                        <Smartphone className="size-3.5" />
+                        نصب روی اندروید
+                      </p>
+                      <AppStoreButtons links={appLinks} size="lg" className="max-w-lg" />
                     </div>
-                    <AppTrustRow />
+                    <AppInstallNote />
                   </div>
 
                   {/* phone */}

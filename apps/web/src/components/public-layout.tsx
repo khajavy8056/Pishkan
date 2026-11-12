@@ -9,6 +9,7 @@ import { parseListSetting, useSite } from '../lib/site';
 import { useAuth, homeFor } from '../lib/auth';
 import { useBrand, BrandLockup } from '../lib/brand';
 import { Skyline } from './visual';
+import { AppStoreButtons } from './app-store-buttons';
 import { ChatWidget } from './ChatWidget';
 import { ThemeToggle } from '../lib/theme';
 
@@ -205,10 +206,17 @@ export function PublicLayout({ children }: { children: ReactNode }) {
               </a>
             )}
             {setting('office.working_hours') && <span className="flex items-center gap-1.5"><Clock className="size-3.5 text-brand-300" />{setting('office.working_hours')}</span>}
-            {appUrl && (
-              <a href={appUrl} target="_blank" rel="noreferrer" className="btn-primary btn-sm ms-auto">
-                <Download className="size-4" /> {setting('landing.app_button_label') || 'دریافت اپلیکیشن'}
-              </a>
+            {(appUrl || setting('landing.app_bazaar_url') || setting('landing.app_myket_url')) && (
+              <AppStoreButtons
+                className="ms-auto w-full max-w-md sm:w-auto"
+                links={{
+                  direct: appUrl || undefined,
+                  bazaar: setting('landing.app_bazaar_url') || undefined,
+                  myket: setting('landing.app_myket_url') || undefined,
+                  directLabel: setting('landing.app_button_label') || 'دانلود مستقیم',
+                  showComingSoon: setting('landing.app_coming_soon') !== 'false',
+                }}
+              />
             )}
           </div>
         </div>
