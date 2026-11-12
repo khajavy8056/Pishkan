@@ -10,6 +10,7 @@ import '../core/cache.dart';
 import '../core/referral.dart';
 import '../core/session.dart';
 import '../models/models.dart';
+import 'push.dart';
 
 final api = ApiClient.instance;
 final session = SessionStore.instance;
@@ -238,6 +239,13 @@ Future<Map<String, dynamic>> clearAvatarPhoto() async {
 }
 
 Future<void> logoutServer() async {
+  // Retire this phone for this account *before* the session is gone: the call
+  // needs the auth header, and a shared phone that keeps receiving the previous
+  // customer's case updates after they signed out is a privacy failure, not
+  // just a nuisance.
+  try {
+    await PushService.unregisterFromServer();
+  } catch (_) {}
   try {
     await api.postData('/api/auth/logout');
   } catch (_) {}
@@ -470,6 +478,51 @@ Future<Map<String, dynamic>> fetchNotifications({int limit = 50}) async {
     } catch (_) {}
   }
   return result;
+}
+
+/// Bind this installation's push token to the signed-in account.
+///
+/// The server keys the row by token and reassigns the owner on conflict, so
+/// calling this on every start is both safe and the cheapest way to survive a
+/// reinstall, an account switch on a shared phone, and server-side pruning of a
+/// token that had gone stale.
+Future<void> registerPushDevice({
+  required String token,
+  String appVersion = '',
+  String deviceName = '',
+  String deviceMaker = '',
+}) async {
+  await api.postData('/api/push/devices', body: {
+    'token': token,
+    'platform': 'android',
+    if (appVersion.isNotEmpty) 'appVersion': appVersion,
+    if (deviceName.isNotEmpty) 'deviceName': deviceName,
+    if (deviceMaker.isNotEmpty) 'deviceMaker': deviceMaker,
+  });
+}
+
+/// Stop pushing to this device for the current account (called on sign-out).
+Future<void> unregisterPushDevice(String token) async {
+  // Token goes in the query string: the app's DELETE helper cannot carry a body.
+  await api.deletePayload('/api/push/devices?token=${Uri.encodeQueryComponent(token)}');
+}
+
+/// Server-side view of push for this account: how many devices are registered,
+/// whether the Firebase key works, and what was delivered recently. Used by the
+/// profile screen to answer "why am I not getting notifications?" with facts
+/// instead of a guess.
+Future<Map<String, dynamic>> fetchPushStatus() async {
+  final envelope = await api.getEnvelope('/api/push/devices/status');
+  return {...asMap(envelope['data']), ...asMap(envelope['meta'])};
+}
+
+/// Send a test push to my own devices.
+Future<Map<String, dynamic>> sendTestPush({String? title, String? body}) async {
+  final data = await api.postData('/api/push/test', body: {
+    if (title != null) 'title': title,
+    if (body != null) 'body': body,
+  });
+  return asMap(data);
 }
 
 /// Last good notification feed on this device (instant paint), or null.

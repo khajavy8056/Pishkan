@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import {
   Save, RotateCcw, TestTube2, ShieldAlert, CheckCircle2, XCircle, AlertTriangle, KeyRound,
-  MessageSquare, Globe, Loader2, Info, Eye, EyeOff, Search,
+  MessageSquare, Globe, Loader2, Info, Eye, EyeOff, Search, BellRing,
 } from 'lucide-react';
 import clsx from 'clsx';
 import { AppShell, PageHeader } from '../../components/shell';
@@ -41,6 +41,12 @@ export function SettingsCenter() {
   const [smsLogs, setSmsLogs] = useState<any[]>([]);
   const [testing, setTesting] = useState<'connection' | 'send' | null>(null);
   const [domainCheck, setDomainCheck] = useState<any>(null);
+  // Native push (FCM). Kept separate from the SMS test above because they fail
+  // for completely different reasons, and telling an operator "the message
+  // failed" when the phone simply never registered is the kind of ambiguity
+  // that turns a five-minute setup into a support thread.
+  const [pushState, setPushState] = useState<any>(null);
+  const [pushBusy, setPushBusy] = useState(false);
 
   const load = () => {
     setLoading(true);
@@ -61,6 +67,9 @@ export function SettingsCenter() {
     load();
     api.get<{ data: any }>('/api/settings/sms/credentials').then((res) => setSmsState(res.data)).catch(() => undefined);
     api.list<any>('/api/settings/sms/logs', { limit: 10 }).then((res) => setSmsLogs(res.data)).catch(() => undefined);
+    // Push diagnostics share the SMS tab; loading them here means the card has
+    // an answer the moment the operator opens it, instead of a "press to load".
+    api.get<{ data: any }>('/api/push/diagnostics?limit=8').then((res) => setPushState(res.data)).catch(() => undefined);
   }, []);
 
   const settings: SettingItem[] = data?.settings ?? [];
@@ -108,6 +117,28 @@ export function SettingsCenter() {
     } catch (err) {
       notify(err instanceof ApiFailure ? err.message : 'خطا', 'error');
     }
+  };
+
+  const loadPush = async () => {
+    try {
+      const res = await api.get<{ data: any }>('/api/push/diagnostics?limit=8');
+      setPushState(res.data);
+    } catch {
+      // Push may be unconfigured or the module absent on an older build; the
+      // card then simply reports nothing rather than an error banner.
+      setPushState(null);
+    }
+  };
+
+  const sendTestPush = async () => {
+    setPushBusy(true);
+    try {
+      const res = await api.post<{ data: any }>('/api/push/test', {});
+      notify(res.data.message ?? 'درخواست ارسال شد.', res.data.sent > 0 ? 'success' : 'error');
+      await loadPush();
+    } catch (err) {
+      notify(err instanceof ApiFailure ? err.message : 'ارسال آزمایشی ناموفق بود', 'error');
+    } finally { setPushBusy(false); }
   };
 
   const testConnection = async () => {
@@ -229,6 +260,78 @@ export function SettingsCenter() {
           </Card>
 
           {activeGroup === 'sms' && <SmsTemplatesPanel notify={notify} />}
+
+          {activeGroup === 'sms' && (
+            <Card>
+              <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+                <h2 className="flex items-center gap-2 font-bold text-navy-900">
+                  <BellRing className="size-4 text-accent" /> اعلان لحظه‌ای گوشی (Firebase)
+                </h2>
+                <div className="flex gap-2">
+                  <Button size="sm" variant="ghost" onClick={loadPush}>به‌روزرسانی وضعیت</Button>
+                  <Button size="sm" loading={pushBusy} onClick={sendTestPush}>ارسال آزمایشی</Button>
+                </div>
+              </div>
+              <p className="mb-3 text-[11px] leading-5 text-navy-500">
+                این ارسال از سمت سرور انجام می‌شود، پس اگر گوشی مشتری برنامه را بسته باشد هم باید اعلان برسد.
+                اگر رسید، مسیر «اعلان وقتی برنامه بسته است» سالم است؛ اگر نرسید، علت در همین کارت نوشته می‌شود.
+              </p>
+              {!pushState && (
+                <p className="text-sm text-navy-400">
+                  برای دیدن وضعیت، «به‌روزرسانی وضعیت» را بزنید. اگر خالی ماند، سرور نسخهٔ قدیمی است.
+                </p>
+              )}
+              {pushState && (
+                <>
+                  <div className="mb-3 flex flex-wrap gap-2 text-[11px]">
+                    <Badge tone={pushState.enabled ? 'success' : 'warning'}>
+                      ارسال: {pushState.enabled ? 'فعال' : 'غیرفعال'}
+                    </Badge>
+                    <Badge tone={pushState.credentialsOk ? 'success' : 'danger'}>
+                      کلید حساب سرویس: {pushState.credentialsOk ? 'معتبر' : 'نامعتبر یا خالی'}
+                    </Badge>
+                    <Badge tone="info">پروژه: {pushState.project || '—'}</Badge>
+                    <Badge tone={pushState.devices > 0 ? 'info' : 'default'}>
+                      گوشی ثبت‌شده: {faNum(pushState.devices ?? 0)}
+                    </Badge>
+                    {pushState.endpointOverride && <Badge tone="warning">نشانی واسط فعال</Badge>}
+                  </div>
+                  {pushState.problem && (
+                    <p className="mb-3 rounded-xl bg-amber-50 px-3 py-2 text-[11px] leading-5 text-amber-900">
+                      {pushState.problem}
+                    </p>
+                  )}
+                  {pushState.credentialsError && (
+                    <p className="mb-3 rounded-xl bg-rose-50 px-3 py-2 text-[11px] leading-5 text-rose-900" dir="ltr">
+                      {pushState.credentialsError}
+                    </p>
+                  )}
+                  {(pushState.recent ?? []).length === 0 ? (
+                    <p className="text-[11px] text-navy-400">هنوز ارسالی ثبت نشده است.</p>
+                  ) : (
+                    <div className="table-wrap">
+                      <table className="table">
+                        <thead><tr><th>زمان</th><th>نتیجه</th><th>کد خطا</th><th>توکن</th></tr></thead>
+                        <tbody>
+                          {(pushState.recent ?? []).map((row: any) => (
+                            <tr key={row.id}>
+                              <td className="text-[11px]">{faDateTime(row.at)}</td>
+                              <td className="text-[11px]">
+                                {row.ok ? <span className="text-emerald-700">تحویل شد</span>
+                                  : <span className="text-rose-700">ناموفق</span>}
+                              </td>
+                              <td className="text-[11px]" dir="ltr">{row.errorCode || '—'}</td>
+                              <td className="text-[11px]" dir="ltr">…{row.tokenTail || ''}</td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  )}
+                </>
+              )}
+            </Card>
+          )}
 
           {activeGroup === 'sms' && (
             <Card>

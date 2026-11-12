@@ -62,6 +62,28 @@
         <activity android:name="com.yalantis.ucrop.UCropActivity"
             android:screenOrientation="portrait"
             android:theme="@style/Theme.AppCompat.Light.NoActionBar"/>
+        <!-- Push notifications (FCM). A data-only message is delivered to this
+             service by the system even when the app has never been opened, which
+             is what makes "notification while the app is closed" work without
+             relying on the app being allowed to wake itself up.
+             android:exported is declared explicitly because Android 12+
+             requires it on components with an intent-filter. It is FALSE: GMS
+             dispatches MESSAGING_EVENT with an explicit bind, so the service
+             does not need to be reachable by other apps. Leaving it true would
+             let any installed app invoke this component. (Copying the Firebase
+             doc snippet verbatim is a common way to get an exported, callable
+             service.) -->
+        <service
+            android:name=".push.PishkanPushService"
+            android:exported="false"
+            android:directBootAware="false">
+            <intent-filter>
+                <action android:name="com.google.firebase.MESSAGING_EVENT" />
+            </intent-filter>
+        </service>
+        <!-- The registration token is reposted by the service itself, so no
+             default-notification metadata is needed: nothing is rendered by the
+             system for a data-only message. -->
         <meta-data
             android:name="flutterEmbedding"
             android:value="2" />

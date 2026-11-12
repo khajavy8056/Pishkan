@@ -2,6 +2,11 @@ plugins {
     id "com.android.application"
     id "kotlin-android"
     id "dev.flutter.flutter-gradle-plugin"
+    // Firebase Messaging only — deliberately NOT com.google.gms.google-services.
+    // That plugin requires google-services.json at build time and fails the
+    // build without it; this project initialises Firebase from string
+    // resources instead (see FirebaseBootstrap.kt) so CI and every developer
+    // can build an APK without the office's Firebase project.
 }
 
 def localProperties = new Properties()
@@ -53,6 +58,26 @@ android {
         targetSdk = flutter.targetSdkVersion
         versionCode = flutterVersionCode.toInteger()
         versionName = flutterVersionName
+        // Firebase identifiers can be supplied at build time instead of editing
+        // res/values/firebase.xml, which is how CI injects them from secrets:
+        //   flutter build apk -PfirebaseProjectId=… -PfirebaseAppId=…
+        //
+        // Only defined when the property is actually present. `resValue` with a
+        // placeholder would *replace* the resource file's value — including a
+        // real one committed there — with an invalid string, which is how an
+        // app "suddenly" stops registering for push after a CI build.
+        def firebaseValues = [
+            firebase_project_id   : "firebaseProjectId",
+            firebase_application_id: "firebaseAppId",
+            firebase_api_key      : "firebaseApiKey",
+            firebase_sender_id    : "firebaseSenderId",
+        ]
+        firebaseValues.each { resName, propName ->
+            def value = project.findProperty(propName)
+            if (value != null && value.toString().trim()) {
+                resValue "string", resName, value.toString().trim()
+            }
+        }
     }
 
     signingConfigs {
@@ -79,4 +104,12 @@ flutter {
 
 dependencies {
     coreLibraryDesugaring "com.android.tools:desugar_jdk_libs:2.1.5"
+    // Push delivery for the customer app. The BoM keeps the messaging and
+    // core artefacts on versions known to work together; without it a
+    // transitive upgrade of one against a pinned other is the classic
+    // "FirebaseApp not initialized" crash on a device that works on another.
+    implementation platform("com.google.firebase:firebase-bom:33.7.0")
+    implementation "com.google.firebase:firebase-messaging"
+    // NotificationCompat / NotificationManagerCompat for the tray rendering.
+    implementation "androidx.core:core-ktx:1.13.1"
 }

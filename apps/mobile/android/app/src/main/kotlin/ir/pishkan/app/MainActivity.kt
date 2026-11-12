@@ -9,14 +9,52 @@ import android.provider.Settings
 import io.flutter.embedding.android.FlutterFragmentActivity
 import io.flutter.embedding.engine.FlutterEngine
 import io.flutter.plugin.common.MethodChannel
+import ir.pishkan.app.push.FirebaseBootstrap
+import ir.pishkan.app.push.MainActivityClass
+import ir.pishkan.app.push.PushBridge
+import ir.pishkan.app.push.PushRenderer
 
 // FragmentActivity host so biometric prompts (local_auth) can attach.
 class MainActivity : FlutterFragmentActivity() {
     private var sounds: SoundPool? = null
     private val soundIds = mutableMapOf<String, Int>()
 
+    override fun onCreate(savedInstanceState: android.os.Bundle?) {
+        super.onCreate(savedInstanceState)
+        MainActivityClass.set(MainActivity::class.java)
+        // Firebase from string resources, not google-services.json; a blank
+        // config simply leaves push disabled and polling takes over.
+        FirebaseBootstrap.ensure(this)
+        PushRenderer.ensureChannels(this)
+        // A notification tap that cold-started the app arrives as an Intent.
+        handlePushIntent(intent)
+    }
+
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        setIntent(intent)
+        handlePushIntent(intent)
+    }
+
+    /**
+     * Carry the deep link from a tapped notification into Dart.
+     *
+     * The link is stashed rather than sent straight away: on a cold start the
+     * Flutter engine is not running yet, and invoking a method on a missing
+     * channel throws away the very tap the customer made.
+     */
+    private fun handlePushIntent(intent: Intent?) {
+        val link = intent?.getStringExtra("pishkan.push.link").orEmpty()
+        if (link.isNotEmpty()) {
+            PushBridge.deliver(link)
+            // Do not let a stale link survive a configuration change.
+            intent?.removeExtra("pishkan.push.link")
+        }
+    }
+
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
         super.configureFlutterEngine(flutterEngine)
+        PushBridge.attach(flutterEngine, this)
         sounds = SoundPool.Builder().setMaxStreams(3).setAudioAttributes(
             AudioAttributes.Builder().setUsage(AudioAttributes.USAGE_ASSISTANCE_SONIFICATION)
                 .setContentType(AudioAttributes.CONTENT_TYPE_SONIFICATION).build()

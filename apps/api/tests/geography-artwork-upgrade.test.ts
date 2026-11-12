@@ -1,9 +1,13 @@
 import { describe, expect, it } from 'vitest';
 import { DatabaseSync } from 'node:sqlite';
 import { readFileSync } from 'node:fs';
-import { join } from 'node:path';
+import { dirname, join } from 'node:path';
+import { fileURLToPath } from 'node:url';
 
-const migration = (name: string) => readFileSync(join(process.cwd(), 'migrations', name), 'utf8');
+// Resolve against this file, not process.cwd(): the suite is run both from
+// apps/api and from the repository root, and only one of those has migrations/.
+const migrationsDir = join(dirname(fileURLToPath(import.meta.url)), '..', 'migrations');
+const migration = (name: string) => readFileSync(join(migrationsDir, name), 'utf8');
 
 describe('non-destructive geography and artwork upgrades', () => {
   it('retains existing city identifiers and administrator artwork', () => {

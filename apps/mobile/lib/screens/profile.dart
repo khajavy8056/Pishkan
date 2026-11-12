@@ -10,6 +10,7 @@ import '../core/theme.dart';
 import '../core/theme_mode.dart';
 import '../models/models.dart';
 import '../services/notifier.dart';
+import '../services/push.dart';
 import '../services/services.dart';
 import '../widgets/avatar.dart';
 import '../widgets/screen_header.dart';
@@ -178,6 +179,39 @@ class _ProfileTabState extends State<ProfileTab> {
                 },
                 icon: const Icon(Icons.science_outlined, size: 18),
                 label: const Text('ارسال اعلان آزمایشی'),
+              ),
+              const SizedBox(height: 8),
+              // The local test above proves the phone can *display* a
+              // notification. This one proves the server can *reach* this
+              // phone — a different failure, and the one behind "it works when
+              // the app is open but not when it is closed". It goes through
+              // Firebase, so the arrival is independent of the app running.
+              OutlinedButton.icon(
+                onPressed: () async {
+                  try {
+                    // A token can be missing on the server if the last upload
+                    // failed offline; force one now so the test is meaningful.
+                    await PushService.refreshToken();
+                    final result = await sendTestPush();
+                    if (!sheetContext.mounted) return;
+                    final sent = (result['sent'] as num?)?.toInt() ?? 0;
+                    showSnack(
+                      sheetContext,
+                      sent > 0
+                          ? 'اعلان از سرور ارسال شد؛ اگر برنامه بسته هم باشد باید برسد.'
+                          : (asStr(result['message']).isNotEmpty
+                              ? asStr(result['message'])
+                              : 'سرور نتوانست اعلان بفرستد؛ جزئیات در پنل مدیر کل ← پیامک و اعلان‌ها است.'),
+                      error: sent == 0,
+                    );
+                  } catch (_) {
+                    if (sheetContext.mounted) {
+                      showSnack(sheetContext, 'ارسال آزمایشی از سرور ممکن نشد (اتصال یا تنظیمات سرور).', error: true);
+                    }
+                  }
+                },
+                icon: const Icon(Icons.cloud_upload_outlined, size: 18),
+                label: const Text('ارسال آزمایشی از سرور (حالت بسته)'),
               ),
               const SizedBox(height: 8),
               // Telling people to go hunting through Settings is not a fix.

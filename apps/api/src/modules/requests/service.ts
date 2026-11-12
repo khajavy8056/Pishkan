@@ -1189,6 +1189,20 @@ export async function moveStep(
       kind: 'info',
       link: `/app/requests/${requestId}`,
       push: true,
+      // The app keys its stage styling, its replacement behaviour ("stage 4"
+      // must replace "stage 3" in the shade, not stack under it) and its
+      // progress bar off this value. Without it every stage notice rendered as
+      // a generic announcement.
+      eventType: 'request_stage',
+      // The bar the customer actually sees. Fraction of the workflow that is
+      // behind them, and the step they are on now. Sent as the real numbers
+      // rather than a pre-rendered "۳ از ۵" so the phone can draw a bar and a
+      // screen reader can say it in words.
+      progress: steps.length > 1 ? Math.min(1, Math.max(0, next / (steps.length - 1))) : null,
+      stageLabel: steps[next].title,
+      // Stable per case, so two consecutive stage changes overwrite instead of
+      // both staying in the tray.
+      idempotencyKey: `request-stage:${requestId}:${next}`,
     }).catch(() => undefined);
     return getRequest(requestId);
   });

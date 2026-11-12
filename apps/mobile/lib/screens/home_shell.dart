@@ -7,7 +7,9 @@ import '../core/motion.dart';
 import '../core/sizes.dart';
 import '../core/theme.dart';
 import '../services/notifier.dart';
+import '../services/push.dart';
 import '../services/services.dart';
+import '../widgets/notification_card.dart';
 import '../widgets/wave_nav_bar.dart';
 import '../widgets/widgets.dart';
 import 'home.dart';
@@ -53,6 +55,17 @@ class _HomeShellState extends State<HomeShell> with WidgetsBindingObserver {
     homeNavigationRequests.addListener(_returnHome);
     homeTabRequests.addListener(_onTabRequest);
     NotifierService.onTapLink = _openLink;
+    // Native push has its own tap channel: a notification tapped while the app
+    // was closed never went through the polling service, so without this the
+    // app would open on the home screen instead of the case it was about.
+    PushService.onLink = _openLink;
+    final pushedLink = PushService.takePendingLaunchLink();
+    if (pushedLink != null && pushedLink.isNotEmpty) {
+      WidgetsBinding.instance.addPostFrameCallback((_) => _openLink(pushedLink));
+    }
+    // Bind this phone to the signed-in account (safe to repeat: the server keys
+    // the row by token and reassigns the owner).
+    unawaited(PushService.registerWithServer());
     // Ask for the notification permission once the customer is inside the
     // app (never on the splash, where it could stall first paint).
     unawaited(_askNotificationsPermission());
@@ -78,6 +91,7 @@ class _HomeShellState extends State<HomeShell> with WidgetsBindingObserver {
     _pollTimer?.cancel();
     _bannerTimer?.cancel();
     if (NotifierService.onTapLink == _openLink) NotifierService.onTapLink = null;
+    if (PushService.onLink == _openLink) PushService.onLink = null;
     super.dispose();
   }
 
@@ -218,48 +232,15 @@ class _HomeShellState extends State<HomeShell> with WidgetsBindingObserver {
         curve: PishkanMotion.enter,
         child: event == null
           ? const SizedBox.shrink()
-          : GestureDetector(
+          : PishkanNotificationCard(
+              event: event,
+              compact: true,
               onTap: () {
                 final link = event.link;
                 _dismissBanner();
                 _openLink(link);
               },
-              onVerticalDragEnd: (_) => _dismissBanner(),
-              child: Container(
-                padding: const EdgeInsets.fromLTRB(14, 12, 14, 12),
-                decoration: BoxDecoration(
-                  color: context.surface,
-                  borderRadius: BorderRadius.circular(20),
-                  border: Border.all(color: context.hairline),
-                  boxShadow: const [BoxShadow(color: Color(0x2A0B1F3A), blurRadius: 24, offset: Offset(0, 10))],
-                ),
-                child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
-                  Row(children: [
-                    Container(
-                      padding: const EdgeInsets.all(9),
-                      decoration: BoxDecoration(color: event.color.withOpacity(0.13), shape: BoxShape.circle),
-                      child: Icon(event.icon, color: event.color, size: 20),
-                    ),
-                    const SizedBox(width: 10),
-                    Expanded(
-                      child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                        Text(event.title, maxLines: 1, overflow: TextOverflow.ellipsis, style: TextStyle(fontWeight: FontWeight.w800, fontSize: 13.5, color: context.ink)),
-                        if (event.body.isNotEmpty) Text(event.body, maxLines: 2, overflow: TextOverflow.ellipsis, style: TextStyle(fontSize: 11.5, color: context.inkMuted, height: 1.6)),
-                      ]),
-                    ),
-                    IconButton(icon: Icon(Icons.close_rounded, size: 18, color: context.inkMuted), onPressed: _dismissBanner),
-                  ]),
-                  if (event.progress != null) ...[
-                    const SizedBox(height: 9),
-                    ClipRRect(
-                      borderRadius: BorderRadius.circular(999),
-                      child: TrackProgressIndicator(event.progress!, event.color, 6),
-                    ),
-                    const SizedBox(height: 5),
-                    Text('مرحلهٔ فعلی: ${event.stageLabel}', style: TextStyle(fontSize: 10.5, fontWeight: FontWeight.w700, color: event.color)),
-                  ],
-                ]),
-              ),
+              onDismiss: _dismissBanner,
             ),
       ),
     );

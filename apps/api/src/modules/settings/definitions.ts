@@ -175,6 +175,14 @@ export const SETTINGS: SettingDef[] = [
   { key: 'sms.log_body', group: 'sms', type: 'boolean', label: 'ثبت متن پیامک در لاگ داخلی', hint: 'برای حریم خصوصی مشتریان بهتر است خاموش باشد.', default: bool(false) },
   { key: 'sms.test_recipient', group: 'sms', type: 'tel', label: 'شماره مقصد پیامک آزمایشی', default: '' },
 
+  /* ------------------------- اعلان لحظه‌ای موبایل (FCM) ------------------------- */
+  // The credentials live here rather than in .env so an operator can switch
+  // them from the admin panel without restarting on the Windows install, where
+  // editing an env file is the hardest step in the whole product.
+  { key: 'push.fcm_enabled', group: 'sms', type: 'boolean', label: 'ارسال اعلان لحظه‌ای به گوشی مشتریان (Firebase)', hint: 'وقتی خاموش باشد، اپ همچنان با بررسی دوره‌ای اعلان می‌گیرد ولی وقتی بسته یا در حالت خواب باشد ممکن است دیر برسد. برای «اعلان وقتی برنامه بسته است» این گزینه باید روشن و کلید حساب سرویس وارد شده باشد.', default: bool(false) },
+  { key: 'push.fcm_service_account', group: 'sms', type: 'textarea', secret: true, label: 'کلید حساب سرویس Firebase (فایل JSON)', hint: 'محتوای کامل فایل JSON حساب سرویس را اینجا بچسبانید. رمزنگاری‌شده ذخیره می‌شود و هرگز به گوشی یا مرورگر فرستاده نمی‌شود. در Firebase Console ← Project settings ← Service accounts ← Generate new private key. برای احراز هویت باید در پروژه‌ای باشد که اپ اندروید در آن ثبت شده است.', default: '' },
+  { key: 'push.fcm_endpoint', group: 'sms', type: 'url', label: 'نشانی سرویس ارسال (فقط برای آزمایش)', hint: 'خالی بگذارید تا از سرویس رسمی گوگل استفاده شود. فقط برای آزمون با سرور تقلبی یا واسط داخلی.', default: '' },
+
   /* --------------------------------- email -------------------------------- */
   { key: 'email.enabled', group: 'email', type: 'boolean', label: 'ارسال ایمیل فعال باشد', default: bool(false) },
   { key: 'email.host', group: 'email', type: 'text', label: 'هاست SMTP', default: '' },

@@ -1,0 +1,23 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Firebase configuration for push notifications.
+
+  These are NOT secrets: they identify the customer's Firebase project to the
+  device, and every installed app can read them. The credential that can push
+  to every device is the service-account JSON, which lives only on the server
+  (admin panel → پیامک و اعلان‌ها).
+
+  Left blank so the repository builds and runs without a Firebase project; the
+  app then falls back to its in-app polling and the admin panel reports push as
+  unconfigured. Fill these in (or pass -PfirebaseProjectId=… etc. at build time)
+  to enable instant delivery.
+
+  Where to find each value: Firebase Console → Project settings → General →
+  "Your apps" → the Android app → SDK setup and configuration.
+-->
+<resources>
+    <string name="firebase_project_id" translatable="false"></string>
+    <string name="firebase_application_id" translatable="false"></string>
+    <string name="firebase_api_key" translatable="false"></string>
+    <string name="firebase_sender_id" translatable="false"></string>
+</resources>

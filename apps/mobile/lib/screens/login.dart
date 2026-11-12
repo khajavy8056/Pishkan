@@ -10,6 +10,7 @@ import '../core/referral.dart';
 import '../core/theme.dart';
 import '../models/models.dart';
 import '../services/notifier.dart' show AppPrefs;
+import '../services/push.dart';
 import '../services/services.dart';
 import '../widgets/widgets.dart';
 import 'home_shell.dart';
@@ -82,6 +83,12 @@ class _LoginScreenState extends State<LoginScreen> {
   }
 
   void _goHome() {
+    // Bind this phone to the new account before leaving the login screen.
+    // Waiting for the shell's first frame would leave a few seconds in which a
+    // case update has nowhere to go; more importantly, on a phone that held a
+    // previous account the token is reassigned here, which is what stops the
+    // old owner's notifications.
+    unawaited(PushService.refreshToken());
     Navigator.pushReplacement(context, MaterialPageRoute(builder: (_) => const HomeShell()));
   }
 

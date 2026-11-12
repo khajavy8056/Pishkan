@@ -6,6 +6,8 @@ import '../core/stages.dart';
 import '../core/theme.dart';
 import '../models/models.dart';
 import '../services/services.dart';
+import '../services/notifier.dart';
+import '../widgets/notification_card.dart';
 import '../widgets/widgets.dart';
 import 'notification_route.dart';
 
@@ -191,49 +193,31 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
     final unread = asStr(item['readAt']).isEmpty;
     final requestId = _requestIdOf(item);
     final request = requestId == null ? null : _requestsById[requestId];
+    // Progress comes from the case itself, not from the notification row: the
+    // row records the stage that fired, while the case knows how far along it
+    // is *now*, which is what a progress bar should show.
     final progress = request == null ? null : caseProgress(status: request.status, workBucket: request.workBucket);
 
-    final (IconData icon, Color color) = _isAnnouncement(item)
-        ? (Icons.campaign_rounded, const Color(0xFFDB2777))
-        : _isMessage(item)
-            ? (Icons.chat_rounded, const Color(0xFF0891B2))
-            : requestId != null
-                ? (Icons.timeline_rounded, PishkanColors.primary)
-                : switch (asStr(item['kind'])) {
-                    'success' => (Icons.check_circle_rounded, PishkanColors.success),
-                    'warning' => (Icons.warning_amber_rounded, PishkanColors.warning),
-                    'error' => (Icons.error_rounded, PishkanColors.danger),
-                    _ => (Icons.campaign_rounded, PishkanColors.primary),
-                  };
-
-    return SoftCard(
-      onTap: () => _open(item),
-      child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
-        Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
-          Stack(children: [
-            Container(
-              padding: const EdgeInsets.all(10),
-              decoration: BoxDecoration(color: color.withOpacity(0.12), shape: BoxShape.circle),
-              child: Icon(icon, color: color, size: 20),
-            ),
-            if (unread) Positioned(top: 2, right: 2, child: Container(width: 9, height: 9, decoration: BoxDecoration(color: PishkanColors.danger, shape: BoxShape.circle))),
-          ]),
-          const SizedBox(width: 11),
-          Expanded(
-            child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-              Text(asStr(item['title']), style: TextStyle(fontWeight: unread ? FontWeight.w800 : FontWeight.w600, fontSize: 13.5, color: context.ink)),
-              if (asStr(item['body']).isNotEmpty) Text(asStr(item['body']), style: TextStyle(fontSize: 12, color: context.inkMuted, height: 1.8), maxLines: 3, overflow: TextOverflow.ellipsis),
-              const SizedBox(height: 3),
-              Text(faDate(item['createdAt'], withTime: true), style: TextStyle(fontSize: 10.5, color: context.inkMuted)),
-            ]),
-          ),
-          if (requestId != null || _isAnnouncement(item) || _isMessage(item)) Icon(Icons.chevron_left_rounded, color: context.inkMuted, size: 20),
-        ]),
-        if (progress != null) ...[
-          const SizedBox(height: 10),
-          StageProgressBar(progress: progress),
-        ],
-      ]),
+    final event = AppNotificationEvent(
+      id: asStr(item['id']),
+      title: asStr(item['title']),
+      body: asStr(item['body']),
+      link: asStr(item['link']),
+      kind: asStr(item['kind']),
+      eventType: asStr(item['eventType']),
+      progress: progress?.fraction,
+      stageLabel: progress?.currentLabel ?? '',
     );
+
+    return Stack(children: [
+      PishkanNotificationCard(
+        event: event,
+        compact: false,
+        timeLabel: faDate(item['createdAt'], withTime: true),
+        onTap: () => _open(item),
+      ),
+      if (unread)
+        Positioned(top: 10, left: 10, child: UnreadPip()),
+    ]);
   }
 }

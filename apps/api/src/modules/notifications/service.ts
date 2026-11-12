@@ -16,6 +16,18 @@ export interface NotifyInput {
   email?: boolean;
   /** Stable machine-readable category, independent of localized text. */
   eventType?: string;
+  /**
+   * 0..1 completion of the thing this notice is about, when it has a natural
+   * one (a case walking through its steps). Drawn as a determinate progress bar
+   * on the phone's notification — the detail that makes a stage change read as
+   * "my case is 60% done" instead of another row of text.
+   *
+   * Omitted for anything without a meaningful fraction, because a bar that
+   * sits at 50% for a message about a reply is a lie the customer will notice.
+   */
+  progress?: number | null;
+  /** Human name of the current step, shown next to the bar. */
+  stageLabel?: string;
 }
 
 /** Persist the in-app notice first; an SMS failure never drops the notice. */
@@ -39,6 +51,32 @@ export async function notifyUser(userId: string, input: NotifyInput): Promise<vo
       const smsKey = `${input.idempotencyKey ?? notificationId}:sms`;
       await sendEventNotificationSms(user.mobile, input.sms, smsKey).catch(() => undefined);
     }
+  }
+
+  // Native push (FCM) is attempted for every persistent notice, not only the
+  // ones flagged `push: true`. The flag predates this channel and only ever
+  // meant "the old Web Push browser bell"; a customer who registered a phone
+  // expects every notice in their feed to reach the tray, and a notification
+  // that exists in the app but never buzzed is exactly the complaint that
+  // started this work. Web Push stays behind its own flag so browsers that
+  // were never subscribed are not queried for nothing.
+  //
+  // Best-effort and non-blocking with respect to the business flow: a phone
+  // that cannot be reached must never fail the transaction that moved a case.
+  try {
+    const { pushToUsers } = await import('./fcm.js');
+    await pushToUsers([userId], {
+      title: input.title,
+      body: (input.body ?? '').slice(0, 500),
+      link: input.link ?? '',
+      notificationId,
+      tag: (input.idempotencyKey ?? notificationId).slice(0, 120),
+      kind: input.kind ?? 'info',
+      progress: typeof input.progress === 'number' ? input.progress : null,
+      stageLabel: input.stageLabel ?? '',
+    });
+  } catch {
+    // Never surfaced: push is a delivery channel, not part of the write.
   }
 
   if (input.push) {
