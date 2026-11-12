@@ -666,3 +666,337 @@
 .blog-content th { background: var(--surface-3); font-weight: 800; }
 .blog-content code { background: var(--surface-3); border-radius: 0.4rem; padding: 0.1rem 0.35rem; font-size: 0.88em; }
 .blog-content pre { background: var(--surface-3); border-radius: 0.9rem; padding: 0.9rem 1rem; overflow-x: auto; margin: 1rem 0; }
+
+/* ==========================================================================
+   Landing page — scroll & pointer choreography
+   --------------------------------------------------------------------------
+   Everything below is additive: the landing page keeps working with no
+   JavaScript, in reduced-motion mode, and on browsers without CSS 3D. The
+   animated path only ever *enhances* an already-readable static layout.
+
+   Tokens published by components/landing-motion.ts:
+     --p   0 → 1  progress through the viewport
+     --c  -1 → 1  same, centred
+     --mx/-my  pointer offset −1 → 1   ·  --px/--py  pointer position 0 → 1
+     --j   0 → 1  journey section scroll progress
+   ========================================================================== */
+
+.landing {
+  /* A single perspective on the page root; nested 3D scenes inherit it. */
+  perspective: 1600px;
+  perspective-origin: 50% 40%;
+  overflow-x: clip;
+}
+
+/* ------------------------------ scroll reveal ----------------------------- */
+
+[data-reveal] {
+  opacity: 0;
+  transform: translate3d(0, 26px, 0) scale(0.985);
+  transition:
+    opacity 0.75s cubic-bezier(0.22, 1, 0.36, 1),
+    transform 0.75s cubic-bezier(0.22, 1, 0.36, 1);
+  will-change: opacity, transform;
+}
+[data-reveal].is-in {
+  opacity: 1;
+  transform: none;
+  will-change: auto;
+}
+[data-reveal='left'] { transform: translate3d(34px, 0, 0) scale(0.985); }
+[data-reveal='right'] { transform: translate3d(-34px, 0, 0) scale(0.985); }
+[data-reveal='zoom'] { transform: scale(0.9); }
+[data-reveal='blur'] { filter: blur(10px); transform: translate3d(0, 18px, 0); }
+[data-reveal='blur'].is-in { filter: blur(0); }
+
+/* ------------------------------- hero scene ------------------------------- */
+
+.hero-stage {
+  --tilt-x: calc(var(--my, 0) * -7deg);
+  --tilt-y: calc(var(--mx, 0) * 9deg);
+  transform-style: preserve-3d;
+  transform:
+    perspective(1400px)
+    rotateX(var(--tilt-x))
+    rotateY(var(--tilt-y))
+    translate3d(calc(var(--mx, 0) * -10px), calc(var(--my, 0) * -8px), 0);
+  transition: transform 0.14s linear;
+}
+
+/* Layers inside the stage float at different depths. */
+.hero-layer { transform-style: preserve-3d; }
+.hero-layer[data-depth='1'] { transform: translateZ(34px); }
+.hero-layer[data-depth='2'] { transform: translateZ(70px); }
+.hero-layer[data-depth='3'] { transform: translateZ(112px); }
+.hero-layer[data-depth='4'] { transform: translateZ(150px); }
+
+/* An orbit ring that reads as a real 3D circle lying on the floor. */
+.hero-orbit {
+  position: absolute;
+  border-radius: 50%;
+  border: 1.5px solid color-mix(in oklab, var(--primary) 34%, transparent);
+  transform: rotateX(74deg) translateZ(-40px);
+  box-shadow: 0 0 60px -10px color-mix(in oklab, var(--primary) 40%, transparent);
+}
+.hero-orbit::after {
+  content: '';
+  position: absolute;
+  inset: -1px;
+  border-radius: 50%;
+  border-top: 2px solid color-mix(in oklab, var(--primary) 70%, transparent);
+  animation: orbitSpin 9s linear infinite;
+}
+@keyframes orbitSpin { to { rotate: 360deg; } }
+
+/* The floating brand card in front of the photo. */
+.hero-float-card {
+  transform:
+    translate3d(calc(var(--mx, 0) * 14px), calc(var(--my, 0) * 10px), 96px)
+    rotateY(calc(var(--mx, 0) * 5deg))
+    rotateX(calc(var(--my, 0) * -4deg));
+  transition: transform 0.18s linear;
+}
+
+.hero-photo {
+  transform: translateZ(0) scale(1.04);
+  transition: transform 0.5s cubic-bezier(0.22, 1, 0.36, 1);
+}
+.hero-stage:hover .hero-photo { transform: translateZ(0) scale(1.075); }
+
+/* Chips drift on their own, then lean with the pointer. */
+@keyframes chipFloat {
+  0%, 100% { translate: 0 0; }
+  50% { translate: 0 -9px; }
+}
+.hero-chip {
+  animation: chipFloat 6s ease-in-out infinite;
+  transition: transform 0.18s linear;
+}
+.hero-chip[data-i='1'] { animation-delay: -1.8s; }
+.hero-chip[data-i='2'] { animation-delay: -3.4s; }
+.hero-chip[data-i='3'] { animation-delay: -5s; }
+
+/* Slow sheen sweep across the photo. */
+.hero-sheen::after {
+  content: '';
+  position: absolute;
+  inset: -20% -40%;
+  background: linear-gradient(100deg, transparent 42%, rgb(255 255 255 / 0.28) 50%, transparent 58%);
+  animation: sheen 7s ease-in-out infinite;
+  pointer-events: none;
+}
+@keyframes sheen {
+  0%, 60% { transform: translateX(-60%) rotate(4deg); opacity: 0; }
+  70% { opacity: 1; }
+  92%, 100% { transform: translateX(60%) rotate(4deg); opacity: 0; }
+}
+
+/* ------------------------------ the phone -------------------------------- */
+
+.phone-scene {
+  perspective: 1200px;
+  perspective-origin: 50% 45%;
+}
+.phone-3d {
+  position: relative;
+  width: 15.5rem;
+  aspect-ratio: 9 / 19;
+  transform-style: preserve-3d;
+  transform:
+    rotateX(calc(4deg + var(--my, 0) * -6deg))
+    rotateY(calc(-13deg + var(--mx, 0) * 15deg))
+    rotateZ(-1.5deg);
+  transition: transform 0.35s cubic-bezier(0.22, 1, 0.36, 1);
+}
+.phone-face {
+  position: absolute;
+  inset: 0;
+  border-radius: 2.6rem;
+}
+.phone-back {
+  transform: translateZ(-14px);
+  background: linear-gradient(150deg, #1e293b, #020617 60%, #0b1220);
+  box-shadow: 0 40px 70px -30px rgb(2 6 23 / 0.75);
+}
+/* A thin slab giving the body its thickness; two edges at 90°. */
+.phone-edge {
+  width: 28px;
+  inset: 0 auto 0 0;
+  transform-origin: left center;
+  transform: rotateY(90deg) translateZ(-14px);
+  background: linear-gradient(180deg, #334155, #0f172a);
+  border-radius: 0.35rem;
+}
+.phone-screen {
+  transform: translateZ(4px);
+  padding: 6px;
+  background: linear-gradient(160deg, #0f172a, #020617);
+  box-shadow:
+    inset 0 0 0 1px rgb(255 255 255 / 0.08),
+    0 30px 60px -24px rgb(2 6 23 / 0.7);
+}
+/* Phone floats gently so it never looks pasted on. */
+@keyframes phoneFloat {
+  0%, 100% { translate: 0 0; }
+  50% { translate: 0 -14px; }
+}
+.phone-scene { animation: phoneFloat 7s ease-in-out infinite; }
+
+/* Glow pooled under the phone. */
+.phone-scene::after {
+  content: '';
+  position: absolute;
+  inset: auto 8% -9% 8%;
+  height: 46px;
+  border-radius: 50%;
+  background: radial-gradient(50% 50% at 50% 50%, color-mix(in oklab, var(--primary) 45%, transparent), transparent 72%);
+  filter: blur(9px);
+  transform: translateZ(-60px);
+}
+
+/* Secondary phones in the fan (desktop only, they carry no content). */
+.phone-secondary {
+  position: absolute;
+  inset-block-start: 2.5rem;
+  width: 13rem;
+  aspect-ratio: 9 / 19;
+  border-radius: 2.2rem;
+  border: 5px solid #0b1220;
+  background:
+    linear-gradient(170deg, color-mix(in oklab, var(--primary) 22%, #0b1220), #0b1220 70%);
+  box-shadow: 0 30px 50px -30px rgb(2 6 23 / 0.8);
+  opacity: 0.9;
+}
+.phone-secondary[data-side='left'] { inset-inline-start: -5.5rem; transform: rotateY(26deg) rotateZ(4deg) translateZ(-70px); }
+.phone-secondary[data-side='right'] { inset-inline-end: -5.5rem; transform: rotateY(-26deg) rotateZ(-4deg) translateZ(-70px); }
+.phone-secondary::before {
+  content: '';
+  position: absolute;
+  inset: 12px;
+  border-radius: 1.6rem;
+  background:
+    linear-gradient(180deg, rgb(255 255 255 / 0.14), transparent 40%),
+    repeating-linear-gradient(180deg, rgb(255 255 255 / 0.09) 0 6px, transparent 6px 18px);
+}
+
+/* --------------------------- journey (pinned) ---------------------------- */
+
+.journey-track {
+  /* The extra height is the scroll distance the pinned panel consumes. */
+  height: calc(100vh + 140vh);
+  background: linear-gradient(180deg, transparent, var(--shell) 12%, var(--shell) 88%, transparent);
+}
+.journey-sticky {
+  position: sticky;
+  top: 0;
+  display: flex;
+  align-items: center;
+  min-height: 100vh;
+  padding-block: 3.5rem;
+}
+.journey-panel {
+  width: 100%;
+  background:
+    radial-gradient(80% 60% at 100% 0%, color-mix(in oklab, var(--primary) 45%, transparent), transparent 60%),
+    linear-gradient(140deg, var(--shell) 0%, var(--shell-2) 60%, color-mix(in oklab, var(--primary) 40%, var(--shell)) 100%);
+}
+.journey-rail-fill {
+  width: calc(var(--j, 0) * 100%);
+  transition: width 0.12s linear;
+}
+.journey-step[data-state='active'] { transform: translateX(-6px); }
+.journey-mobile { display: none; }
+
+@media (max-width: 1023px) {
+  /* Sticky + short viewport is a bad pairing: fall back to a normal list. */
+  .journey-track { height: auto; background: none; }
+  .journey-sticky { display: none; }
+  .journey-mobile { display: block; }
+}
+
+/* ------------------------------ stats band ------------------------------- */
+
+.stat-tile {
+  position: relative;
+  overflow: hidden;
+  isolation: isolate;
+}
+.stat-tile::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  background:
+    radial-gradient(120% 90% at calc(var(--px, 0.5) * 100%) calc(var(--py, 0.5) * 100%),
+      color-mix(in oklab, var(--primary) 16%, transparent), transparent 62%);
+  opacity: 0;
+  transition: opacity 0.3s ease;
+}
+.stat-tile:hover::before { opacity: 1; }
+.stat-number {
+  font-variant-numeric: tabular-nums;
+  letter-spacing: -0.02em;
+}
+
+/* --------------------------- mobile tuning ------------------------------- */
+@media (max-width: 767px) {
+  /* Phones cannot hold a 3D perspective scene without it feeling jittery, so
+     every pointer-driven transform is neutralised here and the layout relies on
+     the (still present) scroll reveals. This is the single biggest cause of
+     "the landing page shakes on my phone". */
+  .landing { perspective: none; }
+  .hero-stage,
+  .hero-float-card,
+  .hero-chip,
+  .phone-3d {
+    transform: none !important;
+    transition: none;
+  }
+  .hero-orbit { display: none; }
+  .hero-layer[data-depth] { transform: none; }
+  .journey-track { height: auto; }
+  .hero-sheen::after { display: none; }
+  .parallax-layer,
+  .parallax-card,
+  .parallax-card:hover { transform: none !important; }
+
+  /* Keep the reveal, drop the travel: less motion, same rhythm. */
+  [data-reveal] { transform: translate3d(0, 18px, 0); }
+  [data-reveal='left'], [data-reveal='right'] { transform: translate3d(0, 18px, 0); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .hero-stage,
+  .hero-float-card,
+  .hero-chip,
+  .phone-3d,
+  .hero-orbit,
+  .phone-scene,
+  .stat-tile::before,
+  .parallax-layer,
+  .parallax-card {
+    transform: none !important;
+    animation: none !important;
+    transition: none !important;
+  }
+  [data-reveal] {
+    opacity: 1 !important;
+    transform: none !important;
+    filter: none !important;
+  }
+}
+
+/* ----------------------------- parallax band ----------------------------- */
+/* Three layers travelling at different speeds with scroll, and leaning with the
+   pointer. `--p` is written by useScrollProgress; the multipliers are what make
+   the layers read as depth rather than as one surface sliding. */
+.parallax-layer {
+  will-change: transform;
+  transition: transform 0.1s linear;
+}
+.parallax-far  { transform: translate3d(calc(var(--mx, 0) * 10px), calc((var(--p, 0.5) - 0.5) * -80px + var(--my, 0) * 6px), 0); }
+.parallax-mid  { transform: translate3d(calc(var(--mx, 0) * -18px), calc((var(--p, 0.5) - 0.5) * -160px + var(--my, 0) * -12px), 0); }
+.parallax-near { transform: translate3d(calc(var(--mx, 0) * 26px), calc((var(--p, 0.5) - 0.5) * -240px + var(--my, 0) * 18px), 0) rotate(calc((var(--p, 0.5) - 0.5) * 40deg)); }
+.parallax-card { transform: translate3d(0, calc((var(--p, 0.5) - 0.5) * 30px), 0); }
+/* Hover wins over the parallax drift so the card still lifts under the cursor. */
+.parallax-card:hover { transform: translate3d(0, calc((var(--p, 0.5) - 0.5) * 30px - 4px), 0); }

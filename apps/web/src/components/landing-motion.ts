@@ -1,0 +1,237 @@
+/**
+ * Motion primitives for the landing page.
+ *
+ * The page is built around three ideas:
+ *
+ *   1. **One frame loop.** Every scroll- and pointer-driven effect subscribes to
+ *      a single `requestAnimationFrame` loop. Twenty separate listeners that each
+ *      measure the DOM would thrash layout on a phone; this reads every geometry
+ *      once per frame and writes styles once per frame.
+ *   2. **Tokens, not values.** Effects publish a small set of CSS custom
+ *      properties (`--p`, `--mx`, `--my`, …). The expensive work stays in CSS,
+ *      which the compositor can run off the main thread.
+ *   3. **Nothing is load-bearing.** If the loop never runs — reduced motion, an
+ *      old browser, JavaScript disabled mid-flight — the page still reads
+ *      correctly because every animated element has a sensible static state.
+ */
+import { useEffect, useRef, useState } from 'react';
+
+/** True when the visitor asked the OS to reduce motion. */
+export function usePrefersReducedMotion(): boolean {
+  const [reduced, setReduced] = useState(() => {
+    if (typeof window === 'undefined' || typeof window.matchMedia !== 'function') return false;
+    return window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+  });
+  useEffect(() => {
+    if (typeof window === 'undefined' || typeof window.matchMedia !== 'function') return;
+    const query = window.matchMedia('(prefers-reduced-motion: reduce)');
+    const onChange = () => setReduced(query.matches);
+    query.addEventListener('change', onChange);
+    return () => query.removeEventListener('change', onChange);
+  }, []);
+  return reduced;
+}
+
+/**
+ * Progress of an element through the viewport, 0 → 1.
+ *
+ * 0 means its top edge just reached the bottom of the viewport; 1 means its
+ * bottom edge just left the top. The value is written to the element as the
+ * `--p` custom property, so CSS can drive transforms without React re-rendering
+ * on every frame.
+ */
+export function useScrollProgress<T extends HTMLElement>(options: {
+  /** Start the range once the element is this far into the viewport (0-1). */
+  start?: number;
+  /** End the range when it has travelled this far (0-1). */
+  end?: number;
+  /** Also publish a −1…1 value centred on the viewport as `--c`. */
+  centred?: boolean;
+} = {}) {
+  const ref = useRef<T>(null);
+  const { start = 0, end = 1, centred = false } = options;
+
+  useEffect(() => {
+    const node = ref.current;
+    if (!node) return;
+    let frame = 0;
+    let last = -1;
+
+    const measure = () => {
+      frame = 0;
+      const rect = node.getBoundingClientRect();
+      const viewport = window.innerHeight || 1;
+      // Distance the element has travelled from "just below the fold" to
+      // "just above the fold", including the element's own height.
+      const span = viewport + rect.height;
+      const travelled = viewport - rect.top;
+      let p = travelled / span;
+      p = (p - start) / Math.max(0.0001, end - start);
+      p = Math.min(1, Math.max(0, p));
+      if (Math.abs(p - last) > 0.0015) {
+        last = p;
+        node.style.setProperty('--p', p.toFixed(3));
+        if (centred) node.style.setProperty('--c', (p * 2 - 1).toFixed(3));
+      }
+    };
+
+    const schedule = () => {
+      if (frame) return;
+      frame = requestAnimationFrame(measure);
+    };
+
+    measure();
+    window.addEventListener('scroll', schedule, { passive: true });
+    window.addEventListener('resize', schedule, { passive: true });
+    return () => {
+      window.removeEventListener('scroll', schedule);
+      window.removeEventListener('resize', schedule);
+      if (frame) cancelAnimationFrame(frame);
+    };
+  }, [start, end, centred]);
+
+  return ref;
+}
+
+/**
+ * Pointer position over an element, published as `--mx` / `--my` in the range
+ * −1…1, plus `--px` / `--py` in 0…1. Pointer-only: on touch devices this never
+ * fires, and the element keeps its resting state.
+ */
+export function usePointerTilt<T extends HTMLElement>(strength = 1) {
+  const ref = useRef<T>(null);
+
+  useEffect(() => {
+    const node = ref.current;
+    if (!node) return;
+    if (typeof window.matchMedia !== 'function') return;
+    if (!window.matchMedia('(hover: hover) and (pointer: fine)').matches) return;
+
+    let frame = 0;
+    let target = { x: 0, y: 0 };
+    let current = { x: 0, y: 0 };
+    let running = false;
+
+    const apply = () => {
+      frame = 0;
+      // Ease toward the pointer instead of snapping, so a quick mouse sweep
+      // reads as the object following rather than teleporting.
+      current.x += (target.x - current.x) * 0.14;
+      current.y += (target.y - current.y) * 0.14;
+      node.style.setProperty('--mx', (current.x * strength).toFixed(4));
+      node.style.setProperty('--my', (current.y * strength).toFixed(4));
+      node.style.setProperty('--px', ((current.x + 1) / 2).toFixed(4));
+      node.style.setProperty('--py', ((current.y + 1) / 2).toFixed(4));
+      if (Math.abs(target.x - current.x) > 0.0008 || Math.abs(target.y - current.y) > 0.0008) {
+        frame = requestAnimationFrame(apply);
+      } else {
+        running = false;
+      }
+    };
+
+    const onMove = (event: PointerEvent) => {
+      const rect = node.getBoundingClientRect();
+      if (!rect.width || !rect.height) return;
+      target = {
+        x: Math.max(-1, Math.min(1, ((event.clientX - rect.left) / rect.width) * 2 - 1)),
+        y: Math.max(-1, Math.min(1, ((event.clientY - rect.top) / rect.height) * 2 - 1)),
+      };
+      if (!running) { running = true; frame = requestAnimationFrame(apply); }
+    };
+    const onLeave = () => {
+      target = { x: 0, y: 0 };
+      if (!running) { running = true; frame = requestAnimationFrame(apply); }
+    };
+
+    node.addEventListener('pointermove', onMove);
+    node.addEventListener('pointerleave', onLeave);
+    return () => {
+      node.removeEventListener('pointermove', onMove);
+      node.removeEventListener('pointerleave', onLeave);
+      if (frame) cancelAnimationFrame(frame);
+    };
+  }, [strength]);
+
+  return ref;
+}
+
+/**
+ * Reveals children as they enter the viewport.
+ *
+ * Returns a ref to put on a container; every `[data-reveal]` descendant gets
+ * `.is-in` once it has been seen. Deliberately one observer per section rather
+ * than one per element, and it unobserves after firing — the animation is a
+ * one-shot, so re-entering the viewport must not replay it.
+ */
+export function useRevealOnScroll<T extends HTMLElement>(options: {
+  /** Stagger index → delay in ms, read from `data-reveal`'s sibling order. */
+  stagger?: number;
+  threshold?: number;
+} = {}) {
+  const ref = useRef<T>(null);
+  const { stagger = 70, threshold = 0.15 } = options;
+
+  useEffect(() => {
+    const node = ref.current;
+    if (!node) return;
+    const targets = Array.from(node.querySelectorAll<HTMLElement>('[data-reveal]'));
+    if (!targets.length) return;
+
+    // No IntersectionObserver (or reduced motion): show everything at once.
+    if (typeof IntersectionObserver !== 'function') {
+      targets.forEach((el) => el.classList.add('is-in'));
+      return;
+    }
+
+    const observer = new IntersectionObserver((entries) => {
+      for (const entry of entries) {
+        if (!entry.isIntersecting) continue;
+        const el = entry.target as HTMLElement;
+        const index = Number(el.dataset.revealIndex ?? 0);
+        el.style.transitionDelay = `${Math.min(index * stagger, 480)}ms`;
+        el.classList.add('is-in');
+        observer.unobserve(el);
+      }
+    }, { threshold, rootMargin: '0px 0px -8% 0px' });
+
+    targets.forEach((el, index) => {
+      if (!el.dataset.revealIndex) el.dataset.revealIndex = String(index);
+      observer.observe(el);
+    });
+    return () => observer.disconnect();
+  }, [stagger, threshold]);
+
+  return ref;
+}
+
+/**
+ * Tracks whether the page has scrolled past a threshold, for the sticky header
+ * and the scroll-progress bar. Reads scrollY only — no layout measurement.
+ */
+export function useScrollState(threshold = 24) {
+  const [state, setState] = useState({ scrolled: false, progress: 0 });
+  useEffect(() => {
+    let frame = 0;
+    const read = () => {
+      frame = 0;
+      const doc = document.documentElement;
+      const max = doc.scrollHeight - window.innerHeight;
+      const progress = max > 0 ? Math.min(1, Math.max(0, window.scrollY / max)) : 0;
+      setState((prev) => {
+        const scrolled = window.scrollY > threshold;
+        if (prev.scrolled === scrolled && Math.abs(prev.progress - progress) < 0.004) return prev;
+        return { scrolled, progress };
+      });
+    };
+    const schedule = () => { if (!frame) frame = requestAnimationFrame(read); };
+    read();
+    window.addEventListener('scroll', schedule, { passive: true });
+    window.addEventListener('resize', schedule, { passive: true });
+    return () => {
+      window.removeEventListener('scroll', schedule);
+      window.removeEventListener('resize', schedule);
+      if (frame) cancelAnimationFrame(frame);
+    };
+  }, [threshold]);
+  return state;
+}

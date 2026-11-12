@@ -34,3 +34,6 @@ __pycache__/
 # Preview sheets rendered locally to review banner artwork.
 slider-artwork.png
 slider-preview.png
+
+# Landing-page preview sheet rendered locally to review the design.
+landing-preview.html
