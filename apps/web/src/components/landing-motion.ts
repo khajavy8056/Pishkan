@@ -94,6 +94,59 @@ export function useScrollProgress<T extends HTMLElement>(options: {
 }
 
 /**
+ * How far an element has scrolled *out* of the viewport, published as `--hero`
+ * (or a custom property of your choosing) in the range 0…1.
+ *
+ * Distinct from `useScrollProgress`, which starts counting while the element is
+ * still entering from below. A hero sits at the top of the page, so on load it
+ * is already "high" on that scale; this hook instead reads 0 exactly while the
+ * hero is in its resting position and climbs to 1 as it leaves. Every piece of
+ * the hero then multiplies that single 0…1 token by its own amount, so the
+ * whole composition lifts apart at different rates from one number.
+ */
+export function useExitProgress<T extends HTMLElement>(
+  property = '--hero',
+  options: { distance?: number } = {},
+) {
+  const ref = useRef<T>(null);
+  const { distance = 0.85 } = options;
+
+  useEffect(() => {
+    const node = ref.current;
+    if (!node) return;
+    let frame = 0;
+    let last = -1;
+
+    const measure = () => {
+      frame = 0;
+      const rect = node.getBoundingClientRect();
+      const span = Math.max(1, rect.height * distance);
+      const p = Math.min(1, Math.max(0, -rect.top / span));
+      if (Math.abs(p - last) > 0.0015) {
+        last = p;
+        node.style.setProperty(property, p.toFixed(3));
+      }
+    };
+
+    const schedule = () => {
+      if (frame) return;
+      frame = requestAnimationFrame(measure);
+    };
+
+    measure();
+    window.addEventListener('scroll', schedule, { passive: true });
+    window.addEventListener('resize', schedule, { passive: true });
+    return () => {
+      window.removeEventListener('scroll', schedule);
+      window.removeEventListener('resize', schedule);
+      if (frame) cancelAnimationFrame(frame);
+    };
+  }, [property, distance]);
+
+  return ref;
+}
+
+/**
  * Pointer position over an element, published as `--mx` / `--my` in the range
  * −1…1, plus `--px` / `--py` in 0…1. Pointer-only: on touch devices this never
  * fires, and the element keeps its resting state.

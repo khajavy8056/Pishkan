@@ -29,11 +29,12 @@ import { faNum, rial } from '../../lib/format';
 import { Button } from '../../components/ui';
 import { CategoryArt, CategoryIcon, CustomHtml, FeatureIcon, ShieldArt } from '../../components/visual';
 import { HeroField } from '../../components/landing-hero-field';
-import { AnimatedPhone, AppScreenCards, AppTrustRow } from '../../components/landing-app-scene';
-import { JourneyTimeline } from '../../components/landing-journey';
+import { HeroStage } from '../../components/landing-hero-stage';
+import { AppDevice, AppDeviceCards, AppTrustRow } from '../../components/landing-app-device';
+import { RequestStack } from '../../components/landing-stack';
 import { ParallaxBand } from '../../components/landing-parallax-band';
 import {
-  usePointerTilt, usePrefersReducedMotion, useRevealOnScroll, useScrollState,
+  usePointerTilt, usePrefersReducedMotion, useExitProgress, useRevealOnScroll, useScrollState,
 } from '../../components/landing-motion';
 
 interface LandingFeature { icon: string; title: string; text: string }
@@ -125,6 +126,10 @@ export function HomePage() {
   const appReveal = useRevealOnScroll<HTMLElement>();
   const statsReveal = useRevealOnScroll<HTMLElement>();
   const { scrolled, progress } = useScrollState(30);
+  // Drives the hero's "leaving the viewport" motion: pieces lift at different
+  // rates as the section scrolls away, which is what makes the depth read on
+  // the way out and not just on pointer hover.
+  const heroScroll = useExitProgress<HTMLElement>('--hero');
 
   useEffect(() => {
     if (query.trim().length < 2) { setResults(null); return; }
@@ -168,7 +173,7 @@ export function HomePage() {
         />
 
         {/* ================================ HERO ================================ */}
-        <section className="hero-sky relative overflow-hidden pb-10 sm:pb-16" aria-label="معرفی سامانه">
+        <section ref={heroScroll} className="hero-sky landing-stage relative overflow-hidden pb-10 sm:pb-16" aria-label="معرفی سامانه">
           {/* 3D particle depth field */}
           <HeroField
             className="pointer-events-none absolute inset-0 size-full opacity-70"
@@ -248,63 +253,12 @@ export function HomePage() {
               </ul>
             </div>
 
-            {/* --------------------------- 3D hero scene ------------------------ */}
+            {/* --------------------------- 3D hero stage ----------------------- */}
             <div className="relative mx-auto w-full max-w-xl lg:max-w-none">
-              {/* floor rings, drawn in perspective */}
-              <div aria-hidden="true" className="hero-orbit absolute inset-x-[6%] bottom-2 h-40 opacity-70" />
-              <div aria-hidden="true" className="hero-orbit absolute inset-x-[16%] bottom-6 h-32 opacity-40" style={{ animationDelay: '-4s' }} />
-
-              <div className="hero-stage relative">
-                {/* main photo card */}
-                <div className="hero-layer" data-depth="1">
-                  <div className="relative overflow-hidden rounded-[2rem] shadow-2xl shadow-brand-900/30 ring-1 ring-white/60 hero-sheen">
-                    <img
-                      src={brand.heroImage}
-                      alt={`ساختمان ${brand.name}`}
-                      className="hero-photo aspect-[16/10.5] w-full object-cover sm:aspect-[16/9.4]"
-                    />
-                    <div aria-hidden="true" className="absolute inset-x-0 bottom-0 h-28 bg-gradient-to-t from-navy-950/45 to-transparent" />
-                    <div className="absolute right-4 bottom-4 flex items-center gap-2 rounded-2xl bg-shell/50 px-3.5 py-2 text-xs font-bold text-white backdrop-blur-md">
-                      <Sparkles className="size-4 text-amber-300" />
-                      {brand.tagline || 'سریع • مطمئن • آسان'}
-                    </div>
-                  </div>
-                </div>
-
-                {/* floating brand card */}
-                <div className="hero-layer hero-float-card absolute top-1/2 left-4 hidden w-56 -translate-y-1/2 rounded-[1.7rem] bg-white/88 p-5 text-center shadow-2xl shadow-navy-950/25 ring-1 ring-white/70 backdrop-blur-md sm:block lg:left-6 lg:w-60">
-                  <BrandMark className="mx-auto size-16 lg:size-[4.5rem]" />
-                  <p className="mt-3 truncate text-lg font-black text-navy-950">{brand.name}</p>
-                  {brand.nameEn && <p dir="ltr" className="mt-0.5 truncate text-xs font-semibold tracking-wide text-navy-500">{brand.nameEn}</p>}
-                  <div className="mt-3 flex items-center justify-center gap-0.5 border-t border-navy-900/10 pt-2.5">
-                    {[0, 1, 2, 3, 4].map((i) => <Star key={i} className="size-3.5 fill-amber-400 text-amber-400" />)}
-                    <span className="mr-1 text-[10px] font-bold text-navy-500">۴.۹</span>
-                  </div>
-                </div>
-
-                {/* floating chips at different depths */}
-                {[
-                  { i: 1, icon: ShieldCheck, tone: 'bg-emerald-500 shadow-emerald-600/40', label: 'امن و معتبر', pos: '-top-5 left-8 sm:left-16' },
-                  { i: 2, icon: Zap, tone: 'bg-amber-500 shadow-amber-600/40', label: 'سریع و آسان', pos: 'top-[38%] -left-2 sm:-left-5' },
-                  { i: 3, icon: Headset, tone: 'bg-sky-500 shadow-sky-600/40', label: 'پشتیبانی حرفه‌ای', pos: 'top-[12%] right-3 sm:right-5' },
-                  { i: 4, icon: FileText, tone: 'bg-brand-600 shadow-brand-700/40', label: 'ثبت آنلاین مدارک', pos: 'right-[24%] bottom-[14%] hidden md:flex' },
-                ].map((chip) => (
-                  <div
-                    key={chip.label}
-                    data-i={chip.i}
-                    className={clsx('hero-chip glass-chip hero-layer absolute', chip.pos)}
-                    data-depth={chip.i >= 3 ? '4' : '3'}
-                  >
-                    <span className={clsx('grid size-9 place-items-center rounded-xl text-white shadow-md', chip.tone)}>
-                      <chip.icon className="size-5" />
-                    </span>
-                    {chip.label}
-                  </div>
-                ))}
-              </div>
+              <HeroStage heroImage={brand.heroImage} />
 
               {/* scroll cue */}
-              <div className="mt-8 flex justify-center lg:justify-start">
+              <div className="mt-6 flex justify-center lg:justify-start">
                 <span className="inline-flex items-center gap-2 rounded-full bg-surface/70 px-3.5 py-1.5 text-[11px] font-semibold text-navy-500 ring-1 ring-line backdrop-blur">
                   <MousePointerClick className="size-3.5" />
                   برای دیدن مسیر کامل، اسکرول کنید
@@ -411,8 +365,8 @@ export function HomePage() {
         {/* ========================= PARALLAX BAND ============================ */}
         <ParallaxBand />
 
-        {/* ============================== JOURNEY ============================== */}
-        <JourneyTimeline />
+        {/* ========================== THE LAYER STACK =========================== */}
+        <RequestStack />
 
         {/* ================================ APP ================================ */}
         {(showApp || features.length > 0) && (
@@ -472,11 +426,11 @@ export function HomePage() {
 
                   {/* phone */}
                   <div className="order-1 flex justify-center lg:order-2">
-                    <div className="hidden sm:block">
-                      <AnimatedPhone reducedMotion={reduced} />
+                    <div className="hidden w-full lg:block">
+                      <AppDevice reducedMotion={reduced} />
                     </div>
-                    <div className="w-full max-w-sm sm:hidden">
-                      <AppScreenCards reducedMotion={reduced} />
+                    <div className="w-full max-w-sm lg:hidden">
+                      <AppDeviceCards reducedMotion={reduced} />
                     </div>
                   </div>
                 </div>
