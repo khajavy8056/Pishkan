@@ -23,6 +23,10 @@ apps/web/ios/
 .env.windows.local.bak-*
 windows/PishkanSetup.exe
 windows/*.exe
+# Downloaded at install time (Microsoft Dev Tunnels CLI). Never commit a binary:
+# it is fetched per machine and the downloader verifies it before use.
+windows/bin/
+windows/bin/devtunnel.exe.download
 
 # Android signing key backup — NEVER commit (user keeps offline copies)
 apps/mobile/signing-backup/

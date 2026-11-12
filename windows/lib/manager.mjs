@@ -32,8 +32,10 @@ import {
   isWindows, logFile, MODULE_DIR, parseArgs, readJson, sleep, stateFile, uploadDir, writeJson,
   pidAlive,
 } from './common.mjs';
-import { readEnvFile } from './envfile.mjs';
+import { buildChildEnv, readEnvFile, upsertEnvFile } from './envfile.mjs';
 import { isSafeWindowsBindConfig, privateLanUrls } from './lan-access.mjs';
+import { tunnelStatus, ensureDevTunnelCli, loginInteractive, loginDeviceCode, ensureTunnel, startHosting, stopHosting } from './devtunnel-control.mjs';
+import { tunnelEnvOverrides, tunnelIsConfigured, readTunnelState } from './devtunnel.mjs';
 import { qrAscii, qrPngBase64 } from './qr.mjs';
 import { runLanFirewall } from './lan-firewall.mjs';
 import { formatManagerLogLine, sanitizeManagerLogMessage } from './manager-log.mjs';
@@ -335,11 +337,16 @@ async function start({ lanAllowed = true, lanWarning: inheritedWarning = '', rec
   fs.mkdirSync(path.dirname(logFile(ROOT)), { recursive: true });
   const logStream = fs.openSync(logFile(ROOT), 'a');
   const errorStream = fs.openSync(errorLogFile(ROOT), 'a');
+  // The env file is re-read here, at spawn time — never the `env` snapshot above,
+  // which was taken when this process started. `tunnel-on` writes
+  // COOKIE_SECURE/CORS_ORIGINS and then restarts *within the same process*, so a
+  // cached snapshot would relaunch the server with the old values and the public
+  // link would reject every login with 403. See buildChildEnv() for the detail.
   const child = spawn(process.execPath, ['--experimental-sqlite', apiEntry], {
     cwd: ROOT,
-    env: {
-      ...process.env,
-      ...env, // This installation, not unrelated inherited shell settings, owns its database and secrets.
+    env: buildChildEnv(envFilePath(ROOT), {
+      // Explicit overrides win over the file: the manager's own view of the
+      // bind host and firewall lease is authoritative for this launch.
       PISHKAN_ENV_FILE: envFilePath(ROOT),
       PISHKAN_CONTROL_PIPE: PIPE,
       PORT: String(PORT),
@@ -349,7 +356,7 @@ async function start({ lanAllowed = true, lanWarning: inheritedWarning = '', rec
       PISHKAN_LAN_FIREWALL_STATUS_FILE: effectiveLan ? FIREWALL_LEASE_FILE : '',
       PISHKAN_LAN_FIREWALL_TOKEN: firewallLeaseToken ?? '',
       PISHKAN_LAN_FIREWALL_PORT: String(PORT),
-    },
+    }),
     detached: true,
     stdio: ['ignore', logStream, errorStream],
     windowsHide: true,
@@ -609,6 +616,10 @@ async function status() {
       watchdog: { running: guardHealthy, pid: current?.lanGuardPid ?? null, leaseFresh: firewallLeaseFresh(current?.firewallLeaseToken) },
       message: LAN_ACCESS ? (configError || firewall?.message || 'فقط loopback فعال است.') : 'دسترسی LAN خاموش است؛ برنامه فقط روی همین رایانه در دسترس است.',
     },
+    // The public tunnel is reported in the same payload as LAN so the manager
+    // window can render "who can reach this" from one response. Deliberately
+    // cheap: no CLI calls that could block the 1-second status refresh.
+    tunnel: tunnelStatusSummary(),
     pid: current?.pid ?? null,
     startedAt: current?.startedAt ?? null,
     uptimeSeconds: current?.startedAt ? Math.round((Date.now() - new Date(current.startedAt).getTime()) / 1000) : 0,
@@ -795,7 +806,181 @@ function lanInfo() {
   return out({ ok: true, enabled, urls, qr, host: BIND_HOST, port: PORT, message });
 }
 
-const commands = { start, stop, restart, status, backup, restore, open: openApp, 'open-data': openData, 'firewall-remove': removeLanFirewall, lan: lanInfo };
+/**
+ * Status-payload view of the tunnel.
+ *
+ * `tunnelStatus()` in devtunnel-control spawns the CLI to ask for a version and
+ * a login state; that is fine once per dialog but far too slow for a status
+ * refresh that runs on every window tick. This reads only the state file and
+ * the .env, which is what the manager window actually displays.
+ */
+function tunnelStatusSummary() {
+  const state = readTunnelState(ROOT);
+  const enabled = tunnelIsConfigured(env);
+  const running = Boolean(state?.pid) && pidAlive(state.pid);
+  return {
+    enabled,
+    running,
+    configured: enabled,
+    publicUrl: running ? (state?.publicUrl ?? '') : '',
+    lastKnownUrl: state?.publicUrl ?? '',
+    account: state?.account ?? '',
+    pid: running ? state.pid : null,
+    installed: fs.existsSync(path.join(ROOT, 'windows', 'bin', 'devtunnel.exe')),
+    message: !enabled && !running
+      ? 'لینک عمومی خاموش است.'
+      : running
+        ? 'لینک عمومی فعال است.'
+        : 'لینک عمومی تنظیم شده ولی اجرا نمی‌شود؛ «لینک عمومی» را باز کنید و دوباره فعال کنید.',
+  };
+}
+
+/* --------------------------------- dev tunnel ------------------------------ */
+
+/**
+ * Everything the manager needs about the tunnel, without starting anything.
+ *
+ * `configured` is separate from `running` on purpose: the .env can already
+ * point at a tunnel URL while the host process is stopped (machine rebooted,
+ * operator pressed stop). The UI needs to distinguish "off" from "was on and
+ * the link is stale".
+ */
+function tunnelInfo() {
+  const info = tunnelStatus(ROOT);
+  const enabled = tunnelIsConfigured(env);
+  return out({
+    ok: true,
+    ...info,
+    configured: enabled,
+    envUrl: String(env.TUNNEL_URL ?? ''),
+    port: PORT,
+    message: info.message,
+    // The QR is the same helper the LAN dialog uses, so a phone can scan the
+    // customer-facing link instead of typing a 40-character hostname.
+    qr: info.running && info.publicUrl
+      ? [{ url: info.publicUrl, pngBase64: qrPngBase64(info.publicUrl), ascii: qrAscii(info.publicUrl) }]
+      : [],
+  });
+}
+
+/**
+ * Turn the tunnel on.
+ *
+ * Four things must happen in order and each can fail for a different reason,
+ * so each is reported separately rather than collapsing into one boolean:
+ * install the CLI, sign in, create+host, then point the app's own settings at
+ * the public origin and restart so the cookie/CORS changes take effect.
+ */
+async function tunnelOn() {
+  if (!isWindows()) {
+    return out({ ok: false, message: 'انتشار اینترنتی فقط در نسخهٔ ویندوز پشتیبانی می‌شود.' });
+  }
+  const tlog = (message) => log(`[tunnel] ${message}`);
+
+  const cli = ensureDevTunnelCli(ROOT, { log: tlog });
+  if (!cli.ok) {
+    return out({
+      ok: false, stage: 'install', message: cli.message, hints: cli.hints ?? [],
+    });
+  }
+
+  let status = tunnelStatus(ROOT);
+  if (!status.loggedIn) {
+    const useDevice = String(args.get('device', '')) === '1';
+    const login = useDevice
+      ? await loginDeviceCode(ROOT, { log: tlog })
+      : await loginInteractive(ROOT, { log: tlog });
+    if (!login.ok) {
+      return out({ ok: false, stage: 'login', message: login.message, output: login.output ?? '' });
+    }
+    status = tunnelStatus(ROOT);
+  }
+
+  const ensured = ensureTunnel(ROOT, { port: PORT, log: tlog });
+  if (!ensured.ok) {
+    return out({ ok: false, stage: 'host', message: ensured.message });
+  }
+  const hosted = await startHosting(ROOT, { port: PORT, log: tlog });
+  if (!hosted.ok) {
+    return out({ ok: false, stage: 'host', message: hosted.message, output: hosted.output ?? '' });
+  }
+
+  // Persist the public origin, then recycle the server: COOKIE_SECURE and
+  // CORS_ORIGINS are read at boot, so without the restart the link would load
+  // the page but reject the login form.
+  // Merge with what the file already allows: the LAN address, a custom domain,
+  // anything the operator added by hand. Only the tunnel origin is new.
+  const overrides = tunnelEnvOverrides({
+    publicUrl: hosted.publicUrl,
+    port: PORT,
+    lanAccess: LAN_ACCESS,
+    enabled: true,
+    extraOrigins: String(env.CORS_ORIGINS ?? '').split(',').map((origin) => origin.trim()).filter(Boolean),
+  });
+  try {
+    upsertEnvFile(envFilePath(ROOT), overrides);
+  } catch (error) {
+    tlog(`Could not write tunnel settings: ${error?.message ?? error}`);
+    return out({
+      ok: false, stage: 'config', publicUrl: hosted.publicUrl,
+      message: `لینک ساخته شد (${hosted.publicUrl}) ولی نوشتن تنظیمات ناموفق بود؛ ورود از این لینک کار نمی‌کند.`,
+    });
+  }
+  tlog(`Tunnel is up: ${hosted.publicUrl}; restarting server to apply cookie/CORS settings.`);
+  const restarted = await restart();
+
+  return out({
+    ok: true,
+    stage: 'done',
+    publicUrl: hosted.publicUrl,
+    inspectUrl: hosted.inspectUrl,
+    account: hosted.account,
+    restarted: Boolean(restarted?.ok),
+    qr: [{ url: hosted.publicUrl, pngBase64: qrPngBase64(hosted.publicUrl), ascii: qrAscii(hosted.publicUrl) }],
+    message: restarted?.ok
+      ? `لینک عمومی فعال شد: ${hosted.publicUrl}`
+      : `تونل فعال شد (${hosted.publicUrl}) ولی سرور دوباره راه‌اندازی نشد؛ دکمهٔ «راه‌اندازی دوباره» را بزنید.`,
+  });
+}
+
+/**
+ * Turn it off: stop hosting, restore the loopback settings, restart.
+ *
+ * The settings must be restored even if stopping the host fails, otherwise the
+ * app is left configured for a public HTTPS origin that no longer exists —
+ * which is the state where "the site is up but login does nothing" happens.
+ */
+async function tunnelOff() {
+  const stopped = stopHosting(ROOT, { log: (message) => log(`[tunnel] ${message}`) });
+  // Disabling drops only the tunnel origin; the previous list minus the
+  // devtunnels entry is what should remain.
+  const remaining = String(env.CORS_ORIGINS ?? '')
+    .split(',').map((origin) => origin.trim())
+    .filter((origin) => origin && !/devtunnels\.ms/i.test(origin));
+  const overrides = tunnelEnvOverrides({
+    publicUrl: '', port: PORT, lanAccess: LAN_ACCESS, enabled: false, extraOrigins: remaining,
+  });
+  let configOk = true;
+  try {
+    upsertEnvFile(envFilePath(ROOT), overrides);
+  } catch (error) {
+    configOk = false;
+    log(`[tunnel] could not restore loopback settings: ${error?.message ?? error}`);
+  }
+  const restarted = await restart();
+  return out({
+    ok: stopped.ok && configOk,
+    publicUrl: '',
+    restarted: Boolean(restarted?.ok),
+    message: !configOk
+      ? 'تونل خاموش شد ولی فایل تنظیمات به حالت محلی برنگشت؛ COOKIE_SECURE و CORS_ORIGINS را دستی بررسی کنید.'
+      : restarted?.ok
+        ? 'تونل خاموش شد و سامانه به حالت محلی برگشت.'
+        : 'تونل خاموش شد؛ برای اعمال کامل، سرویس را دوباره راه‌اندازی کنید.',
+  });
+}
+
+const commands = { start, stop, restart, status, backup, restore, open: openApp, 'open-data': openData, 'firewall-remove': removeLanFirewall, lan: lanInfo, tunnel: tunnelInfo, 'tunnel-on': tunnelOn, 'tunnel-off': tunnelOff };
 
 async function main() {
   if (command === 'logs') {

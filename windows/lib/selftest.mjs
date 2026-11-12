@@ -23,12 +23,17 @@ import { spawnSync } from 'node:child_process';
 import {
   MODULE_DIR, compareVersions, envFilePath, findFreePort, formatBytes, isPortBusy, legacyWindowsControlPipePath, parseArgs, pidAlive, readJson, windowsControlPipePath, writeJson,
 } from './common.mjs';
-import { formatEnvValue, readEnvFile, renderEnvFile, restoreEnvFile, upsertEnvFile } from './envfile.mjs';
+import { buildChildEnv, formatEnvValue, readEnvFile, renderEnvFile, restoreEnvFile, upsertEnvFile } from './envfile.mjs';
 import { firewallRuleName, isPrivateLanIPv4, isSafeWindowsBindConfig, privateLanIPv4Addresses, privateLanUrls, resolveLanAccess } from './lan-access.mjs';
 import { fixFile, lintAll, lintFile, parseAll } from './ps-lint.mjs';
 import { runLanFirewall } from './lan-firewall.mjs';
 import { formatManagerLogLine, sanitizeManagerLogMessage } from './manager-log.mjs';
 import { qrAscii, qrMatrix, qrPng, qrPngBase64 } from './qr.mjs';
+import crypto from 'node:crypto';
+import {
+  downloadUrl, inspectUrlFor, parseHostUrl, readTail, sanitizeTunnelState, tunnelBinPath,
+  tunnelEnvOverrides, tunnelIsConfigured, tunnelName, waitForTunnelUrl,
+} from './devtunnel.mjs';
 
 const args = parseArgs();
 const verbose = args.has('verbose');
@@ -173,6 +178,154 @@ test('دسترسی LAN در نصب‌کننده فقط با انتخاب صری�
   assert.equal(isSafeWindowsBindConfig('0.0.0.0', false), false);
   assert.equal(isSafeWindowsBindConfig('0.0.0.0', true), true);
   assert.equal(isSafeWindowsBindConfig('192.168.1.5', true), false);
+});
+
+test('محیط فرزند از فایل تازه ساخته می‌شود، نه از نسخهٔ خوانده‌شده در آغاز', () => {
+  // The bug this guards: a long-lived process caches .env at startup, the tunnel
+  // then rewrites COOKIE_SECURE/CORS_ORIGINS, and the restart spawns the server
+  // with the cached values. dotenv does not override existing variables, so the
+  // new settings are silently ignored and every login through the link gets 403.
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'pishkan-env-'));
+  const file = path.join(dir, '.env.windows.local');
+  fs.writeFileSync(file, 'COOKIE_SECURE="false"\nCORS_ORIGINS="http://127.0.0.1:3000"\nPORT="3000"\n');
+
+  const staleSnapshot = readEnvFile(file); // read once, "at process start"
+  upsertEnvFile(file, { COOKIE_SECURE: 'true', CORS_ORIGINS: 'http://127.0.0.1:3000,https://x-3000.r.devtunnels.ms' });
+
+  const fresh = buildChildEnv(file, {}, {});
+  assert.equal(fresh.COOKIE_SECURE, 'true', 'child must see the current value, not the startup snapshot');
+  assert.ok(fresh.CORS_ORIGINS.includes('devtunnels'));
+  // And prove the snapshot really is stale, so the assertion above is meaningful.
+  assert.equal(staleSnapshot.COOKIE_SECURE, 'false');
+
+  // Explicit overrides beat both the inherited environment and the file.
+  const overridden = buildChildEnv(file, { HOST: '127.0.0.1' }, { HOST: 'inherited', COOKIE_SECURE: 'inherited' });
+  assert.equal(overridden.HOST, '127.0.0.1');
+  assert.equal(overridden.COOKIE_SECURE, 'true', 'file beats inherited env, as for any setting the install owns');
+  assert.equal(overridden.PORT, '3000');
+  fs.rmSync(dir, { recursive: true, force: true });
+});
+
+test('آدرس عمومی تونل از خروجی devtunnel host درست استخراج می‌شود', () => {
+  // The real output contains the URL three times (browser line, the port table
+  // and a bare line) plus the `-inspect` variant, which must never be returned.
+  const real = [
+    'Tunnel ID: pishkan-6602528d',
+    'Hosting port 3000 at https://abc12345-3000.usw2.devtunnels.ms/',
+    'Connect via browser: https://abc12345-3000.usw2.devtunnels.ms',
+    'Inspect network activity: https://abc12345-3000-inspect.usw2.devtunnels.ms',
+  ].join('\n');
+  assert.equal(parseHostUrl(real), 'https://abc12345-3000.usw2.devtunnels.ms');
+
+  // The documented real output prints both equivalent forms on one line, plus a
+  // malformed inspect URL (https:/<id>-3000-inspect…) that must not be picked.
+  const documented = 'Hosting port 8080 at https://<id>.usw2.devtunnels.ms:8080/, ' +
+    'https://abc999-8080.usw2.devtunnels.ms/ and inspect it at ' +
+    'https:/abc999-8080-inspect.usw2.devtunnels.ms/';
+  assert.equal(parseHostUrl(documented), 'https://abc999-8080.usw2.devtunnels.ms');
+  // Legacy form alone still resolves, rather than reporting "no URL".
+  assert.equal(parseHostUrl('Hosting port 8080 at https://abc999.usw2.devtunnels.ms:8080/'), 'https://abc999.usw2.devtunnels.ms:8080');
+  // Only the inspect URL present => nothing usable is returned.
+  assert.equal(parseHostUrl('https://abc12345-3000-inspect.usw2.devtunnels.ms'), '');
+  assert.equal(parseHostUrl(''), '');
+  assert.equal(parseHostUrl('not connected yet'), '');
+  assert.equal(inspectUrlFor('https://abc12345-3000.usw2.devtunnels.ms'), 'https://abc12345-3000-inspect.usw2.devtunnels.ms');
+  assert.equal(inspectUrlFor('http://127.0.0.1:3000'), '');
+});
+
+test('تنظیمات تونل، HTTPS و مبدأ مجاز را درست تغییر می‌دهد', () => {
+  // extraOrigins models what the .env already allowed before the tunnel flipped:
+  // here, the operator's LAN address. It must survive the round-trip.
+  const base = { port: 3000, lanAccess: true, extraOrigins: ['http://192.168.1.20:3000'] };
+  const off = tunnelEnvOverrides({ ...base, publicUrl: '', enabled: false });
+  assert.equal(off.COOKIE_SECURE, 'false');
+  assert.equal(off.TUNNEL_ENABLED, 'false');
+  assert.equal(off.APP_URL, 'http://127.0.0.1:3000');
+  assert.ok(!off.CORS_ORIGINS.includes('devtunnels'));
+
+  const url = 'https://abc12345-3000.usw2.devtunnels.ms';
+  const on = tunnelEnvOverrides({ ...base, publicUrl: url, enabled: true });
+  // Cookie must be Secure or the browser drops it on the HTTPS origin.
+  assert.equal(on.COOKIE_SECURE, 'true');
+  assert.equal(on.APP_URL, url);
+  assert.equal(on.TUNNEL_URL, url);
+  // The origin guard compares Origin hosts, so the tunnel origin must be listed
+  // or every POST from the tunnel (the login form first) is rejected.
+  assert.ok(on.CORS_ORIGINS.split(',').includes(url));
+  // Local access must keep working: this is a LAN install and the operator's
+  // own browser still uses 127.0.0.1.
+  assert.ok(on.CORS_ORIGINS.includes('http://127.0.0.1:3000'));
+  assert.ok(on.CORS_ORIGINS.includes('http://192.168.1.20:3000'));
+
+  // Re-disabling must fully restore loopback, not leave a stale tunnel origin.
+  const back = tunnelEnvOverrides({ ...base, publicUrl: '', enabled: false });
+  assert.equal(back.COOKIE_SECURE, 'false');
+  assert.ok(!back.CORS_ORIGINS.includes('devtunnels'));
+});
+
+test('وضعیت تونل فقط وقتی «تنظیم‌شده» است که آدرس HTTPS معتبر باشد', () => {
+  assert.equal(tunnelIsConfigured({ TUNNEL_ENABLED: 'true', TUNNEL_URL: 'https://x-3000.region.devtunnels.ms' }), true);
+  assert.equal(tunnelIsConfigured({ TUNNEL_ENABLED: 'TRUE', TUNNEL_URL: 'https://x-3000.region.devtunnels.ms' }), true);
+  // Half-configured states must read as off, otherwise the manager offers a
+  // link that does not resolve.
+  assert.equal(tunnelIsConfigured({ TUNNEL_ENABLED: 'true', TUNNEL_URL: '' }), false);
+  assert.equal(tunnelIsConfigured({ TUNNEL_ENABLED: 'false', TUNNEL_URL: 'https://x-3000.region.devtunnels.ms' }), false);
+  assert.equal(tunnelIsConfigured({ TUNNEL_ENABLED: 'true', TUNNEL_URL: 'http://x-3000.region.devtunnels.ms' }), false);
+  assert.equal(tunnelIsConfigured({}), false);
+});
+
+test('نام تونل پایدار، یکتا و مجاز است', () => {
+  const a = tunnelName('C:\\Pishkan', crypto);
+  const b = tunnelName('C:\\Pishkan', crypto);
+  const c = tunnelName('C:\\Pishkan2', crypto);
+  assert.equal(a, b, 'same path must give the same tunnel (stable link across reinstalls)');
+  assert.notEqual(a, c, 'different installs must not share one tunnel');
+  assert.match(a, /^pishkan-[0-9a-f]{8}$/);
+  // Case and slash style must not change the identity: Windows paths arrive
+  // both ways depending on how the installer was launched.
+  assert.equal(tunnelName('c:/pishkan', crypto), tunnelName('C:\\Pishkan', crypto));
+});
+
+test('فایل وضعیت تونل هیچ راز یا توکنی ذخیره نمی‌کند', () => {
+  const sanitized = sanitizeTunnelState({
+    ok: true, tunnelName: 'pishkan-1', publicUrl: 'https://x-3000.r.devtunnels.ms', port: 3000,
+    pid: 42, startedAt: 'now', account: 'someone@example.com',
+    // Hostile/extra input that must not survive:
+    accessToken: 'SECRET', token: 'SECRET', password: 'SECRET', cookie: 'SECRET', extra: { token: 'SECRET' },
+  });
+  const text = JSON.stringify(sanitized);
+  assert.ok(!/SECRET/.test(text), 'no token may be written to disk');
+  assert.ok(!/token|password|cookie/i.test(Object.keys(sanitized).join(',')));
+  assert.equal(sanitized.publicUrl, 'https://x-3000.r.devtunnels.ms');
+  assert.ok(sanitized.updatedAt);
+});
+
+test('مسیر ابزار تونل داخل پوشه برنامه و منبع دانلود برای هر سکو تعریف شده است', () => {
+  assert.ok(tunnelBinPath('/x/Pishkan').includes(path.join('windows', 'bin')));
+  assert.match(downloadUrl('win32', 'x64'), /^https:\/\/aka\.ms\//);
+  assert.equal(downloadUrl('plan9', 'pdp11'), null);
+});
+
+test('انتظار برای آدرس تونل با ورود تدریجی لاگ پایان می‌یابد و تایم‌اوت می‌شود', async () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'pishkan-tunnel-'));
+  const logFile = path.join(dir, 'devtunnel.log');
+  fs.writeFileSync(logFile, 'connecting...\n');
+  let ticks = 0;
+  const sleep = async () => {
+    ticks += 1;
+    // Simulate the CLI printing the URL on the third poll.
+    if (ticks === 3) fs.appendFileSync(logFile, 'Hosting port 3000 at https://zz-3000.r.devtunnels.ms/\n');
+  };
+  const found = await waitForTunnelUrl(logFile, { timeoutMs: 5_000, sleep, intervalMs: 0 });
+  assert.equal(found, 'https://zz-3000.r.devtunnels.ms');
+
+  // A log that never gets a URL must not hang forever.
+  const empty = path.join(dir, 'empty.log');
+  fs.writeFileSync(empty, 'still connecting\n');
+  const missing = await waitForTunnelUrl(empty, { timeoutMs: 1, sleep: async () => {}, intervalMs: 0 });
+  assert.equal(missing, '');
+  // Reading a file that does not exist is a normal case, not an exception.
+  assert.equal(readTail(path.join(dir, 'nope.log')), '');
 });
 
 test('آدرس‌های موبایل فقط IPv4 خصوصی را نمایش می‌دهند', () => {

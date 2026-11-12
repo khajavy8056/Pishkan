@@ -91,12 +91,14 @@ $stepDefs = @(
   @{ id = 'check'; text = '۱. بررسی سیستم' },
   @{ id = 'env'; text = '۲. تنظیمات محلی' },
   @{ id = 'lan'; text = '۳. دسترسی LAN (اختیاری)' },
-  @{ id = 'deps'; text = '۴. دانلود وابستگی‌ها' },
-  @{ id = 'build'; text = '۵. ساخت برنامه' },
-  @{ id = 'database'; text = '۶. پایگاه داده و مهاجرت' },
-  @{ id = 'admin'; text = '۷. حساب مدیر کل' },
-  @{ id = 'start'; text = '۸. راه‌اندازی سرویس' },
-  @{ id = 'verify'; text = '۹. آزمون نهایی' }
+  @{ id = 'tunnel'; text = '۴. ابزار انتشار اینترنتی' },
+  @{ id = 'deps'; text = '۵. دانلود وابستگی‌ها' },
+  @{ id = 'build'; text = '۶. ساخت برنامه' },
+  @{ id = 'database'; text = '۷. پایگاه داده و مهاجرت' },
+  @{ id = 'admin'; text = '۸. حساب مدیر کل' },
+  @{ id = 'start'; text = '۹. راه‌اندازی سرویس' },
+  @{ id = 'verify'; text = '۱۰. آزمون نهایی' },
+  @{ id = 'tunnelhost'; text = '۱۱. لینک عمومی' }
 )
 $offset = 52
 foreach ($def in $stepDefs) {
@@ -106,12 +108,12 @@ foreach ($def in $stepDefs) {
   $lbl.TextAlign = 'MiddleRight'
   $sidebar.Controls.Add($lbl)
   $script:StepLabels[$def.id] = $lbl
-  $offset += 32
+  $offset += 28
 }
 
 $sidebarHint = New-PishkanLabel "پوشه برنامه:`n$RepoRoot" 'muted' 9 $false
-$sidebarHint.Location = New-Object System.Drawing.Point(24, 352)
-$sidebarHint.Size = New-Object System.Drawing.Size(250, 100)
+$sidebarHint.Location = New-Object System.Drawing.Point(24, 372)
+$sidebarHint.Size = New-Object System.Drawing.Size(250, 96)
 $sidebarHint.TextAlign = 'TopRight'
 $sidebar.Controls.Add($sidebarHint)
 
@@ -166,6 +168,15 @@ function Test-ExistingLanSetting([string]$RootPath) {
   } catch { return $false }
 }
 
+function Test-ExistingTunnelSetting([string]$RootPath) {
+  $envPath = Join-Path $RootPath '.env.windows.local'
+  if (-not (Test-Path $envPath)) { return $false }
+  try {
+    $content = Get-Content -Raw -Encoding UTF8 -Path $envPath
+    return [bool]($content -match '(?im)^\s*TUNNEL_ENABLED\s*=\s*\"?true\"?\s*$')
+  } catch { return $false }
+}
+
 $lanAccessCheckBox = New-Object System.Windows.Forms.CheckBox
 $lanAccessCheckBox.Text = 'دسترسی موبایل در Wi‑Fi (اختیاری؛ فقط Private/LocalSubnet؛ نیازمند Administrator؛ پیش‌فرض خاموش)'
 $lanAccessCheckBox.Location = New-Object System.Drawing.Point(80, 134)
@@ -206,9 +217,25 @@ $passBox = New-PishkanTextBox '' 600 -Password
 $pass2Box = New-PishkanTextBox '' 600 -Password
 [void](New-Field 'تکرار رمز عبور' 332 $pass2Box)
 
+# Public tunnel (Microsoft Dev Tunnels). Sits under the LAN checkbox because the
+# two answer the same question — "who can reach this?" — and an operator needs
+# to see both at once to pick the right one: LAN for the same Wi-Fi, tunnel for
+# a customer somewhere else.
+$tunnelCheckBox = New-Object System.Windows.Forms.CheckBox
+$tunnelCheckBox.Text = 'انتشار روی اینترنت برای نمایش (لینک امن مایکروسافت؛ نیازمند ورود با حساب مایکروسافت یا گیت‌هاب)'
+$tunnelCheckBox.Location = New-Object System.Drawing.Point(80, 390)
+$tunnelCheckBox.Size = New-Object System.Drawing.Size(600, 38)
+$tunnelCheckBox.RightToLeft = [System.Windows.Forms.RightToLeft]::Yes
+$tunnelCheckBox.TextAlign = 'MiddleRight'
+$tunnelCheckBox.Tag = 'input'
+$tunnelCheckBox.Checked = Test-ExistingTunnelSetting $pathBox.Text
+$pageConfig.Controls.Add($tunnelCheckBox)
+$script:TunnelChoiceTouched = $false
+$tunnelCheckBox.Add_CheckedChanged({ if (-not $script:UpdatingTunnelFromPath) { $script:TunnelChoiceTouched = $true } })
+
 $cleanInstallCheckBox = New-Object System.Windows.Forms.CheckBox
 $cleanInstallCheckBox.Text = 'نصب تمیز: انتقال داده‌ها و تنظیمات نصب قبلی و شروع از صفر'
-$cleanInstallCheckBox.Location = New-Object System.Drawing.Point(80, 390)
+$cleanInstallCheckBox.Location = New-Object System.Drawing.Point(80, 434)
 $cleanInstallCheckBox.Size = New-Object System.Drawing.Size(600, 26)
 $cleanInstallCheckBox.RightToLeft = [System.Windows.Forms.RightToLeft]::Yes
 $cleanInstallCheckBox.TextAlign = 'MiddleRight'
@@ -654,7 +681,18 @@ function Show-InstallResult([bool]$Ok) {
     }
     if ($report.firewallWarning) { $lanSummary += "`nتوجه: $($report.firewallWarning)" }
   }
-  $finishSummary.Text = ("نصب با موفقیت انجام شد.`n`n" +
+  # The public link, when one was created. It goes above the LAN block because
+  # it is the one thing the operator must copy and send to the customer; the
+  # local addresses are for their own use.
+  $tunnelSummary = ''
+  if ($report -and $report.tunnel -and $report.tunnel.publicUrl) {
+    $tunnelSummary = "لینک عمومی (برای کارفرما — از هر جایی باز می‌شود):`n" + $report.tunnel.publicUrl + "`n" +
+      "(بار اول ممکن است صفحهٔ هشدار مایکروسافت نمایش داده شود؛ یک بار تأیید کافی است.)`n`n"
+  } elseif ([bool]$tunnelCheckBox.Checked) {
+    $tunnelSummary = "انتشار اینترنتی فعال نشد؛ بقیهٔ نصب سالم است.`n" +
+      "برای ساخت لینک، از «Pishkan Manager» دکمهٔ «لینک عمومی» را بزنید.`n`n"
+  }
+  $finishSummary.Text = ("نصب با موفقیت انجام شد.`n`n" + $tunnelSummary +
     "آدرس همین رایانه: $url`n" + $lanSummary + "`n`n" +
     "نام کاربری مدیر کل: $($userBox.Text.Trim())`n" +
     "ورود مدیر و کارکنان (فقط از این نشانی): $url/login-admin`n" +
@@ -664,6 +702,9 @@ function Show-InstallResult([bool]$Ok) {
   $finishSummary.Tag = 'text'
   $finishSummary.ForeColor = Get-PishkanColor 'text'
   $script:AppUrl = $url
+  if ($report -and $report.tunnel -and $report.tunnel.publicUrl) {
+    $script:TunnelUrl = $report.tunnel.publicUrl
+  }
   Set-Footer 'نصب با موفقیت پایان یافت' 'ok'
 }
 

@@ -35,6 +35,8 @@ import { readEnvFile, upsertEnvFile } from './envfile.mjs';
 import { privateLanUrls, resolveLanAccess } from './lan-access.mjs';
 import { runLanFirewall } from './lan-firewall.mjs';
 import { stopPishkanServers } from './owned-servers.mjs';
+import { ensureDevTunnelCli, ensureTunnel, loginDeviceCode, loginInteractive, loginStatus, startHosting } from './devtunnel-control.mjs';
+import { tunnelEnvOverrides } from './devtunnel.mjs';
 
 const args = parseArgs();
 const ROOT = path.resolve(args.get('root', DEFAULT_ROOT));
@@ -76,7 +78,7 @@ function log(message, level = 'info') {
 }
 
 /** Overall progress weights (sum = 100). */
-const WEIGHTS = { check: 3, clean: 1, env: 2, lan: 2, deps: 39, build: 18, database: 13, admin: 6, start: 6, verify: 10 };
+const WEIGHTS = { check: 3, clean: 1, env: 2, lan: 2, tunnel: 4, deps: 36, build: 17, database: 12, admin: 5, start: 6, verify: 9, tunnelhost: 3 };
 let completedWeight = 0;
 
 function stepEvent(id, title, status, options = {}) {
@@ -282,6 +284,16 @@ function validateJobShape(job) {
   if (job.cleanInstall !== undefined && typeof job.cleanInstall !== 'boolean') {
     throw Object.assign(new Error('گزینهٔ نصب تمیز باید روشن/خاموش باشد.'), { step: 'job' });
   }
+  for (const flag of ['lanAccess', 'tunnel']) {
+    if (job[flag] !== undefined && typeof job[flag] !== 'boolean') {
+      // PowerShell's ConvertTo-Json sends $false correctly, but a hand-written
+      // job with "tunnel": "true" would otherwise enable the tunnel silently.
+      throw Object.assign(new Error(`گزینهٔ ${flag === 'tunnel' ? 'انتشار اینترنتی' : 'دسترسی LAN'} باید روشن/خاموش باشد.`), { step: 'job' });
+    }
+  }
+  if (job.tunnelLogin !== undefined && !['browser', 'device'].includes(job.tunnelLogin)) {
+    throw Object.assign(new Error('روش ورود تونل باید browser یا device باشد.'), { step: 'job' });
+  }
   const admin = job.admin;
   if (admin !== undefined && admin !== null) {
     // A string/array here means the launcher serialized the admin block
@@ -451,6 +463,55 @@ async function checkExistingDatabase(job) {
   } finally {
     if (tempDir) { try { fs.rmSync(tempDir, { recursive: true, force: true }); } catch { log(`پوشه موقت بررسی پایگاه داده پاک نشد: ${tempDir}`, 'warn'); } }
   }
+}
+
+/**
+ * Download the Dev Tunnels CLI — early, before dependencies and the build.
+ *
+ * The operator asked for the tunnel in the installer window, so the tool has
+ * to be on disk before anything else can fail slowly. Doing it first also
+ * means a blocked download surfaces in the first minute rather than after a
+ * ten-minute dependency install.
+ *
+ * A failure here is a WARNING, never a fatal error: the tunnel is a testing
+ * aid, and refusing to install the entire system because Microsoft's CDN is
+ * unreachable would be the wrong trade. The manager can install it later.
+ */
+async function stepTunnelTool(job) {
+  const wanted = job.tunnel === true;
+  if (!wanted) {
+    stepEvent('tunnel', 'انتشار اینترنتی (اختیاری)', 'skip', {
+      message: 'خاموش است؛ سامانه فقط روی همین رایانه و شبکهٔ محلی در دسترس خواهد بود.',
+    });
+    return { requested: false, ok: false };
+  }
+  stepEvent('tunnel', 'دانلود ابزار انتشار اینترنتی', 'running', { stepProgress: 5 });
+  if (DRY_RUN) {
+    stepEvent('tunnel', 'دانلود ابزار انتشار اینترنتی', 'skip', { message: 'حالت آزمایشی (dry-run)' });
+    return { requested: true, ok: false, dryRun: true };
+  }
+  if (process.platform !== 'win32') {
+    stepEvent('tunnel', 'دانلود ابزار انتشار اینترنتی', 'warn', {
+      message: 'این قابلیت فقط در نصب ویندوز پشتیبانی می‌شود؛ در این سیستم‌عامل نادیده گرفته شد.',
+    });
+    return { requested: true, ok: false, unsupported: true };
+  }
+  log('انتشار اینترنتی درخواست شده است؛ آماده‌سازی Microsoft Dev Tunnels…');
+  const result = ensureDevTunnelCli(ROOT, { log: (message) => log(message) });
+  if (!result.ok) {
+    stepEvent('tunnel', 'دانلود ابزار انتشار اینترنتی', 'warn', {
+      message: result.message,
+      detail: (result.hints ?? []).join('\n'),
+      stepProgress: 100,
+    });
+    return { requested: true, ok: false, ...result };
+  }
+  stepEvent('tunnel', 'دانلود ابزار انتشار اینترنتی', 'ok', {
+    message: `${result.alreadyInstalled ? 'از قبل نصب بود' : 'دانلود و بررسی شد'} · ${result.version}`,
+    detail: result.path,
+    stepProgress: 100,
+  });
+  return { requested: true, ok: true, version: result.version };
 }
 
 async function stepEnv(job) {
@@ -991,6 +1052,151 @@ async function stepVerify(config, job) {
   return payload;
 }
 
+/**
+ * Sign in and open the public link, at the very end of the install.
+ *
+ * Ordering matters: the server must already be running and verified, because
+ * hosting a tunnel to a port nothing listens on produces a link that answers
+ * 502. This step therefore runs after `stepVerify`.
+ *
+ * Sign-in is interactive by design. The browser opens on the operator's own
+ * screen and the CLI blocks until they finish; there is nothing to automate
+ * here and any attempt to would be storing somebody's Microsoft credentials.
+ * If the browser cannot open (a locked-down session), the device-code flow is
+ * offered instead.
+ */
+async function stepTunnelHost(config, job, tool) {
+  if (job.tunnel !== true) {
+    stepEvent('tunnelhost', 'لینک عمومی (Dev Tunnel)', 'skip', { message: 'انتشار اینترنتی خاموش است.' });
+    return { enabled: false };
+  }
+  if (!tool.ok) {
+    stepEvent('tunnelhost', 'لینک عمومی (Dev Tunnel)', 'warn', {
+      message: 'ابزار تونل آماده نشد؛ نصب بدون لینک عمومی ادامه می‌یابد.',
+      stepProgress: 100,
+    });
+    return { enabled: false, reason: 'tool-unavailable' };
+  }
+  if (DRY_RUN) {
+    stepEvent('tunnelhost', 'لینک عمومی (Dev Tunnel)', 'skip', { message: 'حالت آزمایشی (dry-run)' });
+    return { enabled: false, dryRun: true };
+  }
+
+  // The title and message here are what the operator reads while a browser
+  // window is (or should be) opening. They must say what to do, not just that
+  // something is happening: this is the only blocking interactive step in the
+  // whole install, and it happens after everything else already succeeded.
+  stepEvent('tunnelhost', 'ورود به حساب مایکروسافت', 'running', {
+    message: 'یک پنجرهٔ مرورگر برای ورود باز می‌شود؛ همان‌جا وارد شوید. اگر باز نشد، آدرس چاپ‌شده در گزارش پایین را دستی باز کنید.',
+    stepProgress: 5,
+  });
+  let login = loginStatus(ROOT);
+  if (!login.loggedIn) {
+    // A window with no browser cannot complete the default flow; the caller may
+    // have asked for the device-code variant explicitly.
+    const useDevice = job.tunnelLogin === 'device';
+    const attempt = useDevice
+      ? await loginDeviceCode(ROOT, { log: (message) => log(message) })
+      : await loginInteractive(ROOT, { log: (message) => log(message) });
+    if (attempt.ok) {
+      login = { loggedIn: true, account: attempt.account };
+    } else {
+      stepEvent('tunnelhost', 'ورود به حساب مایکروسافت', 'warn', {
+        message: attempt.message,
+        detail: 'بدون ورود، لینک عمومی ساخته نمی‌شود. نصب کامل است و می‌توانید بعداً از Pishkan Manager دکمهٔ «فعال‌سازی لینک عمومی» را بزنید.',
+        stepProgress: 100,
+      });
+      return { enabled: false, reason: 'login-failed', message: attempt.message };
+    }
+  }
+  stepEvent('tunnelhost', 'ورود به حساب مایکروسافت', 'ok', {
+    message: login.account ? `وارد شد: ${login.account}` : 'ورود تأیید شد.',
+    stepProgress: 30,
+  });
+
+  stepEvent('tunnelhost', 'ساخت و راه‌اندازی تونل', 'running', { stepProgress: 40 });
+  const ensured = ensureTunnel(ROOT, { port: config.port, log: (message) => log(message) });
+  if (!ensured.ok) {
+    stepEvent('tunnelhost', 'ساخت و راه‌اندازی تونل', 'warn', {
+      message: ensured.message, stepProgress: 100,
+    });
+    return { enabled: false, reason: ensured.step, message: ensured.message };
+  }
+  const hosted = await startHosting(ROOT, { port: config.port, log: (message) => log(message) });
+  if (!hosted.ok) {
+    // A warning, not a failure. Everything the customer actually needs — the
+    // app, the database, the admin account, the LAN address — is installed and
+    // verified by this point. Aborting the whole install because a third-party
+    // relay did not answer would throw away a working deployment, so the
+    // manager is left as the way to retry.
+    stepEvent('tunnelhost', 'ساخت و راه‌اندازی تونل', 'warn', {
+      message: hosted.message,
+      detail: 'نصب سامانه کامل و سالم است؛ فقط لینک عمومی ساخته نشد. از Pishkan Manager دوباره تلاش کنید.',
+      stepProgress: 100,
+    });
+    return { enabled: false, reason: 'host-failed', message: hosted.message };
+  }
+
+  // Write the three settings the public origin needs. Doing it here, after the
+  // URL exists, is what makes this atomic: there is no window where the app is
+  // configured for HTTPS but no URL has been issued yet.
+  // Pass whatever the freshly written .env already allowed so a hand-added
+  // origin (custom domain, extra LAN address) is not dropped by turning the
+  // tunnel on.
+  const existingOrigins = String(config.values.CORS_ORIGINS ?? '').split(',').map((o) => o.trim()).filter(Boolean);
+  const overrides = tunnelEnvOverrides({
+    publicUrl: hosted.publicUrl,
+    port: config.port,
+    lanAccess: config.lanAccess,
+    enabled: true,
+    extraOrigins: [...existingOrigins, ...(config.mobileUrls ?? []).map((url) => url.replace(/\/$/, ''))],
+  });
+  upsertEnvFile(config.file, { ...config.values, ...overrides }, {
+    header: [
+      '# Pishkan — تنظیمات محلی Windows (تولیدشده با نصب‌کننده گرافیکی)',
+      '# این فایل رازدار است: هرگز آن را در Git یا فضای اشتراکی قرار ندهید.',
+      '# بازنویسی دستی مجاز است؛ نصب‌کننده مقادیر موجود را حفظ می‌کند.',
+      '# TUNNEL_* فقط برای نمایش/آزمون است؛ برای بهره‌برداری واقعی از دامنهٔ خودتان استفاده کنید.',
+      '',
+    ],
+  });
+  // COOKIE_SECURE/CORS_ORIGINS are read at boot, so the running server must be
+  // recycled once for the tunnel to be usable for login. If that restart fails
+  // the install is still usable locally and the link still serves pages, but
+  // signing in through it will fail — say so instead of claiming success.
+  log('تنظیمات عمومی نوشته شد؛ سرور برای اعمال آن یک بار دوباره راه‌اندازی می‌شود.');
+  const restarted = await managerCommand('restart', ['--json']);
+  const restartPayload = JSON.parse(restarted.stdout.split('\n').find((line) => line.startsWith('RESULT_JSON:'))?.slice(12) ?? '{}');
+  if (restarted.code !== 0 || !restartPayload.ok) {
+    stepEvent('tunnelhost', 'ساخت و راه‌اندازی تونل', 'warn', {
+      message: `لینک ساخته شد (${hosted.publicUrl}) ولی سرور دوباره راه‌اندازی نشد؛ ورود از لینک تا راه‌اندازی مجدد کار نمی‌کند.`,
+      detail: hosted.publicUrl,
+      stepProgress: 100,
+    });
+    return {
+      enabled: true,
+      degraded: true,
+      publicUrl: hosted.publicUrl,
+      inspectUrl: hosted.inspectUrl,
+      account: hosted.account,
+      tunnelName: hosted.tunnelName,
+    };
+  }
+
+  stepEvent('tunnelhost', 'ساخت و راه‌اندازی تونل', 'ok', {
+    message: `لینک عمومی آماده است: ${hosted.publicUrl}`,
+    detail: hosted.publicUrl,
+    stepProgress: 100,
+  });
+  return {
+    enabled: true,
+    publicUrl: hosted.publicUrl,
+    inspectUrl: hosted.inspectUrl,
+    account: hosted.account,
+    tunnelName: hosted.tunnelName,
+  };
+}
+
 /* ---------------------------------- main ---------------------------------- */
 
 async function main() {
@@ -1028,6 +1234,11 @@ async function main() {
     await checkExistingDatabase(job);
     await stepClean(job);
     config = await stepEnv(job);
+    // The tunnel tool is fetched here — after the config, before the slow
+    // dependency install — so a blocked download surfaces in the first minute
+    // instead of after ten minutes of npm. The order also matches the sidebar
+    // numbering the operator is watching.
+    const tunnelTool = await stepTunnelTool(job);
     await stepDependencies();
     await stepBuild();
     // A different copy could have started while dependencies were installed.
@@ -1037,6 +1248,8 @@ async function main() {
     await stepAdmin(config, job);
     await stepStart(config);
     const verification = await stepVerify(config, job);
+    // Last, because a tunnel to a port nothing listens on is a link that 502s.
+    const tunnel = await stepTunnelHost(config, job, tunnelTool);
 
     const report = {
       ok: true,
@@ -1057,6 +1270,19 @@ async function main() {
       steps: events.steps.filter((s) => ['ok', 'skip', 'warn'].includes(s.status)),
       verification: { checks: verification.checks?.length ?? 0, steps: verification.steps?.length ?? 0 },
       preflight: checks ? { items: checks.items?.length ?? 0, warnings: checks.warnings ?? [] } : null,
+      // The public link, when the operator asked for one. Present only after a
+      // successful sign-in and host; absent (not null) otherwise so the GUI's
+      // finish page can simply test for it.
+      ...(tunnel?.enabled ? {
+        tunnel: {
+          publicUrl: tunnel.publicUrl,
+          inspectUrl: tunnel.inspectUrl,
+          account: tunnel.account,
+          tunnelName: tunnel.tunnelName,
+          degraded: Boolean(tunnel.degraded),
+          note: 'این لینک برای نمایش و آزمایش است. مایکروسافت SLA نمی‌دهد و سقف ماهانه دارد.',
+        },
+      } : {}),
       node: process.versions.node,
       platform: process.platform,
       artifacts: {
