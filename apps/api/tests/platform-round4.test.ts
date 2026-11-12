@@ -1,7 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import request from 'supertest';
 import { ADMIN, CUSTOMER, adminSession, app, customerSession, login } from './helpers.js';
-import { run } from '../src/db/index.js';
+import { one, run } from '../src/db/index.js';
+import { ensureSettingDefaults } from '../src/modules/settings/service.js';
 
 /**
  * Round 4 — entry separation + editable landing.
@@ -145,6 +146,32 @@ describe('editable landing surface', () => {
     expect(stats.services).toBeGreaterThanOrEqual(190);
     expect(stats.customers).toBeGreaterThanOrEqual(1);
     expect(stats.completedRequests).toBeGreaterThanOrEqual(0);
+  });
+
+  it('rewrites a legacy install label exactly once, and never after release', async () => {
+    await app();
+    const read = () => one<{ value: string }>(
+      "SELECT value FROM settings WHERE key = 'landing.app_button_label'",
+    );
+
+    // The pre-split value named the only button; it now labels the APK card.
+    await run("UPDATE settings SET value='دریافت اپلیکیشن' WHERE key='landing.app_button_label'");
+    await run("UPDATE settings SET value='' WHERE key='landing.app_android_url'");
+    await ensureSettingDefaults();
+    expect((await read())?.value).toBe('دانلود مستقیم');
+
+    // Wording the office chose is never touched.
+    await run("UPDATE settings SET value='از بازار بگیرید' WHERE key='landing.app_button_label'");
+    await ensureSettingDefaults();
+    expect((await read())?.value).toBe('از بازار بگیرید');
+
+    // And once a real APK link exists, the migration stops firing entirely.
+    await run("UPDATE settings SET value='دریافت اپلیکیشن' WHERE key='landing.app_button_label'");
+    await run("UPDATE settings SET value='https://example.ir/app.apk' WHERE key='landing.app_android_url'");
+    await ensureSettingDefaults();
+    expect((await read())?.value).toBe('دریافت اپلیکیشن');
+
+    await run("UPDATE settings SET value='' WHERE key='landing.app_android_url'");
   });
 
   it('an admin edit to landing settings is served to the public immediately', async () => {
