@@ -179,8 +179,18 @@ object PushRenderer {
             }
         } else body
 
+        // A small icon that resolves to 0 makes NotificationManager silently
+        // drop the whole notification — no exception, no log the user sees, and
+        // the customer simply never gets told. Falling back to a platform icon
+        // is ugly but visible, which is far better than a notification that
+        // vanishes because a drawable was renamed.
+        val smallIcon = context.resources
+            .getIdentifier("ic_stat_pishkan", "drawable", context.packageName)
+            .takeIf { it != 0 }
+            ?: android.R.drawable.ic_dialog_info
+
         val builder = NotificationCompat.Builder(context, channelId)
-            .setSmallIcon(context.resources.getIdentifier("ic_stat_pishkan", "drawable", context.packageName))
+            .setSmallIcon(smallIcon)
             .setContentTitle(title)
             .setContentText(body.ifBlank { stageLabel })
             .setStyle(NotificationCompat.BigTextStyle().bigText(bigText))
@@ -321,6 +331,23 @@ object PushBridge {
         val link = pendingLink
         pendingLink = null
         return link
+    }
+
+    /**
+     * Called once from [ir.pishkan.app.PishkanApplication] so that a tap which
+     * cold-started the app is never handed to an engine that will not survive.
+     *
+     * Nothing to do beyond clearing the stale engine references: the previous
+     * process may have left a channel pointing at a dead isolate, and a link
+     * delivered there would be swallowed. Application.onCreate runs before any
+     * Activity or Service, so this is the earliest point that can tell them
+     * apart. It is intentionally cheap and allocation-free.
+     */
+    @Synchronized
+    fun markProcessStarted() {
+        channel = null
+        engine = null
+        uiEngine = null
     }
 
     /** Register the FCM token with the server using Dart's own HTTP stack. */

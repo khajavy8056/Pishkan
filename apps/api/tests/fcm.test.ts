@@ -126,4 +126,25 @@ describe('FCM message shape', () => {
     const stage: any = buildMessage('token-abcdefghijklmnop', { title: 't', body: 'b', tag: 'request-stage:r:2' });
     expect(stage.message.android.priority).toBe('high');
   });
+
+  // The test above only exercised `info` *without* a tag, which production
+  // never sends: notifications/service.ts always supplies one. That made it
+  // pass against a condition (`kind === 'info' && !tag`) whose second half was
+  // therefore always false, so every routine notice was actually pushed as
+  // `high`. These cases use the shape the server really sends.
+  it('keeps a routine notice at normal priority even though it carries a tag', () => {
+    const message: any = buildMessage('token-abcdefghijklmnop', {
+      title: 'یادآوری', body: 'b', kind: 'info', tag: 'notice:abc',
+    });
+    expect(message.message.android.priority).toBe('normal');
+  });
+
+  it('still wakes the device for time-critical kinds that carry a tag', () => {
+    for (const kind of ['stage', 'success', 'warning', 'error', 'action']) {
+      const message: any = buildMessage('token-abcdefghijklmnop', {
+        title: 't', body: 'b', kind, tag: `k:${kind}`,
+      });
+      expect(message.message.android.priority).toBe('high');
+    }
+  });
 });

@@ -62,6 +62,24 @@ export interface PushPayload {
   stageLabel?: string;
 }
 
+/**
+ * Kinds that may be delivered on the next Doze window instead of waking the
+ * device. Deliberately small and allow-by-exception: a kind that is not listed
+ * here wakes the phone, so a new, genuinely urgent event is never accidentally
+ * downgraded to "arrives whenever Android feels like it".
+ *
+ * These are routine, non-time-critical notices: an informational feed entry, a
+ * monthly statement, a settled invoice and a bank/waiting-room status change
+ * do not justify lighting up a screen at 3am. Everything else — a case stage
+ * move, a chat reply, a staff action, an error — keeps `high`.
+ */
+const NOTIFY_LOW_PRIORITY_KINDS = new Set([
+  'info',
+  'monthly',
+  'settlement',
+  'waiting_organization',
+]);
+
 export interface SendResult {
   ok: boolean;
   /** FCM error code when it failed: UNREGISTERED is the important one. */
@@ -206,11 +224,17 @@ export function buildMessage(
       android: {
         // Collapse per tag so a case update replaces its predecessor.
         collapse_key: payload.tag ? `pishkan:${payload.tag}` : undefined,
-        // `normal` (default) is delivered in Doze at the next maintenance
-        // window; `high` wakes the device. Stage changes are worth waking for,
-        // but invoices and announcements are not — a customer does not want the
-        // phone buzzing at 3am for a reminder.
-        priority: payload.kind === 'info' && !payload.tag ? 'normal' : 'high',
+        // `normal` is delivered at the next Doze maintenance window; `high`
+        // wakes the device. Only genuinely urgent events should wake a phone
+        // that is asleep in a pocket, so the choice keys off the *kind*.
+        //
+        // This used to read `kind === 'info' && !tag`, which was dead code:
+        // notifications/service.ts always supplies a tag, so the second half
+        // was never true and every notice — including a routine `info` one —
+        // was sent as `high`. A `normal` message still arrives, just possibly
+        // batched; a wrongly-`high` one is what makes an app feel spammy and
+        // is exactly what Android's notification guidance warns about.
+        priority: NOTIFY_LOW_PRIORITY_KINDS.has(payload.kind ?? '') ? 'normal' : 'high',
         ttl: '86400s',
       },
     },

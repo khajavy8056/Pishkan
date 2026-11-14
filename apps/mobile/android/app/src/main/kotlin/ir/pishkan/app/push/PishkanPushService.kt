@@ -63,8 +63,19 @@ class PishkanPushService : FirebaseMessagingService() {
      * worked and then stopped" report.
      */
     override fun onCreate() {
-        super.onCreate()
+        // Firebase must be initialised *before* super.onCreate(): the base
+        // FirebaseMessagingService constructor/`onCreate` resolves
+        // FirebaseApp.getInstance(), and with this project not applying the
+        // google-services Gradle plugin there is no FirebaseInitProvider to
+        // have done it already. Getting this order wrong throws on a background
+        // thread the first time a message arrives for a closed app — which is
+        // exactly the case this feature exists for.
+        //
+        // PishkanApplication normally does this already at process start; the
+        // call is idempotent and stays here so the service is not silently
+        // broken if the manifest placeholder ever regresses.
         FirebaseBootstrap.ensure(this)
+        super.onCreate()
         PushRenderer.ensureChannels(this)
     }
 

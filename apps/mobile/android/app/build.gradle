@@ -52,6 +52,13 @@ android {
         applicationId = "ir.pishkan.app"
         minSdk = flutter.minSdkVersion
         targetSdk = flutter.targetSdkVersion
+        // Flutter's plugin sets the `applicationName` manifest placeholder to
+        // android.app.Application unless told otherwise (see
+        // BaseApplicationNameHandler in flutter_tools). Overriding it here is
+        // what makes PishkanApplication the process entry point — without this
+        // line the class exists but is never instantiated, and push while the
+        // app is closed stays broken while looking completely wired up.
+        manifestPlaceholders["applicationName"] = "ir.pishkan.app.PishkanApplication"
         versionCode = flutterVersionCode.toInteger()
         versionName = flutterVersionName
         // Firebase identifiers can be supplied at build time instead of editing
@@ -104,6 +111,44 @@ kotlin {
 
 flutter {
     source = "../.."
+}
+
+// Fail loudly if the Android application class is not the one this project
+// defines. Push delivery to a *closed* app depends entirely on
+// PishkanApplication initialising Firebase at process start; if the placeholder
+// regresses to Flutter's default (android.app.Application) everything still
+// compiles and every test still passes, and only a real customer's phone shows
+// the symptom (notifications never arrive while the app is closed). A build
+// error is the correct outcome for that.
+// Checked after evaluation (the placeholder is set by Flutter's plugin too,
+// so it must be compared once every plugin has had its say). Guarded so a
+// failure to *read* the value can never break a build that is otherwise fine —
+// only a definite, wrong value is fatal.
+gradle.afterProject { project ->
+    if (project.path != ":app") return
+    try {
+        def placeholders = project.android.defaultConfig.manifestPlaceholders
+        def appName = placeholders["applicationName"]
+        if (appName == null) {
+            throw new GradleException(
+                "applicationName manifest placeholder is missing. Push while " +
+                "the app is closed will not work (Firebase would never be " +
+                "initialised at process start). See app/build.gradle."
+            )
+        }
+        if (appName.toString() != "ir.pishkan.app.PishkanApplication") {
+            throw new GradleException(
+                "applicationName placeholder is '${appName}', expected " +
+                "'ir.pishkan.app.PishkanApplication'. Push while the app is " +
+                "closed will not work. See app/build.gradle manifestPlaceholders."
+            )
+        }
+    } catch (GradleException rethrow) {
+        throw rethrow
+    } catch (Throwable ignored) {
+        // The extension shape differs between AGP versions; a read failure is
+        // not evidence of a misconfiguration, so it must not fail the build.
+    }
 }
 
 dependencies {
