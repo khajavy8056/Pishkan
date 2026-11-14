@@ -167,7 +167,7 @@ flutter run
 
 ## ۸. ساخت APK در GitHub Actions
 
-هر بار که تگ `android-v*` روی شاخه push شود، گردش‌کار `.github/workflows/android.yml` سه APK (arm64، armv7، x86_64) و یک AAB می‌سازد و آن‌ها را در بخش Releases همان مخزن می‌گذارد. آخرین ساخت موفق: تگ `android-v1.20.9`.
+هر بار که تگ `android-v*` روی شاخه push شود، گردش‌کار `.github/workflows/android.yml` سه APK (arm64، armv7، x86_64) و یک AAB می‌سازد و آن‌ها را در بخش Releases همان مخزن می‌گذارد. آخرین ساخت موفق: تگ `android-v1.21.2`. (این بیلد اولین بیلدی است که `PishkanApplication` را واقعاً به‌عنوان کلاس Application دارد؛ با یک annotation در CI تأیید شد.)
 
 ### چرا این‌قدر طول کشید (و چه چیزی درست شد)
 
