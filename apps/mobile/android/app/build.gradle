@@ -136,6 +136,9 @@ gradle.afterProject { project ->
                 "initialised at process start). See app/build.gradle."
             )
         }
+        // TEMP-VERIFY: surface the value so it can be read from a CI
+        // annotation, then remove this line.
+        println "::warning title=APPNAME::" + String.valueOf(appName)
         if (appName.toString() != "ir.pishkan.app.PishkanApplication") {
             throw new GradleException(
                 "applicationName placeholder is '${appName}', expected " +
