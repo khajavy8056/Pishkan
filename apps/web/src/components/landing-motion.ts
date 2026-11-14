@@ -220,39 +220,117 @@ export function useRevealOnScroll<T extends HTMLElement>(options: {
   /** Stagger index → delay in ms, read from `data-reveal`'s sibling order. */
   stagger?: number;
   threshold?: number;
+  /**
+   * Observe this element instead of the returned ref.
+   *
+   * Needed when the caller already owns a ref on the same node for another
+   * purpose — a single DOM node can only take one React `ref`, and silently
+   * overwriting the caller's ref would break their effect instead.
+   */
+  observe?: React.RefObject<HTMLElement | null>;
 } = {}) {
-  const ref = useRef<T>(null);
-  const { stagger = 70, threshold = 0.15 } = options;
+  const ownRef = useRef<T>(null);
+  const { stagger = 70, threshold = 0.15, observe } = options;
+  const ref = observe ?? (ownRef as React.RefObject<T | null>);
 
   useEffect(() => {
     const node = ref.current;
     if (!node) return;
-    const targets = Array.from(node.querySelectorAll<HTMLElement>('[data-reveal]'));
-    if (!targets.length) return;
 
-    // No IntersectionObserver (or reduced motion): show everything at once.
-    if (typeof IntersectionObserver !== 'function') {
-      targets.forEach((el) => el.classList.add('is-in'));
-      return;
+    const reduced = typeof window.matchMedia === 'function'
+      && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+    const canObserve = typeof IntersectionObserver === 'function' && !reduced;
+
+    // The sections this hook serves are filled asynchronously — categories and
+    // popular services arrive from `/api/public/site` *after* the first render.
+    // A one-shot querySelectorAll therefore found nothing, the observer was
+    // never attached to the real cards, and because the effect's dependencies
+    // never change it never ran again: those cards stayed at opacity:0 forever.
+    // Re-scanning on DOM mutation is what makes the reveal survive async data.
+    const seen = new WeakSet<Element>();
+    let observer: IntersectionObserver | null = null;
+    const scopedObservers: IntersectionObserver[] = [];
+
+    /** Show an element immediately (no observer available or reduced motion). */
+    const showNow = (el: HTMLElement) => el.classList.add('is-in');
+
+    /** Nearest ancestor that scrolls, e.g. the category rail. */
+    const inScroller = (el: Element): Element | null => {
+      let parent = el.parentElement;
+      while (parent && parent !== node) {
+        const style = window.getComputedStyle(parent);
+        if (/(auto|scroll)/.test(style.overflowX) || /(auto|scroll)/.test(style.overflowY)) return parent;
+        parent = parent.parentElement;
+      }
+      return null;
+    };
+
+    const watch = (el: HTMLElement) => {
+      if (seen.has(el)) return;
+      seen.add(el);
+      if (!el.dataset.revealIndex) el.dataset.revealIndex = String(seenCount++);
+      if (!canObserve) { showNow(el); return; }
+
+      // Cards inside a horizontal rail are clipped by it, so they are observed
+      // against the rail: a swipe then reveals them as they come into view
+      // instead of the rail scrolling into blank space.
+      const scroller = inScroller(el);
+      if (scroller) {
+        const railObserver = new IntersectionObserver((entries) => {
+          for (const entry of entries) {
+            if (!entry.isIntersecting) continue;
+            (entry.target as HTMLElement).classList.add('is-in');
+            railObserver.unobserve(entry.target);
+          }
+        }, { root: scroller as Element, threshold: 0, rootMargin: '0px 120px 0px 120px' });
+        railObserver.observe(el);
+        scopedObservers.push(railObserver);
+        return;
+      }
+      observer?.observe(el);
+    };
+
+    let seenCount = 0;
+    const scan = () => {
+      const found = Array.from(node.querySelectorAll<HTMLElement>('[data-reveal]'));
+      if (!found.length) return;
+      // Arm the hidden state only once there is something to animate, and only
+      // when an observer can actually reveal it again. See the note in
+      // styles.css: an unarmed page stays readable no matter what.
+      if (canObserve) node.classList.add('reveal-armed');
+      for (const el of found) watch(el);
+    };
+
+    if (canObserve) {
+      observer = new IntersectionObserver((entries) => {
+        for (const entry of entries) {
+          if (!entry.isIntersecting) continue;
+          const el = entry.target as HTMLElement;
+          const index = Number(el.dataset.revealIndex ?? 0);
+          el.style.transitionDelay = `${Math.min(index * stagger, 480)}ms`;
+          el.classList.add('is-in');
+          observer?.unobserve(el);
+        }
+      }, { threshold, rootMargin: '0px 0px -8% 0px' });
     }
 
-    const observer = new IntersectionObserver((entries) => {
-      for (const entry of entries) {
-        if (!entry.isIntersecting) continue;
-        const el = entry.target as HTMLElement;
-        const index = Number(el.dataset.revealIndex ?? 0);
-        el.style.transitionDelay = `${Math.min(index * stagger, 480)}ms`;
-        el.classList.add('is-in');
-        observer.unobserve(el);
-      }
-    }, { threshold, rootMargin: '0px 0px -8% 0px' });
+    scan();
 
-    targets.forEach((el, index) => {
-      if (!el.dataset.revealIndex) el.dataset.revealIndex = String(index);
-      observer.observe(el);
-    });
-    return () => observer.disconnect();
-  }, [stagger, threshold]);
+    // Pick up content that arrives after the first paint. One observer for the
+    // whole section, and only over children: cheap enough to run while the site
+    // payload streams in, and it disconnects with the component.
+    let mutationObserver: MutationObserver | null = null;
+    if (typeof MutationObserver === 'function') {
+      mutationObserver = new MutationObserver(() => scan());
+      mutationObserver.observe(node, { childList: true, subtree: true });
+    }
+
+    return () => {
+      observer?.disconnect();
+      scopedObservers.forEach((o) => o.disconnect());
+      mutationObserver?.disconnect();
+    };
+  }, [stagger, threshold, ref]);
 
   return ref;
 }

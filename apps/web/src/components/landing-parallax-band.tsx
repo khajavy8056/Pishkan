@@ -10,7 +10,7 @@
  * page somewhere to breathe without another card.
  */
 import { ShieldCheck, Clock, Headset, FileCheck2 } from 'lucide-react';
-import { useScrollProgress } from './landing-motion';
+import { useRevealOnScroll, useScrollProgress } from './landing-motion';
 
 const PILLARS = [
   { icon: FileCheck2, title: 'مدارک بدون کاغذ', text: 'بارگذاری، بررسی و آرشیو دیجیتال' },
@@ -21,9 +21,13 @@ const PILLARS = [
 
 export function ParallaxBand() {
   const ref = useScrollProgress<HTMLDivElement>({ start: -0.15, end: 1.15 });
+  // Its own reveal container: the pillars below carry `data-reveal`, and
+  // `[data-reveal]` starts at opacity:0. Without an observer on an ancestor the
+  // cards would stay invisible for the life of the page.
+  const reveal = useRevealOnScroll<HTMLElement>();
 
   return (
-    <section className="relative overflow-hidden py-10 sm:py-14" aria-label="چرا این سامانه">
+    <section ref={reveal} className="relative overflow-hidden py-10 sm:py-14" aria-label="چرا این سامانه">
       <div ref={ref} className="parallax-band relative mx-auto max-w-7xl px-4 sm:px-6">
         {/* three depth layers; each reads --p at a different multiplier */}
         <div aria-hidden="true" className="pointer-events-none absolute inset-0">

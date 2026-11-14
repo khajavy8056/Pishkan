@@ -37,6 +37,7 @@
   --color-brand-700: var(--brand-700);
   --color-brand-800: var(--brand-800);
   --color-brand-900: var(--brand-900);
+  --color-brand-950: var(--brand-950);
 
   /* Surfaces & borders */
   --color-canvas: var(--canvas);
@@ -195,6 +196,10 @@
   --brand-700: #0a4eae;
   --brand-800: #0b418e;
   --brand-900: #0d3875;
+  /* Deepest step of the brand scale. Used by the hero's bottom
+     overlay and the app card's shadow; without a value those
+     utilities emit no CSS at all and the depth disappears. */
+  --brand-950: #082a5c;
 
   --shadow-soft: 0 1px 2px rgb(8 24 45 / 0.04), 0 12px 32px -18px rgb(8 24 45 / 0.28);
   --shadow-card: 0 1px 2px rgb(8 24 45 / 0.04), 0 0 0 1px rgb(13 33 61 / 0.06);
@@ -249,6 +254,7 @@
   --brand-700: #1d4ed8;
   --brand-800: #93c5fd;
   --brand-900: #bfdbfe;
+  --brand-950: #dbeafe;
 
   --shadow-soft: 0 1px 2px rgb(0 0 0 / 0.4), 0 18px 40px -24px rgb(0 0 0 / 0.8);
   --shadow-card: 0 1px 2px rgb(0 0 0 / 0.35), 0 0 0 1px rgb(255 255 255 / 0.07);
@@ -689,23 +695,45 @@
 
 /* ------------------------------ scroll reveal ----------------------------- */
 
+/* Fail-open scroll reveal.
+
+   The hidden starting state is scoped to `.reveal-armed`, a class the hook adds
+   to its container *before the first paint*. So:
+
+     - JS never runs, or a section is moved outside its container → no
+       `.reveal-armed`, and the content is simply visible. (This is what went
+       wrong before: the CTA block, the request-stack steps and the parallax
+       pillars each carried `data-reveal` with no container to observe them, so
+       they sat at opacity:0 for the life of the page.)
+     - Normal case → armed, so the element starts hidden and fades in when the
+       observer marks it `.is-in`.
+
+   The previous version hid `[data-reveal]` unconditionally, which meant any
+   wiring mistake deleted content with no error anywhere. */
 [data-reveal] {
-  opacity: 0;
-  transform: translate3d(0, 26px, 0) scale(0.985);
   transition:
     opacity 0.75s cubic-bezier(0.22, 1, 0.36, 1),
     transform 0.75s cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+/* Direction variants sit inside the armed rule so each keeps its own travel
+   vector. Written as :not(.is-in) rather than as a separate base rule because
+   `.reveal-armed [data-reveal]:not(.is-in)` (0,3,0) would otherwise override a
+   bare `[data-reveal='left']` (0,1,0) and flatten every direction to "up". */
+.reveal-armed [data-reveal]:not(.is-in) {
+  opacity: 0;
+  transform: translate3d(0, 26px, 0) scale(0.985);
   will-change: opacity, transform;
 }
+.reveal-armed [data-reveal='left']:not(.is-in) { transform: translate3d(34px, 0, 0) scale(0.985); }
+.reveal-armed [data-reveal='right']:not(.is-in) { transform: translate3d(-34px, 0, 0) scale(0.985); }
+.reveal-armed [data-reveal='zoom']:not(.is-in) { transform: scale(0.9); }
+.reveal-armed [data-reveal='blur']:not(.is-in) { filter: blur(10px); transform: translate3d(0, 18px, 0); }
 [data-reveal].is-in {
   opacity: 1;
   transform: none;
   will-change: auto;
 }
-[data-reveal='left'] { transform: translate3d(34px, 0, 0) scale(0.985); }
-[data-reveal='right'] { transform: translate3d(-34px, 0, 0) scale(0.985); }
-[data-reveal='zoom'] { transform: scale(0.9); }
-[data-reveal='blur'] { filter: blur(10px); transform: translate3d(0, 18px, 0); }
 [data-reveal='blur'].is-in { filter: blur(0); }
 
 /* ------------------------------- hero scene ------------------------------- */

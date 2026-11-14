@@ -24,6 +24,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { Camera, Check, ClipboardList, FileCheck2, Fingerprint, ShieldCheck, Sparkles, UserCheck } from 'lucide-react';
 import clsx from 'clsx';
+import { useRevealOnScroll } from './landing-motion';
 
 export interface JourneyStep {
   icon: React.ComponentType<{ className?: string }>;
@@ -163,6 +164,11 @@ function Layers() {
 export function RequestStack({ steps = DEFAULT_JOURNEY }: { steps?: JourneyStep[] }) {
   const sectionRef = useRef<HTMLElement>(null);
   const [active, setActive] = useState(0);
+  // The step rows carry `data-reveal`, which starts at opacity:0 until an
+  // ancestor observer marks it `.is-in`. The stack's own scroll listener only
+  // tracks which step is active, so the reveal needs its own observer — and it
+  // has to share `sectionRef`, because one DOM node takes one ref.
+  useRevealOnScroll<HTMLElement>({ observe: sectionRef });
 
   useEffect(() => {
     const node = sectionRef.current;

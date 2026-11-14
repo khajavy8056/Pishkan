@@ -15,7 +15,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { describe, expect, it } from 'vitest';
-import { render } from '@testing-library/react';
+import { render, screen } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
 import { AuthProvider } from '../src/lib/auth';
 import { SiteProvider } from '../src/lib/site';
@@ -160,9 +160,23 @@ describe('landing page', () => {
     const labelled = container.querySelectorAll('[aria-label="دسته‌های قبلی"], [aria-label="دسته‌های بعدی"]');
     expect(labelled.length).toBeGreaterThan(0);
   });
-});
+  it('gives every reveal-driven block a container that can observe it', async () => {
+    // The bug this guards: `[data-reveal]` used to start at opacity:0 with no
+    // fallback, so any section outside a reveal container was invisible for
+    // good. The CTA block, the request-stack steps and the parallax pillars were
+    // all in that state. jsdom has no IntersectionObserver, so the hook takes
+    // its "show everything" path — which is exactly the branch that must make
+    // all of this content visible, and therefore the right thing to assert.
+    const { container } = renderAt('/', <HomePage />);
+    await screen.findByRole('heading', { level: 1 });
+    const hidden = Array.from(container.querySelectorAll('[data-reveal]'))
+      .filter((el) => !el.classList.contains('is-in'))
+      .map((el) => (el.textContent || '').trim().slice(0, 40) || el.className.slice(0, 40));
+    expect(hidden).toEqual([]);
+    // And nothing may still be armed, i.e. still relying on a future observer.
+    expect(container.querySelector('.reveal-armed')).toBeNull();
+  });
 
-describe('landing stylesheet guards', () => {
   it('neutralises the 3D transforms on narrow viewports', () => {
     // The single biggest cause of "it shakes on my phone": a perspective scene
     // plus pointer transforms at 360px. The mobile block must neutralise them.
@@ -182,6 +196,21 @@ describe('landing stylesheet guards', () => {
     // The round-2 sections need the guard too.
     expect(reducedBlocks.some((block) => block.includes('.stack-sheet'))).toBe(true);
     expect(reducedBlocks.some((block) => block.includes('.device-tilt'))).toBe(true);
+  });
+
+  it('never hides a revealed element unless the observer is actually armed', () => {
+    // The bug this pins: `[data-reveal] { opacity: 0 }` applied unconditionally,
+    // so any section moved outside its reveal container stayed invisible with no
+    // error. Three of them did (the CTA block, the request-stack steps and the
+    // parallax pillars). The hidden state must be scoped to a class the hook
+    // adds, so a wiring mistake makes content visible, not missing.
+    const baseRule = STYLES.match(/\[data-reveal\] \{([^}]*)\}/)?.[1] ?? '';
+    expect(baseRule).not.toMatch(/opacity:\s*0/);
+    expect(STYLES).toContain('.reveal-armed [data-reveal]:not(.is-in)');
+    // And the stylesheet must not reintroduce a bare hidden state anywhere.
+    const bareHidden = [...STYLES.matchAll(/(?:^|})\s*\[data-reveal[^{]*\{([^}]*)\}/g)]
+      .filter((m) => /opacity:\s*0(?!\.)/.test(m[1]) && !m[0].includes('reveal-armed'));
+    expect(bareHidden).toHaveLength(0);
   });
 
   it('keeps the sticky layer stack off the mobile layout', () => {

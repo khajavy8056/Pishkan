@@ -126,6 +126,7 @@ export function HomePage() {
   const servicesReveal = useRevealOnScroll<HTMLElement>();
   const appReveal = useRevealOnScroll<HTMLElement>();
   const statsReveal = useRevealOnScroll<HTMLElement>();
+  const ctaReveal = useRevealOnScroll<HTMLElement>();
   const { scrolled, progress } = useScrollState(30);
   // Drives the hero's "leaving the viewport" motion: pieces lift at different
   // rates as the section scrolls away, which is what makes the depth read on
@@ -504,7 +505,11 @@ export function HomePage() {
         )}
 
         {/* ================================ CTA ================================ */}
-        <section className="mx-auto max-w-7xl px-4 py-10 sm:px-6" data-reveal="zoom">
+        {/* ref={ctaReveal}: this section carried data-reveal but sat outside
+            every reveal container, so nothing ever added `.is-in` and it stayed
+            at opacity:0 — the last call-to-action on the page was invisible. */}
+        <section ref={ctaReveal} className="mx-auto max-w-7xl px-4 py-10 sm:px-6">
+          <div data-reveal="zoom">
           <div className="relative overflow-hidden rounded-[2.2rem] bg-gradient-to-l from-brand-600 via-brand-700 to-brand-800 px-6 py-10 text-center shadow-2xl shadow-brand-900/25 sm:px-10 sm:py-12">
             <div aria-hidden="true" className="pointer-events-none absolute -top-24 right-1/4 size-72 rounded-full bg-white/10 blur-3xl" />
             <div aria-hidden="true" className="pointer-events-none absolute -bottom-28 left-1/4 size-80 rounded-full bg-emerald-400/20 blur-3xl" />
@@ -524,6 +529,7 @@ export function HomePage() {
                 </Link>
               </div>
             </div>
+          </div>
           </div>
         </section>
 
