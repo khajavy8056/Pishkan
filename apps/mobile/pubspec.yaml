@@ -34,7 +34,11 @@ dependencies:
   # so case progress reaches the customer like a ride-hailing app, even when
   # the app is closed — without needing a Firebase project (LAN-friendly).
   flutter_local_notifications: ^18.0.1
-  workmanager: ^0.9.0+3
+  # 0.10.x is the first line that does not unconditionally `apply plugin:
+  # 'kotlin-android'`; under AGP 9 with built-in Kotlin enabled that call fails
+  # with "cannot find symbol WorkmanagerPlugin" because the plugin class is
+  # never compiled. 0.9.x also predates Flutter 3.38's Gradle toolchain.
+  workmanager: ^0.10.10
   # Optional fingerprint/face unlock, like the approved design's login.
   local_auth: ^2.3.0
 

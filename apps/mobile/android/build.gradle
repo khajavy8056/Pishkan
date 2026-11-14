@@ -5,14 +5,21 @@ allprojects {
     }
 }
 
-rootProject.buildDir = "../build"
+// Gradle 9 removed `Project.buildDir`; the replacement is the lazy layout API.
+// This file is Groovy DSL (the project has not migrated to .kts), so the
+// Kotlin-template spelling (`val`, `layout.buildDirectory.value`, `register<T>`)
+// does not apply here — it would be a syntax error.
+//
+// Directory layout is unchanged: build output still lands in apps/mobile/build.
+def newBuildDir = rootProject.layout.buildDirectory.dir("../../build").get()
+rootProject.layout.buildDirectory.set(newBuildDir)
 subprojects {
-    project.buildDir = "${rootProject.buildDir}/${project.name}"
+    project.layout.buildDirectory.set(newBuildDir.dir(project.name))
 }
 subprojects {
     project.evaluationDependsOn(":app")
 }
 
 tasks.register("clean", Delete) {
-    delete rootProject.buildDir
+    delete(rootProject.layout.buildDirectory)
 }

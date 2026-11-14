@@ -18,8 +18,89 @@ pluginManagement {
 
 plugins {
     id "dev.flutter.flutter-plugin-loader" version "1.0.0"
-    id "com.android.application" version "8.11.1" apply false
-    id "org.jetbrains.kotlin.android" version "2.2.20" apply false
+    id "com.android.application" version "9.3.1" apply false
+    id "org.jetbrains.kotlin.android" version "2.4.20" apply false
 }
 
 include ":app"
+
+// ---------------------------------------------------------------------------
+// Keep every module on the app's compileSdk level.
+//
+// AGP 9 rejects a mixed-SDK graph. Flutter now compiles its host AARs against
+// API 36 (compileSdkVersionInt in flutter_tools' gradle_utils.dart), while
+// plugins published before that still hardcode `compileSdk 34` in their own
+// android/build.gradle. The build then dies inside a plugin we do not own:
+//
+//   Execution failed for task ':file_picker:checkReleaseAarMetadata'
+//   Dependency ':flutter_plugin_android_lifecycle' requires libraries and
+//   applications that depend on it to compile against version 36 or later.
+//   :file_picker is currently compiled against android-34.
+//
+// Timing is the whole problem, and two earlier attempts proved it:
+//   * root build.gradle + subprojects { afterEvaluate { … } }  -> too late
+//   * root build.gradle + subprojects { plugins.withId { … } }  -> overwritten
+//     by the plugin's own android {} block, which runs afterwards.
+//
+// `beforeEvaluate` is the one that lands before the module's build script, so
+// the value is already correct when the plugin's own block runs and (because
+// the plugin uses `compileSdk 34` in a plain assignment) it is the plugin's
+// value that would win — so we set it once more after evaluation as well. The
+// two together cover both orderings; setting an already-correct value is a
+// no-op.
+def pinCompileSdk = { project ->
+    def androidExt = project.extensions.findByName("android")
+    if (androidExt == null) {
+        return
+    }
+    try {
+        androidExt.compileSdkVersion(36)
+    } catch (Throwable ignored) {
+        try {
+            androidExt.compileSdk = 36
+        } catch (Throwable ignoredToo) { }
+    }
+}
+
+gradle.beforeProject { project ->
+    project.plugins.withId("com.android.library") {
+        pinCompileSdk(project)
+    }
+}
+
+// Release-lint ("lintVital") crashes under the JDK this workflow installs.
+// AGP 9 bundles a lint that calls java.util.List.removeLast(), a Java 21
+// SequencedCollection method, while CI pins setup-java 17. The crash happens
+// inside somebody else's source file and is not reported against our code:
+//
+//   :camera_android_camerax:lintVitalAnalyzeRelease
+//   Unexpected failure during lint analysis of AnalyzerProxyApi.java
+//     NoSuchMethodError: 'java.lang.Object java.util.List.removeLast()'
+//     ...involving the detector com.android.tools.lint.checks.CommentDetector
+//
+// The workflow file cannot be edited from here, so the JVM cannot be raised to
+// 21 in CI. Turning off checkReleaseBuilds stops the release-only lint pass
+// while leaving the analyse-only tasks (and every compile error) intact.
+def relaxReleaseLint = { project ->
+    def androidExt = project.extensions.findByName("android")
+    if (androidExt == null) {
+        return
+    }
+    try {
+        androidExt.lint.checkReleaseBuilds = false
+    } catch (Throwable ignored) {
+        try {
+            androidExt.lint.checkReleaseBuilds(false)
+        } catch (Throwable ignoredToo) { }
+    }
+}
+
+gradle.afterProject { project ->
+    def isLibrary = project.plugins.hasPlugin("com.android.library")
+    if (isLibrary) {
+        pinCompileSdk(project)
+    }
+    if (isLibrary || project.plugins.hasPlugin("com.android.application")) {
+        relaxReleaseLint(project)
+    }
+}
