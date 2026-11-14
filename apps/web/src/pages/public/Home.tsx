@@ -16,7 +16,7 @@ import { useEffect, useRef, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import {
   ArrowLeft, BadgeCheck, BellRing, Check, CheckCircle2, ChevronLeft, ChevronRight, Clock,
-  Download, FileCheck2, FileText, Headset, MousePointerClick, Search, Send, ShieldCheck,
+  ChevronDown, Download, FileCheck2, FileText, Headset, HelpCircle, MousePointerClick, Search, Send, ShieldCheck,
   Smartphone, Sparkles, Star, Wallet, Zap,
 } from 'lucide-react';
 import clsx from 'clsx';
@@ -39,6 +39,7 @@ import {
 } from '../../components/landing-motion';
 
 interface LandingFeature { icon: string; title: string; text: string }
+interface LandingFaq { q: string; a: string }
 
 const DEFAULT_FEATURES: LandingFeature[] = [
   { icon: 'zap', title: 'سرعت بالا', text: 'ثبت و پیگیری درخواست در چند دقیقه، بدون مراجعهٔ غیرضروری.' },
@@ -48,6 +49,8 @@ const DEFAULT_FEATURES: LandingFeature[] = [
   { icon: 'cpu', title: 'مدیریت هوشمند', text: 'ارجاع خودکار پرونده به کارشناس مناسب و یادآوری‌های به‌موقع.' },
   { icon: 'badge-check', title: 'رعایت استانداردها', text: 'فرایندها مطابق ضوابط دفاتر پیشخوان دولت و قابل حسابرسی.' },
 ];
+
+const DEFAULT_FAQ: LandingFaq[] = [];
 
 const FEATURE_COLORS: Record<string, string> = {
   zap: '#f59e0b',
@@ -80,10 +83,17 @@ function CountUp({ value, suffix = '', className }: { value: number; suffix?: st
     if (reduced) { setShown(value); return; }
     const node = ref.current;
     if (!node || typeof IntersectionObserver !== 'function') { setShown(value); return; }
+    // Already on screen at mount (a short viewport, or the page restored at a
+    // scroll offset): animate from zero once, immediately. Otherwise the tile
+    // reads "۰ خدمت" until the visitor scrolls, which looks like missing data
+    // rather than an animation. The observer below would never fire for an
+    // element that is already intersecting only if it is above the fold — it
+    // does fire, so this is purely about not showing a wrong number first.
+    const rect = node.getBoundingClientRect();
+    const onScreen = rect.top < (window.innerHeight || 0) && rect.bottom > 0;
     let frame = 0;
-    const observer = new IntersectionObserver((entries) => {
-      if (!entries[0]?.isIntersecting) return;
-      observer.disconnect();
+    let observer: IntersectionObserver | null = null;
+    const run = () => {
       const started = performance.now();
       const duration = 1100;
       const step = (now: number) => {
@@ -94,9 +104,18 @@ function CountUp({ value, suffix = '', className }: { value: number; suffix?: st
         if (t < 1) frame = requestAnimationFrame(step);
       };
       frame = requestAnimationFrame(step);
-    }, { threshold: 0.4 });
-    observer.observe(node);
-    return () => { observer.disconnect(); if (frame) cancelAnimationFrame(frame); };
+    };
+    if (onScreen) {
+      run();
+    } else {
+      observer = new IntersectionObserver((entries) => {
+        if (!entries[0]?.isIntersecting) return;
+        observer?.disconnect();
+        run();
+      }, { threshold: 0.4 });
+      observer.observe(node);
+    }
+    return () => { observer?.disconnect(); if (frame) cancelAnimationFrame(frame); };
   }, [value, reduced]);
 
   return <span ref={ref} className={clsx('stat-number', className)}>{faNum(shown)}{suffix}</span>;
@@ -127,6 +146,7 @@ export function HomePage() {
   const appReveal = useRevealOnScroll<HTMLElement>();
   const statsReveal = useRevealOnScroll<HTMLElement>();
   const ctaReveal = useRevealOnScroll<HTMLElement>();
+  const faqReveal = useRevealOnScroll<HTMLElement>();
   const { scrolled, progress } = useScrollState(30);
   // Drives the hero's "leaving the viewport" motion: pieces lift at different
   // rates as the section scrolls away, which is what makes the depth read on
@@ -154,6 +174,8 @@ export function HomePage() {
   };
 
   const features = parseListSetting<LandingFeature>(setting('landing.features'), DEFAULT_FEATURES).filter((f) => f?.title);
+  const faq = parseListSetting<LandingFaq>(setting('landing.faq'), DEFAULT_FAQ)
+    .filter((item) => item?.q && item?.a);
   const heroTitle = setting('landing.hero_title') || brand.name;
   const featuresTitle = setting('landing.features_title') || `چرا ${brand.name}؟`;
   const appTitle = setting('landing.app_title') || `اپلیکیشن اندروید ${brand.name}`;
@@ -475,9 +497,12 @@ export function HomePage() {
               <div aria-hidden="true" className="pointer-events-none absolute inset-x-0 top-0 h-1 bg-gradient-to-l from-brand-400 via-brand-600 to-brand-400" />
               <ShieldArt className="absolute -top-10 left-3 z-10 hidden w-24 sm:block lg:left-5 lg:w-28" />
               <div className="grid grid-cols-2 divide-x divide-line sm:pl-24 lg:grid-cols-4 lg:pl-36">
+                {/* Icon treatment matches the other three tiles: one tile with a
+                    bigger gradient badge made the row look misaligned rather
+                    than emphasised. */}
                 <div className="stat-tile flex flex-col items-center gap-1 px-4 py-6 text-center" data-reveal>
-                  <span className="grid size-14 place-items-center rounded-[1.2rem] bg-gradient-to-br from-emerald-400 to-emerald-600 text-white shadow-lg shadow-emerald-600/40 ring-1 ring-white/40">
-                    <CheckCircle2 className="size-6" />
+                  <span className="grid size-11 place-items-center rounded-2xl bg-emerald-50 text-emerald-600">
+                    <ShieldCheck className="size-5" />
                   </span>
                   <span className="mt-2 text-base font-black text-navy-900 sm:text-lg">امن و قابل اعتماد</span>
                   <span className="text-xs text-navy-500">با استانداردهای روز</span>
@@ -500,6 +525,51 @@ export function HomePage() {
                   <span className="text-xs text-navy-500">{setting('office.working_hours') || 'در تمام روزهای هفته'}</span>
                 </div>
               </div>
+            </div>
+          </section>
+        )}
+
+        {/* ================================ FAQ ================================ */}
+        {faq.length > 0 && (
+          <section ref={faqReveal} className="mx-auto max-w-3xl px-4 py-10 sm:px-6" aria-labelledby="faq-heading">
+            <div className="mb-6 text-center" data-reveal>
+              <span className="inline-flex items-center gap-2 rounded-full bg-primary-soft px-3 py-1 text-xs font-bold text-accent">
+                <HelpCircle className="size-4" />
+                پرسش‌های متداول
+              </span>
+              <h2 id="faq-heading" className="mt-3 text-xl font-black text-navy-900 sm:text-2xl">
+                هرچه لازم است بدانید
+              </h2>
+              <p className="mt-1 text-sm text-navy-500">
+                اگر پاسخ سؤالتان اینجا نبود، از صفحهٔ «پشتیبانی» پیام بدهید؛ در ساعات کاری پاسخ می‌دهیم.
+              </p>
+            </div>
+
+            {/* Native <details>: keyboard-accessible, works with JS disabled, and
+                gets browser find-in-page for free. A JS accordion here would add
+                weight for no benefit. */}
+            <div className="space-y-2.5">
+              {faq.map((item, index) => (
+                <details
+                  key={item.q}
+                  data-reveal
+                  style={{ transitionDelay: `${Math.min(index, 6) * 45}ms` }}
+                  className="group rounded-2xl bg-surface ring-1 ring-line transition open:shadow-lg open:ring-brand-200"
+                >
+                  <summary className="flex cursor-pointer list-none items-center justify-between gap-3 p-4 text-sm font-bold text-navy-900 marker:hidden">
+                    <span className="flex items-start gap-2.5">
+                      <span className="mt-0.5 grid size-6 shrink-0 place-items-center rounded-lg bg-primary-soft text-[11px] font-black text-accent">
+                        {faNum(index + 1)}
+                      </span>
+                      {item.q}
+                    </span>
+                    <ChevronDown className="size-4 shrink-0 text-navy-400 transition-transform duration-300 group-open:rotate-180" />
+                  </summary>
+                  <p className="text-[13px] leading-7 text-navy-600 border-t border-line px-4 py-3 pr-[3.4rem]">
+                    {item.a}
+                  </p>
+                </details>
+              ))}
             </div>
           </section>
         )}

@@ -15,10 +15,10 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { describe, expect, it } from 'vitest';
-import { render, screen } from '@testing-library/react';
+import { render, screen, waitFor } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
 import { AuthProvider } from '../src/lib/auth';
-import { SiteProvider } from '../src/lib/site';
+import { SiteContext, SiteProvider } from '../src/lib/site';
 import { ToastProvider } from '../src/components/ui';
 import { HomePage } from '../src/pages/public/Home';
 import { AppStoreButtons } from '../src/components/app-store-buttons';
@@ -35,6 +35,53 @@ function renderAt(path: string, element: React.ReactElement) {
     </AuthProvider>,
   );
 }
+
+
+/**
+ * Render the landing page with specific settings.
+ *
+ * The shared bootstrap fixture lives at module scope, so a per-test variant has
+ * to inject settings another way. This renders the real provider stack and then
+ * overlays the requested keys through the same context the page reads.
+ */
+function renderWithSettings(overrides: Record<string, string>) {
+  const base = { ...BOOTSTRAP_SETTINGS };
+  return render(
+    <AuthProvider>
+      <SiteContext.Provider
+        value={{
+          site: { ...BOOTSTRAP_SITE, settings: { ...base, ...overrides } } as never,
+          loading: false,
+          reload: async () => {},
+          setting: (key: string) => {
+            const value = (overrides[key] ?? base[key]) as unknown;
+            return value === undefined || value === null ? '' : String(value);
+          },
+        }}
+      >
+        <ToastProvider>
+          <MemoryRouter initialEntries={['/']}>
+            <HomePage />
+          </MemoryRouter>
+        </ToastProvider>
+      </SiteContext.Provider>
+    </AuthProvider>,
+  );
+}
+
+/** Mirrors the bootstrap fixture in tests/setup.ts closely enough to render. */
+const BOOTSTRAP_SETTINGS: Record<string, string> = {
+  'site.name': 'دفتر پیشخوان دولت',
+  'site.short_name': 'پیشخوان',
+  'office.name': 'دفتر پیشخوان مرکزی',
+};
+const BOOTSTRAP_SITE = {
+  version: '1.0.0-test',
+  settings: BOOTSTRAP_SETTINGS,
+  categories: [],
+  popularServices: [],
+  stats: { services: 10, customers: 100 },
+};
 
 const STYLES = fs.readFileSync(path.resolve(__dirname, '../src/styles.css'), 'utf8');
 
@@ -160,6 +207,28 @@ describe('landing page', () => {
     const labelled = container.querySelectorAll('[aria-label="دسته‌های قبلی"], [aria-label="دسته‌های بعدی"]');
     expect(labelled.length).toBeGreaterThan(0);
   });
+  it('renders the FAQ as native disclosure widgets the office can edit', async () => {
+    // Office-editable copy arrives from `landing.faq`. The bootstrap fixture is
+    // module-level and identical for every test, so these two cases stub the
+    // site context directly instead of trying to vary the fetch payload.
+    const faq = [
+      { q: 'چطور درخواست ثبت کنم؟', a: 'از دکمهٔ ثبت درخواست شروع کنید.' },
+      { q: 'وضعیتم را کجا ببینم؟', a: 'در فهرست درخواست‌ها.' },
+    ];
+    const { container } = renderWithSettings({ 'landing.faq': JSON.stringify(faq) });
+    await waitFor(() => expect(container.querySelectorAll('details')).toHaveLength(2));
+    const details = Array.from(container.querySelectorAll('details'));
+    // Native <summary>, so it is keyboard-operable and works without JavaScript.
+    expect(details[0].querySelector('summary')?.textContent).toContain('چطور درخواست ثبت کنم؟');
+    expect(details[0].textContent).toContain('از دکمهٔ ثبت درخواست شروع کنید.');
+  });
+
+  it('hides the FAQ section entirely when the office clears it', async () => {
+    const { container } = renderWithSettings({ 'landing.faq': '[]' });
+    await waitFor(() => expect(container.querySelector('h1')).toBeTruthy());
+    expect(container.querySelectorAll('details')).toHaveLength(0);
+  });
+
   it('gives every reveal-driven block a container that can observe it', async () => {
     // The bug this guards: `[data-reveal]` used to start at opacity:0 with no
     // fallback, so any section outside a reveal container was invisible for

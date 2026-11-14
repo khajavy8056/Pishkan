@@ -108,7 +108,9 @@ interface SiteState {
   setting: (key: string) => string;
 }
 
-const SiteContext = createContext<SiteState | null>(null);
+// Exported so a test can supply a specific settings payload without standing
+// up an HTTP stub for `/api/public/bootstrap`.
+export const SiteContext = createContext<SiteState | null>(null);
 
 export function SiteProvider({ children }: { children: ReactNode }) {
   const [site, setSite] = useState<SiteData | null>(null);
