@@ -111,6 +111,16 @@ async function main() {
   const lanAnswer = await ask(lanPrompt, existingLan ? 'y' : 'n');
   const lanAccess = /^(y|yes|بله|ب)$/i.test(lanAnswer);
 
+  // Public link. Default off: it needs a Microsoft account and it is the one
+  // step that leaves the machine, so it must never be a silent default.
+  const existingTunnel = String(existingEnv.TUNNEL_ENABLED ?? '').toLowerCase() === 'true';
+  process.stdout.write('\nلینک عمومی برای نمایش (از اینترنت، برای کارفرما): ابزار رسمی مایکروسافت، نیازمند ورود با حساب مایکروسافت یا گیت‌هاب.\n');
+  const tunnelAnswer = await ask(
+    existingTunnel ? 'لینک عمومی فعال بماند؟ (Y/n): ' : 'لینک عمومی فعال شود؟ (y/N): ',
+    existingTunnel ? 'y' : 'n',
+  );
+  const tunnel = /^(y|yes|بله|ب)$/i.test(tunnelAnswer);
+
   let admin = null;
   for (;;) {
     const fullName = await ask('نام و نام خانوادگی مدیر کل [مدیر کل محلی]: ', 'مدیر کل محلی');
@@ -132,7 +142,7 @@ async function main() {
     '--root', root, '--json-lines', '--job-stdin',
   ], { cwd: root, stdio: ['pipe', 'pipe', 'inherit'] });
 
-  child.stdin.end(`${JSON.stringify({ port, admin, lanAccess })}\n`);
+  child.stdin.end(`${JSON.stringify({ port, admin, lanAccess, tunnel, cleanInstall })}\n`);
 
   let lastKey = '';
   let ok = false;
@@ -159,7 +169,17 @@ async function main() {
     } else if (event.type === 'result') {
       ok = Boolean(event.ok);
       if (event.ok) {
-        process.stdout.write(`\nنصب کامل شد. آدرس همین رایانه: ${event.report.url}\n`);
+        process.stdout.write(`\nنصب کامل شد. آدرس همین رایانه: ${event.report.url}\nورود مدیر و کارکنان: ${event.report.adminLoginUrl ?? `${event.report.url}/login-admin`}\n`);
+        if (event.report.tunnel?.publicUrl) {
+          // The one line the operator is looking for; keep it visually apart
+          // from the local addresses so it is not pasted by mistake.
+          process.stdout.write(`\n────────────────────────────────────────\n`);
+          process.stdout.write(`لینک عمومی (برای کارفرما — از هر جایی باز می‌شود):\n${event.report.tunnel.publicUrl}\n`);
+          process.stdout.write(`(نمایش/آزمون؛ بار اول ممکن است صفحهٔ هشدار مایکروسافت ظاهر شود)\n`);
+          process.stdout.write(`────────────────────────────────────────\n`);
+        } else if (tunnel) {
+          process.stdout.write('لینک عمومی ساخته نشد؛ نصب سالم است. از Pishkan Manager دکمهٔ «لینک عمومی / تونل» را بزنید.\n');
+        }
         if (event.report.lanAccess) {
           const urls = event.report.mobileUrls ?? [];
           process.stdout.write(urls.length

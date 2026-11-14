@@ -32,7 +32,7 @@ describe('payroll role authorization', () => {
       mobile: '09128887766', password: 'Customer#98765', fullName: 'مشتری آزمون حقوق',
     });
     expect(registered.status).toBe(201);
-    const customer = await login('09128887766', 'Customer#98765');
+    const customer = await login('09128887766', 'Customer#98765', 'customer');
     expect((await request(server).get('/api/payroll/staff').set('Cookie', customer.cookie)).status).toBe(403);
   });
 });

@@ -2,7 +2,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { describe, expect, it } from 'vitest';
-import { isLanFirewallLeaseValid, lanAccessInfo, privateLanAddresses, resolveListenHost } from '../src/lib/server-bind.js';
+import { isLanFirewallLeaseValid, isLanStrictMode, lanAccessInfo, privateLanAddresses, resolveListenHost } from '../src/lib/server-bind.js';
 import { isPublicHttpsUrl } from '../src/lib/public-url.js';
 import { sanitizeLogText, safeErrorText } from '../src/lib/safe-log.js';
 
@@ -11,16 +11,27 @@ describe('Windows interface binding', () => {
     expect(resolveListenHost('0.0.0.0', 'win32', {})).toBe('127.0.0.1');
   });
 
-  it('does not expose LAN when opt-in, firewall verification, or a fresh lease is absent', () => {
-    expect(resolveListenHost('0.0.0.0', 'win32', { LAN_ACCESS: 'true' })).toBe('127.0.0.1');
-    expect(resolveListenHost('0.0.0.0', 'win32', { PISHKAN_LAN_FIREWALL_VERIFIED: 'true' })).toBe('127.0.0.1');
+  it('simple mode (default): an explicit LAN opt-in binds the wildcard interface with no lease at all', () => {
+    expect(isLanStrictMode({})).toBe(false);
+    expect(isLanStrictMode({ PISHKAN_LAN_STRICT: 'true' })).toBe(true);
+    // The installer's explicit choice is enough, whatever the firewall state.
+    expect(resolveListenHost('0.0.0.0', 'win32', { LAN_ACCESS: 'true' })).toBe('0.0.0.0');
+    // Still loopback without the explicit opt-in (no accidental exposure).
+    expect(resolveListenHost('0.0.0.0', 'win32', {})).toBe('127.0.0.1');
+    expect(resolveListenHost('0.0.0.0', 'win32', { LAN_ACCESS: 'false' })).toBe('127.0.0.1');
+  });
+
+  it('strict mode does not expose LAN when opt-in, firewall verification, or a fresh lease is absent', () => {
+    expect(resolveListenHost('0.0.0.0', 'win32', { PISHKAN_LAN_STRICT: 'true', LAN_ACCESS: 'true' })).toBe('127.0.0.1');
+    expect(resolveListenHost('0.0.0.0', 'win32', { PISHKAN_LAN_STRICT: 'true', PISHKAN_LAN_FIREWALL_VERIFIED: 'true' })).toBe('127.0.0.1');
     expect(resolveListenHost('0.0.0.0', 'win32', {
+      PISHKAN_LAN_STRICT: 'true',
       LAN_ACCESS: 'true', PISHKAN_LAN_FIREWALL_VERIFIED: 'true', PORT: '3000',
       PISHKAN_LAN_FIREWALL_TOKEN: 'token', PISHKAN_LAN_FIREWALL_STATUS_FILE: path.join(os.tmpdir(), 'missing-lease.json'),
     })).toBe('127.0.0.1');
   });
 
-  it('permits wildcard binding only with an explicit opt-in and a current matching firewall lease', () => {
+  it('strict mode permits wildcard binding only with an explicit opt-in and a current matching firewall lease', () => {
     const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'pishkan-firewall-lease-'));
     const leaseFile = path.join(dir, 'lease.json');
     const now = Date.now();
@@ -136,6 +147,10 @@ describe('LAN address discovery', () => {
     expect(loopback.note).toContain('همین رایانه');
 
     const windows = lanAccessInfo({ host: '0.0.0.0', port: 3000, platform: 'win32', interfaces });
-    expect(windows.firewallLeaseRequired).toBe(true);
+    expect(windows.mode).toBe('simple');
+    expect(windows.firewallLeaseRequired).toBe(false);
+    const windowsStrict = lanAccessInfo({ host: '0.0.0.0', port: 3000, platform: 'win32', interfaces, strict: true });
+    expect(windowsStrict.mode).toBe('strict');
+    expect(windowsStrict.firewallLeaseRequired).toBe(true);
   });
 });

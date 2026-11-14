@@ -5,7 +5,7 @@ import { ADMIN, CUSTOMER, adminSession, app, createStaff, customerSession, login
 describe('authentication', () => {
   it('logs an admin in and exposes permissions', async () => {
     const server = await app();
-    const res = await request(server).post('/api/auth/login').send({ identifier: ADMIN.username, password: ADMIN.password });
+    const res = await request(server).post('/api/auth/staff/login').send({ identifier: ADMIN.username, password: ADMIN.password });
     expect(res.status).toBe(200);
     expect(res.body.data.user.kind).toBe('admin');
     expect(res.body.data.user.permissions).toBe('*');
@@ -14,7 +14,7 @@ describe('authentication', () => {
 
   it('rejects a wrong password without revealing whether the user exists', async () => {
     const server = await app();
-    const res = await request(server).post('/api/auth/login').send({ identifier: ADMIN.username, password: 'wrong-password' });
+    const res = await request(server).post('/api/auth/staff/login').send({ identifier: ADMIN.username, password: 'wrong-password' });
     expect(res.status).toBe(401);
     expect(res.body.error.message).toContain('صحیح نیست');
   });
@@ -30,7 +30,7 @@ describe('authentication', () => {
 
   it('issues an OTP and verifies it end-to-end (console transport)', async () => {
     const server = await app();
-    const otpRequest = await request(server).post('/api/auth/otp/request').send({ mobile: '09125559911' });
+    const otpRequest = await request(server).post('/api/auth/otp/request').send({ mobile: '09125559911', kind: 'customer' });
     expect(otpRequest.status).toBe(200);
     expect(otpRequest.body.data.sent).toBe(true);
 
@@ -38,22 +38,22 @@ describe('authentication', () => {
     // recoverable in non-production mode through `debugCode`.
     const code = otpRequest.body.data.debugCode;
     expect(code).toBeTruthy();
-    const verify = await request(server).post('/api/auth/otp/verify').send({ mobile: '09125559911', code });
+    const verify = await request(server).post('/api/auth/otp/verify').send({ mobile: '09125559911', code, kind: 'customer' });
     expect(verify.status).toBe(200);
     expect(verify.body.data.user.kind).toBe('customer');
   });
 
   it('rejects a wrong OTP code and counts the attempt', async () => {
     const server = await app();
-    await request(server).post('/api/auth/otp/request').send({ mobile: '09125559922' });
-    const verify = await request(server).post('/api/auth/otp/verify').send({ mobile: '09125559922', code: '00000' });
+    await request(server).post('/api/auth/otp/request').send({ mobile: '09125559922', kind: 'customer' });
+    const verify = await request(server).post('/api/auth/otp/verify').send({ mobile: '09125559922', code: '00000', kind: 'customer' });
     expect(verify.status).toBe(400);
   });
 
   it('enforces the resend cooldown', async () => {
     const server = await app();
-    await request(server).post('/api/auth/otp/request').send({ mobile: '09125559933' });
-    const again = await request(server).post('/api/auth/otp/request').send({ mobile: '09125559933' });
+    await request(server).post('/api/auth/otp/request').send({ mobile: '09125559933', kind: 'customer' });
+    const again = await request(server).post('/api/auth/otp/request').send({ mobile: '09125559933', kind: 'customer' });
     expect(again.status).toBe(429);
     expect(again.body.error.message).toContain('صبر کنید');
   });

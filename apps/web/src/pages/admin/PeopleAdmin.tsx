@@ -11,7 +11,7 @@ import {
 } from '../../components/ui';
 import { api, ApiFailure } from '../../lib/api';
 import { useAuth } from '../../lib/auth';
-import { faDateTime, faNum, rial } from '../../lib/format';
+import { faDateTime, faNum, relative, rial } from '../../lib/format';
 
 /* -------------------------------- customers ------------------------------- */
 
@@ -230,7 +230,7 @@ const ROLE_OPTIONS_DEFAULT = [
 ];
 
 export function AdminStaff() {
-  const { can } = useAuth();
+  const { can, user } = useAuth();
   const { notify } = useToast();
   const [tab, setTab] = useState<'staff' | 'roles'>('staff');
   const [staff, setStaff] = useState<any[]>([]);
@@ -246,6 +246,11 @@ export function AdminStaff() {
   });
   const [roleEditing, setRoleEditing] = useState<any>(null);
   const [performance, setPerformance] = useState<any>(null);
+  // The cooperation contract is part of defining an employee: main manager
+  // picks fixed salary vs. percentage-of-office-revenue right here.
+  const [contractForm, setContractForm] = useState({ kind: 'monthly', monthlyAmount: 0, commissionPercent: 10, monthlyTarget: 0 });
+  const [activeContractRow, setActiveContractRow] = useState<any>(undefined);
+  const [editContract, setEditContract] = useState<{ kind: string; monthlyAmount: number; commissionPercent: number; monthlyTarget: number } | null>(null);
 
   const load = () => {
     setLoading(true);
@@ -261,6 +266,23 @@ export function AdminStaff() {
     return () => clearTimeout(timer);
   }, [search]);
 
+  useEffect(() => {
+    if (!editing?.id || !can('payroll.view')) { setActiveContractRow(undefined); setEditContract(null); return; }
+    let active = true;
+    api.get<{ data: any[] }>(`/api/payroll/contracts/${editing.id}/history`)
+      .then((res) => {
+        if (!active) return;
+        const current = res.data.find((row) => row.isActive) ?? null;
+        setActiveContractRow(current);
+        setEditContract(current
+          ? { kind: current.kind, monthlyAmount: current.monthlyAmount, commissionPercent: current.commissionPercent, monthlyTarget: Number(current.monthlyTarget ?? 0) }
+          : { kind: 'monthly', monthlyAmount: 0, commissionPercent: 10, monthlyTarget: 0 });
+      })
+      .catch(() => { if (active) { setActiveContractRow(null); setEditContract({ kind: 'monthly', monthlyAmount: 0, commissionPercent: 10, monthlyTarget: 0 }); } });
+    return () => { active = false; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [editing?.id]);
+
   const openRolesMeta = async () => {
     if (meta) return;
     const res = await api.get<{ data: any }>('/api/staff/meta/permissions').catch(() => null);
@@ -269,14 +291,34 @@ export function AdminStaff() {
 
   const create = async () => {
     try {
-      await api.post('/api/staff', {
+      const created = await api.post<{ data: any }>('/api/staff', {
         ...form,
         specialties: form.specialties.split(',').map((s: string) => s.trim()).filter(Boolean),
         maxActiveCases: Number(form.maxActiveCases),
       });
-      notify('کارمند ایجاد شد.', 'success');
+      if (can('payroll.contracts.edit') && created.data?.id) {
+        try {
+          await api.post('/api/payroll/contracts', {
+            userId: created.data.id,
+            kind: contractForm.kind,
+            monthlyAmount: contractForm.kind === 'monthly' ? Number(contractForm.monthlyAmount) || 0 : 0,
+            commissionPercent: contractForm.kind === 'commission' ? Number(contractForm.commissionPercent) || 0 : 0,
+            monthlyTarget: contractForm.kind === 'commission' ? Number(contractForm.monthlyTarget) || null : null,
+            startsOn: new Date().toISOString().slice(0, 10),
+            note: 'قرارداد ثبت‌شده هنگام تعریف کارمند',
+          });
+          notify(contractForm.kind === 'commission'
+            ? `کارمند با قرارداد درصدی (${faNum(Number(contractForm.commissionPercent) || 0)}٪ از درآمد دفتر) ایجاد شد.`
+            : 'کارمند با قرارداد حقوق ثابت ایجاد شد.', 'success');
+        } catch (contractErr) {
+          notify(`کارمند ایجاد شد، اما قرارداد ثبت نشد: ${contractErr instanceof ApiFailure ? contractErr.message : 'خطا'} — قرارداد را از بخش حقوق و دستمزد ثبت کنید.`, 'error');
+        }
+      } else {
+        notify('کارمند ایجاد شد.', 'success');
+      }
       setCreating(false);
       setForm({ fullName: '', mobile: '', username: '', email: '', password: '', roleCode: 'service_expert', employeeCode: '', position: '', specialties: '', maxActiveCases: 20, kind: 'staff' });
+      setContractForm({ kind: 'monthly', monthlyAmount: 0, commissionPercent: 10, monthlyTarget: 0 });
       load();
     } catch (err) {
       notify(err instanceof ApiFailure ? err.message : 'خطا', 'error');
@@ -291,8 +333,46 @@ export function AdminStaff() {
         roleCode: editing.roleCode, maxActiveCases: Number(editing.maxActiveCases),
         acceptsNewCases: editing.acceptsNewCases, status: editing.status,
         specialties: Array.isArray(editing.specialties) ? editing.specialties : String(editing.specialties ?? '').split(',').map((s) => s.trim()).filter(Boolean),
+        ...(editing.newPassword ? { newPassword: editing.newPassword } : {}),
       });
-      notify('تغییرات ذخیره شد.', 'success');
+      // A changed cooperation contract is never an in-place edit: the old
+      // contract closes and a new one starts today, so finalized earnings of
+      // the past keep the terms they were earned under.
+      let contractNote = '';
+      if (can('payroll.contracts.edit') && editContract) {
+        const changed = !activeContractRow
+          || activeContractRow.kind !== editContract.kind
+          || Number(activeContractRow.monthlyAmount) !== Number(editContract.monthlyAmount)
+          || Number(activeContractRow.commissionPercent) !== Number(editContract.commissionPercent)
+          || Number(activeContractRow.monthlyTarget ?? 0) !== Number(editContract.monthlyTarget);
+        if (changed) {
+          try {
+            const today = new Date();
+            const todayIso = today.toISOString().slice(0, 10);
+            if (activeContractRow) {
+              const yesterday = new Date(today.getTime() - 86_400_000).toISOString().slice(0, 10);
+              await api.post(`/api/payroll/contracts/${activeContractRow.id}/close`, {
+                endsOn: activeContractRow.startsOn < todayIso ? yesterday : todayIso,
+              });
+            }
+            await api.post('/api/payroll/contracts', {
+              userId: editing.id,
+              kind: editContract.kind,
+              monthlyAmount: editContract.kind === 'monthly' ? Number(editContract.monthlyAmount) || 0 : 0,
+              commissionPercent: editContract.kind === 'commission' ? Number(editContract.commissionPercent) || 0 : 0,
+              monthlyTarget: editContract.kind === 'commission' ? Number(editContract.monthlyTarget) || null : null,
+              startsOn: todayIso,
+              note: 'تغییر قرارداد از صفحهٔ ویرایش کارمند',
+            });
+            contractNote = editContract.kind === 'commission'
+              ? ` قرارداد جدید: درصدی ${faNum(Number(editContract.commissionPercent) || 0)}٪ از درآمد دفتر (از امروز).`
+              : ' قرارداد جدید: حقوق ثابت (از امروز).';
+          } catch (contractErr) {
+            notify(`مشخصات کارمند ذخیره شد، اما تغییر قرارداد ناموفق بود: ${contractErr instanceof ApiFailure ? contractErr.message : 'خطا'}`, 'error');
+          }
+        }
+      }
+      notify(`تغییرات ذخیره شد.${contractNote}${editing.newPassword ? ' رمز عبور این کارمند بازنشانی شد و همه نشست‌هایش بسته شد؛ رمز جدید را به او بدهید.' : ''}`, 'success');
       setEditing(null);
       load();
     } catch (err) {
@@ -366,7 +446,12 @@ export function AdminStaff() {
               <Card key={member.id}>
                 <div className="flex items-start justify-between gap-2">
                   <div className="min-w-0">
-                    <p className="truncate font-medium text-navy-900">{member.fullName}</p>
+                    <p className="flex items-center gap-1.5 truncate font-medium text-navy-900">
+                      <span className={clsx('size-2 shrink-0 rounded-full',
+                        member.lastSeenAt && Date.now() - Date.parse(member.lastSeenAt) < 10 * 60_000 ? 'bg-emerald-500' : 'bg-navy-200')}
+                        title={member.lastSeenAt ? `آخرین فعالیت: ${relative(member.lastSeenAt)}` : 'هنوز فعالیتی ثبت نشده'} />
+                      {member.fullName}
+                    </p>
                     <p className="mt-0.5 text-[11px] text-navy-500">{member.roleName ?? member.roleCode} {member.employeeCode ? `• ${member.employeeCode}` : ''}</p>
                     <p dir="ltr" className="mt-0.5 text-left text-[11px] text-navy-400">{member.mobile}</p>
                   </div>
@@ -374,7 +459,14 @@ export function AdminStaff() {
                 </div>
                 <div className="mt-3 flex items-center justify-between text-[11px] text-navy-500">
                   <span>بار کاری {faNum(member.activeCases)} / {faNum(member.maxActiveCases)}</span>
-                  <Badge tone={member.acceptsNewCases ? 'success' : 'default'}>{member.acceptsNewCases ? 'پذیرش فعال' : 'پذیرش بسته'}</Badge>
+                  <span className="flex items-center gap-1">
+                    {member.cooperationKind === 'commission'
+                      ? <Badge tone="success">درصدی — {faNum(member.commissionPercent ?? 0)}٪</Badge>
+                      : member.cooperationKind === 'monthly'
+                        ? <Badge tone="info">حقوق ثابت</Badge>
+                        : <Badge tone="warning">بدون قرارداد</Badge>}
+                    <Badge tone={member.acceptsNewCases ? 'success' : 'default'}>{member.acceptsNewCases ? 'پذیرش فعال' : 'پذیرش بسته'}</Badge>
+                  </span>
                 </div>
                 <div className="mt-2 h-1.5 rounded-full bg-navy-100">
                   <div className="h-full rounded-full bg-brand-600" style={{ width: `${Math.min(100, (member.activeCases / Math.max(1, member.maxActiveCases)) * 100)}%` }} />
@@ -446,6 +538,49 @@ export function AdminStaff() {
             <Select value={form.kind} onChange={(e) => setForm({ ...form, kind: e.target.value })}
               options={[{ value: 'staff', label: 'کارمند' }, { value: 'admin', label: 'مدیر' }]} />
           </Field>
+          <div className="space-y-3 rounded-2xl border border-brand-100 bg-brand-50/40 p-4 sm:col-span-2">
+            <p className="text-sm font-bold text-navy-900">نوع قرارداد همکاری</p>
+            {can('payroll.contracts.edit') ? (
+              <>
+                <div className="grid gap-3 sm:grid-cols-2">
+                  <Field label="شیوهٔ پرداخت" required>
+                    <Select value={contractForm.kind} onChange={(e) => setContractForm({ ...contractForm, kind: e.target.value })}
+                      options={[
+                        { value: 'monthly', label: 'حقوق ثابت ماهانه' },
+                        { value: 'commission', label: 'درصدی از درآمد دفتر' },
+                      ]} />
+                  </Field>
+                  {contractForm.kind === 'monthly' ? (
+                    <Field label="مبلغ حقوق ماهانه (ریال)" required hint="کارمند حقوق ثابت، بخش درآمد درصدی و درخواست برداشت را در پنلش نمی‌بیند.">
+                      <Input type="number" min={0} dir="ltr" className="text-left" value={contractForm.monthlyAmount}
+                        onChange={(e) => setContractForm({ ...contractForm, monthlyAmount: Number(e.target.value) })} placeholder="مثلاً ۱۵۰٬۰۰۰٬۰۰۰" />
+                    </Field>
+                  ) : (
+                    <Field label="درصد سهم از درآمد دفتر (۰ تا ۱۰۰)" required hint="مبنا «درآمد دفتر» است (فاکتور بدون مالیات)، نه کل پرداختی مشتری.">
+                      <Input type="number" min={0} max={100} dir="ltr" className="text-left" value={contractForm.commissionPercent}
+                        onChange={(e) => setContractForm({ ...contractForm, commissionPercent: Number(e.target.value) })} placeholder="مثلاً ۱۵" />
+                    </Field>
+                  )}
+                </div>
+                {contractForm.kind === 'commission' && (
+                  <Field label="هدف درآمد ماهانهٔ کارمند (ریال، اختیاری)" hint="در داشبورد درآمد کارمند، به‌صورت حلقهٔ پیشرفت هدف نمایش داده می‌شود؛ خالی یعنی بدون هدف.">
+                    <Input type="number" min={0} dir="ltr" className="text-left" value={contractForm.monthlyTarget || ''}
+                      onChange={(e) => setContractForm({ ...contractForm, monthlyTarget: Number(e.target.value) })} placeholder="مثلاً ۵۰٬۰۰۰٬۰۰۰" />
+                  </Field>
+                )}
+                {contractForm.kind === 'commission' && (
+                  <p className="text-[11px] leading-6 text-navy-500">
+                    پنل کارمند درصدی با بقیه فرق دارد: درآمد امروز/هفتهٔ جاری/ماه جاری، موجودی قابل برداشت و «درخواست برداشت» را می‌بیند
+                    و روی کارت هر خدمت، سود خودش از آن کار برایش نمایش داده می‌شود. این درصد از امروز اعمال می‌شود و روی درآمدهای قطعی گذشته اثری ندارد.
+                  </p>
+                )}
+              </>
+            ) : (
+              <p className="text-[11px] leading-6 text-navy-500">
+                برای ثبت قرارداد (ثابت یا درصدی) هنگام تعریف کارمند، دسترسی «ویرایش قراردادها» لازم است؛ می‌توانید کارمند را بسازید و قراردادش را بعداً از بخش حقوق و دستمزد ثبت کنید.
+              </p>
+            )}
+          </div>
         </div>
       </Modal>
 
@@ -467,6 +602,73 @@ export function AdminStaff() {
                 options={[{ value: 'active', label: 'فعال' }, { value: 'suspended', label: 'مسدود' }]} />
             </Field>
             <Switch checked={Boolean(editing.acceptsNewCases)} onChange={(v) => setEditing({ ...editing, acceptsNewCases: v })} label="پرونده جدید می‌پذیرد" />
+            {(user?.roleCode === 'super_admin' || user?.permissions === '*') && (
+              <div className="space-y-2 rounded-2xl border border-rose-100 bg-rose-50/40 p-4">
+                <p className="flex items-center gap-2 text-sm font-bold text-navy-900"><KeyRound className="size-4 text-rose-600" /> بازنشانی رمز عبور — فقط مدیر کل</p>
+                <p className="text-[11px] leading-6 text-navy-600">
+                  برای شرایط خاص (فراموشی رمز و مانند آن). اگر این قسمت را پر کنید، هنگام ذخیره رمز این کارمند عوض می‌شود
+                  و همه نشست‌های فعالش بسته خواهد شد. رمز را همان موقع، امن به خود کارمند برسانید؛ از او بخواهید بعد از ورود، از پروفایلش آن را تغییر دهد.
+                </p>
+                <div className="flex flex-wrap items-end gap-2">
+                  <Field label="رمز جدید (خالی یعنی بدون تغییر)" className="min-w-56 flex-1">
+                    <Input value={editing.newPassword ?? ''} onChange={(e) => setEditing({ ...editing, newPassword: e.target.value })}
+                      dir="ltr" className="text-left" autoComplete="new-password" placeholder="NewPassword#1405" />
+                  </Field>
+                  <Button type="button" variant="ghost" onClick={() => {
+                    const alphabet = 'ABCDEFGHJKMNPQRSTUVWXYZabcdefghjkmnpqrstuvwxyz23456789';
+                    const bytes = new Uint32Array(10);
+                    window.crypto.getRandomValues(bytes);
+                    const core = Array.from(bytes, (n) => alphabet[n % alphabet.length]).join('');
+                    setEditing({ ...editing, newPassword: `${core}@${bytes[0] % 90 + 10}` });
+                  }}>ساخت رمز تصادفی قوی</Button>
+                </div>
+              </div>
+            )}
+            {can('payroll.view') && (
+              <div className="space-y-3 rounded-2xl border border-brand-100 bg-brand-50/40 p-4">
+                <p className="text-sm font-bold text-navy-900">قرارداد همکاری</p>
+                <p className="text-[11px] leading-6 text-navy-600">
+                  {activeContractRow === undefined
+                    ? 'در حال بررسی قرارداد فعال…'
+                    : activeContractRow
+                      ? activeContractRow.kind === 'commission'
+                        ? `قرارداد فعال: درصدی — ${faNum(activeContractRow.commissionPercent)}٪ از درآمد دفتر (از ${activeContractRow.startsOn}).`
+                        : `قرارداد فعال: حقوق ثابت ماهانه ${rial(activeContractRow.monthlyAmount)} (از ${activeContractRow.startsOn}).`
+                      : 'این کارمند قرارداد فعالی ندارد؛ با ذخیره، قرارداد زیر از امروز برایش ثبت می‌شود.'}
+                </p>
+                {can('payroll.contracts.edit') && editContract && (
+                  <div className="grid gap-3 sm:grid-cols-2">
+                    <Field label="شیوهٔ پرداخت">
+                      <Select value={editContract.kind} onChange={(e) => setEditContract({ ...editContract, kind: e.target.value })}
+                        options={[
+                          { value: 'monthly', label: 'حقوق ثابت ماهانه' },
+                          { value: 'commission', label: 'درصدی از درآمد دفتر' },
+                        ]} />
+                    </Field>
+                    {editContract.kind === 'monthly' ? (
+                      <Field label="مبلغ حقوق ماهانه (ریال)">
+                        <Input type="number" min={0} dir="ltr" className="text-left" value={editContract.monthlyAmount}
+                          onChange={(e) => setEditContract({ ...editContract, monthlyAmount: Number(e.target.value) })} />
+                      </Field>
+                    ) : (
+                      <>
+                        <Field label="درصد سهم از درآمد دفتر (۰ تا ۱۰۰)">
+                          <Input type="number" min={0} max={100} dir="ltr" className="text-left" value={editContract.commissionPercent}
+                            onChange={(e) => setEditContract({ ...editContract, commissionPercent: Number(e.target.value) })} />
+                        </Field>
+                        <Field label="هدف درآمد ماهانه (ریال، اختیاری)">
+                          <Input type="number" min={0} dir="ltr" className="text-left" value={editContract.monthlyTarget || ''}
+                            onChange={(e) => setEditContract({ ...editContract, monthlyTarget: Number(e.target.value) })} />
+                        </Field>
+                      </>
+                    )}
+                    <p className="text-[10px] leading-5 text-navy-400 sm:col-span-2">
+                      تغییر قرارداد به‌صورت «بستن قرارداد قبلی + شروع قرارداد جدید از امروز» ثبت می‌شود؛ درآمدهای قطعی گذشته دست‌نخورده می‌مانند.
+                    </p>
+                  </div>
+                )}
+              </div>
+            )}
           </div>
         )}
       </Modal>
@@ -514,6 +716,24 @@ export function AdminStaff() {
                     ))}
                   </tbody>
                 </table>
+                {meta.extras?.length > 0 && (
+                  <div className="mt-4">
+                    <p className="mb-2 text-xs font-bold text-navy-700">مجوزهای ویژه</p>
+                    <div className="grid gap-1.5 sm:grid-cols-2">
+                      {meta.extras.map((extra: any) => (
+                        <label key={extra.code} className="flex cursor-pointer items-center gap-2 rounded-xl bg-surface-3 px-3 py-2 text-xs text-navy-700 ring-1 ring-line transition hover:bg-brand-50">
+                          <input type="checkbox" className="size-4 rounded border-navy-300 text-accent"
+                            checked={roleEditing.permissions.includes(extra.code)}
+                            onChange={() => togglePermission(extra.code)} />
+                          <span className="min-w-0">
+                            <span className="block font-medium">{extra.label}</span>
+                            <span className="block text-[10px] text-navy-400" dir="ltr">{extra.code}</span>
+                          </span>
+                        </label>
+                      ))}
+                    </div>
+                  </div>
+                )}
               </div>
             )}
           </div>

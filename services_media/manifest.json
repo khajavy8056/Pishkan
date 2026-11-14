@@ -1,0 +1,1353 @@
+[
+ {
+  "n": 1,
+  "slug": "social-security-receipt",
+  "category": "insurance-health",
+  "title": "دریافت قبض تأمین اجتماعی",
+  "summary": "استعلام و دریافت قبض حق بیمه تأمین اجتماعی"
+ },
+ {
+  "n": 2,
+  "slug": "social-security-records-objection",
+  "category": "insurance-health",
+  "title": "اعتراض به سوابق بیمه تأمین اجتماعی",
+  "summary": "ثبت اعتراض به سوابق بیمه‌ای و پیگیری تا رفع مغایرت"
+ },
+ {
+  "n": 3,
+  "slug": "insurance-history",
+  "category": "insurance-health",
+  "title": "دریافت سوابق بیمه",
+  "summary": "دریافت گزارش رسمی سوابق بیمه‌ای تأمین اجتماعی"
+ },
+ {
+  "n": 4,
+  "slug": "salary-deduction-undertaking",
+  "category": "insurance-health",
+  "title": "تعهد کسر از حقوق",
+  "summary": "تنظیم و ثبت تعهدنامه کسر از حقوق"
+ },
+ {
+  "n": 5,
+  "slug": "insurance-list-submission",
+  "category": "insurance-health",
+  "title": "ارسال لیست بیمه تأمین",
+  "summary": "ثبت و ارسال ماهانه لیست بیمه کارکنان"
+ },
+ {
+  "n": 6,
+  "slug": "rural-health-insurance-registration",
+  "category": "insurance-health",
+  "title": "ثبت‌نام بیمه سلامت روستایی",
+  "summary": "ثبت‌نام و تمدید بیمه سلامت برای ساکنان روستا"
+ },
+ {
+  "n": 7,
+  "slug": "payslip-inquiry",
+  "category": "insurance-health",
+  "title": "استعلام و دریافت فیش حقوقی",
+  "summary": "دریافت فیش حقوقی و اطلاعات پرداختی از سامانه‌های مربوطه"
+ },
+ {
+  "n": 8,
+  "slug": "register-llc",
+  "category": "companies-institutions",
+  "title": "ثبت شرکت با مسئولیت محدود",
+  "summary": "ثبت شرکت با مسئولیت محدود از انتخاب نام تا دریافت آگهی"
+ },
+ {
+  "n": 9,
+  "slug": "register-jsc",
+  "category": "companies-institutions",
+  "title": "ثبت شرکت سهامی خاص",
+  "summary": "ثبت سهامی خاص با حداقل سه سهامدار"
+ },
+ {
+  "n": 10,
+  "slug": "register-institution",
+  "category": "companies-institutions",
+  "title": "ثبت مؤسسه یا انجمن",
+  "summary": "ثبت مؤسسه غیرتجاری، انجمن یا تشکل مردم‌نهاد"
+ },
+ {
+  "n": 11,
+  "slug": "amend-jsc",
+  "category": "companies-institutions",
+  "title": "ثبت تغییرات شرکت سهامی خاص",
+  "summary": "ثبت تغییرات سرمایه، هیئت‌مدیره، نشانی و موضوع فعالیت"
+ },
+ {
+  "n": 12,
+  "slug": "amend-llc",
+  "category": "companies-institutions",
+  "title": "ثبت تغییرات شرکت با مسئولیت محدود",
+  "summary": "ثبت تغییرات شرکای مسئولیت محدود و سرمایه"
+ },
+ {
+  "n": 13,
+  "slug": "logo-natural",
+  "category": "companies-institutions",
+  "title": "ثبت لوگوی حقیقی",
+  "summary": "ثبت علامت تجاری (لوگو) برای اشخاص حقیقی"
+ },
+ {
+  "n": 14,
+  "slug": "logo-legal",
+  "category": "companies-institutions",
+  "title": "ثبت لوگوی حقوقی",
+  "summary": "ثبت علامت تجاری به نام شخص حقوقی"
+ },
+ {
+  "n": 15,
+  "slug": "brand-natural",
+  "category": "companies-institutions",
+  "title": "ثبت برند حقیقی",
+  "summary": "ثبت برند تجاری برای شخص حقیقی"
+ },
+ {
+  "n": 16,
+  "slug": "brand-legal",
+  "category": "companies-institutions",
+  "title": "ثبت برند حقوقی",
+  "summary": "ثبت برند تجاری برای شخص حقوقی"
+ },
+ {
+  "n": 17,
+  "slug": "business-card-natural",
+  "category": "companies-institutions",
+  "title": "ثبت کارت بازرگانی حقیقی",
+  "summary": "درخواست صدور کارت بازرگانی برای شخص حقیقی"
+ },
+ {
+  "n": 18,
+  "slug": "business-card-legal",
+  "category": "companies-institutions",
+  "title": "ثبت کارت بازرگانی حقوقی",
+  "summary": "درخواست صدور کارت بازرگانی برای شرکت"
+ },
+ {
+  "n": 19,
+  "slug": "subsidy-decile-objection",
+  "category": "subsidy-welfare",
+  "title": "اعتراض به دهک‌بندی یارانه",
+  "summary": "ثبت اعتراض به دهک و بررسی مجدد وضعیت معیشتی"
+ },
+ {
+  "n": 20,
+  "slug": "justice-shares-newborn",
+  "category": "subsidy-welfare",
+  "title": "سهام عدالت نوزادان",
+  "summary": "ثبت‌نام سهام عدالت برای نوزادان و کودکان"
+ },
+ {
+  "n": 21,
+  "slug": "subsidy-adult-separation",
+  "category": "subsidy-welfare",
+  "title": "جداسازی یارانه افراد ۱۸ ساله",
+  "summary": "تفکیک یارانه فرزندان بالای ۱۸ سال از خانوار"
+ },
+ {
+  "n": 22,
+  "slug": "subsidy-bank-account-change",
+  "category": "subsidy-welfare",
+  "title": "تغییر حساب بانکی یارانه",
+  "summary": "ثبت شماره شبای جدید برای دریافت یارانه"
+ },
+ {
+  "n": 23,
+  "slug": "sejam-registration",
+  "category": "subsidy-welfare",
+  "title": "ثبت‌نام سجام",
+  "summary": "احراز هویت و ثبت‌نام در سامانه سجام برای سرمایه‌گذاری"
+ },
+ {
+  "n": 24,
+  "slug": "justice-shares-bank-change",
+  "category": "subsidy-welfare",
+  "title": "تغییر حساب سهام عدالت",
+  "summary": "ثبت شماره شبای جدید برای سود سهام عدالت"
+ },
+ {
+  "n": 25,
+  "slug": "subsidy-status-inquiry",
+  "category": "subsidy-welfare",
+  "title": "اطلاع از وضعیت یارانه و کالابرگ",
+  "summary": "استعلام وضعیت یارانه، دهک و اعتبار کالابرگ"
+ },
+ {
+  "n": 26,
+  "slug": "justice-shares-value",
+  "category": "subsidy-welfare",
+  "title": "ارزش روز سهام عدالت",
+  "summary": "محاسبه ارزش روز سهام عدالت بر اساس آخرین قیمت‌ها"
+ },
+ {
+  "n": 27,
+  "slug": "justice-shares-profit-inquiry",
+  "category": "subsidy-welfare",
+  "title": "استعلام سود و حساب سهام عدالت",
+  "summary": "مشاهده سودهای واریزی و وضعیت حساب سهام عدالت"
+ },
+ {
+  "n": 28,
+  "slug": "subsidy-establishment-request",
+  "category": "subsidy-welfare",
+  "title": "درخواست برقراری یارانه",
+  "summary": "ثبت درخواست برقراری یارانه برای خانوار واجد شرایط"
+ },
+ {
+  "n": 29,
+  "slug": "subsidy-head-change",
+  "category": "subsidy-welfare",
+  "title": "تغییر سرپرست یارانه",
+  "summary": "تغییر سرپرست خانوار در سامانه یارانه"
+ },
+ {
+  "n": 30,
+  "slug": "subsidy-add-household-member",
+  "category": "subsidy-welfare",
+  "title": "افزودن عضو جدید به خانوار یارانه",
+  "summary": "افزودن نوزاد یا عضو جدید به خانوار یارانه‌بگیر"
+ },
+ {
+  "n": 31,
+  "slug": "plate-replacement-appointment",
+  "category": "vehicle-services",
+  "title": "نوبت‌گیری تعویض پلاک",
+  "summary": "رزرو نوبت اینترنتی مراکز تعویض پلاک برای نقل‌وانتقال خودرو"
+ },
+ {
+  "n": 32,
+  "slug": "highway-toll-payment",
+  "category": "vehicle-services",
+  "title": "پرداخت عوارض آزادراهی",
+  "summary": "استعلام و پرداخت بدهی عوارض آزادراه‌ها بر اساس پلاک خودرو"
+ },
+ {
+  "n": 33,
+  "slug": "traffic-fines-payment",
+  "category": "vehicle-services",
+  "title": "پرداخت خلافی خودرو",
+  "summary": "استعلام و پرداخت کامل یا موردی جرایم رانندگی خودرو"
+ },
+ {
+  "n": 34,
+  "slug": "traffic-fines-detail",
+  "category": "vehicle-services",
+  "title": "دریافت ریز خلافی خودرو",
+  "summary": "گزارش جزئیات جرایم رانندگی شامل محل، زمان و نوع تخلف"
+ },
+ {
+  "n": 35,
+  "slug": "vehicle-transfer-tax",
+  "category": "vehicle-services",
+  "title": "پرداخت مالیات نقل و انتقال خودرو",
+  "summary": "محاسبه و پرداخت مالیات نقل‌وانتقال خودرو پیش از تعویض پلاک"
+ },
+ {
+  "n": 36,
+  "slug": "plate-address-verification",
+  "category": "vehicle-services",
+  "title": "احراز نشانی تعویض پلاک (سامانه سخا)",
+  "summary": "ثبت و تأیید نشانی محل سکونت خریدار در سامانه سخا راهور"
+ },
+ {
+  "n": 37,
+  "slug": "annual-vehicle-toll",
+  "category": "vehicle-services",
+  "title": "عوارض سالیانه خودرو (شهرداری)",
+  "summary": "استعلام و پرداخت عوارض سالانه شهرداری خودرو و دریافت مفاصاحساب"
+ },
+ {
+  "n": 38,
+  "slug": "traffic-plan-debt-inquiry",
+  "category": "vehicle-services",
+  "title": "استعلام بدهی طرح ترافیک خودرو",
+  "summary": "استعلام و پرداخت بدهی عوارض طرح ترافیک و طرح کاهش آلودگی هوا"
+ },
+ {
+  "n": 39,
+  "slug": "fuel-card-registration",
+  "category": "vehicle-services",
+  "title": "ثبت‌نام کارت سوخت (المثنی)",
+  "summary": "درخواست صدور یا المثنی کارت هوشمند سوخت در سامانه شرکت ملی پخش"
+ },
+ {
+  "n": 40,
+  "slug": "irankhodro-car-registration",
+  "category": "vehicle-services",
+  "title": "ثبت‌نام خودرو ایران‌خودرو",
+  "summary": "ثبت‌نام در طرح‌های فروش و پیش‌فروش ایران‌خودرو و سامانه یکپارچه"
+ },
+ {
+  "n": 41,
+  "slug": "saipa-car-registration",
+  "category": "vehicle-services",
+  "title": "ثبت‌نام خودرو سایپا",
+  "summary": "ثبت‌نام در طرح‌های فروش سایپا از طریق سامانه یکپارچه تخصیص خودرو"
+ },
+ {
+  "n": 42,
+  "slug": "bahman-car-registration",
+  "category": "vehicle-services",
+  "title": "ثبت‌نام خودرو بهمن‌موتور",
+  "summary": "ثبت‌نام در طرح‌های فروش گروه بهمن (بهمن‌موتور)"
+ },
+ {
+  "n": 43,
+  "slug": "car-lottery-winner-completion",
+  "category": "vehicle-services",
+  "title": "تکمیل ثبت‌نام برندگان قرعه‌کشی خودرو",
+  "summary": "تکمیل وجه و فرایند قرارداد برای برندگان طرح‌های فروش خودرو"
+ },
+ {
+  "n": 44,
+  "slug": "scrap-car-replacement",
+  "category": "vehicle-services",
+  "title": "ثبت‌نام طرح جایگزینی خودروی فرسوده",
+  "summary": "ثبت خودروی فرسوده در سامانه ستاد نوسازی ناوگان و انتخاب خودروی جایگزین"
+ },
+ {
+  "n": 45,
+  "slug": "transport-vehicle-tax-return",
+  "category": "vehicle-services",
+  "title": "اظهارنامه مالیاتی خودروهای باربری و مسافری",
+  "summary": "تنظیم و ارسال اظهارنامه مالیات بر درآمد وسایل نقلیه عمومی"
+ },
+ {
+  "n": 46,
+  "slug": "fleet-competency-license",
+  "category": "vehicle-services",
+  "title": "صدور پروانه صلاحیت ناوگان (کارت هوشمند)",
+  "summary": "صدور کارت هوشمند رانندگان و ناوگان حمل‌ونقل جاده‌ای بار و مسافر"
+ },
+ {
+  "n": 47,
+  "slug": "fleet-competency-renewal",
+  "category": "vehicle-services",
+  "title": "تمدید پروانه صلاحیت ناوگان (کارت هوشمند)",
+  "summary": "تمدید اعتبار کارت هوشمند رانندگان و ناوگان حمل‌ونقل جاده‌ای"
+ },
+ {
+  "n": 48,
+  "slug": "car-insurance-inquiry",
+  "category": "vehicle-services",
+  "title": "استعلام بیمه‌نامه خودرو",
+  "summary": "استعلام اصالت و اعتبار بیمه شخص ثالث و بدنه از سامانه سنهاب"
+ },
+ {
+  "n": 49,
+  "slug": "motorcycle-license-one-day",
+  "category": "vehicle-services",
+  "title": "گواهینامه موتورسیکلت یک‌روزه",
+  "summary": "ثبت‌نام طرح صدور گواهینامه موتورسیکلت یک‌روزه برای مالکان موتور"
+ },
+ {
+  "n": 50,
+  "slug": "motorcycle-license-appointment",
+  "category": "vehicle-services",
+  "title": "نوبت‌دهی گواهینامه موتورسیکلت",
+  "summary": "رزرو نوبت آزمون و مراحل صدور گواهینامه موتورسیکلت"
+ },
+ {
+  "n": 51,
+  "slug": "gasoline-to-cng-conversion",
+  "category": "vehicle-services",
+  "title": "ثبت‌نام تبدیل خودروی بنزینی به دوگانه‌سوز",
+  "summary": "ثبت‌نام در سامانه تبدیل خودروهای بنزینی به دوگانه‌سوز (CNG)"
+ },
+ {
+  "n": 52,
+  "slug": "kavir-tire-purchase",
+  "category": "vehicle-services",
+  "title": "ثبت‌نام و خرید لاستیک کویر تایر",
+  "summary": "ثبت سفارش لاستیک کویر تایر با نرخ مصوب در سامانه فروش شرکت"
+ },
+ {
+  "n": 53,
+  "slug": "cargo-dynamic-code",
+  "category": "vehicle-services",
+  "title": "دریافت کد شناسایی ناوگان باری و ماشین‌آلات",
+  "summary": "دریافت کد رهگیری/شناسایی سامانه‌ای برای خودروهای حمل بار، فورک‌لیفت و ماشین‌آلات"
+ },
+ {
+  "n": 54,
+  "slug": "state-tire-purchase",
+  "category": "vehicle-services",
+  "title": "خرید لاستیک با نرخ دولتی (بارز و یزد تایر)",
+  "summary": "ثبت سفارش لاستیک بارز و یزد تایر با نرخ مصوب دولتی"
+ },
+ {
+  "n": 55,
+  "slug": "tax-note-article-100",
+  "category": "tax-services",
+  "title": "تبصره ماده ۱۰۰ (مالیات مقطوع مشاغل)",
+  "summary": "بررسی و ثبت پذیرش مالیات مقطوع تبصره ماده ۱۰۰ برای مشاغل"
+ },
+ {
+  "n": 56,
+  "slug": "economic-code-registration",
+  "category": "tax-services",
+  "title": "ثبت‌نام کد اقتصادی و تشکیل پرونده مالیاتی",
+  "summary": "پیش‌ثبت‌نام و تشکیل پرونده مالیاتی اشخاص حقیقی و حقوقی در درگاه سازمان امور مالیاتی"
+ },
+ {
+  "n": 57,
+  "slug": "business-tax-return",
+  "category": "tax-services",
+  "title": "اظهارنامه مالیاتی مشاغل (اشخاص حقیقی)",
+  "summary": "تنظیم و ارسال اظهارنامه مالیات بر درآمد مشاغل و دریافت کد رهگیری"
+ },
+ {
+  "n": 58,
+  "slug": "real-estate-rent-tax-return",
+  "category": "tax-services",
+  "title": "اظهارنامه مالیات اجاره املاک",
+  "summary": "تنظیم اظهارنامه مالیات بر درآمد اجاره املاک برای مالکان"
+ },
+ {
+  "n": 59,
+  "slug": "subsidy-decile-inquiry",
+  "category": "subsidy-welfare",
+  "title": "استعلام دهک خانوار",
+  "summary": "استعلام دهک اقتصادی خانوار از سامانه حمایت"
+ },
+ {
+  "n": 60,
+  "slug": "subsidy-means-test-request",
+  "category": "subsidy-welfare",
+  "title": "درخواست بررسی وسع و دهک‌بندی خانوار",
+  "summary": "ثبت درخواست ارزیابی وسع برای خانوارهای تازه‌تشکیل یا فاقد دهک"
+ },
+ {
+  "n": 61,
+  "slug": "kala-barg-credit-inquiry",
+  "category": "subsidy-welfare",
+  "title": "استعلام اعتبار کالابرگ الکترونیکی",
+  "summary": "استعلام مانده و وضعیت اعتبار کالابرگ الکترونیکی خانوار"
+ },
+ {
+  "n": 62,
+  "slug": "sana-registration",
+  "category": "judicial-services",
+  "title": "ثبت‌نام ثنای قضایی",
+  "summary": "ثبت‌نام و احراز هویت در سامانه ثنا برای دریافت ابلاغیه‌های قضایی"
+ },
+ {
+  "n": 63,
+  "slug": "no-criminal-record",
+  "category": "judicial-services",
+  "title": "صدور گواهی عدم سوء پیشینه",
+  "summary": "درخواست گواهی عدم سوء پیشینه کیفری از سامانه ثنا"
+ },
+ {
+  "n": 64,
+  "slug": "judicial-appointment",
+  "category": "judicial-services",
+  "title": "نوبت‌دهی قضایی",
+  "summary": "رزرو نوبت دفاتر خدمات الکترونیک قضایی و مراجع قضایی"
+ },
+ {
+  "n": 65,
+  "slug": "sana-password-recovery",
+  "category": "judicial-services",
+  "title": "درخواست رمز شخصی ثنا (بازیابی رمز)",
+  "summary": "بازیابی رمز شخصی و رمز موقت ورود به سامانه ثنا"
+ },
+ {
+  "n": 66,
+  "slug": "case-status-notification",
+  "category": "judicial-services",
+  "title": "اطلاع‌رسانی و پیگیری پرونده قضایی",
+  "summary": "مشاهده خلاصه پرونده، ابلاغیه‌ها و آخرین وضعیت رسیدگی"
+ },
+ {
+  "n": 67,
+  "slug": "gov-employment-exam",
+  "category": "exams-employment",
+  "title": "ثبت‌نام آزمون استخدامی دستگاه‌های اجرایی",
+  "summary": "ثبت‌نام در آزمون‌های استخدامی فراگیر و دستگاه‌های اجرایی کشور"
+ },
+ {
+  "n": 68,
+  "slug": "exam-entry-card",
+  "category": "exams-employment",
+  "title": "دریافت کارت ورود به جلسه آزمون",
+  "summary": "دریافت و چاپ کارت ورود به جلسه آزمون‌های سنجش و استخدامی"
+ },
+ {
+  "n": 69,
+  "slug": "konkur-registration",
+  "category": "exams-employment",
+  "title": "ثبت‌نام کنکور سراسری",
+  "summary": "ثبت‌نام نوبت‌های کنکور سراسری در سامانه سازمان سنجش"
+ },
+ {
+  "n": 70,
+  "slug": "konkur-major-selection",
+  "category": "exams-employment",
+  "title": "انتخاب رشته کنکور سراسری",
+  "summary": "انتخاب رشته بر اساس کارنامه و دفترچه راهنمای انتخاب رشته"
+ },
+ {
+  "n": 71,
+  "slug": "farhangian-konkur-registration",
+  "category": "exams-employment",
+  "title": "ثبت‌نام کنکور دانشگاه فرهنگیان (دانشجو معلم)",
+  "summary": "ثبت‌نام آزمون اختصاصی پذیرش دانشجو معلم دانشگاه فرهنگیان"
+ },
+ {
+  "n": 72,
+  "slug": "farhangian-major-selection",
+  "category": "exams-employment",
+  "title": "انتخاب رشته کنکور دانشجو معلم",
+  "summary": "انتخاب رشته‌محل‌های دانشگاه فرهنگیان بر اساس بومی‌گزینی و رتبه"
+ },
+ {
+  "n": 73,
+  "slug": "kardani-technical-registration",
+  "category": "exams-employment",
+  "title": "ثبت‌نام کاردانی فنی و کاردانی حرفه‌ای (نظام جدید)",
+  "summary": "پذیرش کاردانی دانشگاه فنی‌وحرفه‌ای و مؤسسات غیردولتی بر اساس سوابق تحصیلی"
+ },
+ {
+  "n": 74,
+  "slug": "kardani-to-karshenasi",
+  "category": "exams-employment",
+  "title": "ثبت‌نام کاردانی به کارشناسی ناپیوسته",
+  "summary": "ثبت‌نام آزمون/پذیرش کارشناسی ناپیوسته برای فارغ‌التحصیلان کاردانی"
+ },
+ {
+  "n": 75,
+  "slug": "masters-exam-registration",
+  "category": "exams-employment",
+  "title": "ثبت‌نام کنکور کارشناسی ارشد",
+  "summary": "ثبت‌نام آزمون کارشناسی ارشد ناپیوسته سراسری و آزاد"
+ },
+ {
+  "n": 76,
+  "slug": "masters-major-selection",
+  "category": "exams-employment",
+  "title": "انتخاب رشته کارشناسی ارشد",
+  "summary": "انتخاب رشته‌محل‌های کارشناسی ارشد سراسری بر اساس کارنامه"
+ },
+ {
+  "n": 77,
+  "slug": "phd-exam-registration",
+  "category": "exams-employment",
+  "title": "ثبت‌نام آزمون دکتری (PhD)",
+  "summary": "ثبت‌نام آزمون نیمه‌متمرکز دکتری تخصصی سراسری و آزاد"
+ },
+ {
+  "n": 78,
+  "slug": "phd-major-selection",
+  "category": "exams-employment",
+  "title": "انتخاب رشته دکتری",
+  "summary": "انتخاب رشته‌محل و معرفی به مصاحبه دکتری"
+ },
+ {
+  "n": 79,
+  "slug": "applied-science-registration",
+  "category": "exams-employment",
+  "title": "ثبت‌نام دانشگاه علمی‌کاربردی",
+  "summary": "پذیرش بدون آزمون کاردانی و کارشناسی دانشگاه جامع علمی‌کاربردی"
+ },
+ {
+  "n": 80,
+  "slug": "engineering-council-exam",
+  "category": "exams-employment",
+  "title": "ثبت‌نام آزمون نظام مهندسی و معمار تجربی",
+  "summary": "ثبت‌نام آزمون ورود به حرفه مهندسان و کاردان‌های فنی ساختمان"
+ },
+ {
+  "n": 81,
+  "slug": "vocational-periodic-exam",
+  "category": "exams-employment",
+  "title": "ثبت‌نام آزمون ادواری فنی‌وحرفه‌ای و صنعت ساختمان",
+  "summary": "ثبت‌نام در آزمون‌های ادواری سازمان فنی‌وحرفه‌ای و کارت مهارت ساختمان"
+ },
+ {
+  "n": 82,
+  "slug": "konkur-education-records",
+  "category": "exams-employment",
+  "title": "مشاهده و تأیید سوابق تحصیلی کنکور",
+  "summary": "دریافت کد سوابق تحصیلی و کنترل نمرات نهایی مؤثر در کنکور"
+ },
+ {
+  "n": 83,
+  "slug": "education-ministry-recruitment",
+  "category": "exams-employment",
+  "title": "ثبت‌نام استخدام آموزش و پرورش",
+  "summary": "ثبت‌نام آزمون استخدامی آموزگار، دبیر و هنرآموز آموزش‌وپرورش"
+ },
+ {
+  "n": 84,
+  "slug": "organization-internal-recruitment",
+  "category": "exams-employment",
+  "title": "ثبت‌نام جذب و استخدام سازمانی",
+  "summary": "ثبت‌نام در فراخوان‌های جذب اختصاصی سازمان‌ها، بانک‌ها و شرکت‌ها"
+ },
+ {
+  "n": 85,
+  "slug": "day-bank-recruitment",
+  "category": "exams-employment",
+  "title": "ثبت‌نام استخدام بانک دی",
+  "summary": "ثبت‌نام در فراخوان جذب نیروی انسانی بانک دی"
+ },
+ {
+  "n": 86,
+  "slug": "national-housing-registration",
+  "category": "housing-land",
+  "title": "ثبت‌نام نهضت ملی مسکن",
+  "summary": "ثبت‌نام و پیگیری طرح نهضت ملی مسکن در سامانه ثمن"
+ },
+ {
+  "n": 87,
+  "slug": "youth-population-housing",
+  "category": "housing-land",
+  "title": "زمین و مسکن قانون جوانی جمعیت",
+  "summary": "ثبت‌نام واگذاری زمین/مسکن خانواده‌های دارای فرزند سوم و بیشتر"
+ },
+ {
+  "n": 88,
+  "slug": "youth-housing-plan",
+  "category": "housing-land",
+  "title": "ثبت‌نام طرح مسکن جوانان",
+  "summary": "ثبت‌نام طرح‌های مسکن ویژه جوانان و زوج‌های جوان"
+ },
+ {
+  "n": 89,
+  "slug": "housing-purchase-loan",
+  "category": "housing-land",
+  "title": "درخواست وام خرید مسکن (امتیازی/اوراق)",
+  "summary": "ثبت درخواست تسهیلات خرید مسکن بانک مسکن و سایر بانک‌ها"
+ },
+ {
+  "n": 90,
+  "slug": "rent-deposit-loan",
+  "category": "housing-land",
+  "title": "وام ودیعه مسکن (کمک‌ودیعه اجاره)",
+  "summary": "ثبت‌نام تسهیلات کمک‌ودیعه مسکن مستأجران در سامانه ثمن"
+ },
+ {
+  "n": 91,
+  "slug": "dilapidated-fabric-loan",
+  "category": "housing-land",
+  "title": "وام ساخت و نوسازی بافت فرسوده",
+  "summary": "ثبت درخواست تسهیلات نوسازی مسکن در بافت‌های فرسوده شهری"
+ },
+ {
+  "n": 92,
+  "slug": "amlak-eskan-registration",
+  "category": "housing-land",
+  "title": "ثبت اقامتگاه در سامانه املاک و اسکان",
+  "summary": "ثبت و ویرایش اقامتگاه اصلی خانوار در سامانه ملی املاک و اسکان"
+ },
+ {
+  "n": 93,
+  "slug": "rent-contract-tracking-code",
+  "category": "housing-land",
+  "title": "دریافت کد رهگیری قرارداد اجاره",
+  "summary": "ثبت قرارداد اجاره در سامانه خودنویس و دریافت کد رهگیری رایگان"
+ },
+ {
+  "n": 94,
+  "slug": "rural-land-allocation",
+  "category": "housing-land",
+  "title": "ثبت‌نام واگذاری زمین روستایی",
+  "summary": "درخواست واگذاری زمین مسکونی روستایی از بنیاد مسکن"
+ },
+ {
+  "n": 95,
+  "slug": "marriage-loan-registration",
+  "category": "banking-services",
+  "title": "ثبت‌نام وام ازدواج",
+  "summary": "ثبت‌نام تسهیلات قرض‌الحسنه ازدواج در سامانه بانک مرکزی"
+ },
+ {
+  "n": 96,
+  "slug": "marriage-loan-followup",
+  "category": "banking-services",
+  "title": "پیگیری ثبت‌نام وام ازدواج",
+  "summary": "استعلام وضعیت ثبت‌نام، شعبهٔ عامل و نوبت وام ازدواج"
+ },
+ {
+  "n": 97,
+  "slug": "marriage-loan-cancellation",
+  "category": "banking-services",
+  "title": "حذف ثبت‌نام وام ازدواج",
+  "summary": "حذف سابقهٔ ثبت‌نام وام ازدواج برای ثبت‌نام مجدد یا اصلاح اطلاعات"
+ },
+ {
+  "n": 98,
+  "slug": "child-loan-registration",
+  "category": "banking-services",
+  "title": "ثبت‌نام وام فرزندآوری",
+  "summary": "ثبت‌نام تسهیلات قرض‌الحسنه فرزندآوری برای خانواده‌های دارای نوزاد"
+ },
+ {
+  "n": 99,
+  "slug": "child-loan-followup",
+  "category": "banking-services",
+  "title": "پیگیری ثبت‌نام وام فرزند",
+  "summary": "استعلام وضعیت پروندهٔ تسهیلات فرزندآوری"
+ },
+ {
+  "n": 100,
+  "slug": "child-loan-cancellation",
+  "category": "banking-services",
+  "title": "حذف ثبت‌نام وام فرزند",
+  "summary": "حذف سابقهٔ ثبت‌نام وام فرزندآوری برای اصلاح یا ثبت مجدد"
+ },
+ {
+  "n": 101,
+  "slug": "credit-score-inquiry",
+  "category": "banking-services",
+  "title": "استعلام رتبه اعتباری (اعتبارسنجی بانکی)",
+  "summary": "دریافت گزارش رتبه اعتباری و سوابق تسهیلات و چک برگشتی"
+ },
+ {
+  "n": 102,
+  "slug": "sayad-cheque-registration",
+  "category": "banking-services",
+  "title": "ثبت چک صیادی",
+  "summary": "ثبت صدور چک صیادی در سامانه صیاد بانک مرکزی"
+ },
+ {
+  "n": 103,
+  "slug": "sayad-cheque-confirmation",
+  "category": "banking-services",
+  "title": "تأیید دریافت چک صیادی",
+  "summary": "تأیید دریافت چک صیادی توسط گیرنده در سامانه صیاد"
+ },
+ {
+  "n": 104,
+  "slug": "sayad-cheque-transfer",
+  "category": "banking-services",
+  "title": "انتقال چک صیادی",
+  "summary": "انتقال مالکیت چک صیادی به شخص دیگر در سامانه صیاد"
+ },
+ {
+  "n": 105,
+  "slug": "home-business-loan",
+  "category": "banking-services",
+  "title": "درخواست وام مشاغل خانگی",
+  "summary": "ثبت درخواست تسهیلات قرض‌الحسنه مشاغل خانگی"
+ },
+ {
+  "n": 106,
+  "slug": "emdad-employment-loan",
+  "category": "banking-services",
+  "title": "درخواست وام اشتغال کمیته امداد",
+  "summary": "ثبت درخواست تسهیلات اشتغال مددجویان کمیته امداد"
+ },
+ {
+  "n": 107,
+  "slug": "behzisti-employment-loan",
+  "category": "banking-services",
+  "title": "درخواست وام اشتغال سرپرستان خانوار (بهزیستی)",
+  "summary": "ثبت درخواست تسهیلات اشتغال جامعه هدف بهزیستی در سامانه سحاب"
+ },
+ {
+  "n": 108,
+  "slug": "resalat-bank-loan",
+  "category": "banking-services",
+  "title": "درخواست وام بانک قرض‌الحسنه رسالت",
+  "summary": "ثبت درخواست تسهیلات قرض‌الحسنه رسالت در سامانه ام‌رسالت"
+ },
+ {
+  "n": 109,
+  "slug": "resalat-document-matching",
+  "category": "banking-services",
+  "title": "درخواست تطبیق مدارک بانک رسالت",
+  "summary": "ثبت درخواست تطبیق مدارک وام ازدواج/فرزند در سامانه ام‌رسالت"
+ },
+ {
+  "n": 110,
+  "slug": "barekat-credit-validation",
+  "category": "banking-services",
+  "title": "اعتبارسنجی و ثبت طرح بنیاد برکت",
+  "summary": "ثبت طرح اشتغال و اعتبارسنجی تسهیلات بنیاد برکت"
+ },
+ {
+  "n": 111,
+  "slug": "proxy-bank-account",
+  "category": "banking-services",
+  "title": "افتتاح حساب وکالتی بانک‌ها",
+  "summary": "افتتاح/معرفی حساب وکالتی برای ثبت‌نام خودرو و عرضه‌های بورسی"
+ },
+ {
+  "n": 112,
+  "slug": "pilgrimage-passport",
+  "category": "police-services",
+  "title": "درخواست گذرنامه زیارتی",
+  "summary": "ثبت درخواست گذرنامه زیارتی ویژه سفر به عراق در سامانه سخا"
+ },
+ {
+  "n": 113,
+  "slug": "accident-sketch",
+  "category": "police-services",
+  "title": "دریافت کروکی تصادف",
+  "summary": "دریافت نسخه الکترونیکی کروکی تصادف از سامانه راهور"
+ },
+ {
+  "n": 114,
+  "slug": "plate-history-inquiry",
+  "category": "police-services",
+  "title": "استعلام تاریخچه پلاک",
+  "summary": "استعلام سوابق و تاریخچه یک پلاک خودرو"
+ },
+ {
+  "n": 115,
+  "slug": "active-plates-inquiry",
+  "category": "police-services",
+  "title": "استعلام پلاک‌های فعال",
+  "summary": "مشاهده فهرست پلاک‌های فعال ثبت‌شده به نام شما"
+ },
+ {
+  "n": 116,
+  "slug": "student-military-exemption",
+  "category": "police-services",
+  "title": "درخواست معافیت تحصیلی دانشجویی",
+  "summary": "ثبت/تمدید معافیت تحصیلی در سامانه سخا (وظیفه عمومی)"
+ },
+ {
+  "n": 117,
+  "slug": "military-card-authenticity",
+  "category": "police-services",
+  "title": "استعلام اصالت کارت پایان خدمت",
+  "summary": "استعلام وضعیت نظام وظیفه و اصالت کارت پایان خدمت/معافیت"
+ },
+ {
+  "n": 118,
+  "slug": "exit-country-permit",
+  "category": "police-services",
+  "title": "درخواست مجوز خروج از کشور",
+  "summary": "ثبت درخواست خروج از کشور مشمولان (زیارتی، علمی، درمانی و…)"
+ },
+ {
+  "n": 119,
+  "slug": "international-driving-license",
+  "category": "police-services",
+  "title": "درخواست گواهینامه بین‌المللی رانندگی",
+  "summary": "صدور گواهینامه بین‌المللی یک‌ساله از کانون جهانگردی و اتومبیل‌رانی"
+ },
+ {
+  "n": 120,
+  "slug": "optional-insurance-contract",
+  "category": "insurance-health",
+  "title": "بیمه اختیاری و صاحبان مشاغل آزاد تأمین اجتماعی",
+  "summary": "انعقاد قرارداد بیمه اختیاری یا مشاغل آزاد و صدور اولین قبض"
+ },
+ {
+  "n": 121,
+  "slug": "insurance-record-transfer",
+  "category": "insurance-health",
+  "title": "انتقال سوابق بیمه بین صندوق‌ها",
+  "summary": "درخواست انتقال کسورات و سوابق بیمه میان صندوق‌های بازنشستگی"
+ },
+ {
+  "n": 122,
+  "slug": "unemployment-insurance",
+  "category": "insurance-health",
+  "title": "درخواست بیمه بیکاری",
+  "summary": "ثبت درخواست مقرری بیمه بیکاری در سامانه جامع روابط کار"
+ },
+ {
+  "n": 123,
+  "slug": "maternity-leave-tamin",
+  "category": "insurance-health",
+  "title": "ثبت مرخصی زایمان تأمین اجتماعی",
+  "summary": "ثبت درخواست غرامت دستمزد ایام بارداری و مرخصی زایمان"
+ },
+ {
+  "n": 124,
+  "slug": "medical-aids-cost-tamin",
+  "category": "insurance-health",
+  "title": "دریافت هزینه پروتز، اروتز و دندانپزشکی تأمین اجتماعی",
+  "summary": "ثبت درخواست کمک‌هزینه وسایل کمک‌پزشکی و دندان مصنوعی"
+ },
+ {
+  "n": 125,
+  "slug": "military-service-insurance-buy",
+  "category": "insurance-health",
+  "title": "خرید و محاسبه سوابق خدمت سربازی (تأمین اجتماعی)",
+  "summary": "محاسبه و پرداخت حق‌بیمه دوران خدمت وظیفه برای افزودن به سوابق بیمه"
+ },
+ {
+  "n": 126,
+  "slug": "tamin-pensioner-payslip",
+  "category": "insurance-health",
+  "title": "فیش حقوقی بازنشستگان تأمین اجتماعی",
+  "summary": "دریافت فیش مستمری ماهانه بازنشستگان و مستمری‌بگیران"
+ },
+ {
+  "n": 127,
+  "slug": "tamin-pensioner-deduction-letter",
+  "category": "insurance-health",
+  "title": "نامه کسر از حقوق بازنشستگان تأمین اجتماعی",
+  "summary": "صدور گواهی کسر از حقوق مستمری برای ارائه به بانک‌ها و مؤسسات"
+ },
+ {
+  "n": 128,
+  "slug": "university-course-selection",
+  "category": "university-students",
+  "title": "انتخاب واحد دانشگاه",
+  "summary": "انجام انتخاب واحد در سامانه آموزشی دانشگاه (گلستان/سیدا/آموزش‌یار)"
+ },
+ {
+  "n": 129,
+  "slug": "university-add-drop",
+  "category": "university-students",
+  "title": "حذف و اضافه دانشگاه",
+  "summary": "حذف و اضافه دروس در مهلت قانونی نیمسال"
+ },
+ {
+  "n": 130,
+  "slug": "university-tuition-payment",
+  "category": "university-students",
+  "title": "پرداخت شهریه دانشگاه",
+  "summary": "پرداخت شهریه ثابت و متغیر دانشگاه و آزادسازی انتخاب واحد"
+ },
+ {
+  "n": 131,
+  "slug": "student-transfer-request",
+  "category": "university-students",
+  "title": "درخواست نقل و انتقال و میهمانی دانشجو",
+  "summary": "ثبت درخواست انتقال دائم یا میهمانی در سامانه سجاد/دانشگاه"
+ },
+ {
+  "n": 132,
+  "slug": "army-officer-university",
+  "category": "university-students",
+  "title": "ثبت‌نام دانشگاه افسری ارتش",
+  "summary": "ثبت‌نام در دانشگاه‌های افسری ارتش جمهوری اسلامی ایران"
+ },
+ {
+  "n": 133,
+  "slug": "graduation-completion",
+  "category": "university-students",
+  "title": "اتمام تحصیل و فراغت از تحصیل",
+  "summary": "پیگیری تسویه، صدور دانشنامه و ریزنمرات رسمی"
+ },
+ {
+  "n": 134,
+  "slug": "sajjad-education-verification",
+  "category": "university-students",
+  "title": "درخواست تأییدیه تحصیلی دانشگاهی (سجاد)",
+  "summary": "دریافت تأییدیه مدرک دانشگاهی برای ارائه به سازمان‌ها"
+ },
+ {
+  "n": 135,
+  "slug": "sajjad-tuition-exemption-cancel",
+  "category": "university-students",
+  "title": "لغو تعهد آموزش رایگان (سجاد)",
+  "summary": "خرید و لغو تعهد خدمت آموزش رایگان برای دریافت دانشنامه"
+ },
+ {
+  "n": 136,
+  "slug": "azad-konkur-major-selection",
+  "category": "university-students",
+  "title": "انتخاب رشته کنکور دانشگاه آزاد",
+  "summary": "انتخاب رشته با آزمون دانشگاه آزاد اسلامی بر اساس کارنامه سراسری"
+ },
+ {
+  "n": 137,
+  "slug": "azad-bachelor-discontinuous",
+  "category": "university-students",
+  "title": "ثبت‌نام کارشناسی ناپیوسته دانشگاه آزاد",
+  "summary": "پذیرش بدون آزمون کارشناسی ناپیوسته (کاردانی به کارشناسی) آزاد"
+ },
+ {
+  "n": 138,
+  "slug": "azad-bachelor-continuous",
+  "category": "university-students",
+  "title": "ثبت‌نام کارشناسی پیوسته دانشگاه آزاد",
+  "summary": "پذیرش بدون آزمون (بر اساس سوابق) کارشناسی پیوسته دانشگاه آزاد"
+ },
+ {
+  "n": 139,
+  "slug": "azad-associate-discontinuous",
+  "category": "university-students",
+  "title": "ثبت‌نام کاردانی ناپیوسته دانشگاه آزاد",
+  "summary": "پذیرش بدون آزمون کاردانی ناپیوسته دانشگاه آزاد (دارندگان دیپلم نظام جدید)"
+ },
+ {
+  "n": 140,
+  "slug": "azad-associate-continuous",
+  "category": "university-students",
+  "title": "ثبت‌نام کاردانی پیوسته دانشگاه آزاد",
+  "summary": "پذیرش بدون آزمون کاردانی پیوسته دانشگاه آزاد (دیپلمه‌های فنی)"
+ },
+ {
+  "n": 141,
+  "slug": "business-license-issue",
+  "category": "business-licenses",
+  "title": "صدور پروانه کسب (درگاه ملی مجوزها)",
+  "summary": "ثبت درخواست صدور پروانه کسب در درگاه ملی مجوزها و اتحادیه صنفی"
+ },
+ {
+  "n": 142,
+  "slug": "amaken-approval",
+  "category": "business-licenses",
+  "title": "درخواست و دریافت تأییدیه پلیس اماکن",
+  "summary": "ثبت درخواست تأییدیه انتظامی اماکن برای واحدهای صنفی و اماکن عمومی"
+ },
+ {
+  "n": 143,
+  "slug": "health-card-issue",
+  "category": "business-licenses",
+  "title": "صدور کارت بهداشت اصناف",
+  "summary": "ثبت درخواست کارت بهداشت برای کارکنان مراکز تهیه و توزیع مواد غذایی و آرایشگاه‌ها"
+ },
+ {
+  "n": 144,
+  "slug": "home-business-permit",
+  "category": "business-licenses",
+  "title": "صدور مجوز مشاغل خانگی",
+  "summary": "ثبت‌نام و صدور مجوز فعالیت مشاغل خانگی در درگاه ملی مجوزها"
+ },
+ {
+  "n": 145,
+  "slug": "business-license-renewal",
+  "category": "business-licenses",
+  "title": "تمدید پروانه کسب",
+  "summary": "ثبت درخواست تمدید اعتبار پروانه کسب در درگاه ملی مجوزها"
+ },
+ {
+  "n": 146,
+  "slug": "business-license-address-change",
+  "category": "business-licenses",
+  "title": "تغییر نشانی پروانه کسب",
+  "summary": "ثبت جابه‌جایی واحد صنفی و اصلاح نشانی در پروانه کسب"
+ },
+ {
+  "n": 147,
+  "slug": "mobasher-card",
+  "category": "business-licenses",
+  "title": "درخواست کارت مباشرت",
+  "summary": "صدور کارت مباشر برای اداره‌کننده واحد صنفی به نمایندگی صاحب پروانه"
+ },
+ {
+  "n": 148,
+  "slug": "guild-debt-payment",
+  "category": "business-licenses",
+  "title": "پرداخت بدهی صنفی و حق عضویت اتحادیه",
+  "summary": "استعلام و پرداخت بدهی‌های صنفی و حق عضویت سالانه اتحادیه"
+ },
+ {
+  "n": 149,
+  "slug": "postal-code-certificate",
+  "category": "business-licenses",
+  "title": "درخواست و تأییدیه کد پستی (گپ)",
+  "summary": "استعلام کد پستی صحیح و دریافت تأییدیه کد پستی از شرکت ملی پست"
+ },
+ {
+  "n": 150,
+  "slug": "school-textbook-order",
+  "category": "school-services",
+  "title": "ثبت‌نام کتاب‌های درسی",
+  "summary": "ثبت سفارش کتاب‌های درسی سال تحصیلی در سامانه فروش و توزیع مواد آموزشی"
+ },
+ {
+  "n": 151,
+  "slug": "school-registration",
+  "category": "school-services",
+  "title": "ثبت‌نام و پیش‌ثبت‌نام مدارس",
+  "summary": "پیش‌ثبت‌نام دانش‌آموز در مدرسه محدوده از طریق سامانه مای‌مدیو/پادا"
+ },
+ {
+  "n": 152,
+  "slug": "shahed-schools-registration",
+  "category": "school-services",
+  "title": "ثبت‌نام مدارس شاهد",
+  "summary": "پیش‌ثبت‌نام مدارس شاهد برای فرزندان ایثارگران و سایر داوطلبان"
+ },
+ {
+  "n": 153,
+  "slug": "sampad-7th-registration",
+  "category": "school-services",
+  "title": "ثبت‌نام آزمون سمپاد پایه هفتم (تیزهوشان)",
+  "summary": "ثبت‌نام آزمون ورودی مدارس استعدادهای درخشان پایه هفتم"
+ },
+ {
+  "n": 154,
+  "slug": "sampad-nemoneh-10th",
+  "category": "school-services",
+  "title": "ثبت‌نام آزمون سمپاد و نمونه دولتی پایه دهم",
+  "summary": "ثبت‌نام آزمون تکمیل ظرفیت سمپاد و ورودی مدارس نمونه دولتی دهم"
+ },
+ {
+  "n": 155,
+  "slug": "student-assessment-registration",
+  "category": "school-services",
+  "title": "ثبت‌نام سنجش سلامت نوآموزان",
+  "summary": "نوبت‌دهی سنجش بدو ورود به دبستان در سامانه سیرت"
+ },
+ {
+  "n": 156,
+  "slug": "student-assessment-result",
+  "category": "school-services",
+  "title": "دریافت نتیجه سنجش نوآموزان",
+  "summary": "مشاهده و دریافت برگه نتیجه سنجش سلامت نوآموز"
+ },
+ {
+  "n": 157,
+  "slug": "final-exam-entry-card",
+  "category": "school-services",
+  "title": "کارت ورود به جلسه امتحانات نهایی",
+  "summary": "دریافت کارت ورود به جلسه امتحانات نهایی خرداد/شهریور/دی"
+ },
+ {
+  "n": 158,
+  "slug": "diploma-verification-medu",
+  "category": "school-services",
+  "title": "تأییدیه تحصیلی دیپلم و زیردیپلم",
+  "summary": "دریافت تأییدیه مدرک تحصیلی آموزش‌وپرورش از سامانه emt.medu.ir"
+ },
+ {
+  "n": 159,
+  "slug": "school-transport-registration",
+  "category": "school-services",
+  "title": "ثبت‌نام سرویس مدارس (سپند)",
+  "summary": "ثبت درخواست سرویس رفت‌وآمد دانش‌آموز در سامانه سپند"
+ },
+ {
+  "n": 160,
+  "slug": "grade-improvement-registration",
+  "category": "school-services",
+  "title": "ترمیم نمره و ایجاد سابقه تحصیلی",
+  "summary": "ثبت‌نام ترمیم نمرات نهایی و ایجاد سابقه برای کنکور"
+ },
+ {
+  "n": 161,
+  "slug": "student-olympiad-registration",
+  "category": "school-services",
+  "title": "ثبت‌نام المپیادهای علمی دانش‌آموزی",
+  "summary": "ثبت‌نام مرحله اول المپیادهای علمی باشگاه دانش‌پژوهان جوان"
+ },
+ {
+  "n": 162,
+  "slug": "consult-tamin",
+  "category": "consulting",
+  "title": "مشاوره تأمین اجتماعی",
+  "summary": "مشاوره تخصصی سوابق، بازنشستگی و قوانین تأمین اجتماعی"
+ },
+ {
+  "n": 163,
+  "slug": "consult-tax",
+  "category": "consulting",
+  "title": "مشاوره مالیاتی",
+  "summary": "مشاوره اظهارنامه، جرایم و بهینه‌سازی قانونی مالیات مشاغل"
+ },
+ {
+  "n": 164,
+  "slug": "consult-labor",
+  "category": "consulting",
+  "title": "مشاوره اداره کار و روابط کارگر و کارفرما",
+  "summary": "مشاوره قرارداد کار، سنوات، عیدی و حل اختلاف کارگری"
+ },
+ {
+  "n": 165,
+  "slug": "consult-setadiran",
+  "category": "consulting",
+  "title": "مشاوره سامانه تدارکات الکترونیکی دولت (ستاد ایران)",
+  "summary": "راهنمایی ثبت‌نام و شرکت در مناقصه‌ها و خریدهای دولتی سامانه ستاد"
+ },
+ {
+  "n": 166,
+  "slug": "consult-education",
+  "category": "consulting",
+  "title": "مشاوره تحصیلی و انتخاب رشته",
+  "summary": "مشاوره انتخاب رشته کنکور، هدایت تحصیلی و برنامه‌ریزی درسی"
+ },
+ {
+  "n": 167,
+  "slug": "consult-general",
+  "category": "consulting",
+  "title": "مشاوره عمومی",
+  "summary": "پرسش و مشاوره درباره سایر امور اداری و خدماتی"
+ },
+ {
+  "n": 168,
+  "slug": "civil-pensioner-payslip",
+  "category": "other-services",
+  "title": "فیش حقوقی بازنشستگان کشوری",
+  "summary": "دریافت فیش مستمری ماهانه از درگاه صندوق بازنشستگی کشوری"
+ },
+ {
+  "n": 169,
+  "slug": "civil-pensioner-order",
+  "category": "other-services",
+  "title": "حکم حقوقی بازنشستگان کشوری",
+  "summary": "دریافت حکم حقوق/افزایش سنواتی بازنشستگان صندوق کشوری"
+ },
+ {
+  "n": 170,
+  "slug": "civil-pensioner-deduction-letter",
+  "category": "other-services",
+  "title": "نامه کسر از حقوق بازنشستگان کشوری",
+  "summary": "صدور گواهی کسر از حقوق برای ضمانت تسهیلات بانکی"
+ },
+ {
+  "n": 171,
+  "slug": "civil-pensioner-arbaeen-loan",
+  "category": "other-services",
+  "title": "ثبت‌نام وام اربعین بازنشستگان کشوری",
+  "summary": "ثبت‌نام تسهیلات سفر اربعین بازنشستگان صندوق کشوری"
+ },
+ {
+  "n": 172,
+  "slug": "civil-pensioner-essential-loan",
+  "category": "other-services",
+  "title": "ثبت‌نام وام ضروری بازنشستگان کشوری",
+  "summary": "ثبت‌نام تسهیلات ضروری قرض‌الحسنه بازنشستگان کشوری"
+ },
+ {
+  "n": 173,
+  "slug": "civil-pensioner-supplementary-insurance",
+  "category": "other-services",
+  "title": "ثبت‌نام بیمه تکمیلی بازنشستگان کشوری",
+  "summary": "ثبت‌نام/تمدید بیمه تکمیلی درمان بازنشستگان و افراد تحت تکفل"
+ },
+ {
+  "n": 174,
+  "slug": "civil-pensioner-children-marriage-loan",
+  "category": "other-services",
+  "title": "وام ازدواج فرزندان بازنشستگان کشوری",
+  "summary": "ثبت‌نام تسهیلات ازدواج فرزندان بازنشستگان صندوق کشوری"
+ },
+ {
+  "n": 175,
+  "slug": "smart-national-card-registration",
+  "category": "other-services",
+  "title": "ثبت‌نام کارت ملی هوشمند",
+  "summary": "پیش‌ثبت‌نام کارت ملی هوشمند و رزرو نوبت دفتر پیشخوان/ثبت احوال"
+ },
+ {
+  "n": 176,
+  "slug": "civil-registry-address-change",
+  "category": "other-services",
+  "title": "تغییر نشانی در ثبت احوال",
+  "summary": "ثبت تغییر نشانی محل سکونت در سازمان ثبت احوال"
+ },
+ {
+  "n": 177,
+  "slug": "inheritance-certificate",
+  "category": "other-services",
+  "title": "درخواست گواهی انحصار وراثت",
+  "summary": "تنظیم دادخواست و پیگیری صدور گواهی حصر وراثت"
+ },
+ {
+  "n": 178,
+  "slug": "vocational-certificate-inquiry",
+  "category": "other-services",
+  "title": "استعلام مدرک فنی‌وحرفه‌ای",
+  "summary": "استعلام اصالت گواهینامه مهارت سازمان فنی‌وحرفه‌ای"
+ },
+ {
+  "n": 179,
+  "slug": "sejam-edit",
+  "category": "other-services",
+  "title": "ویرایش اطلاعات سجام",
+  "summary": "ویرایش شبا، نشانی و اطلاعات تماس در سامانه سجام"
+ },
+ {
+  "n": 180,
+  "slug": "property-deed-inquiry",
+  "category": "other-services",
+  "title": "استعلام سند مالکیت و پلاک ثبتی",
+  "summary": "استعلام وضعیت سند مالکیت و مشخصات پلاک ثبتی از سامانه ثبت اسناد"
+ },
+ {
+  "n": 181,
+  "slug": "hamyab-registration",
+  "category": "other-services",
+  "title": "ثبت‌نام سامانه همیاب (کاریابی)",
+  "summary": "ثبت پروفایل کارجویی و درخواست شغل در سامانه همیاب"
+ },
+ {
+  "n": 182,
+  "slug": "arbaeen-currency",
+  "category": "other-services",
+  "title": "ثبت‌نام ارز اربعین",
+  "summary": "ثبت درخواست ارز زیارتی اربعین در سامانه بانک مرکزی/بانک‌های عامل"
+ },
+ {
+  "n": 183,
+  "slug": "health-insurance-registration",
+  "category": "other-services",
+  "title": "ثبت‌نام بیمه سلامت همگانی",
+  "summary": "ثبت‌نام پوشش بیمه سلامت همگانی برای فاقدین بیمه درمان"
+ },
+ {
+  "n": 184,
+  "slug": "health-insurance-renewal",
+  "category": "other-services",
+  "title": "تمدید بیمه سلامت",
+  "summary": "تمدید اعتبار پوشش بیمه سلامت و بررسی ارزیابی وسع"
+ },
+ {
+  "n": 185,
+  "slug": "masir-counseling-registration",
+  "category": "other-services",
+  "title": "ثبت‌نام سامانه مسیر (مشاوره خانواده)",
+  "summary": "ثبت‌نام و تعیین نوبت مشاوره خانواده در سامانه مسیر قوه قضائیه"
+ },
+ {
+  "n": 186,
+  "slug": "masir-counseling-appointment",
+  "category": "other-services",
+  "title": "نوبت مشاوره سامانه مسیر",
+  "summary": "رزرو/پیگیری نوبت جلسات مشاوره خانواده در سامانه مسیر"
+ },
+ {
+  "n": 187,
+  "slug": "sports-insurance-registration",
+  "category": "other-services",
+  "title": "ثبت‌نام بیمه ورزشی",
+  "summary": "صدور کارت بیمه ورزشی فدراسیون پزشکی ورزشی"
+ },
+ {
+  "n": 188,
+  "slug": "sports-insurance-renewal",
+  "category": "other-services",
+  "title": "تمدید بیمه ورزشی",
+  "summary": "تمدید کارت بیمه ورزشی سالانه"
+ },
+ {
+  "n": 189,
+  "slug": "ili-registration",
+  "category": "other-services",
+  "title": "ثبت‌نام کانون زبان ایران",
+  "summary": "ثبت‌نام کلاس‌های زبان کانون زبان ایران"
+ },
+ {
+  "n": 190,
+  "slug": "ili-tuition-payment",
+  "category": "other-services",
+  "title": "پرداخت شهریه کانون زبان ایران",
+  "summary": "پرداخت شهریه ترم زبان‌آموزان کانون زبان ایران"
+ },
+ {
+  "n": 191,
+  "slug": "ili-book-purchase",
+  "category": "other-services",
+  "title": "خرید کتاب کانون زبان ایران",
+  "summary": "سفارش خرید کتاب و منابع آموزشی کانون زبان"
+ },
+ {
+  "n": 192,
+  "slug": "samah-registration",
+  "category": "other-services",
+  "title": "ثبت‌نام سامانه سماح (اربعین)",
+  "summary": "ثبت‌نام زائران اربعین در سامانه سماح سازمان حج و زیارت"
+ },
+ {
+  "n": 193,
+  "slug": "petroleum-products-request",
+  "category": "other-services",
+  "title": "درخواست فرآورده‌های نفتی صنفی (سدف)",
+  "summary": "ثبت درخواست سهمیه سوخت صنوف و صنایع در سامانه سدف"
+ }
+]

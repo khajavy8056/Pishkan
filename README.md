@@ -155,6 +155,8 @@ pishkan doctor        # بررسی کامل نصب
 | [docs/STAFF-GUIDE.md](docs/STAFF-GUIDE.md) | راهنمای کارشناسان، مدارک، شیفت و مالی |
 | [docs/API.md](docs/API.md) | فهرست مسیرها و قرارداد پاسخ‌ها |
 | [docs/ANDROID.md](docs/ANDROID.md) | ساخت اپ اندروید با Capacitor |
+| [docs/PUSH-NOTIFICATIONS-FA.md](docs/PUSH-NOTIFICATIONS-FA.md) | اعلان لحظه‌ای اندروید (FCM): راه‌اندازی، آزمون، و واقعیت‌های ایران |
+| [docs/ANDROID-LOCAL-TEST-FA.md](docs/ANDROID-LOCAL-TEST-FA.md) | اتصال اپ اندروید به نصب لوکال ویندوز (PishkanSetup + شبیه‌ساز) |
 | [docs/TEST-REPORT.md](docs/TEST-REPORT.md) | گزارش آزمون‌ها (تاریخی) و پیوند به وضعیت فعلی |
 | [docs/UI-REDESIGN-2026-10-30.md](docs/UI-REDESIGN-2026-10-30.md) | بازطراحی رابط، سیستم توکن، حالت تیره و روش اعتبارسنجی کنتراست |
 | [docs/MEDIA-PIPELINE.md](docs/MEDIA-PIPELINE.md) | موتور تصویر و مدارک: کتابخانه، مسیر پردازش، سیاست کیفیت، امنیت، API و اندازه‌گیری‌ها |

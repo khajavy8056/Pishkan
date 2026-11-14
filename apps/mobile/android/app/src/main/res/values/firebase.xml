@@ -1,0 +1,29 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Firebase configuration for push notifications.
+
+  These are NOT secrets: they identify the customer's Firebase project to the
+  device, and every installed app can read them. The credential that can push
+  to every device is the service-account JSON, which lives only on the server
+  (admin panel → پیامک و اعلان‌ها) and is never committed.
+
+  Project: pishkhan-72e28
+  Package: ir.pishkan.app
+
+  Values come from the office Firebase project's google-services.json. That file
+  is NOT committed and the google-services Gradle plugin is NOT used: the plugin
+  fails the build when the JSON is absent, which would break CI and every
+  developer without the office project. Initialising from string resources
+  (FirebaseBootstrap.kt) lets a build without them still succeed — the app then
+  falls back to polling instead of failing to install.
+
+  Override at build time without editing this file:
+    flutter build apk -PfirebaseProjectId=… -PfirebaseAppId=… \
+                      -PfirebaseApiKey=… -PfirebaseSenderId=…
+-->
+<resources>
+    <string name="firebase_project_id" translatable="false">pishkhan-72e28</string>
+    <string name="firebase_application_id" translatable="false">1:507049814300:android:4aeea6e70ba686692af2d9</string>
+    <string name="firebase_api_key" translatable="false">AIzaSyCluplg0dFhQpGsMBcAJQqPrSy9enb46sk</string>
+    <string name="firebase_sender_id" translatable="false">507049814300</string>
+</resources>

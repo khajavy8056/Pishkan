@@ -73,6 +73,10 @@ $lanButton = New-PishkanButton 'دسترسی موبایل / QR' 'ghost' 160 30
 $lanButton.Location = New-Object System.Drawing.Point(132, 28)
 $brand.Controls.Add($lanButton)
 
+$tunnelButton = New-PishkanButton 'لینک عمومی / تونل' 'ghost' 150 30
+$tunnelButton.Location = New-Object System.Drawing.Point(300, 28)
+$brand.Controls.Add($tunnelButton)
+
 # ------------------------------------------------------------- status card
 
 $statusPanel = New-PishkanPanel 620 250 'card'
@@ -251,10 +255,76 @@ function Invoke-Manager([string[]]$Arguments) {
     }
   }
   $managerScript = Join-Path $RepoRoot 'windows\lib\manager.mjs'
-  $output = & $node $managerScript @Arguments --root $RepoRoot --json 2>&1
+  # PS 5.1 + $ErrorActionPreference='Stop' turns the first stderr line of a
+  # native command into a terminating error; the contract is the RESULT_JSON
+  # line on stdout, so stderr must never abort the call.
+  $previousPreference = $ErrorActionPreference
+  $ErrorActionPreference = 'Continue'
+  try { $output = & $node $managerScript @Arguments --root $RepoRoot --json 2>&1 }
+  finally { $ErrorActionPreference = $previousPreference }
   $line = ($output | Where-Object { "$_" -like 'RESULT_JSON:*' } | Select-Object -Last 1)
   if (-not $line) { return @{ ok = $false; message = ($output -join "`n") } }
   return ("$line".Substring(12) | ConvertFrom-Json)
+}
+
+function Set-ManagerProcessEncoding($Info) {
+  $encoding = New-Object System.Text.UTF8Encoding($false)
+  if ($Info.PSObject.Properties.Match('StandardOutputEncoding').Count -gt 0) {
+    try { $Info.StandardOutputEncoding = $encoding } catch { }
+  }
+  if ($Info.PSObject.Properties.Match('StandardErrorEncoding').Count -gt 0) {
+    try { $Info.StandardErrorEncoding = $encoding } catch { }
+  }
+  return $Info
+}
+
+# Same contract as Invoke-Manager, but the window stays alive while a slow
+# start/stop runs: a synchronous `& node ...` froze the whole form for up to a
+# minute (Windows ghosted it as not responding) and the click looked dead.
+function Invoke-ManagerAsync([string[]]$Arguments, [int]$TimeoutSeconds = 20) {
+  $node = Get-NodeCommand
+  if (-not $node) { return (Invoke-Manager $Arguments) }
+  $managerScript = Join-Path $RepoRoot 'windows\lib\manager.mjs'
+  $info = New-Object System.Diagnostics.ProcessStartInfo
+  $info.FileName = $node
+  $quoted = @($Arguments | ForEach-Object { '"' + ([string]$_).Replace('"', '\"') + '"' })
+  $info.Arguments = '"' + $managerScript + '" ' + ($quoted -join ' ') + ' --root "' + $RepoRoot + '" --json'
+  $info.WorkingDirectory = $RepoRoot
+  $info.UseShellExecute = $false
+  $info.CreateNoWindow = $true
+  $info.RedirectStandardOutput = $true
+  $info.RedirectStandardError = $true
+  $info = Set-ManagerProcessEncoding $info
+  $process = New-Object System.Diagnostics.Process
+  $process.StartInfo = $info
+  [void]$process.Start()
+  $lines = @()
+  $pending = $process.StandardOutput.ReadLineAsync()
+  while ($true) {
+    if ($null -eq $pending) { break }
+    if ($pending.IsCompleted) {
+      $line = $null
+      try { $line = $pending.Result } catch { $line = $null }
+      if ($null -eq $line) { break }
+      $lines += $line
+      $pending = $process.StandardOutput.ReadLineAsync()
+    } else {
+      [System.Windows.Forms.Application]::DoEvents()
+      Start-Sleep -Milliseconds 60
+    }
+  }
+  $waitDeadline = (Get-Date).AddSeconds($TimeoutSeconds)
+  while (-not $process.HasExited -and (Get-Date) -lt $waitDeadline) {
+    [System.Windows.Forms.Application]::DoEvents()
+    Start-Sleep -Milliseconds 60
+  }
+  $resultLine = ($lines | Where-Object { "$_" -like 'RESULT_JSON:*' } | Select-Object -Last 1)
+  if (-not $resultLine) {
+    $stderrText = ''
+    try { $stderrText = $process.StandardError.ReadToEnd() } catch { }
+    return @{ ok = $false; message = (($lines + $stderrText) -join "`n") }
+  }
+  return ("$resultLine".Substring(12) | ConvertFrom-Json)
 }
 
 function Update-Status {
@@ -294,14 +364,14 @@ function Update-Status {
     if ($status.lanAccess.enabled) {
       $mobileUrls = @($status.lanAccess.mobileUrls | Where-Object { $_ })
       if ($mobileUrls.Count -gt 0) {
-        $lanText = "آدرس موبایل فقط در Wi‑Fi خصوصی:`n" + ($mobileUrls -join "`n")
+        $lanText = "آدرس موبایل (فقط روی همان Wi‑Fi):`n" + ($mobileUrls -join "`n")
       } else {
         $lanText = [string]$status.lanAccess.message
       }
     }
     $infoText.Text = ("پورت: {0}`n{1}`nپایگاه داده: {2}`nپوشه داده: {3}`nفایل تنظیمات: {4}`nگزارش سرور: {5}`nگزارش مدیر: {6}" -f `
       $status.port, $lanText, (Split-Path $status.envFile -Leaf), $status.dataDir, $status.envFile, $status.logFile, $status.managerLogFile)
-    if ($autoRefresh.Checked -and $status.running) {
+    if ($autoRefresh.Checked) {
       $log = Invoke-Manager @('logs', '--lines', '40')
       if ($log -and $log.lines) { $logBox.Text = ($log.lines -join "`r`n") }
     }
@@ -319,7 +389,7 @@ function Show-LanDialog {
   $dialog = New-Object System.Windows.Forms.Form
   $dialog.Text = 'دسترسی موبایل در شبکه محلی'
   $dialog.Width = 460
-  $dialog.Height = 520
+  $dialog.Height = 566
   $dialog.StartPosition = 'CenterParent'
   $dialog.RightToLeft = [System.Windows.Forms.RightToLeft]::Yes
   $dialog.RightToLeftLayout = $true
@@ -396,22 +466,182 @@ function Show-LanDialog {
   [void]$dialog.ShowDialog($form)
 }
 
+function Show-TunnelDialog {
+  # Public link dialog: the same shape as the LAN dialog, because an operator
+  # has already learned that shape. Two differences: the button toggles the
+  # tunnel instead of only displaying an address, and the on/off action can
+  # take minutes (sign-in, download, relay connection), so it is run
+  # asynchronously with a live status line rather than freezing the window.
+  $info = Invoke-Manager @('tunnel')
+  $dialog = New-Object System.Windows.Forms.Form
+  $dialog.Text = 'لینک عمومی برای نمایش (Microsoft Dev Tunnels)'
+  $dialog.Width = 500
+  $dialog.Height = 610
+  $dialog.StartPosition = 'CenterParent'
+  $dialog.RightToLeft = [System.Windows.Forms.RightToLeft]::Yes
+  $dialog.RightToLeftLayout = $true
+  $dialog.Tag = 'form'
+
+  $note = New-PishkanLabel '' 'muted' 9 $false
+  $note.Location = New-Object System.Drawing.Point(16, 12)
+  $note.Size = New-Object System.Drawing.Size(450, 66)
+  $note.TextAlign = 'TopRight'
+  $note.Text = "این لینک از هر جایی (اینترنت موبایل، شهر دیگر) باز می‌شود و به همان سامانهٔ روی این رایانه وصل است.`n`r`nبرای نمایش و آزمایش است، نه بهره‌برداری رسمی: مایکروسافت برای این سرویس تعهد سطح سرویس (SLA) نمی‌دهد."
+  $dialog.Controls.Add($note)
+
+  $stateLabel = New-PishkanLabel '' 'muted' 9.5 $true
+  $stateLabel.Location = New-Object System.Drawing.Point(16, 84)
+  $stateLabel.Size = New-Object System.Drawing.Size(450, 26)
+  $stateLabel.TextAlign = 'MiddleRight'
+  $stateLabel.Text = if ($info.running) { 'وضعیت: فعال' } elseif ($info.configured) { 'وضعیت: تنظیم شده ولی پروسهٔ تونل اجرا نیست' } else { 'وضعیت: خاموش' }
+  $dialog.Controls.Add($stateLabel)
+
+  $urlBox = New-Object System.Windows.Forms.TextBox
+  $urlBox.Multiline = $true
+  $urlBox.ReadOnly = $true
+  $urlBox.ScrollBars = 'Vertical'
+  $urlBox.Location = New-Object System.Drawing.Point(16, 116)
+  $urlBox.Size = New-Object System.Drawing.Size(450, 52)
+  $urlBox.Font = New-Object System.Drawing.Font('Consolas', 9.5)
+  $urlBox.Tag = 'log'
+  $urlBox.Text = if ($info.running) { [string]$info.publicUrl } else { '' }
+  $urlBox.BackColor = [System.Drawing.Color]::White
+  $dialog.Controls.Add($urlBox)
+
+  $picture = New-Object System.Windows.Forms.PictureBox
+  $picture.Location = New-Object System.Drawing.Point(120, 180)
+  $picture.Size = New-Object System.Drawing.Size(240, 240)
+  $picture.SizeMode = 'Zoom'
+  $picture.BackColor = [System.Drawing.Color]::White
+  $dialog.Controls.Add($picture)
+  if ($info.running -and @($info.qr).Count -gt 0 -and $info.qr[0].pngBase64) {
+    try {
+      $bytes = [System.Convert]::FromBase64String([string]$info.qr[0].pngBase64)
+      $stream = New-Object System.IO.MemoryStream (, $bytes)
+      $picture.Image = [System.Drawing.Image]::FromStream($stream)
+    } catch { }
+  }
+
+  $hint = New-PishkanLabel '' 'muted' 8.5 $false
+  $hint.Location = New-Object System.Drawing.Point(16, 428)
+  $hint.Size = New-Object System.Drawing.Size(450, 44)
+  $hint.TextAlign = 'TopRight'
+  $hint.Text = if ($info.installed) {
+    "در گوشی، همین آدرس را در برنامهٔ Pishkan در صفحهٔ «آدرس سامانه» وارد کنید.`n`r`nبار اول در مرورگر ممکن است یک صفحهٔ هشدار ضدفیشینگ مایکروسافت ظاهر شود؛ یک بار تأیید کافی است."
+  } else {
+    'ابزار مایکروسافت روی این رایانه نصب نشده است. با زدن «فعال‌سازی»، دانلود و نصب خودکار انجام می‌شود و سپس صفحهٔ ورود مایکروسافت باز می‌شود.'
+  }
+  $dialog.Controls.Add($hint)
+
+  # PS 5.1 has no `if` expression: assign first, then pass the variable.
+  $toggleText = 'فعال‌سازی لینک عمومی'
+  if ($info.running) { $toggleText = 'خاموش کردن لینک عمومی' }
+  $toggleButton = New-PishkanButton $toggleText 'accent' 200 36
+  $toggleButton.Location = New-Object System.Drawing.Point(16, 482)
+  $dialog.Controls.Add($toggleButton)
+
+  $copyButton = New-PishkanButton 'کپی لینک' 'ghost' 120 36
+  $copyButton.Location = New-Object System.Drawing.Point(226, 482)
+  $copyButton.Enabled = [bool]($info.running -and $info.publicUrl)
+  $copyButton.Add_Click({
+    if ($info.running -and $info.publicUrl) {
+      [System.Windows.Forms.Clipboard]::SetText([string]$info.publicUrl)
+      Set-Footer 'لینک عمومی در حافظه کپی شد.' 'ok'
+    }
+  })
+  $dialog.Controls.Add($copyButton)
+
+  $openButton = New-PishkanButton 'باز کردن در مرورگر' 'ghost' 160 36
+  $openButton.Location = New-Object System.Drawing.Point(356, 482)
+  $openButton.Enabled = [bool]($info.running -and $info.publicUrl)
+  $openButton.Add_Click({ if ($info.running -and $info.publicUrl) { Start-Process ([string]$info.publicUrl) } })
+  $dialog.Controls.Add($openButton)
+
+  $progress = New-PishkanLabel '' 'muted' 8.5 $false
+  $progress.Location = New-Object System.Drawing.Point(16, 526)
+  $progress.Size = New-Object System.Drawing.Size(450, 40)
+  $progress.TextAlign = 'TopRight'
+  $dialog.Controls.Add($progress)
+
+  $toggleButton.Add_Click({
+    if ($script:Busy) { return }
+    $turnOn = -not $info.running
+    $script:Busy = $true
+    $toggleButton.Enabled = $false
+    $progress.ForeColor = Get-PishkanColor 'warn'
+    $progress.Text = if ($turnOn) {
+      'در حال فعال‌سازی… اگر پنجرهٔ ورود مایکروسافت باز شد، همان‌جا وارد شوید. تا پایان کار صبر کنید.'
+    } else {
+      'در حال خاموش کردن…'
+    }
+    [System.Windows.Forms.Application]::DoEvents()
+    try {
+      $toggleArgs = @('tunnel-off')
+      if ($turnOn) { $toggleArgs = @('tunnel-on') }
+      # Sign-in happens inside this call and a human has to finish it in a
+      # browser, so the usual 20-second ceiling would abort a perfectly normal
+      # first run. 20 minutes covers a slow download plus typing a password and
+      # a possible device-code flow.
+      $result = Invoke-ManagerAsync $toggleArgs 1200
+      if ($result.ok) {
+        $progress.ForeColor = Get-PishkanColor 'ok'
+        $progress.Text = [string]$result.message
+        if ($result.publicUrl) {
+          $urlBox.Text = [string]$result.publicUrl
+          if (@($result.qr).Count -gt 0 -and $result.qr[0].pngBase64) {
+            try {
+              $bytes = [System.Convert]::FromBase64String([string]$result.qr[0].pngBase64)
+              $stream = New-Object System.IO.MemoryStream (, $bytes)
+              $picture.Image = [System.Drawing.Image]::FromStream($stream)
+            } catch { }
+          }
+          $copyButton.Enabled = $true
+          $openButton.Enabled = $true
+          $stateLabel.Text = 'وضعیت: فعال'
+          $toggleButton.Text = 'خاموش کردن لینک عمومی'
+          # The one thing the operator actually needs: the link on the
+          # clipboard so it can be pasted straight into WhatsApp.
+          try { [System.Windows.Forms.Clipboard]::SetText([string]$result.publicUrl) } catch { }
+        } else {
+          $stateLabel.Text = 'وضعیت: خاموش'
+          $toggleButton.Text = 'فعال‌سازی لینک عمومی'
+        }
+      } else {
+        $progress.ForeColor = Get-PishkanColor 'danger'
+        $detail = [string]$result.message
+        if ($result.hints) { $detail += "`n" + ($result.hints -join "`n") }
+        $progress.Text = $detail
+      }
+    } catch {
+      $progress.ForeColor = Get-PishkanColor 'danger'
+      $progress.Text = $_.Exception.Message
+    } finally {
+      $script:Busy = $false
+      $toggleButton.Enabled = $true
+      Update-Status
+    }
+  })
+
+  Apply-PishkanTheme $dialog
+  [void]$dialog.ShowDialog($form)
+}
+
 function Invoke-Action([string]$Label, [string[]]$Arguments, [string]$SuccessText) {
   if ($script:Busy) { return }
   $script:Busy = $true
   Set-Footer ($Label + ' — کمی صبر کنید…') 'warn'
   [System.Windows.Forms.Application]::DoEvents()
   try {
-    $result = Invoke-Manager $Arguments
+    $result = Invoke-ManagerAsync $Arguments
     if ($result.ok) {
       Set-Footer $SuccessText 'ok'
     } else {
       Set-Footer ("$Label ناموفق بود: " + $result.message) 'danger'
-      Show-PishkanMessage ($Label + ' ناموفق بود') ([string]$result.message) 'error'
+      Show-PishkanMessage ($Label + ' ناموفق بود') ([string]$result.message) 'error' $form
     }
   } catch {
     Set-Footer ($Label + ' با خطا مواجه شد') 'danger'
-    Show-PishkanMessage ($Label + ' با خطا مواجه شد') $_.Exception.Message 'error'
+    Show-PishkanMessage ($Label + ' با خطا مواجه شد') $_.Exception.Message 'error' $form
   } finally {
     $script:Busy = $false
     Update-Status
@@ -434,6 +664,7 @@ $restartButton.Add_Click({ Invoke-Action 'راه‌اندازی دوباره' @(
 $refreshButton.Add_Click({ Update-Status })
 $openButton.Add_Click({ if ($script:AppUrl) { Start-Process $script:AppUrl } })
 $lanButton.Add_Click({ Show-LanDialog })
+$tunnelButton.Add_Click({ Show-TunnelDialog })
 $dataButton.Add_Click({ [void](Invoke-Manager @('open-data')) })
 
 $backupButton.Add_Click({

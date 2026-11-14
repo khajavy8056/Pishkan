@@ -2,6 +2,7 @@ export interface RequestDocumentRequirement {
   key: string;
   title: string;
   required: boolean;
+  documentType?: string;
 }
 
 /** Resolve the persisted service snapshot to the same keys used by the API. */
@@ -14,6 +15,7 @@ export function requestDocumentRequirements(request: any): RequestDocumentRequir
       key: typeof document?.key === 'string' && document.key ? document.key : `document_${index + 1}`,
       title: String(document?.title ?? `مدرک ${index + 1}`),
       required: Boolean(document?.required),
+      documentType: typeof document?.documentType === 'string' ? document.documentType : undefined,
     })),
     ...fields.map((field: any) => ({
       key: `field:${String(field.key)}`,

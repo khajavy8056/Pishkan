@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
-import { Send, Paperclip, Plus, Lock, Unlock, Link2, User, Search } from 'lucide-react';
+import { Send, Paperclip, Plus, Lock, Unlock, Link2, User, Search, ArrowRight } from 'lucide-react';
 import clsx from 'clsx';
 import { AppShell, PageHeader } from '../../components/shell';
 import { Button, Card, EmptyState, Field, Input, Loading, Modal, Select, StatusBadge, useToast } from '../../components/ui';
@@ -46,7 +46,9 @@ export function MessageCenter({ variant }: { variant: 'staff' | 'admin' }) {
           const fresh = await loadThreads();
           const thread = fresh.find((t: any) => t.id === created.data.id);
           if (thread) await openThread(thread);
-        } else if (list[0]) {
+        } else if (list[0] && window.matchMedia?.('(min-width: 1024px)').matches) {
+          // Desktop shows both panes, so preselecting is helpful there;
+          // on a phone the list must come first (one pane at a time).
           await openThread(list[0]);
         }
       } finally {
@@ -76,12 +78,7 @@ export function MessageCenter({ variant }: { variant: 'staff' | 'admin' }) {
 
   const attach = async (file: File) => {
     try {
-      const uploaded = await api.upload<{ data: { id: string; savingsPercent?: number; processing?: { status?: string } } }>('/api/files/upload', file, { purpose: 'chat' });
-      if (uploaded.data.processing?.status === 'failed') {
-        notify('پیوست ارسال شد اما بهینه‌سازی تصویر انجام نشد؛ نسخه اصلی سالم ذخیره شده است.', 'info');
-      } else if ((uploaded.data.savingsPercent ?? 0) >= 5) {
-        notify(`پیوست بهینه شد؛ ${faNum(Math.round(uploaded.data.savingsPercent ?? 0))}٪ کاهش حجم.`, 'success');
-      }
+      const uploaded = await api.upload<{ data: { id: string } }>('/api/files/upload', file, { purpose: 'chat' });
       await send(uploaded.data.id);
     } catch (err) {
       notify(err instanceof ApiFailure ? err.message : 'خطا در بارگذاری فایل', 'error');
@@ -140,7 +137,8 @@ export function MessageCenter({ variant }: { variant: 'staff' | 'admin' }) {
 
       {!loading && (
         <div className="grid gap-4 lg:grid-cols-[340px_1fr]">
-          <Card pad={false} className="overflow-hidden">
+          {/* Mobile master/detail: one pane at a time, both from lg up. */}
+          <Card pad={false} className={clsx('overflow-hidden', active && 'hidden lg:block')}>
             <div className="flex items-center gap-2 border-b border-line px-3 py-2">
               <Search className="size-4 text-navy-400" />
               <input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="جست‌وجو در گفت‌وگوها…" className="w-full bg-transparent py-1 text-sm outline-none" />
@@ -167,17 +165,22 @@ export function MessageCenter({ variant }: { variant: 'staff' | 'admin' }) {
             </div>
           </Card>
 
-          <Card pad={false} className="flex h-[66vh] flex-col overflow-hidden">
+          <Card pad={false} className={clsx('h-[72dvh] flex-col overflow-hidden lg:h-[66vh]', active ? 'flex' : 'hidden lg:flex')}>
             {!active ? (
               <div className="grid flex-1 place-items-center text-sm text-navy-400">یک گفت‌وگو را انتخاب کنید.</div>
             ) : (
               <>
                 <div className="flex items-center justify-between gap-2 border-b border-line px-4 py-3">
-                  <div className="min-w-0">
+                  <div className="flex min-w-0 items-center gap-2">
+                    <button type="button" onClick={() => setActive(null)} className="btn-ghost btn-sm shrink-0 lg:hidden" aria-label="بازگشت به فهرست گفت‌وگوها">
+                      <ArrowRight className="size-4" /> فهرست
+                    </button>
+                    <div className="min-w-0">
                     <p className="truncate text-sm font-semibold text-navy-900">{active.subject}</p>
                     <p className="text-[11px] text-navy-500">
                       {active.customerName} • {active.scope === 'request' ? 'مرتبط با پرونده' : 'گفت‌وگوی عمومی'}
                     </p>
+                    </div>
                   </div>
                   <div className="flex items-center gap-2">
                     <StatusBadge status={active.status} />

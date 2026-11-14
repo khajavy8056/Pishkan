@@ -6,6 +6,15 @@
 $ErrorActionPreference = 'Stop'
 $ProgressPreference = 'SilentlyContinue'
 
+# Pragmatic LAN rule management for the office install. One narrow inbound
+# ALLOW rule lets phones on the same Wi-Fi reach this install's Node server:
+#   exact TCP port + this install's node.exe + RemoteAddress LocalSubnet,
+#   on ANY firewall profile (home/office Wi-Fi is often categorised Public),
+# plus it disables the classic killer: Windows' own program-scoped BLOCK rule
+# for node.exe (created when someone once clicked "Cancel" on the firewall
+# prompt), which would otherwise override any allow rule. Other pre-existing
+# rules are reported, never treated as a reason to refuse setup.
+
 function Write-Result([hashtable]$Payload) {
   $directory = Split-Path -Parent $ResultFile
   if ($directory -and -not (Test-Path $directory)) { New-Item -ItemType Directory -Path $directory -Force | Out-Null }
@@ -26,9 +35,11 @@ function Test-ContainsValue($Values, [string]$Expected) {
   return $false
 }
 
-function Test-ProfileValue($Profile, [string]$Expected) {
-  $values = @(([string]$Profile) -split '[,; ]+' | Where-Object { $_ })
-  return (Test-ContainsValue $values $Expected) -or (Test-ContainsValue $values 'Any')
+function Test-CoversAllProfiles($Profile) {
+  $text = ([string]$Profile).Trim()
+  if ($text -ieq 'Any') { return $true }
+  $values = @($text -split '[,; ]+' | Where-Object { $_ })
+  return (Test-ContainsValue $values 'Domain') -and (Test-ContainsValue $values 'Private') -and (Test-ContainsValue $values 'Public')
 }
 
 function Test-PortCouldMatch($LocalPorts, [int]$Port) {
@@ -59,92 +70,74 @@ function Test-ExactValueSet($Values, [string]$Expected) {
   return $true
 }
 
-function Get-FirewallSafety {
-  $profiles = @(Get-NetFirewallProfile -PolicyStore ActiveStore -Profile Domain,Private,Public)
-  $names = @($profiles | ForEach-Object { [string]$_.Name })
-  $requiredProfiles = @('Domain', 'Private', 'Public')
-  $missingProfiles = @($requiredProfiles | Where-Object { $names -notcontains $_ })
-  $allProfilesPresent = $missingProfiles.Count -eq 0
-  $unsafe = @($profiles | Where-Object {
-    ([string]$_.Enabled -notin @('True', '1')) -or ([string]$_.DefaultInboundAction -ne 'Block')
-  })
-  return @{
-    safe = $allProfilesPresent -and $unsafe.Count -eq 0
-    profiles = @($profiles | ForEach-Object { @{
-      name = [string]$_.Name
-      enabled = ([string]$_.Enabled -in @('True', '1'))
-      defaultInboundAction = [string]$_.DefaultInboundAction
-    } })
+function Get-FirewallProfilesInfo {
+  try {
+    $profiles = @(Get-NetFirewallProfile -PolicyStore ActiveStore -Profile Domain,Private,Public -ErrorAction Stop)
+  } catch {
+    # Firewall service stopped/unreadable: nothing filters the traffic.
+    return @{ allOff = $true; profiles = @() }
   }
+  $list = @($profiles | ForEach-Object { @{
+    name = [string]$_.Name
+    enabled = ([string]$_.Enabled -in @('True', '1'))
+    defaultInboundAction = [string]$_.DefaultInboundAction
+  } })
+  $enabledAny = @($list | Where-Object { $_.enabled }).Count -gt 0
+  return @{ allOff = (-not $enabledAny); profiles = $list }
 }
 
 function Get-Rule([string]$Name) {
   return Get-NetFirewallRule -PolicyStore PersistentStore -Name $Name -ErrorAction SilentlyContinue
 }
 
-function Test-ExactProfileSet($Profile, [string]$Expected) {
-  $actual = @(([string]$Profile -split '[,; ]+' | Where-Object { $_ }) | ForEach-Object { ([string]$_).Trim() })
-  $required = @($Expected -split '[,; ]+' | Where-Object { $_ })
-  if ($actual.Count -ne $required.Count) { return $false }
-  foreach ($value in $required) {
-    if (-not (Test-ContainsValue $actual $value)) { return $false }
-  }
-  return $true
-}
-
-function Test-RuleShape($Rule, [string]$Action, [string]$Profile, [int]$Port, [string]$Program, [string]$RemoteAddress) {
+function Test-OwnAllowShape($Rule, [int]$Port, [string]$Program) {
   if (-not $Rule) { return $false }
   if ([string]$Rule.Enabled -notin @('True', '1')) { return $false }
-  if ([string]$Rule.Direction -ne 'Inbound' -or [string]$Rule.Action -ne $Action) { return $false }
-  if (-not (Test-ExactProfileSet $Rule.Profile $Profile)) { return $false }
+  if ([string]$Rule.Direction -ne 'Inbound' -or [string]$Rule.Action -ne 'Allow') { return $false }
+  if (-not (Test-CoversAllProfiles $Rule.Profile)) { return $false }
   if ([string]$Rule.EdgeTraversalPolicy -ne 'Block') { return $false }
-
   $portFilter = $Rule | Get-NetFirewallPortFilter
   if ([string]$portFilter.Protocol -notin @('TCP', '6')) { return $false }
   if (-not (Test-ExactPort $portFilter.LocalPort $Port)) { return $false }
-
   $appFilter = $Rule | Get-NetFirewallApplicationFilter
   if ([string]$appFilter.Program -ine $Program) { return $false }
-
   $addressFilter = $Rule | Get-NetFirewallAddressFilter
-  if (-not (Test-ExactValueSet $addressFilter.RemoteAddress $RemoteAddress)) { return $false }
+  if (-not (Test-ExactValueSet $addressFilter.RemoteAddress 'LocalSubnet')) { return $false }
   return $true
 }
 
-function Find-BroadAllowRule([string]$RuleName, [int]$Port, [string]$Program) {
-  $rules = @(Get-NetFirewallRule -PolicyStore ActiveStore -Enabled True -Direction Inbound -Action Allow -ErrorAction Stop)
-  foreach ($rule in $rules) {
-    if ([string]$rule.Name -like "$RuleName-*") { continue }
-    if (-not (Test-ProfileValue $rule.Profile 'Private')) { continue }
-
-    $appFilter = $rule | Get-NetFirewallApplicationFilter
-    $ruleProgram = [string]$appFilter.Program
-    if ($ruleProgram -ine 'Any' -and $ruleProgram -ine $Program) { continue }
-
-    $portFilter = $rule | Get-NetFirewallPortFilter
-    if ([string]$portFilter.Protocol -notin @('Any', 'TCP', '6')) { continue }
-    if (-not (Test-PortCouldMatch $portFilter.LocalPort $Port)) { continue }
-
-    $addressFilter = $rule | Get-NetFirewallAddressFilter
-    $remote = @($addressFilter.RemoteAddress | ForEach-Object { [string]$_ })
-    if ($remote.Count -eq 1 -and $remote[0] -ieq 'LocalSubnet') { continue }
-    return [string]$rule.DisplayName
+function Get-OwnRuleState([string]$RuleName, [int]$Port, [string]$Program) {
+  $allow = Get-Rule "$RuleName-LanAllow"
+  $legacyAllow = Get-Rule "$RuleName-PrivateAllow"
+  $legacyBlock = Get-Rule "$RuleName-PublicBlock"
+  return @{
+    configured = (Test-OwnAllowShape $allow $Port $Program)
+    allowRule = [bool]$allow
+    legacyRules = ([bool]$legacyAllow -or [bool]$legacyBlock)
   }
-  return $null
 }
 
-function Get-OwnRuleState([string]$RuleName, [int]$Port, [string]$Program) {
-  $allow = Get-Rule "$RuleName-PrivateAllow"
-  $block = Get-Rule "$RuleName-PublicBlock"
-  $allowOk = Test-RuleShape $allow 'Allow' 'Private' $Port $Program 'LocalSubnet'
-  $blockOk = Test-RuleShape $block 'Block' 'Public,Domain' $Port $Program 'Any'
-  return @{
-    configured = $allowOk -and $blockOk
-    allowRule = [bool]$allow
-    publicBlockRule = [bool]$block
-    allowRuleValid = $allowOk
-    publicBlockRuleValid = $blockOk
+# Enabled inbound BLOCK rules that would override our allow rule for this
+# install: program-scoped to our node.exe (the classic Windows prompt rule),
+# or an Any-program rule pinned to exactly our port. Returned for disabling.
+function Find-BlockerRules([string]$RuleName, [int]$Port, [string]$Program) {
+  $hits = @()
+  try {
+    $rules = @(Get-NetFirewallRule -PolicyStore ActiveStore -Enabled True -Direction Inbound -Action Block -ErrorAction Stop)
+  } catch { return @() }
+  foreach ($rule in $rules) {
+    if ([string]$rule.Name -like "$RuleName-*") { continue }
+    $appFilter = $rule | Get-NetFirewallApplicationFilter
+    $ruleProgram = [string]$appFilter.Program
+    $portFilter = $rule | Get-NetFirewallPortFilter
+    if ([string]$portFilter.Protocol -notin @('Any', 'TCP', '6')) { continue }
+    $ownProgram = $ruleProgram -ine 'Any' -and $ruleProgram -ieq $Program
+    $exactAnyPort = $ruleProgram -ieq 'Any' -and (Test-ExactPort $portFilter.LocalPort $Port)
+    if (($ownProgram -and (Test-PortCouldMatch $portFilter.LocalPort $Port)) -or $exactAnyPort) {
+      $hits += $rule
+    }
   }
+  return $hits
 }
 
 try {
@@ -164,70 +157,95 @@ try {
   }
   $program = [IO.Path]::GetFullPath($program)
 
+  $allRuleNames = @("$ruleName-LanAllow", "$ruleName-PrivateAllow", "$ruleName-PublicBlock")
   $own = Get-OwnRuleState $ruleName $port $program
 
   if ($action -eq 'remove') {
-    if (-not $own.allowRule -and -not $own.publicBlockRule) {
+    $exists = $false
+    foreach ($name in $allRuleNames) { if (Get-Rule $name) { $exists = $true } }
+    if (-not $exists) {
       Write-Result @{ ok = $true; removed = $false; message = 'قانون فایروال این نصب وجود نداشت.' }
       exit 0
     }
     if (-not (Test-Administrator)) {
-      throw 'برای حذف قانون LAN باید PishkanSetup.cmd را با دسترسی Administrator اجرا کنید. خود برنامه در حالت loopback امن می‌ماند.'
+      throw 'برای حذف قانون LAN باید با دسترسی Administrator اجرا شود. خود برنامه در حالت loopback امن می‌ماند.'
     }
-    foreach ($name in @("$ruleName-PrivateAllow", "$ruleName-PublicBlock")) {
+    foreach ($name in $allRuleNames) {
       Get-NetFirewallRule -PolicyStore PersistentStore -Name $name -ErrorAction SilentlyContinue | Remove-NetFirewallRule -ErrorAction SilentlyContinue
     }
     Write-Result @{ ok = $true; removed = $true; message = 'قانون‌های فایروال LAN این نصب حذف شدند.' }
     exit 0
   }
 
-  $safety = Get-FirewallSafety
-  $conflict = Find-BroadAllowRule $ruleName $port $program
+  $profilesInfo = Get-FirewallProfilesInfo
 
   if ($action -eq 'status') {
-    $safe = $safety.safe -and -not $conflict -and $own.configured
-    $message = if ($safe) { 'فایروال LAN فقط برای Private و LocalSubnet آماده است.' }
-      elseif ($conflict) { "قانون ورودی گستردهٔ دیگری تداخل دارد: $conflict" }
-      elseif (-not $safety.safe) { 'پروفایل‌های فایروال باید روشن باشند و ورودی پیش‌فرض آن‌ها مسدود بماند.' }
-      else { 'قانون محدود فایروال LAN نصب نیست یا با تنظیم فعلی هم‌خوانی ندارد.' }
-    Write-Result @{ ok = $safe; configured = $own.configured; safe = $safety.safe; conflict = $conflict; allowRule = $own.allowRule; publicBlockRule = $own.publicBlockRule; profiles = $safety.profiles; message = $message }
-    if ($safe) { exit 0 } else { exit 1 }
+    if ($profilesInfo.allOff) {
+      Write-Result @{ ok = $true; configured = $own.configured; firewallOff = $true; profiles = $profilesInfo.profiles; message = 'فایروال Windows خاموش است؛ گوشی‌های همان شبکه بدون قانون هم می‌توانند وصل شوند.' }
+      exit 0
+    }
+    $blockerNames = @((Find-BlockerRules $ruleName $port $program) | ForEach-Object { [string]$_.DisplayName })
+    $ok = $own.configured -and @($blockerNames).Count -eq 0
+    $message = if ($ok) { 'فایروال LAN آماده است؛ گوشی‌های همان Wi-Fi می‌توانند به این رایانه وصل شوند.' }
+      elseif (@($blockerNames).Count -gt 0) { "یک قانون «مسدودکننده» جلوی اتصال گوشی را می‌گیرد: $($blockerNames -join '، '). در Pishkan Manager دکمهٔ «باز کردن فایروال برای موبایل» را بزنید تا خنثی شود." }
+      elseif ($own.allowRule -or $own.legacyRules) { 'قانون فایروال LAN این نصب نیازمند به‌روزرسانی است؛ در Pishkan Manager دکمهٔ «باز کردن فایروال برای موبایل» را یک بار بزنید.' }
+      else { 'قانون فایروال LAN هنوز ساخته نشده است؛ سرویس در حال اجراست، اما اگر گوشی وصل نشد در Pishkan Manager دکمهٔ «باز کردن فایروال برای موبایل» را بزنید.' }
+    Write-Result @{ ok = $ok; configured = $own.configured; allowRule = $own.allowRule; blockers = @($blockerNames); profiles = $profilesInfo.profiles; message = $message }
+    if ($ok) { exit 0 } else { exit 1 }
   }
 
-  if (-not $safety.safe) { throw 'برای فعال‌کردن LAN، فایروال Windows باید در هر سه پروفایل روشن و ورودی پیش‌فرض مسدود باشد؛ تنظیم عمومی فایروال تغییر داده نشد.' }
-  if ($conflict) { throw "قانون ورودی گستردهٔ دیگری برای این پورت/Node پیدا شد: $conflict. ابتدا آن را محدود یا حذف کنید؛ قانون عمومی ساخته نشد." }
-  if ($own.configured) {
-    Write-Result @{ ok = $true; configured = $true; created = $false; profiles = $safety.profiles; message = 'قانون محدود LAN از قبل درست پیکربندی شده است.' }
+  # ----- ensure -----
+  if ($profilesInfo.allOff) {
+    Write-Result @{ ok = $true; configured = $own.configured; created = $false; firewallOff = $true; profiles = $profilesInfo.profiles; message = 'فایروال Windows خاموش است و نیازی به ساخت قانون نیست؛ گوشی‌های همان شبکه می‌توانند وصل شوند.' }
+    exit 0
+  }
+
+  $blockerRules = Find-BlockerRules $ruleName $port $program
+  $needsWork = (-not $own.configured) -or $own.legacyRules -or @($blockerRules).Count -gt 0
+
+  if (-not $needsWork) {
+    Write-Result @{ ok = $true; configured = $true; created = $false; profiles = $profilesInfo.profiles; message = 'قانون LAN از قبل درست پیکربندی شده است.' }
     exit 0
   }
   if (-not (Test-Administrator)) {
-    throw 'برای ساخت قانون محدود LAN، نصب‌کننده را با کلیک راست و گزینهٔ «Run as administrator» اجرا کنید؛ دسترسی LAN پیش‌فرض خاموش می‌ماند.'
+    if ($own.configured) {
+      throw 'قانون اجازه ساخته شده است، اما یک قانون مسدودکنندهٔ قدیمی باید با دسترسی Administrator خنثی شود؛ در Pishkan Manager دکمهٔ «باز کردن فایروال برای موبایل» را بزنید و تأیید Windows را قبول کنید.'
+    }
+    throw 'برای ساخت قانون LAN باید یک بار تأیید Administrator داده شود؛ در Pishkan Manager دکمهٔ «باز کردن فایروال برای موبایل» را بزنید و تأیید Windows را قبول کنید. سرویس بدون قانون هم در حال اجراست.'
   }
 
-  foreach ($name in @("$ruleName-PrivateAllow", "$ruleName-PublicBlock")) {
+  foreach ($name in $allRuleNames) {
     Get-NetFirewallRule -PolicyStore PersistentStore -Name $name -ErrorAction SilentlyContinue | Remove-NetFirewallRule -ErrorAction SilentlyContinue
   }
 
-  $group = 'Pishkan Private LAN Access'
-  New-NetFirewallRule -PolicyStore PersistentStore -Name "$ruleName-PrivateAllow" `
-    -DisplayName 'Pishkan — شبکه خصوصی محلی' -Group $group -Enabled True -Direction Inbound -Action Allow `
-    -Profile Private -Protocol TCP -LocalPort $port -RemoteAddress LocalSubnet -Program $program `
-    -EdgeTraversalPolicy Block | Out-Null
-  New-NetFirewallRule -PolicyStore PersistentStore -Name "$ruleName-PublicBlock" `
-    -DisplayName 'Pishkan — مسدود در شبکه عمومی/دامنه' -Group $group -Enabled True -Direction Inbound -Action Block `
-    -Profile Public,Domain -Protocol TCP -LocalPort $port -RemoteAddress Any -Program $program `
-    -EdgeTraversalPolicy Block | Out-Null
+  New-NetFirewallRule -PolicyStore PersistentStore -Name "$ruleName-LanAllow" `
+    -DisplayName 'Pishkan — دسترسی شبکهٔ محلی (موبایل)' -Group 'Pishkan LAN Access' -Enabled True `
+    -Direction Inbound -Action Allow -Profile Domain,Private,Public -Protocol TCP -LocalPort $port `
+    -RemoteAddress LocalSubnet -Program $program -EdgeTraversalPolicy Block | Out-Null
 
-  $verified = Get-OwnRuleState $ruleName $port $program
-  $postConflict = Find-BroadAllowRule $ruleName $port $program
-  if (-not $verified.configured -or $postConflict) {
-    foreach ($name in @("$ruleName-PrivateAllow", "$ruleName-PublicBlock")) {
-      Get-NetFirewallRule -PolicyStore PersistentStore -Name $name -ErrorAction SilentlyContinue | Remove-NetFirewallRule -ErrorAction SilentlyContinue
+  $disabledBlockers = @()
+  $stubbornBlockers = @()
+  foreach ($rule in $blockerRules) {
+    try {
+      Disable-NetFirewallRule -Name $rule.Name -ErrorAction Stop
+      $disabledBlockers += [string]$rule.DisplayName
+    } catch {
+      $stubbornBlockers += [string]$rule.DisplayName
     }
-    throw 'راستی‌آزمایی قانون‌های فایروال LAN ناموفق بود؛ قانون‌های این نصب پاک شدند.'
   }
 
-  Write-Result @{ ok = $true; configured = $true; created = $true; profiles = $safety.profiles; message = 'قانون LAN فقط برای شبکهٔ Private و LocalSubnet ساخته شد؛ Public/Domain صریحاً مسدود است.' }
+  $verified = Get-OwnRuleState $ruleName $port $program
+  if (-not $verified.configured) {
+    Get-NetFirewallRule -PolicyStore PersistentStore -Name "$ruleName-LanAllow" -ErrorAction SilentlyContinue | Remove-NetFirewallRule -ErrorAction SilentlyContinue
+    throw 'راستی‌آزمایی قانون فایروال LAN ناموفق بود؛ قانون ساخته‌شده پاک شد.'
+  }
+  if (@($stubbornBlockers).Count -gt 0) {
+    Write-Result @{ ok = $false; configured = $true; created = $true; disabledBlockers = @($disabledBlockers); blockers = @($stubbornBlockers); profiles = $profilesInfo.profiles; message = "قانون اجازه ساخته شد، اما این قانون‌های مسدودکننده (احتمالاً از Group Policy) خنثی نشدند و ممکن است جلوی اتصال گوشی را بگیرند: $($stubbornBlockers -join '، ')" }
+    exit 1
+  }
+
+  $note = if (@($disabledBlockers).Count -gt 0) { " قانون مسدودکنندهٔ قدیمی هم خنثی شد: $($disabledBlockers -join '، ')." } else { '' }
+  Write-Result @{ ok = $true; configured = $true; created = $true; disabledBlockers = @($disabledBlockers); profiles = $profilesInfo.profiles; message = "قانون LAN برای شبکهٔ محلی (همهٔ پروفایل‌ها، فقط LocalSubnet) ساخته شد؛ حالا گوشی روی همان Wi-Fi می‌تواند وصل شود.$note" }
   exit 0
 } catch {
   try { Write-Result @{ ok = $false; configured = $false; message = [string]$_.Exception.Message } } catch { }

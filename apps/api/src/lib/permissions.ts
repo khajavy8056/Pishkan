@@ -31,6 +31,9 @@ export const RESOURCES = [
   'monitoring',
   'logs',
   'alerts',
+  'support',
+  'discounts',
+  'blog',
 ] as const;
 
 export const ACTIONS = ['view', 'create', 'edit', 'approve', 'cancel', 'delete', 'export'] as const;
@@ -52,16 +55,52 @@ export const PAYROLL_PERMISSIONS = [
   'payroll.approve',
 ] as const;
 
+/** Restoring a backup is destructive, so it is its own grantable permission. */
+export const BACKUP_PERMISSIONS = ['backup.restore'] as const;
+
+/** Customer Android app: banners, announcements and app-wide settings. */
+export const APP_PERMISSIONS = ['app.manage'] as const;
+
+/**
+ * Blog workflow grants beyond plain CRUD: publishing a post, moderating its
+ * comments, managing categories and editing other authors' posts (editor).
+ */
+export const BLOG_PERMISSIONS = ['blog.publish', 'blog.comments', 'blog.categories', 'blog.manage'] as const;
+
+/** Persian labels for every non-grid permission, shown in the role editor. */
+export const EXTRA_PERMISSION_LABELS: Record<string, string> = {
+  'payroll.contracts.edit': 'ثبت و ویرایش قراردادهای همکاری',
+  'payroll.accrue': 'محاسبهٔ تعهد حقوق ماهانه',
+  'payroll.settle': 'ثبت تسویه و پرداخت حقوق',
+  'payroll.reports.view': 'مشاهدهٔ گزارش‌های حقوق و درآمد',
+  'payroll.withdraw': 'ثبت درخواست برداشت درآمد (خودم)',
+  'payroll.approve': 'بررسی و تأیید درخواست‌های برداشت',
+  'wallet.credit': 'شارژ کیف پول مشتری',
+  'wallet.adjust': 'اصلاح موجودی کیف پول مشتری',
+  'backup.restore': 'بازیابی نسخهٔ پشتیبان',
+  'app.manage': 'مدیریت اپ اندروید مشتریان (بنرها و تنظیمات)',
+  'blog.publish': 'انتشار و لغو انتشار مطالب بلاگ',
+  'blog.comments': 'مدیریت و تأیید نظرات بلاگ',
+  'blog.categories': 'مدیریت دسته‌بندی‌های بلاگ',
+  'blog.manage': 'ویرایش مطالب همهٔ نویسندگان بلاگ (سردبیر)',
+};
+
 export type Permission =
   | `${Resource}.${Action}`
   | (typeof PAYROLL_PERMISSIONS)[number]
-  | (typeof WALLET_PERMISSIONS)[number];
+  | (typeof WALLET_PERMISSIONS)[number]
+  | (typeof BACKUP_PERMISSIONS)[number]
+  | (typeof BLOG_PERMISSIONS)[number]
+  | (typeof APP_PERMISSIONS)[number];
 
 export function allPermissions(): Permission[] {
   return [
     ...RESOURCES.flatMap((r) => ACTIONS.map((a) => `${r}.${a}` as Permission)),
     ...PAYROLL_PERMISSIONS,
     ...WALLET_PERMISSIONS,
+    ...BACKUP_PERMISSIONS,
+    ...BLOG_PERMISSIONS,
+    ...APP_PERMISSIONS,
   ];
 }
 
@@ -100,6 +139,9 @@ export const RESOURCE_LABELS: Record<Resource, string> = {
   monitoring: 'مرکز مانیتورینگ',
   logs: 'لاگ‌های سامانه',
   alerts: 'هشدارهای عملیاتی',
+  support: 'پشتیبانی و تیکت‌ها',
+  discounts: 'کدهای تخفیف',
+  blog: 'بلاگ و تولید محتوا',
 };
 
 /** Default roles shipped with the system. Admins can edit them afterwards. */
@@ -137,7 +179,13 @@ export const DEFAULT_ROLES: {
       'reports.view', 'reports.export',
       'messages.view', 'messages.create',
       'documents.view', 'documents.approve',
+      'support.view', 'support.create', 'support.edit', 'support.cancel',
+      'discounts.view',
       'audit.view',
+      // The Android app's banners and settings live in one screen; whoever can
+      // run the office's content should be able to publish a slide without
+      // holding the whole settings grid.
+      'app.manage',
       'wallet.view',
       'monitoring.view',
       'logs.view',
@@ -159,6 +207,7 @@ export const DEFAULT_ROLES: {
       'payments.view',
       'messages.view', 'messages.create',
       'documents.view', 'documents.approve',
+      'support.view', 'support.create', 'support.edit',
       'payroll.withdraw',
     ],
   },
@@ -174,6 +223,7 @@ export const DEFAULT_ROLES: {
       'services.view',
       'messages.view', 'messages.create',
       'documents.view',
+      'support.view', 'support.create', 'support.edit',
       'shifts.view',
       'payroll.withdraw',
     ],
@@ -188,6 +238,7 @@ export const DEFAULT_ROLES: {
       'requests.view',
       'documents.view', 'documents.approve',
       'messages.view', 'messages.create',
+      'support.view', 'support.create',
       'payroll.withdraw',
     ],
   },
@@ -206,8 +257,21 @@ export const DEFAULT_ROLES: {
       'reports.view', 'reports.export',
       'payroll.view', 'payroll.contracts.edit', 'payroll.accrue', 'payroll.settle', 'payroll.reports.view',
       'payroll.approve',
+      'discounts.view', 'discounts.create', 'discounts.edit', 'discounts.delete',
+      'support.view',
       'wallet.view', 'wallet.credit', 'wallet.adjust',
       'logs.view',
+    ],
+  },
+  {
+    code: 'content_manager',
+    name: 'مدیر محتوا (بلاگ)',
+    description: 'فقط تولید و مدیریت محتوای بلاگ: مطالب، دسته‌بندی‌ها، نظرات و خبرنامه؛ بدون دسترسی به سایر بخش‌های سامانه',
+    system: true,
+    permissions: [
+      'dashboard.view',
+      'blog.view', 'blog.create', 'blog.edit', 'blog.delete',
+      'blog.publish', 'blog.comments', 'blog.categories', 'blog.manage',
     ],
   },
 ];

@@ -29,11 +29,14 @@ import { spawn } from 'node:child_process';
 import {
   MODULE_DIR, DEFAULT_PORT, DEFAULT_ROOT, backupDir, controlPipePath, dataDir, dbFile, dirSizeBytes,
   envFilePath, errorLogFile, errorReportPath, formatBytes, installReportPath, logFile,
-  isPortBusy, findFreePort, parseArgs, pidAlive, readJson, sleep, stateFile, uploadDir, writeJson,
+  isPortBusy, findFreePort, legacyWindowsControlPipePath, parseArgs, pidAlive, readJson, sleep, stateFile, uploadDir, writeJson,
 } from './common.mjs';
 import { readEnvFile, upsertEnvFile } from './envfile.mjs';
 import { privateLanUrls, resolveLanAccess } from './lan-access.mjs';
 import { runLanFirewall } from './lan-firewall.mjs';
+import { stopPishkanServers } from './owned-servers.mjs';
+import { ensureDevTunnelCli, ensureTunnel, loginDeviceCode, loginInteractive, loginStatus, startHosting } from './devtunnel-control.mjs';
+import { tunnelEnvOverrides } from './devtunnel.mjs';
 
 const args = parseArgs();
 const ROOT = path.resolve(args.get('root', DEFAULT_ROOT));
@@ -75,7 +78,7 @@ function log(message, level = 'info') {
 }
 
 /** Overall progress weights (sum = 100). */
-const WEIGHTS = { check: 3, env: 2, lan: 2, deps: 40, build: 18, database: 13, admin: 6, start: 6, verify: 10 };
+const WEIGHTS = { check: 3, clean: 1, env: 2, lan: 2, tunnel: 4, deps: 36, build: 17, database: 12, admin: 5, start: 6, verify: 9, tunnelhost: 3 };
 let completedWeight = 0;
 
 function stepEvent(id, title, status, options = {}) {
@@ -276,6 +279,241 @@ async function stepChecks(job = {}) {
   return payload;
 }
 
+/** Fail fast on a structurally invalid job — before anything destructive. */
+function validateJobShape(job) {
+  if (job.cleanInstall !== undefined && typeof job.cleanInstall !== 'boolean') {
+    throw Object.assign(new Error('گزینهٔ نصب تمیز باید روشن/خاموش باشد.'), { step: 'job' });
+  }
+  for (const flag of ['lanAccess', 'tunnel']) {
+    if (job[flag] !== undefined && typeof job[flag] !== 'boolean') {
+      // PowerShell's ConvertTo-Json sends $false correctly, but a hand-written
+      // job with "tunnel": "true" would otherwise enable the tunnel silently.
+      throw Object.assign(new Error(`گزینهٔ ${flag === 'tunnel' ? 'انتشار اینترنتی' : 'دسترسی LAN'} باید روشن/خاموش باشد.`), { step: 'job' });
+    }
+  }
+  if (job.tunnelLogin !== undefined && !['browser', 'device'].includes(job.tunnelLogin)) {
+    throw Object.assign(new Error('روش ورود تونل باید browser یا device باشد.'), { step: 'job' });
+  }
+  const admin = job.admin;
+  if (admin !== undefined && admin !== null) {
+    // A string/array here means the launcher serialized the admin block
+    // incorrectly (historically: a PowerShell scriptblock `{}` instead of a
+    // hashtable `@{}` in the GUI job). Surface that loudly instead of
+    // silently installing a system nobody can log into.
+    if (typeof admin !== 'object' || Array.isArray(admin)) {
+      throw Object.assign(new Error('اطلاعات مدیر کل در درخواست نصب به‌درستی نرسیده است؛ کد پروژه را به‌روز کنید و نصب را دوباره اجرا کنید.'), { step: 'job' });
+    }
+    for (const key of ['username', 'password', 'fullName', 'mobile']) {
+      if (admin[key] !== undefined && typeof admin[key] !== 'string') {
+        throw Object.assign(new Error(`اطلاعات مدیر کل معتبر نیست (${key}).`), { step: 'job' });
+      }
+    }
+  }
+}
+
+async function countExistingAdmins(databaseFile) {
+  try {
+    if (!databaseFile || !fs.existsSync(databaseFile)) return 0;
+    const { DatabaseSync } = await import('node:sqlite');
+    const db = new DatabaseSync(databaseFile, { readOnly: true });
+    try {
+      const row = db.prepare("SELECT COUNT(*) AS c FROM users WHERE kind = 'admin' AND status = 'active'").get();
+      return Number(row?.c ?? 0);
+    } finally {
+      db.close();
+    }
+  } catch {
+    return 0;
+  }
+}
+
+/**
+ * Clean install (explicit opt-in): before any configuration is read, move the
+ * previous installation's database + env aside and drop stale build output so
+ * this run starts from zero. Files are quarantined under
+ * .data/previous-install-<timestamp>/ instead of being hard-deleted — the new
+ * install never sees them, but a human can still recover them.
+ */
+async function stepClean(job) {
+  if (job.cleanInstall !== true) return;
+  stepEvent('clean', 'پاک‌سازی نصب قبلی', 'running', { stepProgress: 10 });
+  if (DRY_RUN) {
+    stepEvent('clean', 'پاک‌سازی نصب قبلی', 'skip', { message: 'حالت آزمایشی (dry-run)؛ هیچ داده‌ای جابه‌جا نمی‌شود', stepProgress: 100 });
+    return;
+  }
+  // The verified shutdown step already stopped all discoverable installations.
+
+  const envFile = envFilePath(ROOT);
+  const existing = readEnvFile(envFile);
+  const stamp = new Date().toISOString().replaceAll(':', '-').replaceAll('.', '-');
+  let quarantine = '';
+  const moved = [];
+  const ensureQuarantine = () => {
+    if (!quarantine) {
+      fs.mkdirSync(dataDir(ROOT), { recursive: true });
+      quarantine = fs.mkdtempSync(path.join(dataDir(ROOT), `previous-install-${stamp}-`));
+    }
+    return quarantine;
+  };
+  const moveAside = (from, group = '') => {
+    if (!from || !fs.existsSync(from)) return;
+    const parent = path.join(ensureQuarantine(), group);
+    fs.mkdirSync(parent, { recursive: true });
+    const to = path.join(parent, path.basename(from));
+    if (fs.existsSync(to)) throw new Error(`مسیر قرنطینه از قبل وجود دارد: ${to}`);
+    try {
+      fs.renameSync(from, to);
+    } catch (error) {
+      if (error?.code !== 'EXDEV') throw error;
+      // External volumes need a complete copy before the original is removed.
+      fs.cpSync(from, to, { recursive: true, verbatimSymlinks: true, errorOnExist: true, force: false });
+      fs.rmSync(from, { recursive: true, force: false });
+    }
+    moved.push(from);
+  };
+  try {
+    const dbCandidates = new Set(
+      [existing.SQLITE_FILE, dbFile(ROOT)]
+        .filter(Boolean)
+        .map((candidate) => (path.isAbsolute(candidate) ? candidate : path.join(ROOT, candidate))),
+    );
+    let index = 0;
+    for (const db of dbCandidates) {
+      const group = index++ === 0 ? '' : `other-database-${index}`;
+      moveAside(db, group);
+      moveAside(`${db}-wal`, group);
+      moveAside(`${db}-shm`, group);
+    }
+    moveAside(envFile);
+    for (const name of fs.readdirSync(ROOT)) {
+      if (name.startsWith('.env.windows.local.bak')) moveAside(path.join(ROOT, name));
+    }
+    // A clean install must not reuse old uploads, backup listings, logs or
+    // stale installation state. Preserve all of them under quarantine.
+    if (fs.existsSync(dataDir(ROOT))) {
+      for (const name of fs.readdirSync(dataDir(ROOT))) {
+        if (name.startsWith('previous-install-')) continue;
+        moveAside(path.join(dataDir(ROOT), name), 'previous-data');
+      }
+    }
+    for (const key of ['UPLOAD_DIR', 'BACKUP_DIR']) {
+      const external = existing[key];
+      if (external && path.isAbsolute(external)) {
+        const rel = path.relative(dataDir(ROOT), external);
+        if (rel.startsWith('..') || path.isAbsolute(rel)) {
+          log(`مسیر سفارشی ${key} خارج از .data جابه‌جا یا حذف نشد: ${external}`, 'warn');
+        }
+      }
+    }
+    for (const dist of ['apps/api/dist', 'apps/web/dist']) {
+      fs.rmSync(path.join(ROOT, dist), { recursive: true, force: true });
+    }
+  } catch (error) {
+    throw Object.assign(new Error(`پاک‌سازی نصب قبلی کامل نشد: ${error?.message ?? error} — اگر سرور Pishkan در حال اجراست ابتدا آن را متوقف کنید (Stop-Pishkan) و دوباره تلاش کنید.`), { step: 'clean' });
+  }
+  stepEvent('clean', 'پاک‌سازی نصب قبلی', moved.length ? 'ok' : 'skip', {
+    message: moved.length
+      ? `داده‌های نصب قبلی به «${quarantine}» منتقل شد (${moved.length} مورد)؛ نصب از صفر آغاز می‌شود`
+      : 'داده‌ای از نصب قبلی پیدا نشد؛ نصب از صفر آغاز می‌شود',
+    stepProgress: 100,
+  });
+}
+
+/** Stop only positively identified Pishkan APIs, never unrelated Node apps. */
+async function stepStopExisting() {
+  if (DRY_RUN) return;
+  try {
+    const count = await stopPishkanServers({
+      onStop: ({ pid, root }) => log(`سرویس قبلی Pishkan با خاموشی نرم متوقف شد (PID ${pid}، مسیر ${root}).`),
+    });
+    if (!count) log('سرویس قبلی Pishkan در حال اجرا شناسایی نشد.');
+  } catch (error) {
+    throw Object.assign(new Error(error?.message ?? String(error)), { step: 'clean' });
+  }
+}
+
+/** Read-only integrity gate: never delete, replace or silently reset user data. */
+async function checkExistingDatabase(job) {
+  if (DRY_RUN || job.cleanInstall === true) return;
+  const existing = readEnvFile(envFilePath(ROOT));
+  const file = existing.SQLITE_FILE || dbFile(ROOT);
+  if (!path.isAbsolute(file)) {
+    throw Object.assign(new Error('مسیر SQLITE_FILE نسبی است و بسته به محل اجرای برنامه می‌تواند به دو پایگاه داده متفاوت اشاره کند. ابتدا مسیر مطلق فایل درست را در .env.windows.local تنظیم کنید؛ هیچ داده‌ای تغییر نکرد.'), { step: 'database' });
+  }
+  if (!fs.existsSync(file)) return;
+  let tempDir;
+  try {
+    if (fs.statSync(file).size === 0) throw new Error('فایل پایگاه داده موجود ولی خالی است');
+    // Even a SQLite read-only connection may rewrite SHM or checkpoint a WAL.
+    // Inspect a private offline copy of all three files, never the originals.
+    tempDir = fs.mkdtempSync(path.join(path.dirname(file), '.pishkan-integrity-'));
+    const copy = path.join(tempDir, 'database.sqlite');
+    for (const suffix of ['', '-wal', '-shm']) {
+      if (fs.existsSync(`${file}${suffix}`)) fs.copyFileSync(`${file}${suffix}`, `${copy}${suffix}`);
+    }
+    const { DatabaseSync } = await import('node:sqlite');
+    const db = new DatabaseSync(copy, { readOnly: true });
+    try {
+      const rows = db.prepare('PRAGMA quick_check').all();
+      if (rows.length !== 1 || Object.values(rows[0])[0] !== 'ok') throw new Error(rows.map((row) => Object.values(row).join(' ')).join('; '));
+    } finally { db.close(); }
+    log('سلامت اولیه نسخه‌ای از پایگاه داده موجود بررسی شد.');
+  } catch (error) {
+    throw Object.assign(new Error(`پایگاه داده موجود قابل تأیید نیست (${file}): ${error?.message ?? error}. نصب متوقف شد و فایل‌ها حذف نشدند. پس از توقف همه سرویس‌ها، از فایل پایگاه داده و فایل‌های -wal و -shm همراه با تنظیمات و مدارک کپی بگیرید؛ پشتیبان سالم را بررسی و در صورت نیاز بازیابی کنید. برای شروع از صفر فقط در صورت اطمینان از بی‌نیازی به داده‌ها «نصب تمیز» را انتخاب کنید.`), { step: 'database' });
+  } finally {
+    if (tempDir) { try { fs.rmSync(tempDir, { recursive: true, force: true }); } catch { log(`پوشه موقت بررسی پایگاه داده پاک نشد: ${tempDir}`, 'warn'); } }
+  }
+}
+
+/**
+ * Download the Dev Tunnels CLI — early, before dependencies and the build.
+ *
+ * The operator asked for the tunnel in the installer window, so the tool has
+ * to be on disk before anything else can fail slowly. Doing it first also
+ * means a blocked download surfaces in the first minute rather than after a
+ * ten-minute dependency install.
+ *
+ * A failure here is a WARNING, never a fatal error: the tunnel is a testing
+ * aid, and refusing to install the entire system because Microsoft's CDN is
+ * unreachable would be the wrong trade. The manager can install it later.
+ */
+async function stepTunnelTool(job) {
+  const wanted = job.tunnel === true;
+  if (!wanted) {
+    stepEvent('tunnel', 'انتشار اینترنتی (اختیاری)', 'skip', {
+      message: 'خاموش است؛ سامانه فقط روی همین رایانه و شبکهٔ محلی در دسترس خواهد بود.',
+    });
+    return { requested: false, ok: false };
+  }
+  stepEvent('tunnel', 'دانلود ابزار انتشار اینترنتی', 'running', { stepProgress: 5 });
+  if (DRY_RUN) {
+    stepEvent('tunnel', 'دانلود ابزار انتشار اینترنتی', 'skip', { message: 'حالت آزمایشی (dry-run)' });
+    return { requested: true, ok: false, dryRun: true };
+  }
+  if (process.platform !== 'win32') {
+    stepEvent('tunnel', 'دانلود ابزار انتشار اینترنتی', 'warn', {
+      message: 'این قابلیت فقط در نصب ویندوز پشتیبانی می‌شود؛ در این سیستم‌عامل نادیده گرفته شد.',
+    });
+    return { requested: true, ok: false, unsupported: true };
+  }
+  log('انتشار اینترنتی درخواست شده است؛ آماده‌سازی Microsoft Dev Tunnels…');
+  const result = ensureDevTunnelCli(ROOT, { log: (message) => log(message) });
+  if (!result.ok) {
+    stepEvent('tunnel', 'دانلود ابزار انتشار اینترنتی', 'warn', {
+      message: result.message,
+      detail: (result.hints ?? []).join('\n'),
+      stepProgress: 100,
+    });
+    return { requested: true, ok: false, ...result };
+  }
+  stepEvent('tunnel', 'دانلود ابزار انتشار اینترنتی', 'ok', {
+    message: `${result.alreadyInstalled ? 'از قبل نصب بود' : 'دانلود و بررسی شد'} · ${result.version}`,
+    detail: result.path,
+    stepProgress: 100,
+  });
+  return { requested: true, ok: true, version: result.version };
+}
+
 async function stepEnv(job) {
   stepEvent('env', 'آماده‌سازی تنظیمات محلی', 'running', { stepProgress: 5 });
   const file = envFilePath(ROOT);
@@ -306,7 +544,7 @@ async function stepEnv(job) {
   if (job.lanAccess !== undefined && typeof job.lanAccess !== 'boolean') {
     throw Object.assign(new Error('گزینهٔ دسترسی LAN باید روشن/خاموش باشد.'), { step: 'lan' });
   }
-  const lan = resolveLanAccess(job.lanAccess, existing);
+  let lan = resolveLanAccess(job.lanAccess, existing);
   const wasLanEnabled = String(existing.LAN_ACCESS ?? '').toLowerCase() === 'true';
   let firewallWarning = '';
   if (lan.enabled) {
@@ -316,12 +554,23 @@ async function stepEnv(job) {
     } else {
       const firewall = runLanFirewall('ensure', { root: ROOT, port, program: process.execPath });
       if (!firewall.ok) {
-        stepEvent('lan', 'دسترسی شبکه محلی', 'fail', { message: firewall.message });
-        throw Object.assign(new Error(firewall.message), { step: 'lan', command: 'PowerShell lan-firewall.ps1' });
+        // LAN no longer dies with the firewall. The rule is best-effort: the
+        // firewall may be off entirely (then phones already connect) or the
+        // rule may just need one elevated confirmation later. Keep LAN enabled
+        // in the written config and point the operator to the Manager's
+        // one-click «باز کردن فایروال برای موبایل» instead of silently
+        // degrading the whole install to loopback-only.
+        firewallWarning = firewall.message;
+        log(`قانون فایروال LAN ساخته نشد؛ نصب با دسترسی LAN ادامه می‌یابد. دلیل: ${firewall.message}`, 'warn');
+        stepEvent('lan', 'دسترسی شبکه محلی', 'warn', {
+          message: `قانون فایروال ساخته نشد (${firewall.message}) اما نصب با دسترسی LAN ادامه می‌یابد. اگر گوشی به سامانه وصل نشد، بعد از نصب در «Pishkan Manager» دکمهٔ «📱 باز کردن فایروال برای موبایل» را بزنید (فقط یک تأیید Windows لازم دارد).`,
+          stepProgress: 100,
+        });
+      } else {
+        stepEvent('lan', 'دسترسی شبکه محلی', 'ok', {
+          message: 'فایروال فقط Private/LocalSubnet را مجاز و Public/Domain را مسدود می‌کند.', stepProgress: 100,
+        });
       }
-      stepEvent('lan', 'دسترسی شبکه محلی', 'ok', {
-        message: 'فایروال فقط Private/LocalSubnet را مجاز و Public/Domain را مسدود می‌کند.', stepProgress: 100,
-      });
     }
   } else if (wasLanEnabled) {
     stepEvent('lan', 'دسترسی شبکه محلی', 'running', { stepProgress: 10 });
@@ -369,7 +618,11 @@ async function stepEnv(job) {
     APP_ENCRYPTION_KEY: existing.APP_ENCRYPTION_KEY || randomHex(32),
     UPLOAD_DIR: (existing.UPLOAD_DIR || uploadDir(ROOT)).replace(/\\/g, '/'),
     BACKUP_DIR: (existing.BACKUP_DIR || backupDir(ROOT)).replace(/\\/g, '/'),
-    PISHKAN_CONTROL_PIPE: existing.PISHKAN_CONTROL_PIPE || controlPipePath(ROOT),
+    // Replace the old basename-only default (which collided across copied ZIPs)
+    // after stopping it; leave intentionally customised pipes alone.
+    PISHKAN_CONTROL_PIPE: process.platform === 'win32' &&
+      (existing.PISHKAN_CONTROL_PIPE || '').toLowerCase() === legacyWindowsControlPipePath(ROOT).toLowerCase()
+      ? controlPipePath(ROOT) : (existing.PISHKAN_CONTROL_PIPE || controlPipePath(ROOT)),
     DEMO_MODE: existing.DEMO_MODE || 'false',
     LOG_LEVEL: existing.LOG_LEVEL || 'info',
     // The local app is one machine and every automated check (installer verify,
@@ -446,22 +699,17 @@ function expectedPackageCount() {
   }).length;
 }
 
-async function stepDependencies() {
+async function stepDependencies({ forceClean = false, recovery = false } = {}) {
   const nodeModules = path.join(ROOT, 'node_modules');
   const expected = expectedPackageCount();
   if (SKIP_DEPS) {
     stepEvent('deps', 'دانلود وابستگی‌ها', 'skip', { message: 'با درخواست کاربر رد شد' });
     return;
   }
+  // A package count cannot prove that this version's dependencies are present.
+  // Always let npm reconcile the workspace and lockfile, including build-time
+  // dependencies; reuse the npm cache/tree on repairs rather than deleting it.
   const installed = countInstalledPackages(nodeModules);
-  // Optional platform-specific packages are absent from node_modules by design,
-  // so a small shortfall against the lockfile is expected and not a re-install.
-  if (installed > 0 && (expected === 0 || installed >= expected * 0.85)) {
-    stepEvent('deps', 'دانلود وابستگی‌ها', 'ok', {
-      message: `${installed} بسته از قبل نصب بود · ${formatBytes(dirSizeBytes(nodeModules))}`,
-    });
-    return;
-  }
   if (DRY_RUN) {
     stepEvent('deps', 'دانلود وابستگی‌ها', 'skip', { message: 'حالت آزمایشی (dry-run)' });
     return;
@@ -473,15 +721,17 @@ async function stepDependencies() {
   // which is not enough for 670 packages on a slow line. These flags make npm
   // keep trying instead of failing the whole installation.
   const npmNetwork = [
-    '--no-audit', '--no-fund', '--loglevel=error',
+    '--no-audit', '--no-fund', '--loglevel=error', '--include=dev', '--include=optional', '--ignore-scripts=false',
     '--fetch-retries=5', '--fetch-retry-mintimeout=5000', '--fetch-retry-maxtimeout=120000',
     '--fetch-timeout=300000',
   ];
-  let mode = hasLock ? 'ci' : 'install';
+  // `npm ci` is appropriate on a fresh install (or one explicit recovery);
+  // on an existing install, npm install preserves and repairs the tree/cache.
+  let mode = hasLock && (forceClean || installed === 0) ? 'ci' : 'install';
   let npmArgs = [mode, ...npmNetwork];
   const attempts = 3;
   stepEvent('deps', 'دانلود وابستگی‌ها', 'running', {
-    message: `${hasLock ? 'npm ci' : 'npm install'} · ${expected || '?'} بسته`,
+    message: `${recovery ? 'بازسازی وابستگی‌های ناقص' : 'بررسی و همگام‌سازی وابستگی‌ها'} · npm ${mode} · ${expected || '?'} بسته`,
     stepProgress: 1,
   });
 
@@ -493,7 +743,7 @@ async function stepDependencies() {
         append: false,
         message: `${done}${expected ? ` از ${expected}` : ''} بسته · ${formatBytes(dirSizeBytes(nodeModules))}`,
         stepProgress: Math.round(ratio * 100),
-        progress: Math.round(completedWeight + (WEIGHTS.deps ?? 0) * ratio),
+        progress: recovery ? completedWeight : Math.round(completedWeight + (WEIGHTS.deps ?? 0) * ratio),
       });
     }, 900);
 
@@ -508,8 +758,19 @@ async function stepDependencies() {
     const extracted = countInstalledPackages(nodeModules);
 
     if (result.code === 0) {
+      // Verify the installed dependency graph instead of assuming a successful
+      // npm exit or a large folder means the workspace is complete.
+      const validation = await runProcess(npmCommand, ['ls', '--all', '--include=dev', '--include=optional', '--parseable', '--loglevel=error'], {
+        shell: process.platform === 'win32', timeoutMs: 5 * 60 * 1000,
+      });
+      if (validation.code !== 0) {
+        throw Object.assign(new Error(`بررسی وابستگی‌ها ناموفق بود: ${tail(validation.stderr || validation.stdout, 12)}`), {
+          step: 'deps', command: 'npm ls --all --include=dev --include=optional', exitCode: validation.code,
+          output: tail(validation.stderr || validation.stdout, 40),
+        });
+      }
       stepEvent('deps', 'دانلود وابستگی‌ها', 'ok', {
-        message: `${extracted} بسته · ${formatBytes(dirSizeBytes(nodeModules))}`,
+        message: `${extracted} بسته بررسی و همگام شد · ${formatBytes(dirSizeBytes(nodeModules))}`,
         stepProgress: 100,
       });
       return;
@@ -547,6 +808,10 @@ async function stepDependencies() {
   }
 }
 
+function buildOutputForError(result) {
+  return [result.stderr, result.stdout].filter(Boolean).join('\n');
+}
+
 async function stepBuild() {
   if (SKIP_BUILD) {
     stepEvent('build', 'ساخت نسخه اجرایی', 'skip', { message: 'با درخواست کاربر رد شد' });
@@ -558,18 +823,31 @@ async function stepBuild() {
     return;
   }
   stepEvent('build', 'ساخت نسخه اجرایی', 'running', { message: 'API در حال ساخت است', stepProgress: 10 });
+  let repairedDependencies = false;
   for (const [index, workspace] of ['apps/api', 'apps/web'].entries()) {
-    const result = await runProcess(npmCommand, ['run', 'build', '--workspace', workspace], {
+    const build = () => runProcess(npmCommand, ['run', 'build', '--workspace', workspace], {
       shell: process.platform === 'win32',
       timeoutMs: 30 * 60 * 1000,
       onLine: (line) => {
         if (/error/i.test(line)) log(line.slice(0, 300), 'warn');
       },
     });
+    let result = await build();
+    // npm's dependency graph can still look valid when files inside a package
+    // are damaged. For missing-module build failures only, do one clean rebuild
+    // of node_modules and retry. Never override an explicit --skip-deps.
+    const buildOutput = `${result.stdout}\n${result.stderr}`;
+    if (result.code !== 0 && !SKIP_DEPS && !repairedDependencies && fs.existsSync(path.join(ROOT, 'package-lock.json')) &&
+        /TS2307: Cannot find module|TS7016: Could not find a declaration file|MODULE_NOT_FOUND|ERR_MODULE_NOT_FOUND|Cannot find package|Could not resolve/i.test(buildOutput)) {
+      repairedDependencies = true;
+      log('بسته‌ای در زمان ساخت پیدا نشد؛ وابستگی‌ها یک‌بار از نو نصب و ساخت دوباره اجرا می‌شود. داده‌ها و پایگاه داده دست‌نخورده می‌مانند.', 'warn');
+      await stepDependencies({ forceClean: true, recovery: true });
+      result = await build();
+    }
     if (result.code !== 0) {
-      throw Object.assign(new Error(`ساخت ${workspace} ناموفق بود: ${tail(result.stderr || result.stdout, 12)}`), {
+      throw Object.assign(new Error(`ساخت ${workspace} ناموفق بود: ${tail(buildOutputForError(result), 12)}`), {
         step: 'build', command: `npm run build --workspace ${workspace}`, exitCode: result.code,
-        output: tail(result.stderr || result.stdout, 40),
+        output: tail(buildOutputForError(result), 40),
       });
     }
     stepEvent('build', 'ساخت نسخه اجرایی', 'running', {
@@ -600,12 +878,14 @@ async function stepDatabase(config) {
   }
   const result = await runProcess(process.execPath, [...sqliteFlag, 'dist/cli/seed.js', '--catalog-only'], {
     cwd: path.join(ROOT, 'apps/api'),
-    env: { PISHKAN_ENV_FILE: config.file },
+    env: { ...readEnvFile(config.file), PISHKAN_ENV_FILE: config.file },
     timeoutMs: 10 * 60 * 1000,
   });
   if (result.code !== 0) {
     const output = tail(result.stderr || result.stdout, 20);
-    const reason = /SQLITE_CANTOPEN|EACCES|permission/i.test(output)
+    const reason = /database disk image is malformed|SQLITE_CORRUPT|file is not a database/i.test(output)
+      ? 'پایگاه داده قابل خواندن یا سالم نیست؛ فایل‌ها را حذف نکنید و پشتیبان سالم را بررسی کنید'
+      : /SQLITE_CANTOPEN|EACCES|permission/i.test(output)
       ? 'دسترسی به فایل پایگاه داده ممکن نیست'
       : /SQLITE_BUSY|locked/i.test(output)
         ? 'پایگاه داده در حال استفاده است (سرور دیگری در حال اجراست)'
@@ -628,42 +908,62 @@ async function stepAdmin(config, job) {
   const admin = job.admin ?? {};
   const username = String(admin.username ?? '').trim();
   const password = String(admin.password ?? '');
-  if (!username || !password) {
-    adminMissing = true;
-    stepEvent('admin', 'ایجاد حساب مدیر کل', 'skip', {
-      message: 'اطلاعات مدیر کل داده نشد؛ می‌توانید بعداً با create-admin بسازید',
-    });
-    return { created: false };
-  }
   if (DRY_RUN) {
     stepEvent('admin', 'ایجاد حساب مدیر کل', 'skip', { message: 'حالت آزمایشی (dry-run)' });
     return { created: false };
   }
+  if (!username || !password) {
+    // Never finish a «successful» install that nobody can log into. Skipping
+    // is only legitimate when an active admin already exists (e.g. a repair
+    // run that intentionally left the account untouched).
+    const admins = await countExistingAdmins(config.database);
+    if (admins > 0) {
+      adminMissing = true;
+      stepEvent('admin', 'ایجاد حساب مدیر کل', 'skip', {
+        message: `اطلاعات مدیر کل داده نشد؛ ${admins} حساب مدیر فعال از قبل وجود دارد و همان معتبر می‌ماند`,
+      });
+      return { created: false };
+    }
+    stepEvent('admin', 'ایجاد حساب مدیر کل', 'fail', {
+      message: 'هیچ حساب مدیر کلی وجود ندارد و اطلاعات ساخت آن داده نشده است',
+    });
+    throw Object.assign(new Error('هیچ حساب مدیر کلی وجود ندارد و اطلاعات ساخت آن داده نشده است؛ در پنجرهٔ نصب بخش «حساب مدیر کل» (نام، نام کاربری و رمز عبور) را کامل کنید و نصب را دوباره اجرا کنید.'), { step: 'admin' });
+  }
   const result = await runProcess(
     process.execPath,
-    ['--experimental-sqlite', 'dist/cli/create-admin.js', '--username', username, '--stdin',
+    ['--experimental-sqlite', 'dist/cli/create-admin.js', '--username', username, '--stdin', '--upsert',
       '--full-name', String(admin.fullName ?? 'مدیر سامانه'),
       ...(admin.mobile ? ['--mobile', String(admin.mobile)] : [])],
     {
       cwd: path.join(ROOT, 'apps/api'),
-      env: { PISHKAN_ENV_FILE: config.file },
+      env: { ...readEnvFile(config.file), PISHKAN_ENV_FILE: config.file },
       input: `${password}\n`,
       timeoutMs: 120_000,
     },
   );
   const output = `${result.stdout}\n${result.stderr}`.trim();
   if (result.code !== 0) {
-    const reason = /حداقل|ترکیبی/.test(output) ? 'رمز عبور با سیاست امنیتی سازگار نیست' : 'ایجاد حساب مدیر ناموفق بود';
+    const reason = /username-taken/.test(output)
+      ? 'این نام کاربری برای حساب دیگری (غیرمدیر) ثبت شده است؛ نام کاربری دیگری برای مدیر کل انتخاب کنید'
+      : /حداقل|ترکیبی/.test(output) ? 'رمز عبور با سیاست امنیتی سازگار نیست' : 'ایجاد حساب مدیر ناموفق بود';
     throw Object.assign(new Error(`${reason}: ${tail(output, 8)}`), {
       step: 'admin', command: 'node dist/cli/create-admin.js --username … --stdin', exitCode: result.code, output: tail(output, 40),
     });
   }
-  const created = /created/i.test(output) && !/already exists/i.test(output);
+  const updated = /account updated/i.test(output);
+  const verified = !updated && /account verified/i.test(output);
+  const created = !updated && !verified && /created/i.test(output) && !/already exists/i.test(output);
   stepEvent('admin', 'ایجاد حساب مدیر کل', 'ok', {
-    message: created ? `حساب «${username}» با نقش مدیر کل ساخته شد` : `حساب مدیر از قبل وجود داشت («${username}» تغییر نکرد)`,
+    message: updated
+      ? `حساب مدیر کل «${username}» از قبل وجود داشت؛ رمز عبور آن به رمز واردشده تغییر کرد تا ورود با همین اطلاعات ممکن باشد`
+      : verified
+        ? `حساب مدیر کل «${username}» از قبل با همین رمز عبور وجود داشت`
+        : created
+          ? `حساب «${username}» با نقش مدیر کل ساخته شد`
+          : `حساب مدیر کل «${username}» آمادهٔ ورود است`,
     stepProgress: 100,
   });
-  return { created, username };
+  return { created, updated, verified, username };
 }
 
 async function managerCommand(command, extra = []) {
@@ -693,7 +993,7 @@ async function stepStart(config) {
   serverStartedHere = true;
   if (config.lanAccess && Array.isArray(payload.mobileUrls)) config.mobileUrls = payload.mobileUrls;
   const mobileText = config.lanAccess
-    ? (payload.mobileUrls?.length ? ` · آدرس موبایل: ${payload.mobileUrls.join('، ')}` : ' · LAN فعال است؛ برای دیدن آدرس، به Wi‑Fi خصوصی وصل شوید و Manager را تازه‌سازی کنید.')
+    ? (payload.mobileUrls?.length ? ` · آدرس موبایل: ${payload.mobileUrls.join('، ')}` : ' · LAN فعال است؛ ابتدا این رایانه را به Wi‑Fi دفتر وصل کنید و Manager را تازه‌سازی کنید.')
     : ' · دسترسی شبکه خاموش و محدود به همین رایانه است.';
   stepEvent('start', 'راه‌اندازی سرویس‌ها', 'ok', {
     message: `سرور روی ${payload.url ?? `http://127.0.0.1:${config.port}`} پاسخ می‌دهد${mobileText}`,
@@ -716,10 +1016,17 @@ async function stepVerify(config, job) {
   // The installer only warns in that case (a human can create the account
   // later); a *wrong* installation still fails on every other check.
   if (adminMissing) verifyArgs.push('--allow-missing-admin');
-  if (RUN_WORKFLOW) {
-    verifyArgs.push('--admin-user', String(job.admin?.username ?? 'admin'), '--admin-pass', String(job.admin?.password ?? ''));
-  }
+  // Always prove the installer-entered credentials can actually log in — not
+  // only in workflow mode. An install that «succeeds» while the typed admin
+  // password does not work is the exact failure this guards against. The
+  // password travels via the environment, never the process argv.
+  const adminUser = String(job.admin?.username ?? '').trim();
+  const adminPass = String(job.admin?.password ?? '');
+  const verifyEnv = !adminMissing && adminUser && adminPass
+    ? { PISHKAN_ADMIN_USER: adminUser, PISHKAN_ADMIN_PASS: adminPass }
+    : {};
   const result = await runProcess(process.execPath, verifyArgs, {
+    env: verifyEnv,
     timeoutMs: 10 * 60 * 1000,
     onLine: (line) => {
       if (line.startsWith('[PASS]') || line.startsWith('[FAIL]') || line.startsWith('[STEP]')) {
@@ -743,6 +1050,151 @@ async function stepVerify(config, job) {
     stepProgress: 100,
   });
   return payload;
+}
+
+/**
+ * Sign in and open the public link, at the very end of the install.
+ *
+ * Ordering matters: the server must already be running and verified, because
+ * hosting a tunnel to a port nothing listens on produces a link that answers
+ * 502. This step therefore runs after `stepVerify`.
+ *
+ * Sign-in is interactive by design. The browser opens on the operator's own
+ * screen and the CLI blocks until they finish; there is nothing to automate
+ * here and any attempt to would be storing somebody's Microsoft credentials.
+ * If the browser cannot open (a locked-down session), the device-code flow is
+ * offered instead.
+ */
+async function stepTunnelHost(config, job, tool) {
+  if (job.tunnel !== true) {
+    stepEvent('tunnelhost', 'لینک عمومی (Dev Tunnel)', 'skip', { message: 'انتشار اینترنتی خاموش است.' });
+    return { enabled: false };
+  }
+  if (!tool.ok) {
+    stepEvent('tunnelhost', 'لینک عمومی (Dev Tunnel)', 'warn', {
+      message: 'ابزار تونل آماده نشد؛ نصب بدون لینک عمومی ادامه می‌یابد.',
+      stepProgress: 100,
+    });
+    return { enabled: false, reason: 'tool-unavailable' };
+  }
+  if (DRY_RUN) {
+    stepEvent('tunnelhost', 'لینک عمومی (Dev Tunnel)', 'skip', { message: 'حالت آزمایشی (dry-run)' });
+    return { enabled: false, dryRun: true };
+  }
+
+  // The title and message here are what the operator reads while a browser
+  // window is (or should be) opening. They must say what to do, not just that
+  // something is happening: this is the only blocking interactive step in the
+  // whole install, and it happens after everything else already succeeded.
+  stepEvent('tunnelhost', 'ورود به حساب مایکروسافت', 'running', {
+    message: 'یک پنجرهٔ مرورگر برای ورود باز می‌شود؛ همان‌جا وارد شوید. اگر باز نشد، آدرس چاپ‌شده در گزارش پایین را دستی باز کنید.',
+    stepProgress: 5,
+  });
+  let login = loginStatus(ROOT);
+  if (!login.loggedIn) {
+    // A window with no browser cannot complete the default flow; the caller may
+    // have asked for the device-code variant explicitly.
+    const useDevice = job.tunnelLogin === 'device';
+    const attempt = useDevice
+      ? await loginDeviceCode(ROOT, { log: (message) => log(message) })
+      : await loginInteractive(ROOT, { log: (message) => log(message) });
+    if (attempt.ok) {
+      login = { loggedIn: true, account: attempt.account };
+    } else {
+      stepEvent('tunnelhost', 'ورود به حساب مایکروسافت', 'warn', {
+        message: attempt.message,
+        detail: 'بدون ورود، لینک عمومی ساخته نمی‌شود. نصب کامل است و می‌توانید بعداً از Pishkan Manager دکمهٔ «فعال‌سازی لینک عمومی» را بزنید.',
+        stepProgress: 100,
+      });
+      return { enabled: false, reason: 'login-failed', message: attempt.message };
+    }
+  }
+  stepEvent('tunnelhost', 'ورود به حساب مایکروسافت', 'ok', {
+    message: login.account ? `وارد شد: ${login.account}` : 'ورود تأیید شد.',
+    stepProgress: 30,
+  });
+
+  stepEvent('tunnelhost', 'ساخت و راه‌اندازی تونل', 'running', { stepProgress: 40 });
+  const ensured = ensureTunnel(ROOT, { port: config.port, log: (message) => log(message) });
+  if (!ensured.ok) {
+    stepEvent('tunnelhost', 'ساخت و راه‌اندازی تونل', 'warn', {
+      message: ensured.message, stepProgress: 100,
+    });
+    return { enabled: false, reason: ensured.step, message: ensured.message };
+  }
+  const hosted = await startHosting(ROOT, { port: config.port, log: (message) => log(message) });
+  if (!hosted.ok) {
+    // A warning, not a failure. Everything the customer actually needs — the
+    // app, the database, the admin account, the LAN address — is installed and
+    // verified by this point. Aborting the whole install because a third-party
+    // relay did not answer would throw away a working deployment, so the
+    // manager is left as the way to retry.
+    stepEvent('tunnelhost', 'ساخت و راه‌اندازی تونل', 'warn', {
+      message: hosted.message,
+      detail: 'نصب سامانه کامل و سالم است؛ فقط لینک عمومی ساخته نشد. از Pishkan Manager دوباره تلاش کنید.',
+      stepProgress: 100,
+    });
+    return { enabled: false, reason: 'host-failed', message: hosted.message };
+  }
+
+  // Write the three settings the public origin needs. Doing it here, after the
+  // URL exists, is what makes this atomic: there is no window where the app is
+  // configured for HTTPS but no URL has been issued yet.
+  // Pass whatever the freshly written .env already allowed so a hand-added
+  // origin (custom domain, extra LAN address) is not dropped by turning the
+  // tunnel on.
+  const existingOrigins = String(config.values.CORS_ORIGINS ?? '').split(',').map((o) => o.trim()).filter(Boolean);
+  const overrides = tunnelEnvOverrides({
+    publicUrl: hosted.publicUrl,
+    port: config.port,
+    lanAccess: config.lanAccess,
+    enabled: true,
+    extraOrigins: [...existingOrigins, ...(config.mobileUrls ?? []).map((url) => url.replace(/\/$/, ''))],
+  });
+  upsertEnvFile(config.file, { ...config.values, ...overrides }, {
+    header: [
+      '# Pishkan — تنظیمات محلی Windows (تولیدشده با نصب‌کننده گرافیکی)',
+      '# این فایل رازدار است: هرگز آن را در Git یا فضای اشتراکی قرار ندهید.',
+      '# بازنویسی دستی مجاز است؛ نصب‌کننده مقادیر موجود را حفظ می‌کند.',
+      '# TUNNEL_* فقط برای نمایش/آزمون است؛ برای بهره‌برداری واقعی از دامنهٔ خودتان استفاده کنید.',
+      '',
+    ],
+  });
+  // COOKIE_SECURE/CORS_ORIGINS are read at boot, so the running server must be
+  // recycled once for the tunnel to be usable for login. If that restart fails
+  // the install is still usable locally and the link still serves pages, but
+  // signing in through it will fail — say so instead of claiming success.
+  log('تنظیمات عمومی نوشته شد؛ سرور برای اعمال آن یک بار دوباره راه‌اندازی می‌شود.');
+  const restarted = await managerCommand('restart', ['--json']);
+  const restartPayload = JSON.parse(restarted.stdout.split('\n').find((line) => line.startsWith('RESULT_JSON:'))?.slice(12) ?? '{}');
+  if (restarted.code !== 0 || !restartPayload.ok) {
+    stepEvent('tunnelhost', 'ساخت و راه‌اندازی تونل', 'warn', {
+      message: `لینک ساخته شد (${hosted.publicUrl}) ولی سرور دوباره راه‌اندازی نشد؛ ورود از لینک تا راه‌اندازی مجدد کار نمی‌کند.`,
+      detail: hosted.publicUrl,
+      stepProgress: 100,
+    });
+    return {
+      enabled: true,
+      degraded: true,
+      publicUrl: hosted.publicUrl,
+      inspectUrl: hosted.inspectUrl,
+      account: hosted.account,
+      tunnelName: hosted.tunnelName,
+    };
+  }
+
+  stepEvent('tunnelhost', 'ساخت و راه‌اندازی تونل', 'ok', {
+    message: `لینک عمومی آماده است: ${hosted.publicUrl}`,
+    detail: hosted.publicUrl,
+    stepProgress: 100,
+  });
+  return {
+    enabled: true,
+    publicUrl: hosted.publicUrl,
+    inspectUrl: hosted.inspectUrl,
+    account: hosted.account,
+    tunnelName: hosted.tunnelName,
+  };
 }
 
 /* ---------------------------------- main ---------------------------------- */
@@ -776,14 +1228,28 @@ async function main() {
   let config;
   let checks = null;
   try {
+    validateJobShape(job);
     checks = await stepChecks(job);
+    await stepStopExisting();
+    await checkExistingDatabase(job);
+    await stepClean(job);
     config = await stepEnv(job);
+    // The tunnel tool is fetched here — after the config, before the slow
+    // dependency install — so a blocked download surfaces in the first minute
+    // instead of after ten minutes of npm. The order also matches the sidebar
+    // numbering the operator is watching.
+    const tunnelTool = await stepTunnelTool(job);
     await stepDependencies();
     await stepBuild();
+    // A different copy could have started while dependencies were installed.
+    await stepStopExisting();
+    await checkExistingDatabase(job);
     await stepDatabase(config);
     await stepAdmin(config, job);
     await stepStart(config);
     const verification = await stepVerify(config, job);
+    // Last, because a tunnel to a port nothing listens on is a link that 502s.
+    const tunnel = await stepTunnelHost(config, job, tunnelTool);
 
     const report = {
       ok: true,
@@ -791,6 +1257,7 @@ async function main() {
       durationMs: Date.now() - startedAt.getTime(),
       root: ROOT,
       url: `http://127.0.0.1:${config.port}`,
+      adminLoginUrl: `http://127.0.0.1:${config.port}/login-admin`,
       port: config.port,
       lanAccess: config.lanAccess,
       mobileUrls: config.mobileUrls,
@@ -803,6 +1270,19 @@ async function main() {
       steps: events.steps.filter((s) => ['ok', 'skip', 'warn'].includes(s.status)),
       verification: { checks: verification.checks?.length ?? 0, steps: verification.steps?.length ?? 0 },
       preflight: checks ? { items: checks.items?.length ?? 0, warnings: checks.warnings ?? [] } : null,
+      // The public link, when the operator asked for one. Present only after a
+      // successful sign-in and host; absent (not null) otherwise so the GUI's
+      // finish page can simply test for it.
+      ...(tunnel?.enabled ? {
+        tunnel: {
+          publicUrl: tunnel.publicUrl,
+          inspectUrl: tunnel.inspectUrl,
+          account: tunnel.account,
+          tunnelName: tunnel.tunnelName,
+          degraded: Boolean(tunnel.degraded),
+          note: 'این لینک برای نمایش و آزمایش است. مایکروسافت SLA نمی‌دهد و سقف ماهانه دارد.',
+        },
+      } : {}),
       node: process.versions.node,
       platform: process.platform,
       artifacts: {
@@ -832,7 +1312,9 @@ async function main() {
       root: ROOT,
       stoppedServer,
       step: error?.step ?? events.steps.at(-1)?.id ?? 'unknown',
-      stepTitle: events.steps.at(-1)?.title ?? '',
+      stepTitle: [...events.steps].reverse().find((entry) => entry.id === error?.step)?.title
+        ?? ({ clean: 'توقف سرویس‌ها و پاک‌سازی', database: 'بررسی پایگاه داده' }[error?.step])
+        ?? events.steps.at(-1)?.title ?? '',
       message: error?.message ?? String(error),
       command: error?.command ?? null,
       exitCode: error?.exitCode ?? null,

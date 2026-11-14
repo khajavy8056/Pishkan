@@ -5,12 +5,23 @@ import { one } from '../src/db/index.js';
 import { updateSettings } from '../src/modules/settings/service.js';
 
 describe('service catalogue', () => {
-  it('exposes the 30 default services in 3 categories', async () => {
+  it('exposes the default services in their categories', async () => {
     const server = await app();
     const categories = await request(server).get('/api/public/categories');
-    expect(categories.body.data).toHaveLength(3);
+    expect(categories.body.data).toHaveLength(15);
     const services = await request(server).get('/api/public/services?pageSize=100');
-    expect(services.body.meta.total).toBe(30);
+    expect(services.body.meta.total).toBe(193);
+  });
+
+  it('serves distinct individual default art and preserves admin custom artwork', async () => {
+    const server = await app();
+    const slugs = ['social-security-receipt', 'fuel-card-registration', 'marriage-loan-registration'];
+    const images = await Promise.all(slugs.map(async slug => (await request(server).get(`/api/public/services/${slug}`).expect(200)).body.data.image));
+    expect(new Set(images).size).toBe(3);
+    expect(images.every(image => image.startsWith('/images/services/individual/') && image.endsWith('.webp'))).toBe(true);
+    const { resolveServiceArtwork } = await import('../src/modules/catalog/default-artwork.js');
+    expect(resolveServiceArtwork(slugs[0], '/uploads/public/admin.webp')).toBe('/uploads/public/admin.webp');
+    expect(resolveServiceArtwork(slugs[0], '/images/services/insurance.png')).toBe(images[0]);
   });
 
   it('includes a dynamic form, documents and workflow for each service', async () => {
@@ -50,6 +61,13 @@ describe('service catalogue', () => {
       .set('Cookie', admin.cookie)
       .send({ title: 'خدمات آزمایشی', description: 'دسته تست' });
     expect(category.status).toBe(201);
+    const longIcon = `/uploads/public/${'a'.repeat(85)}.webp`;
+    await request(server).patch(`/api/catalog/categories/${category.body.data.id}`).set('Cookie', admin.cookie)
+      .send({ icon: longIcon, image: '/uploads/public/category.webp', color: '#3a4b5c' }).expect(200);
+    const publicCategories = await request(server).get('/api/public/categories').expect(200);
+    expect(publicCategories.body.data.find((item: any) => item.id === category.body.data.id)).toMatchObject({
+      icon: longIcon, image: '/uploads/public/category.webp', color: '#3a4b5c',
+    });
 
     const service = await request(server)
       .post('/api/catalog/services')

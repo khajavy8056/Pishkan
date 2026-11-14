@@ -14,8 +14,12 @@
 ## به‌روزرسانی استاندارد
 
 ```bash
-sudo pishkan update
+sudo pishkan update            # خودش آخرین نسخهٔ شاخه را پیدا می‌کند
+sudo pishkan update --dry-run  # فقط بگو چه چیزی عوض می‌شود
 ```
+
+> برای تنظیم دامنه، زیردامنه و TLS، **[DEPLOY.md](DEPLOY.md)** را ببینید.
+> برای قاعده‌های توسعه (expand/contract)، **[UPDATING-FOR-DEVELOPERS.md](UPDATING-FOR-DEVELOPERS.md)**.
 
 مراحل داخلی:
 
@@ -29,8 +33,8 @@ sudo pishkan update
 ### گزینه‌ها
 
 ```bash
-sudo pishkan update --ref v1.4.0      # نصب یک تگ/شاخه مشخص
-sudo pishkan update --no-backup       # فقط وقتی پشتیبان تازه دارید
+sudo pishkan update --ref <SHA-کامل-۴۰-رقمی>   # نصب یک commit مشخص
+sudo pishkan update --no-backup                # فقط وقتی پشتیبان تازه دارید
 ```
 
 ## ارتقای ۱٫۳٫۰ → ۱٫۴٫۰

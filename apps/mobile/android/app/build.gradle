@@ -1,0 +1,164 @@
+plugins {
+    id "com.android.application"
+    id "kotlin-android"
+    id "dev.flutter.flutter-gradle-plugin"
+    // Firebase Messaging only — deliberately NOT com.google.gms.google-services.
+    // That plugin requires google-services.json at build time and fails the
+    // build without it; this project initialises Firebase from string
+    // resources instead (see FirebaseBootstrap.kt) so CI and every developer
+    // can build an APK without the office's Firebase project.
+}
+
+def localProperties = new Properties()
+def localPropertiesFile = rootProject.file("local.properties")
+if (localPropertiesFile.exists()) {
+    localPropertiesFile.withReader("UTF-8") { reader ->
+        localProperties.load(reader)
+    }
+}
+
+def flutterVersionCode = localProperties.getProperty("flutter.versionCode")
+if (flutterVersionCode == null) {
+    flutterVersionCode = "1"
+}
+
+def flutterVersionName = localProperties.getProperty("flutter.versionName")
+if (flutterVersionName == null) {
+    flutterVersionName = "1.0"
+}
+
+// Release signing comes from android/key.properties (created from CI secrets
+// or locally by the developer). Without it, release builds fall back to the
+// debug key so a testable APK always builds; never ship that fallback.
+def keystoreProperties = new Properties()
+def keystorePropertiesFile = rootProject.file("key.properties")
+if (keystorePropertiesFile.exists()) {
+    keystoreProperties.load(new FileInputStream(keystorePropertiesFile))
+}
+
+android {
+    namespace = "ir.pishkan.app"
+    compileSdk = flutter.compileSdkVersion
+    ndkVersion = flutter.ndkVersion
+
+    compileOptions {
+        sourceCompatibility = JavaVersion.VERSION_17
+        targetCompatibility = JavaVersion.VERSION_17
+        // Required by flutter_local_notifications on older Android versions.
+        coreLibraryDesugaringEnabled = true
+    }
+
+    defaultConfig {
+        applicationId = "ir.pishkan.app"
+        minSdk = flutter.minSdkVersion
+        targetSdk = flutter.targetSdkVersion
+        // Flutter's plugin sets the `applicationName` manifest placeholder to
+        // android.app.Application unless told otherwise (see
+        // BaseApplicationNameHandler in flutter_tools). Overriding it here is
+        // what makes PishkanApplication the process entry point — without this
+        // line the class exists but is never instantiated, and push while the
+        // app is closed stays broken while looking completely wired up.
+        manifestPlaceholders["applicationName"] = "ir.pishkan.app.PishkanApplication"
+        versionCode = flutterVersionCode.toInteger()
+        versionName = flutterVersionName
+        // Firebase identifiers can be supplied at build time instead of editing
+        // res/values/firebase.xml, which is how CI injects them from secrets:
+        //   flutter build apk -PfirebaseProjectId=… -PfirebaseAppId=…
+        //
+        // Only defined when the property is actually present. `resValue` with a
+        // placeholder would *replace* the resource file's value — including a
+        // real one committed there — with an invalid string, which is how an
+        // app "suddenly" stops registering for push after a CI build.
+        def firebaseValues = [
+            firebase_project_id   : "firebaseProjectId",
+            firebase_application_id: "firebaseAppId",
+            firebase_api_key      : "firebaseApiKey",
+            firebase_sender_id    : "firebaseSenderId",
+        ]
+        firebaseValues.each { resName, propName ->
+            def value = project.findProperty(propName)
+            if (value != null && value.toString().trim()) {
+                resValue "string", resName, value.toString().trim()
+            }
+        }
+    }
+
+    signingConfigs {
+        if (keystorePropertiesFile.exists()) {
+            release {
+                keyAlias = keystoreProperties['keyAlias']
+                keyPassword = keystoreProperties['keyPassword']
+                storeFile = keystoreProperties['storeFile'] ? file(keystoreProperties['storeFile']) : null
+                storePassword = keystoreProperties['storePassword']
+            }
+        }
+    }
+
+    buildTypes {
+        release {
+            signingConfig = keystorePropertiesFile.exists() ? signingConfigs.release : signingConfigs.debug
+        }
+    }
+}
+
+// AGP 9 removed `android { kotlinOptions { } }`. The supported spelling is the
+// Kotlin extension; jvmTarget 17 matches compileOptions above.
+kotlin {
+    compilerOptions {
+        jvmTarget = org.jetbrains.kotlin.gradle.dsl.JvmTarget.JVM_17
+    }
+}
+
+flutter {
+    source = "../.."
+}
+
+// Fail loudly if the Android application class is not the one this project
+// defines. Push delivery to a *closed* app depends entirely on
+// PishkanApplication initialising Firebase at process start; if the placeholder
+// regresses to Flutter's default (android.app.Application) everything still
+// compiles and every test still passes, and only a real customer's phone shows
+// the symptom (notifications never arrive while the app is closed). A build
+// error is the correct outcome for that.
+// Checked after evaluation (the placeholder is set by Flutter's plugin too,
+// so it must be compared once every plugin has had its say). Guarded so a
+// failure to *read* the value can never break a build that is otherwise fine —
+// only a definite, wrong value is fatal.
+gradle.afterProject { project ->
+    if (project.path != ":app") return
+    try {
+        def placeholders = project.android.defaultConfig.manifestPlaceholders
+        def appName = placeholders["applicationName"]
+        if (appName == null) {
+            throw new GradleException(
+                "applicationName manifest placeholder is missing. Push while " +
+                "the app is closed will not work (Firebase would never be " +
+                "initialised at process start). See app/build.gradle."
+            )
+        }
+        if (appName.toString() != "ir.pishkan.app.PishkanApplication") {
+            throw new GradleException(
+                "applicationName placeholder is '${appName}', expected " +
+                "'ir.pishkan.app.PishkanApplication'. Push while the app is " +
+                "closed will not work. See app/build.gradle manifestPlaceholders."
+            )
+        }
+    } catch (GradleException rethrow) {
+        throw rethrow
+    } catch (Throwable ignored) {
+        // The extension shape differs between AGP versions; a read failure is
+        // not evidence of a misconfiguration, so it must not fail the build.
+    }
+}
+
+dependencies {
+    coreLibraryDesugaring "com.android.tools:desugar_jdk_libs:2.1.5"
+    // Push delivery for the customer app. The BoM keeps the messaging and
+    // core artefacts on versions known to work together; without it a
+    // transitive upgrade of one against a pinned other is the classic
+    // "FirebaseApp not initialized" crash on a device that works on another.
+    implementation platform("com.google.firebase:firebase-bom:34.4.0")
+    implementation "com.google.firebase:firebase-messaging"
+    // NotificationCompat / NotificationManagerCompat for the tray rendering.
+    implementation "androidx.core:core-ktx:1.17.0"
+}

@@ -113,7 +113,7 @@ export function CustomerWallet() {
         actions={<Button onClick={() => setTopUpOpen(true)} disabled={frozen || !summary.enabled}><CreditCard className="size-4" /> شارژ کیف پول</Button>}
       />
 
-      <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+      <div className="grid grid-cols-2 gap-3 xl:grid-cols-4">
         <StatCard label="موجودی قابل استفاده" value={rial(summary.balance)} hint={`آخرین به‌روزرسانی ${faDateTime(summary.updatedAt)}`} icon={<WalletIcon className="size-5" />} />
         <StatCard label="مجموع شارژ از درگاه" value={rial(summary.totals.topup)} hint={`${faNum(summary.counts.transactions)} تراکنش ثبت‌شده`} tone="emerald" icon={<ArrowDownLeft className="size-5" />} />
         <StatCard label="پرداخت خدمات" value={rial(summary.totals.spent)} hint="کسر مستقیم از کیف پول" tone="amber" icon={<ArrowUpRight className="size-5" />} />

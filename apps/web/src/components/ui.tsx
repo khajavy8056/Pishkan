@@ -150,10 +150,23 @@ export function Textarea(props: TextareaHTMLAttributes<HTMLTextAreaElement>) {
   return <textarea {...props} className={clsx('input min-h-24 resize-y', props.className)} />;
 }
 
+type SelectOption = { value: string; label: string };
+type SelectGroup = { label: string; options: SelectOption[] };
+
+/**
+ * A native select.
+ *
+ * `options` may be flat or grouped. Groups exist because some pickers are
+ * genuinely long and hierarchical — the banner editor's service picker has to
+ * choose one of nearly two hundred services, and a flat list of those is a
+ * scroll you cannot aim in. Inside a group, an option with an empty value is
+ * treated as its heading placeholder rather than a real choice.
+ */
 export function Select({ options, placeholder, ...props }: SelectHTMLAttributes<HTMLSelectElement> & {
-  options: { value: string; label: string }[];
+  options: (SelectOption | SelectGroup)[];
   placeholder?: string;
 }) {
+  const isGroup = (item: SelectOption | SelectGroup): item is SelectGroup => 'options' in item;
   return (
     <select {...props} className={clsx('input appearance-none bg-[length:14px] pl-8', props.className)}
       style={{
@@ -162,7 +175,13 @@ export function Select({ options, placeholder, ...props }: SelectHTMLAttributes<
       }}
     >
       {placeholder && <option value="">{placeholder}</option>}
-      {options.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
+      {options.map((item, index) => isGroup(item)
+        ? (
+          <optgroup key={`g-${index}-${item.label}`} label={item.label}>
+            {item.options.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
+          </optgroup>
+        )
+        : <option key={item.value} value={item.value}>{item.label}</option>)}
     </select>
   );
 }
@@ -359,7 +378,7 @@ export function StatCard({ label, value, hint, icon, tone = 'brand' }: {
     <div className="card card-pad lift flex items-start justify-between gap-3">
       <div className="min-w-0">
         <p className="truncate text-xs font-medium text-navy-500">{label}</p>
-        <p className="mt-1 text-2xl font-bold tracking-tight text-navy-900">{value}</p>
+        <p className="mt-1 text-lg font-bold tracking-tight text-navy-900 sm:text-2xl">{value}</p>
         {hint && <p className="mt-1 text-xs text-navy-400">{hint}</p>}
       </div>
       {icon && <span className={clsx('grid size-11 shrink-0 place-items-center rounded-xl', tones[tone])}>{icon}</span>}

@@ -461,6 +461,11 @@ describe('request lifecycle', () => {
     const approvedFront = await request(server).post(`/api/requests/${requestId}/documents/${front.id}/review`)
       .set('Cookie', admin.cookie).send({ decision: 'approved', note: 'هر دو سمت بررسی شد.' }).expect(200);
     expect(approvedFront.body.data.documents.find((document: any) => document.id === front.id).reviewHistory).toHaveLength(1);
+    const firstNotes = await request(server).get('/api/customers/me/notifications?limit=100').set('Cookie', customer.cookie).expect(200);
+    const approvalNotice = firstNotes.body.data.find((note: any) => note.eventType === 'document_approved' && note.link === `/app/requests/${requestId}`);
+    expect(approvalNotice).toMatchObject({ revision: 1, readAt: null });
+    await request(server).post('/api/customers/me/notifications/read').set('Cookie', customer.cookie).send({ id: approvalNotice.id }).expect(200);
+
     const blockedEarly = await request(server).patch(`/api/requests/${requestId}/status`).set('Cookie', admin.cookie).send({ status: 'ready' });
     expect(blockedEarly.status).toBe(409);
     expect(blockedEarly.body.error.message).toContain('مدارک');
@@ -483,6 +488,13 @@ describe('request lifecycle', () => {
     await request(server).patch(`/api/requests/${requestId}/status`).set('Cookie', admin.cookie).send({ status: 'ready' }).expect(409);
     await request(server).post(`/api/requests/${requestId}/documents/${replacement.id}/review`)
       .set('Cookie', admin.cookie).send({ decision: 'approved', note: 'نسخه جایگزین بررسی شد.' }).expect(200);
+
+    const finalNotes = await request(server).get('/api/customers/me/notifications?limit=100').set('Cookie', customer.cookie).expect(200);
+    const approvals = finalNotes.body.data.filter((note: any) => note.eventType === 'document_approved' && note.link === `/app/requests/${requestId}`);
+    expect(approvals).toHaveLength(1);
+    expect(approvals[0]).toMatchObject({ id: approvalNotice.id, revision: 2, readAt: null });
+    expect(approvals[0].body).toContain('2 مدرک');
+    expect(finalNotes.body.data.filter((note: any) => note.eventType === 'document_rejected' && note.link === `/app/requests/${requestId}`)).toHaveLength(1);
 
     customerView = await request(server).get(`/api/requests/${requestId}`).set('Cookie', customer.cookie).expect(200);
     expect(customerView.body.data.documents.find((document: any) => document.id === back.id).status).toBe('rejected');
@@ -544,14 +556,26 @@ describe('request lifecycle', () => {
     const server = await app();
     const serviceResponse = await request(server).post('/api/catalog/services').set('Cookie', admin.cookie).send({
       title: 'خدمت با استفاده دوباره از پروفایل', slug: 'profile-reuse-request-replacement', baseFee: 40000,
-      paymentMethods: ['online'], form: [], documents: [{ key: 'identity_front', title: 'مدرک هویتی', required: true }], workflow: [],
+      paymentMethods: ['online'], form: [], documents: [{ key: 'identity_front', title: 'مدرک هویتی', required: true, documentType: 'national_card' }], workflow: [],
     }).expect(201);
     const created = await request(server).post('/api/requests').set('Cookie', customer.cookie)
       .send(await requestInput(server, customer, serviceResponse.body.data, { paymentMethod: 'online' })).expect(201);
     const requestId = created.body.data.id;
     const rejected = created.body.data.documents.find((document: any) => document.requirementKey === 'identity_front');
+    // Submitting the request already put the document in the profile archive:
+    // the mirror is server-side so the web form and the app behave the same.
+    // No separate «save to profile» call is needed, and a second one is still
+    // refused as a duplicate.
+    const archivedAlready = await request(server).get('/api/documents/mine').set('Cookie', customer.cookie).expect(200);
+    const savedFirst = { body: { data: archivedAlready.body.data.find((item: any) => item.file?.id === rejected.file.id) } };
+    expect(savedFirst.body.data, 'the submitted document must be archived automatically').toBeTruthy();
+    expect(savedFirst.body.data.status).toBe('pending');
+    await request(server).post('/api/documents/mine').set('Cookie', customer.cookie)
+      .send({ fileId: rejected.file.id, docType: 'national_card' }).expect(409);
     await request(server).post(`/api/requests/${requestId}/documents/${rejected.id}/review`).set('Cookie', admin.cookie)
       .send({ decision: 'rejected', note: 'تصویر مدرک باید دوباره بررسی شود.' }).expect(200);
+    const archiveAfterReview = await request(server).get('/api/documents/mine').set('Cookie', customer.cookie).expect(200);
+    expect(archiveAfterReview.body.data.find((item: any) => item.id === savedFirst.body.data.id).status).toBe('rejected');
 
     const profileFile = await uploadRequestFixture(server, customer, 'approved-profile-identity', 'profile_document');
     const profileDocument = await request(server).post('/api/documents/mine').set('Cookie', customer.cookie)
@@ -571,11 +595,37 @@ describe('request lifecycle', () => {
     const replacement = requestAfterReuse.body.data.documents.find((document: any) => document.customerDocumentId === profileDocument.body.data.id);
     expect(replacement.requirementKey).toBe('identity_front');
     expect(replacement.replacesDocumentId).toBe(rejected.id);
+    expect(replacement.status).toBe('approved');
     await request(server).post(`/api/requests/${requestId}/documents/${replacement.id}/review`).set('Cookie', admin.cookie)
-      .send({ decision: 'approved', note: 'مدرک جایگزین تأیید شد.' }).expect(200);
+      .send({ decision: 'approved', note: 'تأیید تکراری' }).expect(409);
     expect((await request(server).get(`/api/requests/${requestId}`).set('Cookie', customer.cookie).expect(200)).body.data.status).toBe('in_progress');
     await request(server).patch(`/api/requests/${requestId}/status`).set('Cookie', admin.cookie).send({ status: 'ready' }).expect(200);
     await request(server).patch(`/api/requests/${requestId}/status`).set('Cookie', admin.cookie).send({ status: 'completed' }).expect(200);
+
+    const mismatchedService = await request(server).post('/api/catalog/services').set('Cookie', admin.cookie).send({
+      title: 'خدمت ناسازگار مدرک', baseFee: 0, form: [], workflow: [],
+      documents: [{ key: 'passport', title: 'گذرنامه', required: true, documentType: 'passport' }],
+    }).expect(201);
+    const mismatched = await request(server).post('/api/requests').set('Cookie', customer.cookie).send({
+      serviceId: mismatchedService.body.data.id, formData: {}, paymentMethod: 'online',
+      documentIds: [{ customerDocumentId: profileDocument.body.data.id, requirementKey: 'passport', confirmReuse: true }],
+    });
+    expect(mismatched.status).toBe(400);
+
+    const payload = { serviceId: serviceResponse.body.data.id, formData: {}, paymentMethod: 'online',
+      documentIds: [{ customerDocumentId: profileDocument.body.data.id, requirementKey: 'identity_front', confirmReuse: true }] };
+    const noConsent = await request(server).post('/api/requests').set('Cookie', customer.cookie)
+      .send({ ...payload, documentIds: [{ ...payload.documentIds[0], confirmReuse: false }] });
+    expect(noConsent.status).toBe(400);
+    const foreign = await request(server).post('/api/requests').set('Cookie', admin.cookie)
+      .send({ ...payload, customerId: profileDocument.body.data.customerId });
+    expect(foreign.status).toBe(403);
+    const fromArchive = await request(server).post('/api/requests').set('Cookie', customer.cookie)
+      .set('Idempotency-Key', 'profile-reuse-request-test-001').send(payload).expect(201);
+    expect(fromArchive.body.data.documents[0]).toMatchObject({ customerDocumentId: profileDocument.body.data.id, status: 'approved' });
+    const repeat = await request(server).post('/api/requests').set('Cookie', customer.cookie)
+      .set('Idempotency-Key', 'profile-reuse-request-test-001').send(payload).expect(201);
+    expect(repeat.body.data.id).toBe(fromArchive.body.data.id);
   });
 
   it('records free service as not-required without an invoice or paid status', async () => {
@@ -650,7 +700,7 @@ describe('request lifecycle', () => {
 
     // register a second customer with a different mobile
     await request(server).post('/api/auth/register').send({ mobile: '09127778899', password: 'Other#12345', fullName: 'مشتری دوم' });
-    const second = await request(server).post('/api/auth/login').send({ identifier: '09127778899', password: 'Other#12345' });
+    const second = await request(server).post('/api/auth/customer/login').send({ identifier: '09127778899', password: 'Other#12345' });
     const cookie = second.headers['set-cookie'] as unknown as string[];
 
     const target = created.body.data[0];

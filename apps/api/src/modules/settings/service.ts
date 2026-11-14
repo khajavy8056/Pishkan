@@ -92,8 +92,34 @@ export async function ensureSettingDefaults(): Promise<number> {
     );
     inserted += 1;
   }
+  await migrateStoreLinks();
   cache = null;
   return inserted;
+}
+
+/**
+ * `landing.app_button_label` used to name the *only* download button. The label
+ * now belongs to the direct-APK card specifically, since Bazaar and Myket have
+ * their own names. An untouched install therefore still says "دریافت اپلیکیشن"
+ * on a card that actually downloads an APK — this rewrites exactly that legacy
+ * value, and only that, so any wording the office chose is left alone.
+ */
+const LEGACY_BUTTON_LABELS = new Set(['', 'دریافت اپلیکیشن', 'دانلود اپلیکیشن', 'دریافت اپلیکیشن اندروید']);
+
+async function migrateStoreLinks(): Promise<void> {
+  const row = await one<{ value: string }>("SELECT value FROM settings WHERE key = 'landing.app_button_label'");
+  if (!row) return;
+  if (!LEGACY_BUTTON_LABELS.has(String(row.value ?? '').trim())) return;
+  // Only while the app is still unpublished. Once the office has a live link
+  // they will have edited the label themselves, and this must not fire again.
+  const live = await one<{ value: string }>(
+    "SELECT value FROM settings WHERE key = 'landing.app_android_url' AND value <> ''",
+  );
+  if (live) return;
+  await run(
+    'UPDATE settings SET value = ?, updated_at = ? WHERE key = ?',
+    ['دانلود مستقیم', nowIso(), 'landing.app_button_label'],
+  );
 }
 
 /* --------------------------------- read API -------------------------------- */

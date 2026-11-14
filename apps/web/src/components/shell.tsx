@@ -1,21 +1,27 @@
-import { useEffect, useMemo, useState, type ReactNode } from 'react';
+import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { Link, NavLink, useLocation, useNavigate } from 'react-router-dom';
 import {
   LayoutDashboard, ClipboardList, Wallet, MessageSquare, User, Bell, LogOut, Menu, X, Search, Activity,
   Building2, Users, CalendarClock, FileText, Receipt, BarChart3, Settings, Database, ShieldCheck,
-  LifeBuoy, Shapes, Sparkles, ChevronDown, Plus, BadgeCheck, ServerCog, ClipboardCheck, ArrowLeft,
-  Moon, Sun, Monitor,
+  LifeBuoy, Shapes, Sparkles, ChevronDown, Plus, BadgeCheck, ServerCog, ClipboardCheck, ArrowLeft, Smartphone,
+  Moon, Sun, Monitor, Headset, TicketPercent, ListChecks, BotMessageSquare, CirclePlus, Clock3, CalendarDays, Newspaper,
 } from 'lucide-react';
 import clsx from 'clsx';
 import { useAuth, homeFor } from '../lib/auth';
 import { api } from '../lib/api';
 import { relative, faNum } from '../lib/format';
-import { ThemeToggle, useTheme } from '../lib/theme';
-import { Button, Spinner } from './ui';
+import { ThemeToggle, ThemeSegmented, useTheme } from '../lib/theme';
+import { BrandLockup, useBrand } from '../lib/brand';
+import { useSite } from '../lib/site';
+import { Button, Spinner, useToast } from './ui';
+import { ChatWidget } from './ChatWidget';
+import { NotificationGate } from './NotificationGate';
 
 export interface NavItem {
   to: string;
   label: string;
+  /** Compact label for the mobile bottom dock (falls back to `label`). */
+  short?: string;
   icon: ReactNode;
   end?: boolean;
   permission?: string;
@@ -33,53 +39,65 @@ const SECTION_SUPPORT = 'پشتیبانی';
 
 const customerNav: NavItem[] = [
   { to: '/app', label: 'داشبورد', icon: <LayoutDashboard className="size-5" />, end: true, section: SECTION_WORK },
-  { to: '/app/services', label: 'خدمات', icon: <Shapes className="size-5" />, section: SECTION_WORK },
-  { to: '/app/requests', label: 'درخواست‌های من', icon: <ClipboardList className="size-5" />, section: SECTION_WORK },
-  { to: '/app/documents', label: 'مدارک من', icon: <FileText className="size-5" />, section: SECTION_WORK },
-  { to: '/app/invoices', label: 'فاکتورها و پرداخت', icon: <Wallet className="size-5" />, section: SECTION_ACCOUNT },
-  { to: '/app/wallet', label: 'کیف پول', icon: <Wallet className="size-5" />, section: SECTION_ACCOUNT },
-  { to: '/app/offers', label: 'پیشنهادهای اختصاصی', icon: <Sparkles className="size-5" />, section: SECTION_ACCOUNT },
+  { to: '/app/services', label: 'ثبت درخواست جدید', short: 'درخواست جدید', icon: <CirclePlus className="size-5" />, section: SECTION_WORK },
+  { to: '/app/requests', label: 'پیگیری درخواست‌ها', short: 'پیگیری', icon: <Search className="size-5" />, section: SECTION_WORK },
+  { to: '/app/wallet', label: 'کیف پول و پرداخت‌ها', short: 'کیف پول', icon: <Wallet className="size-5" />, section: SECTION_ACCOUNT },
+  { to: '/app/invoices', label: 'فاکتورها', icon: <Receipt className="size-5" />, section: SECTION_ACCOUNT },
+  { to: '/app/documents', label: 'مدارک من', short: 'مدارک', icon: <FileText className="size-5" />, section: SECTION_WORK },
+  { to: '/app/offers', label: 'پیشنهادهای اختصاصی', short: 'پیشنهادها', icon: <Sparkles className="size-5" />, section: SECTION_ACCOUNT },
   { to: '/app/messages', label: 'پیام‌ها', icon: <MessageSquare className="size-5" />, section: SECTION_ACCOUNT },
-  { to: '/app/profile', label: 'پروفایل', icon: <User className="size-5" />, section: SECTION_ACCOUNT },
-  { to: '/assistant', label: 'دستیار هوشمند', icon: <LifeBuoy className="size-5" />, section: SECTION_SUPPORT },
+  { to: '/app/support', label: 'پشتیبانی و تیکت‌ها', short: 'پشتیبانی', icon: <Headset className="size-5" />, section: SECTION_SUPPORT },
+  { to: '/assistant', label: 'دستیار هوشمند', short: 'دستیار', icon: <LifeBuoy className="size-5" />, section: SECTION_SUPPORT },
+  { to: '/app/referrals', label: 'دعوت دوستان', icon: <Users className="size-5" />, section: SECTION_ACCOUNT },
+  { to: '/app/profile', label: 'پروفایل و تنظیمات', short: 'پروفایل', icon: <Settings className="size-5" />, section: SECTION_ACCOUNT },
 ];
 
 const staffNav: NavItem[] = [
-  { to: '/staff', label: 'میز کار من', icon: <LayoutDashboard className="size-5" />, end: true, section: SECTION_OPS },
-  { to: '/staff/automation', label: 'کارتابل و ارجاعات', icon: <ClipboardCheck className="size-5" />, permission: 'requests.view', section: SECTION_OPS },
+  { to: '/staff', label: 'میز کار من', short: 'میز کار', icon: <LayoutDashboard className="size-5" />, end: true, section: SECTION_OPS },
+  { to: '/staff/automation', label: 'کارتابل و ارجاعات', short: 'کارتابل', icon: <ClipboardCheck className="size-5" />, permission: 'requests.view', section: SECTION_OPS },
   { to: '/staff/requests', label: 'درخواست‌ها', icon: <ClipboardList className="size-5" />, permission: 'requests.view', section: SECTION_OPS },
-  { to: '/staff/documents', label: 'بررسی مدارک', icon: <ClipboardCheck className="size-5" />, permission: 'documents.view', section: SECTION_OPS },
+  { to: '/staff/documents', label: 'بررسی مدارک', short: 'مدارک', icon: <ClipboardCheck className="size-5" />, permission: 'documents.view', section: SECTION_OPS },
   { to: '/staff/customers', label: 'مشتریان', icon: <Users className="size-5" />, permission: 'customers.view', section: SECTION_OPS },
-  { to: '/staff/queue', label: 'صف درخواست‌های آزاد', icon: <ClipboardList className="size-5" />, permission: 'requests.view', section: SECTION_OPS },
-  { to: '/staff/custom-services', label: 'خدمت اختصاصی', icon: <Sparkles className="size-5" />, permission: 'services.create', section: SECTION_MORE },
+  { to: '/staff/queue', label: 'صف درخواست‌های آزاد', short: 'صف آزاد', icon: <ClipboardList className="size-5" />, permission: 'requests.view', section: SECTION_OPS },
+  { to: '/staff/custom-services', label: 'خدمت اختصاصی', short: 'سفارشی', icon: <Sparkles className="size-5" />, permission: 'services.create', section: SECTION_MORE },
   { to: '/staff/messages', label: 'پیام‌ها', icon: <MessageSquare className="size-5" />, permission: 'messages.view', section: SECTION_MORE },
-  { to: '/staff/shifts', label: 'شیفت و حضور', icon: <CalendarClock className="size-5" />, section: SECTION_MORE },
+  { to: '/staff/support', label: 'تیکت‌های پشتیبانی', short: 'تیکت‌ها', icon: <Headset className="size-5" />, permission: 'support.view', section: SECTION_MORE },
+  { to: '/staff/shifts', label: 'شیفت و حضور', short: 'شیفت', icon: <CalendarClock className="size-5" />, section: SECTION_MORE },
   { to: '/staff/finance', label: 'درآمد، عملکرد و تسویه', icon: <Receipt className="size-5" />, section: SECTION_MORE },
+  { to: '/staff/performance', label: 'عملکرد من', short: 'عملکرد', icon: <BarChart3 className="size-5" />, section: SECTION_MORE },
+  { to: '/staff/blog', label: 'بلاگ و تولید محتوا', short: 'بلاگ', icon: <Newspaper className="size-5" />, permission: 'blog.view', section: SECTION_MORE },
 ];
 
 const accountantNav: NavItem[] = [
-  { to: '/staff/accounting', label: 'حسابداری دفتر', icon: <Wallet className="size-5" />, permission: 'invoices.view', section: SECTION_SYSTEM },
-  { to: '/staff/reports', label: 'گزارش‌های مالی', icon: <BarChart3 className="size-5" />, permission: 'reports.view', section: SECTION_SYSTEM },
-  { to: '/staff/payroll', label: 'حقوق و تسویه کارکنان', icon: <Receipt className="size-5" />, permission: 'payroll.view', section: SECTION_SYSTEM },
+  { to: '/staff/accounting', label: 'حسابداری دفتر', short: 'حسابداری', icon: <Wallet className="size-5" />, permission: 'invoices.view', section: SECTION_SYSTEM },
+  { to: '/staff/reports', label: 'گزارش‌های مالی', short: 'گزارش‌ها', icon: <BarChart3 className="size-5" />, permission: 'reports.view', section: SECTION_SYSTEM },
+  { to: '/staff/payroll', label: 'حقوق و تسویه کارکنان', short: 'حقوق', icon: <Receipt className="size-5" />, permission: 'payroll.view', section: SECTION_SYSTEM },
+  { to: '/staff/referrals', label: 'کمپین‌های دعوت', icon: <Users className="size-5" />, permission: 'discounts.view', section: SECTION_SYSTEM },
+  { to: '/staff/discounts', label: 'کدهای تخفیف', short: 'تخفیف', icon: <TicketPercent className="size-5" />, permission: 'discounts.view', section: SECTION_SYSTEM },
 ];
 
 const adminNav: NavItem[] = [
-  { to: '/admin/automation', label: 'کارتابل تأیید و ارجاع', icon: <ClipboardCheck className="size-5" />, permission: 'requests.view', section: SECTION_OPS },
-  { to: '/admin', label: 'داشبورد مدیریت', icon: <LayoutDashboard className="size-5" />, end: true, section: SECTION_OPS },
+  { to: '/admin/automation', label: 'کارتابل تأیید و ارجاع', short: 'کارتابل', icon: <ClipboardCheck className="size-5" />, permission: 'requests.view', section: SECTION_OPS },
+  { to: '/admin', label: 'داشبورد مدیریت', short: 'داشبورد', icon: <LayoutDashboard className="size-5" />, end: true, section: SECTION_OPS },
   { to: '/admin/requests', label: 'درخواست‌ها', icon: <ClipboardList className="size-5" />, permission: 'requests.view', section: SECTION_OPS },
-  { to: '/admin/services', label: 'خدمات و دسته‌ها', icon: <Shapes className="size-5" />, permission: 'services.view', section: SECTION_MANAGE },
+  { to: '/admin/services', label: 'خدمات و دسته‌ها', short: 'خدمات', icon: <Shapes className="size-5" />, permission: 'services.view', section: SECTION_MANAGE },
+  { to: '/admin/blog', label: 'بلاگ و تولید محتوا', short: 'بلاگ', icon: <Newspaper className="size-5" />, permission: 'blog.view', section: SECTION_MANAGE },
   { to: '/admin/customers', label: 'مشتریان', icon: <Users className="size-5" />, permission: 'customers.view', section: SECTION_MANAGE },
-  { to: '/admin/staff', label: 'کارکنان و نقش‌ها', icon: <BadgeCheck className="size-5" />, permission: 'staff.view', section: SECTION_MANAGE },
-  { to: '/admin/shifts', label: 'شیفت و حضور', icon: <CalendarClock className="size-5" />, permission: 'shifts.view', section: SECTION_MANAGE },
+  { to: '/admin/staff', label: 'کارکنان و نقش‌ها', short: 'کارکنان', icon: <BadgeCheck className="size-5" />, permission: 'staff.view', section: SECTION_MANAGE },
+  { to: '/admin/shifts', label: 'شیفت و حضور', short: 'شیفت', icon: <CalendarClock className="size-5" />, permission: 'shifts.view', section: SECTION_MANAGE },
   { to: '/admin/messages', label: 'گفت‌وگوها', icon: <MessageSquare className="size-5" />, permission: 'messages.view', section: SECTION_MANAGE },
+  { to: '/admin/support', label: 'پشتیبانی و تیکت‌ها', short: 'پشتیبانی', icon: <Headset className="size-5" />, permission: 'support.view', section: SECTION_MANAGE },
   { to: '/admin/finance', label: 'حسابداری', icon: <Wallet className="size-5" />, permission: 'invoices.view', section: SECTION_SYSTEM },
-  { to: '/admin/wallet', label: 'کیف پول مشتریان', icon: <Wallet className="size-5" />, permission: 'wallet.view', section: SECTION_SYSTEM },
-  { to: '/admin/monitoring', label: 'مرکز پایش', icon: <Activity className="size-5" />, permission: 'monitoring.view', section: SECTION_SYSTEM },
-  { to: '/admin/payroll', label: 'حقوق و تسویه کارکنان', icon: <Users className="size-5" />, permission: 'payroll.view', section: SECTION_SYSTEM },
+  { to: '/admin/wallet', label: 'کیف پول مشتریان', short: 'کیف پول', icon: <Wallet className="size-5" />, permission: 'wallet.view', section: SECTION_SYSTEM },
+  { to: '/admin/referrals', label: 'کمپین‌های دعوت', icon: <Users className="size-5" />, permission: 'discounts.view', section: SECTION_SYSTEM },
+  { to: '/admin/discounts', label: 'کدهای تخفیف', short: 'تخفیف', icon: <TicketPercent className="size-5" />, permission: 'discounts.view', section: SECTION_SYSTEM },
+  { to: '/admin/monitoring', label: 'مرکز پایش', short: 'پایش', icon: <Activity className="size-5" />, permission: 'monitoring.view', section: SECTION_SYSTEM },
+  { to: '/admin/payroll', label: 'حقوق و تسویه کارکنان', short: 'حقوق', icon: <Users className="size-5" />, permission: 'payroll.view', section: SECTION_SYSTEM },
   { to: '/admin/reports', label: 'گزارش‌ها', icon: <BarChart3 className="size-5" />, permission: 'reports.view', section: SECTION_SYSTEM },
-  { to: '/admin/settings', label: 'تنظیمات سامانه', icon: <Settings className="size-5" />, permission: 'settings.view', section: SECTION_SYSTEM },
+  { to: '/admin/android-app', label: 'اپ اندروید', short: 'اپ', icon: <Smartphone className="size-5" />, permission: 'app.manage', section: SECTION_SYSTEM },
+  { to: '/admin/settings', label: 'تنظیمات سامانه', short: 'تنظیمات', icon: <Settings className="size-5" />, permission: 'settings.view', section: SECTION_SYSTEM },
   { to: '/admin/system', label: 'زیرساخت', icon: <ServerCog className="size-5" />, permission: 'system.view', section: SECTION_SYSTEM },
-  { to: '/admin/audit', label: 'تاریخچه عملیات', icon: <ShieldCheck className="size-5" />, permission: 'audit.view', section: SECTION_SYSTEM },
+  { to: '/admin/audit', label: 'تاریخچه عملیات', short: 'تاریخچه', icon: <ShieldCheck className="size-5" />, permission: 'audit.view', section: SECTION_SYSTEM },
 ];
 
 export function navFor(kind: string) {
@@ -97,37 +115,51 @@ function groupNav(items: NavItem[]): { section: string; items: NavItem[] }[] {
   return groups;
 }
 
-function BrandMark({ compact = false }: { compact?: boolean }) {
+/** Live clock + Jalali date pill in the staff/admin topbar (design mock). */
+function NowPill() {
+  const [now, setNow] = useState(() => new Date());
+  useEffect(() => {
+    const timer = setInterval(() => setNow(new Date()), 30_000);
+    return () => clearInterval(timer);
+  }, []);
+  const time = new Intl.DateTimeFormat('fa-IR', { hour: '2-digit', minute: '2-digit' }).format(now);
+  const date = new Intl.DateTimeFormat('fa-IR', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' }).format(now);
   return (
-    <span
-      className={clsx(
-        'relative grid place-items-center overflow-hidden rounded-2xl bg-gradient-to-br from-brand-500 via-brand-700 to-shell font-black text-white shadow-lg shadow-primary/30',
-        compact ? 'size-9 text-sm' : 'size-10 text-base',
-      )}
-      aria-hidden="true"
-    >
-      <span className="absolute inset-0 bg-[radial-gradient(circle_at_30%_20%,rgba(255,255,255,.45),transparent_60%)]" />
-      <span className="relative">پ</span>
-    </span>
+    <div className="hidden shrink-0 items-center gap-3 rounded-full border border-line bg-surface px-3.5 py-1.5 text-xs text-navy-600 shadow-xs xl:flex" aria-label="ساعت و تاریخ امروز">
+      <span className="flex items-center gap-1.5 font-bold text-navy-800"><Clock3 className="size-4 text-accent" /> {time}</span>
+      <span className="h-4 w-px bg-line" aria-hidden="true" />
+      <span className="flex items-center gap-1.5"><CalendarDays className="size-4 text-accent" /> {date}</span>
+    </div>
   );
 }
 
 export function AppShell({ children, variant }: { children: ReactNode; variant: 'customer' | 'staff' | 'admin' }) {
   const { user, logout, can } = useAuth();
+  const brand = useBrand();
+  const { site } = useSite();
+  const [headerQuery, setHeaderQuery] = useState('');
+  const { notify } = useToast();
   const navigate = useNavigate();
   const location = useLocation();
   const [open, setOpen] = useState(false);
   const [notificationsOpen, setNotificationsOpen] = useState(false);
   const [accountOpen, setAccountOpen] = useState(false);
+  const [searchOpen, setSearchOpen] = useState(false);
   const [notifications, setNotifications] = useState<any[]>([]);
   const [unread, setUnread] = useState(0);
+  const knownNotificationIds = useRef<Set<string> | null>(null);
 
   const nav = useMemo(() => {
     const list = navFor(user?.kind === 'admin' ? 'admin' : variant === 'customer' ? 'customer' : 'staff');
-    return user?.roleCode === 'accountant'
+    const base = user?.roleCode === 'accountant'
       ? [...accountantNav, ...staffNav.filter((n) => !['/staff/custom-services', '/staff/queue'].includes(n.to))]
       : list;
-  }, [variant, user?.kind, user?.roleCode]);
+    // The money page is named by the server-decided contract: percentage
+    // employees get income wording, fixed-salary employees get salary wording.
+    return base.map((item) => item.to === '/staff/finance'
+      ? { ...item, label: user?.cooperationType === 'commission' ? 'درآمد و کمیسیون من' : 'اطلاعات مالی و حقوق', short: user?.cooperationType === 'commission' ? 'درآمد من' : 'حقوق من' }
+      : item);
+  }, [variant, user?.kind, user?.roleCode, user?.cooperationType]);
   const visibleNav = nav.filter((item) => !item.permission || can(item.permission));
   const groups = useMemo(() => groupNav(visibleNav), [visibleNav]);
   const activeItem = useMemo(() => {
@@ -141,24 +173,56 @@ export function AppShell({ children, variant }: { children: ReactNode; variant: 
     setOpen(false);
     setNotificationsOpen(false);
     setAccountOpen(false);
+    setSearchOpen(false);
   }, [location.pathname]);
 
   useEffect(() => {
     let active = true;
     const load = async () => {
       try {
-        const res = await api.list<any>('/api/customers/me/notifications?limit=8');
+        const res = await api.list<any>('/api/customers/me/notifications?limit=30');
         if (!active) return;
         setNotifications(res.data);
         setUnread(Number((res as any).meta?.unread ?? 0));
+        // Toast anything that arrived since the last poll so the user hears
+        // about it even without opening the bell. First load only seeds.
+        const known = knownNotificationIds.current;
+        const fresh = res.data.filter((n: any) => !n.readAt && (!known || !known.has(n.id)));
+        if (known && fresh.length > 0 && !document.hidden) {
+          const latest = fresh[0];
+          notify(
+            fresh.length > 1
+              ? `${faNum(fresh.length)} اعلان تازه: ${latest.title}`
+              : `${latest.title}${latest.body ? ` — ${latest.body}` : ''}`.slice(0, 140),
+            latest.kind === 'error' ? 'error' : latest.kind === 'success' ? 'success' : 'info',
+          );
+        }
+        knownNotificationIds.current = new Set(res.data.map((n: any) => n.id));
       } catch {
         /* notifications are non-critical */
       }
     };
     void load();
-    const timer = setInterval(load, 60_000);
+    const timer = setInterval(load, 25_000);
     return () => { active = false; clearInterval(timer); };
-  }, [location.pathname]);
+  }, [location.pathname, notify]);
+
+  /** Clicking a notice marks exactly that one read (badge follows at once)
+      and routes chat pointers into the floating chat instead of a page. */
+  const openNotification = (n: any, event: React.MouseEvent) => {
+    if (!n.readAt) {
+      void api.post('/api/customers/me/notifications/read', { id: n.id }).catch(() => undefined);
+      setUnread((value) => Math.max(0, value - 1));
+      setNotifications((prev) => prev.map((item) => (item.id === n.id ? { ...item, readAt: new Date().toISOString() } : item)));
+    }
+    if (typeof n.link === 'string' && n.link.startsWith('chat:')) {
+      event.preventDefault();
+      setNotificationsOpen(false);
+      window.dispatchEvent(new CustomEvent('pishkan:open-chat', { detail: { ticketId: n.link.slice(5) } }));
+    } else {
+      setNotificationsOpen(false);
+    }
+  };
 
   const markAllRead = async () => {
     await api.post('/api/customers/me/notifications/read', {});
@@ -168,6 +232,34 @@ export function AppShell({ children, variant }: { children: ReactNode; variant: 
 
   const brandHome = homeFor(user);
   const roleLabel = user?.roleName ?? (variant === 'customer' ? 'پنل مشتریان' : 'پنل کارکنان');
+  // Mobile dock: first four destinations, but the page you are on always
+  // earns a seat (e.g. the blog for a content manager, whose nav is long).
+  const dockBase = visibleNav.filter((n) => !n.to.includes('/assistant'));
+  // The phone dock mirrors the approved mock: home, requests, services (or
+  // the work queue), money — then fills any gap from the sidebar order.
+  // Whatever page is open always keeps a seat.
+  const dockPreferred = variant === 'customer'
+    ? ['/app', '/app/requests', '/app/services', '/app/wallet']
+    : variant === 'admin'
+      ? ['/admin', '/admin/requests', '/admin/services', '/admin/wallet']
+      : ['/staff', '/staff/requests', '/staff/automation', '/staff/finance', '/staff/blog'];
+  const dockPicked = dockPreferred
+    .map((to) => dockBase.find((n) => n.to === to))
+    .filter((n): n is NavItem => Boolean(n));
+  for (const item of dockBase) {
+    if (dockPicked.length >= 4) break;
+    if (!dockPicked.some((n) => n.to === item.to)) dockPicked.push(item);
+  }
+  const dockItems = activeItem && !activeItem.to.includes('/assistant') && !dockPicked.slice(0, 4).some((n) => n.to === activeItem.to)
+    ? [...dockPicked.slice(0, 3), activeItem]
+    : dockPicked.slice(0, 4);
+
+  const submitHeaderSearch = (event: React.FormEvent) => {
+    event.preventDefault();
+    const target = user?.kind === 'customer' ? '/app/services' : '/services';
+    setSearchOpen(false);
+    navigate(headerQuery.trim() ? `${target}?q=${encodeURIComponent(headerQuery.trim())}` : target);
+  };
 
   return (
     <div className="min-h-dvh lg:flex">
@@ -181,28 +273,27 @@ export function AppShell({ children, variant }: { children: ReactNode; variant: 
       {/* Sidebar */}
       <aside
         className={clsx(
-          'app-sidebar fixed inset-y-0 right-0 z-40 flex w-[17.5rem] shrink-0 flex-col text-shell-fg shadow-2xl transition-transform duration-300 lg:sticky lg:top-0 lg:h-dvh lg:translate-x-0 lg:shadow-none',
+          'app-sidebar fixed inset-y-0 right-0 z-40 flex w-[min(17.5rem,86vw)] shrink-0 flex-col text-shell-fg shadow-2xl transition-transform duration-300 lg:sticky lg:top-0 lg:h-dvh lg:translate-x-0 lg:shadow-none',
           open ? 'translate-x-0' : 'translate-x-full',
         )}
         aria-label="منوی اصلی"
       >
-        <div className="flex items-center justify-between gap-3 px-4 py-5">
-          <Link to={brandHome} className="group flex min-w-0 items-center gap-3 rounded-xl p-1 transition hover:bg-white/5">
-            <BrandMark />
-            <span className="min-w-0">
-              <span className="block truncate text-sm font-bold">دفتر پیشخوان</span>
-              <span className="mt-0.5 block truncate text-[11px] text-shell-muted">{roleLabel}</span>
-            </span>
+        <div aria-hidden="true" className="pointer-events-none absolute -top-20 -right-16 size-56 rounded-full bg-brand-500/15 blur-3xl" />
+        <div aria-hidden="true" className="pointer-events-none absolute -bottom-28 -left-20 size-72 rounded-full border-[16px] border-brand-400/10" />
+        <div aria-hidden="true" className="pointer-events-none absolute -bottom-16 -left-10 size-48 rounded-full border-[10px] border-sky-400/10" />
+        <div className="relative flex items-center justify-between gap-3 px-4 py-5">
+          <Link to={brandHome} className="group flex min-w-0 items-center gap-3 rounded-2xl p-1 transition hover:bg-white/5">
+            <BrandLockup tone="light" subtitle={variant === 'customer' ? undefined : roleLabel} />
           </Link>
           <button className="icon-btn text-shell-muted hover:bg-white/10 hover:text-shell-fg lg:hidden" onClick={() => setOpen(false)} aria-label="بستن منو">
             <X className="size-5" />
           </button>
         </div>
 
-        <nav className="flex-1 space-y-0.5 overflow-y-auto px-3 pb-4 scrollbar-thin">
+        <nav className="relative flex-1 space-y-0.5 overflow-y-auto px-3 pb-4 scrollbar-thin">
           {groups.map((group, index) => (
             <div key={group.section} className={index === 0 ? '' : 'pt-1'}>
-              <p className="nav-group-label">{group.section}</p>
+              {variant !== 'customer' && <p className="nav-group-label">{group.section}</p>}
               <div className="space-y-1">
                 {group.items.map((item) => (
                   <NavLink
@@ -230,6 +321,50 @@ export function AppShell({ children, variant }: { children: ReactNode; variant: 
             </div>
           ))}
         </nav>
+
+        {(
+          <div className="relative px-3 pb-3">
+            <div className="group relative overflow-hidden rounded-3xl border border-white/10 bg-white/5">
+              <div className="perspective-1200">
+                <img
+                  src={brand.mascot}
+                  alt="ربات پشتیبانی هوشمند"
+                  loading="lazy"
+                  className="h-40 w-full object-cover object-[50%_18%] transition duration-700 ease-out group-hover:scale-[1.06] group-hover:-rotate-1"
+                />
+              </div>
+              <div aria-hidden="true" className="absolute inset-x-0 top-16 bottom-0 bg-gradient-to-t from-shell via-shell/72 to-transparent" />
+              <div className="relative -mt-12 p-3.5">
+                <p className="text-sm font-black text-white">
+                  {variant === 'customer' ? 'ربات پشتیبانی هوشمند' : variant === 'admin' ? brand.name : 'پشتیبانی آنلاین'}
+                </p>
+                <p className="mt-0.5 text-[11px] text-white/65">
+                  {variant === 'customer'
+                    ? 'همیشه در کنار شما؛ سؤال دارید؟ همین حالا بپرسید.'
+                    : variant === 'admin'
+                      ? `سامانهٔ مدیریت یکپارچهٔ دفتر${site?.version ? ` • نسخهٔ ${faNum(site.version)}` : ''}`
+                      : 'پاسخگوی شما هستیم؛ برای راهنمایی همین حالا گفت‌وگو کنید.'}
+                </p>
+                {variant === 'admin' ? (
+                  <Link to="/admin/settings" className="btn-primary btn-sm mt-3 w-full">
+                    <Settings className="size-4" /> تنظیمات سامانه
+                  </Link>
+                ) : (
+                  <button
+                    type="button"
+                    className="btn-primary btn-sm mt-3 w-full"
+                    onClick={() => {
+                      setOpen(false);
+                      window.setTimeout(() => window.dispatchEvent(new CustomEvent('pishkan:open-chat', { detail: {} })), 60);
+                    }}
+                  >
+                    <BotMessageSquare className="size-4" /> شروع گفت‌وگو
+                  </button>
+                )}
+              </div>
+            </div>
+          </div>
+        )}
 
         <div className="border-t border-shell-line p-3">
           <div className="rounded-2xl border border-shell-line bg-white/5 p-3">
@@ -271,27 +406,57 @@ export function AppShell({ children, variant }: { children: ReactNode; variant: 
               <Menu className="size-5" />
             </button>
 
-            <div className="hidden min-w-0 items-center gap-2 text-xs text-navy-500 sm:flex">
-              <Link to="/" className="inline-flex items-center gap-1.5 rounded-lg px-1.5 py-1 transition hover:bg-surface-3 hover:text-navy-800">
-                <Building2 className="size-4" /> صفحه اصلی
-              </Link>
-              {activeItem && (
-                <>
-                  <span className="text-navy-500">/</span>
-                  <span className="truncate font-medium text-navy-700">{activeItem.label}</span>
-                </>
-              )}
-            </div>
+            {variant !== 'customer' && (
+              <div className="hidden min-w-0 items-center gap-2 text-xs text-navy-500 sm:flex">
+                <Link to="/" className="inline-flex items-center gap-1.5 rounded-lg px-1.5 py-1 transition hover:bg-surface-3 hover:text-navy-800">
+                  <Building2 className="size-4" /> صفحه اصلی
+                </Link>
+                {activeItem && (
+                  <>
+                    <span className="text-navy-500">/</span>
+                    <span className="truncate font-medium text-navy-700">{activeItem.label}</span>
+                  </>
+                )}
+              </div>
+            )}
 
-            <div className="flex-1" />
+            {variant !== 'customer' && <><NowPill /><div className="flex-1" /></>}
 
-            <Link to={user?.kind === 'customer' ? '/app/services' : '/services'} className="btn-ghost btn-sm hidden sm:inline-flex">
-              <Search className="size-4" /> جست‌وجوی خدمات
-            </Link>
+            <form
+              className={clsx('hidden md:block', variant === 'customer' && 'order-3 min-w-0 flex-1 px-1')}
+              onSubmit={submitHeaderSearch}
+              role="search"
+            >
+              <label className={clsx(
+                'flex items-center gap-2 rounded-full border border-line bg-surface-2 px-3.5 py-2 transition focus-within:border-primary/50 focus-within:bg-surface focus-within:ring-4 focus-within:ring-primary/10',
+                variant === 'customer' ? 'mx-auto w-full max-w-xl' : 'w-56 focus-within:w-72 lg:w-64',
+              )}>
+                <Search className="size-4 shrink-0 text-navy-400" />
+                <input
+                  value={headerQuery}
+                  onChange={(event) => setHeaderQuery(event.target.value)}
+                  placeholder="جست‌جو در خدمات و پرونده‌ها…"
+                  aria-label="جست‌وجوی خدمات"
+                  className="min-w-0 flex-1 bg-transparent text-xs text-navy-900 outline-none placeholder:text-navy-400"
+                />
+              </label>
+            </form>
 
-            <ThemeToggle />
+            <button
+              type="button"
+              className={clsx('icon-btn shrink-0 md:hidden', variant === 'customer' && 'order-3')}
+              onClick={() => setSearchOpen((v) => !v)}
+              aria-label="جست‌وجو"
+              aria-expanded={searchOpen}
+            >
+              <Search className="size-5" />
+            </button>
 
-            <div className="relative">
+            {variant === 'customer'
+              ? <ThemeSegmented className="order-4 hidden shrink-0 sm:flex" />
+              : <ThemeToggle />}
+
+            <div className={clsx('relative', variant === 'customer' && 'order-2 shrink-0')}>
               <button
                 type="button"
                 onClick={() => { setNotificationsOpen((v) => !v); setAccountOpen(false); }}
@@ -308,7 +473,7 @@ export function AppShell({ children, variant }: { children: ReactNode; variant: 
               </button>
 
               {notificationsOpen && (
-                <div className="animate-pop absolute left-0 top-12 w-[21rem] overflow-hidden rounded-2xl border border-line bg-surface shadow-2xl">
+                <div className="animate-pop absolute left-0 top-12 w-[min(21rem,calc(100vw-1.5rem))] overflow-hidden rounded-2xl border border-line bg-surface shadow-2xl">
                   <div className="flex items-center justify-between border-b border-line px-4 py-3">
                     <span className="text-sm font-semibold text-navy-900">اعلان‌ها</span>
                     {unread > 0 && <button className="text-xs font-medium text-accent hover:underline" onClick={markAllRead}>خواندن همه</button>}
@@ -318,7 +483,8 @@ export function AppShell({ children, variant }: { children: ReactNode; variant: 
                     {notifications.map((n) => (
                       <Link
                         key={n.id}
-                        to={n.link ?? '#'}
+                        to={n.link && !String(n.link).startsWith('chat:') ? n.link : '#'}
+                        onClick={(event) => openNotification(n, event)}
                         className={clsx('block border-b border-line px-4 py-3 transition last:border-0 hover:bg-surface-3', !n.readAt && 'bg-brand-50/70')}
                       >
                         <p className="text-sm font-medium text-navy-900">{n.title}</p>
@@ -331,23 +497,26 @@ export function AppShell({ children, variant }: { children: ReactNode; variant: 
               )}
             </div>
 
-            <div className="relative">
+            <div className={clsx('relative', variant === 'customer' && 'order-1 shrink-0')}>
               <button
                 type="button"
                 onClick={() => { setAccountOpen((v) => !v); setNotificationsOpen(false); }}
-                className="flex items-center gap-2 rounded-xl border border-line bg-surface py-1.5 pr-1.5 pl-2.5 text-right shadow-xs transition hover:bg-surface-3"
+                className="flex items-center gap-2 rounded-full border border-line bg-surface py-1.5 pr-1.5 pl-2.5 text-right shadow-xs transition hover:bg-surface-3"
                 aria-label="حساب کاربری"
                 aria-expanded={accountOpen}
               >
-                <span className="grid size-7 place-items-center rounded-lg bg-gradient-to-br from-brand-600 to-shell text-xs font-bold text-white">
+                <span className="grid size-8 place-items-center rounded-full bg-gradient-to-br from-brand-500 via-brand-700 to-shell text-xs font-bold text-white shadow-md shadow-brand-600/25">
                   {user?.fullName?.slice(0, 1) ?? '؟'}
                 </span>
-                <span className="hidden max-w-28 truncate text-xs font-medium text-navy-800 sm:block">{user?.fullName}</span>
+                <span className="leading-tight">
+                  <span className="block max-w-20 truncate text-xs font-bold text-navy-900 sm:max-w-32">{user?.fullName}</span>
+                  <span className="block text-[10px] text-navy-400">{variant === 'customer' ? 'مشتری گرامی' : (user?.roleName ?? 'کارمند دفتر')}</span>
+                </span>
                 <ChevronDown className="size-3.5 text-navy-400" />
               </button>
 
               {accountOpen && (
-                <div className="animate-pop absolute left-0 top-12 w-64 overflow-hidden rounded-2xl border border-line bg-surface p-2 shadow-2xl">
+                <div className="animate-pop absolute left-0 top-14 w-[min(16rem,calc(100vw-1.5rem))] overflow-hidden rounded-2xl border border-line bg-surface p-2 shadow-2xl">
                   <div className="rounded-xl bg-surface-2 px-3 py-2">
                     <p className="truncate text-sm font-semibold text-navy-900">{user?.fullName}</p>
                     <p className="mt-0.5 truncate text-[11px] text-navy-500">{roleLabel}</p>
@@ -369,39 +538,68 @@ export function AppShell({ children, variant }: { children: ReactNode; variant: 
                 </div>
               )}
             </div>
+
+            {variant === 'customer' && (
+              <button
+                type="button"
+                onClick={async () => { await logout(); navigate('/'); }}
+                className="btn-ghost btn-sm order-5 hidden shrink-0 md:inline-flex"
+              >
+                <LogOut className="size-4 -scale-x-100" /> خروج
+              </button>
+            )}
           </div>
+
+          {searchOpen && (
+            <form className="animate-pop border-t border-line px-4 py-2.5 md:hidden" onSubmit={submitHeaderSearch} role="search">
+              <label className="flex items-center gap-2 rounded-full border border-line bg-surface-2 px-3.5 py-2 transition focus-within:border-primary/50 focus-within:bg-surface focus-within:ring-4 focus-within:ring-primary/10">
+                <Search className="size-4 shrink-0 text-navy-400" />
+                <input
+                  autoFocus
+                  value={headerQuery}
+                  onChange={(event) => setHeaderQuery(event.target.value)}
+                  placeholder="جست‌جو در خدمات و پرونده‌ها…"
+                  aria-label="جست‌وجوی خدمات"
+                  className="min-w-0 flex-1 bg-transparent text-sm text-navy-900 outline-none placeholder:text-navy-400"
+                />
+              </label>
+            </form>
+          )}
         </header>
 
         <main id="main-content" className="app-content mx-auto w-full max-w-7xl flex-1 px-4 py-6 pb-28 sm:px-6 lg:py-8 lg:pb-10">{children}</main>
 
         <nav aria-label="دسترسی سریع موبایل" className="mobile-dock fixed inset-x-0 bottom-0 z-20 flex justify-around border-t border-line px-2 pt-1 pb-[env(safe-area-inset-bottom)] backdrop-blur-md lg:hidden">
-          {visibleNav.filter((n) => !n.to.includes('/assistant')).slice(0, 4).map((item) => (
+          {dockItems.map((item) => (
             <NavLink
               key={item.to}
               to={item.to}
               end={item.end}
               className={({ isActive }) => clsx(
-                'relative flex min-h-16 min-w-14 flex-col items-center justify-center gap-1 rounded-xl px-2 text-[10px] transition',
-                isActive ? 'font-bold text-accent' : 'text-navy-500 hover:text-navy-800',
+                'relative flex min-h-14 min-w-14 flex-col items-center justify-center gap-1 rounded-2xl px-2 py-1.5 text-[10px] transition',
+                isActive ? 'bg-primary-soft font-bold text-accent shadow-inner' : 'text-navy-500 hover:text-navy-800',
               )}
             >
               {({ isActive }) => (
                 <>
                   <span aria-hidden="true" className={clsx('absolute top-0 h-0.5 w-6 rounded-full bg-brand-700 transition-opacity', isActive ? 'opacity-100' : 'opacity-0')} />
                   {item.icon}
-                  <span>{item.label}</span>
+                  <span className="max-w-[4.4rem] truncate">{item.short ?? item.label}</span>
                 </>
               )}
             </NavLink>
           ))}
           <button onClick={() => setOpen(true)} className="flex min-w-14 flex-col items-center justify-center gap-1 rounded-xl px-2 text-[10px] text-navy-500 transition hover:text-navy-800">
-            <Menu className="size-5" /> همه بخش‌ها
+            <Menu className="size-5" /> منو
           </button>
         </nav>
 
-        <footer className="border-t border-line px-6 py-4 text-center text-xs text-navy-400">
-          سامانه جامع دفتر پیشخوان دولت — نسخه {import.meta.env.VITE_APP_VERSION ?? '1.2.0'}
+        <footer className="border-t border-line px-6 pt-4 pb-24 text-center text-xs text-navy-400 lg:pb-4">
+          {brand.name} — نسخه {import.meta.env.VITE_APP_VERSION ?? '1.4.0'}
         </footer>
+
+        <NotificationGate kind={variant} />
+        <ChatWidget />
       </div>
     </div>
   );
@@ -448,18 +646,21 @@ export function PageHeader({ title, description, actions, backTo, eyebrow }: {
   title: string; description?: string; actions?: ReactNode; backTo?: string; eyebrow?: string;
 }) {
   return (
-    <div className="mb-6 flex flex-wrap items-start justify-between gap-4">
-      <div className="min-w-0">
-        {backTo && (
-          <Link to={backTo} className="mb-2 inline-flex items-center gap-1 text-xs text-navy-500 transition hover:text-navy-800">
-            <ArrowLeft className="size-3.5 rotate-180" /> بازگشت
-          </Link>
-        )}
-        {eyebrow && <p className="mb-1 text-[11px] font-semibold tracking-wide text-accent">{eyebrow}</p>}
-        <h1 className="text-2xl font-bold tracking-tight text-navy-900">{title}</h1>
-        {description && <p className="mt-1.5 max-w-2xl text-sm leading-relaxed text-navy-500">{description}</p>}
+    <div className="relative mb-6 overflow-hidden rounded-[1.4rem] border border-navy-900/5 bg-gradient-to-l from-brand-50 via-surface to-surface p-5 shadow-soft sm:p-6">
+      <div aria-hidden="true" className="pointer-events-none absolute -left-14 -top-16 size-44 rounded-full bg-brand-200/25 blur-3xl" />
+      <div className="relative flex flex-wrap items-start justify-between gap-4">
+        <div className="min-w-0">
+          {backTo && (
+            <Link to={backTo} className="mb-2 inline-flex items-center gap-1 text-xs text-navy-500 transition hover:text-navy-800">
+              <ArrowLeft className="size-3.5 rotate-180" /> بازگشت
+            </Link>
+          )}
+          {eyebrow && <p className="mb-1 text-[11px] font-semibold tracking-wide text-accent">{eyebrow}</p>}
+          <h1 className="text-2xl font-black tracking-tight text-navy-900">{title}</h1>
+          {description && <p className="mt-1.5 max-w-2xl text-sm leading-relaxed text-navy-500">{description}</p>}
+        </div>
+        {actions && <div className="flex flex-wrap items-center gap-2">{actions}</div>}
       </div>
-      {actions && <div className="flex flex-wrap items-center gap-2">{actions}</div>}
     </div>
   );
 }
@@ -472,7 +673,10 @@ export function RequireRole({ kinds, children, permission, office = false }: { k
 
   useEffect(() => {
     if (loading) return;
-    if (!user) navigate('/login', { replace: true });
+    if (!user) {
+      const door = kinds.includes('customer') ? '/login' : '/login-admin';
+      navigate(`${door}?next=${encodeURIComponent(location.pathname)}`, { replace: true });
+    }
     else if (!kinds.includes(user.kind)) navigate(homeFor(user), { replace: true });
     else if (user.kind === 'customer' && user.profileState?.complete === false && location.pathname !== '/app/profile') navigate('/app/profile', { replace: true });
   }, [user, loading, kinds, navigate, location.pathname]);

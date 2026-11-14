@@ -214,7 +214,16 @@ async function removeBackupFiles(backup: BackupRow): Promise<void> {
 async function pruneOldBackups(): Promise<void> {
   const retention = await getNumber('backup.retention_days');
   const cutoff = new Date(Date.now() - retention * 86_400_000).toISOString();
-  const old = await q<BackupRow>('SELECT * FROM backups WHERE created_at < ?', [cutoff]);
+  // Safety floor: when backups are taken rarely, a pure age-based prune could
+  // delete *every* copy (e.g. retention 7 days + monthly backups). Always keep
+  // the newest N healthy backups regardless of age.
+  const minKeep = Math.max(1, Math.round(await getNumber('backup.retention_min_count').catch(() => 3)) || 3);
+  const protectedRows = await q<{ id: string }>(
+    "SELECT id FROM backups WHERE status = 'ok' ORDER BY created_at DESC LIMIT ?", [minKeep],
+  );
+  const protectedIds = new Set(protectedRows.map((row) => row.id));
+  const old = (await q<BackupRow>('SELECT * FROM backups WHERE created_at < ?', [cutoff]))
+    .filter((backup) => !protectedIds.has(backup.id));
   for (const backup of old) {
     try {
       await removeBackupFiles(backup);
@@ -315,18 +324,66 @@ export async function lastBackup(): Promise<BackupRow | null> {
 export async function backupStatus() {
   const last = await lastBackup();
   const count = await one<{ c: number }>('SELECT COUNT(*) AS c FROM backups');
+  const totals = await one<{ size: number; uploads: number; ok_count: number }>(
+    `SELECT COALESCE(SUM(size), 0) AS size, COALESCE(SUM(uploads_size), 0) AS uploads,
+            COALESCE(SUM(CASE WHEN status = 'ok' THEN 1 ELSE 0 END), 0) AS ok_count FROM backups`,
+  );
+  const lastOk = await one<BackupRow>("SELECT * FROM backups WHERE status = 'ok' ORDER BY created_at DESC LIMIT 1");
+  const enabled = await getBool('backup.enabled');
+  const lastOkAt = lastOk?.created_at ?? null;
+  const lastOkAgeHours = lastOkAt ? Math.round(((Date.now() - Date.parse(lastOkAt)) / 3_600_000) * 10) / 10 : null;
+  const { backupSchedulerState } = await import('./scheduler.js');
+  const scheduler = await backupSchedulerState().catch(() => null);
   return {
-    enabled: await getBool('backup.enabled'),
+    enabled,
     schedule: await getString('backup.schedule_cron'),
     destination: await getString('backup.destination'),
     retentionDays: await getNumber('backup.retention_days'),
+    retentionMinCount: await getNumber('backup.retention_min_count').catch(() => 3),
     includeUploads: await getBool('backup.include_uploads'),
     total: Number(count?.c ?? 0),
+    healthyCount: Number(totals?.ok_count ?? 0),
+    totalSize: Number(totals?.size ?? 0) + Number(totals?.uploads ?? 0),
+    lastBackupAt: last?.created_at ?? null,
+    lastOkAt,
+    lastOkAgeHours,
+    // With the default daily schedule, no healthy copy for >48h means the
+    // office is effectively unprotected and the panel must say so loudly.
+    overdue: enabled ? (lastOkAgeHours === null || lastOkAgeHours > 48) : false,
+    scheduler,
     last: last ? {
       id: last.id, filename: last.filename, size: Number(last.size), checksum: last.checksum,
       uploadsFilename: last.uploads_filename ?? null, uploadsSize: Number(last.uploads_size ?? 0),
       uploadsChecksum: last.uploads_checksum ?? null, status: last.status,
       complete: Boolean(last.uploads_filename && last.uploads_checksum), createdAt: last.created_at,
     } : null,
+  };
+}
+
+/** Absolute path of one stored backup part, for the audited download route. */
+export async function backupFilePath(backupId: string, part: 'db' | 'uploads'): Promise<{ path: string; filename: string }> {
+  const backup = await one<BackupRow>('SELECT * FROM backups WHERE id = ?', [backupId]);
+  if (!backup) throw notFound('نسخه پشتیبان یافت نشد.');
+  const filename = part === 'uploads' ? backup.uploads_filename : backup.filename;
+  if (!filename) throw badRequest(part === 'uploads' ? 'این نسخه آرشیو مدارک ندارد.' : 'نام فایل پایگاه داده ثبت نشده است.');
+  const file = backupPath(filename, backup.location ?? backupDir());
+  if (!fs.existsSync(file)) throw notFound('فایل نسخه پشتیبان روی سرور موجود نیست.');
+  return { path: file, filename };
+}
+
+/** Camel-case DTO so API consumers never see raw storage column names. */
+export function backupDto(row: BackupRow) {
+  return {
+    id: row.id,
+    filename: row.filename,
+    size: Number(row.size),
+    checksum: row.checksum,
+    uploadsFilename: row.uploads_filename ?? null,
+    uploadsSize: Number(row.uploads_size ?? 0),
+    uploadsChecksum: row.uploads_checksum ?? null,
+    complete: Boolean(row.uploads_filename && row.uploads_checksum),
+    status: row.status,
+    note: row.note,
+    createdAt: row.created_at,
   };
 }

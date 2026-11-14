@@ -8,7 +8,7 @@ import { ToastProvider } from '../src/components/ui';
 import { setAuthUser, fetchMock } from './setup';
 
 import { CustomerDashboard } from '../src/pages/customer/CustomerPages';
-import { StaffWorkbench } from '../src/pages/staff/StaffPages';
+import { StaffWorkbench } from '../src/pages/staff/Workbench';
 import { AdminDashboard } from '../src/pages/admin/AdminDashboard';
 import { AdminServices } from '../src/pages/admin/CatalogAdmin';
 import { SettingsCenter } from '../src/pages/admin/SettingsCenter';
@@ -78,23 +78,38 @@ afterEach(() => {
 });
 
 describe('authenticated panels render', () => {
-  it('renders the customer dashboard with stats', async () => {
+  it('renders the customer dashboard like the approved design', async () => {
     renderAs(customerUser, <CustomerDashboard />);
-    await waitFor(() => expect(screen.getByText('سلام مشتری 👋')).toBeTruthy());
-    expect(screen.getByText('پرونده‌های در جریان')).toBeTruthy();
+    await waitFor(() => expect(screen.getByText('سلام مشتری نمونه عزیز!')).toBeTruthy());
+    // sidebar, hero banner and mobile dock all expose the new-request entry
+    expect(screen.getAllByRole('link', { name: /ثبت درخواست جدید/ }).length).toBeGreaterThan(1);
+    expect(screen.getByText('دسترسی سریع به خدمات')).toBeTruthy();
+    expect(screen.getByText('کیف پول شما')).toBeTruthy();
+    expect(screen.getByText('آخرین درخواست‌های شما')).toBeTruthy();
+    expect(screen.getByText('آخرین اطلاعیه‌ها')).toBeTruthy();
   });
 
-  it('renders the staff workbench with the assignment queue', async () => {
+  it('renders the fixed-salary staff workbench in the approved design', async () => {
     renderAs({ ...adminUser, kind: 'staff', roleCode: 'service_expert', permissions: ['requests.view', 'requests.edit'] }, <StaffWorkbench />);
     await waitFor(() => expect(screen.getAllByText(/میز کار/).length).toBeGreaterThan(0));
-    await waitFor(() => expect(screen.getByText('پرونده‌های در دست من')).toBeTruthy());
+    await waitFor(() => expect(screen.getByText(/سلام .* عزیز، خوش آمدید!/)).toBeTruthy());
+    expect(screen.getByText('آخرین درخواست‌ها')).toBeTruthy();
+    expect(screen.getByText('حقوق ماه جاری')).toBeTruthy();
+    expect(screen.getByText('وضعیت حضور و غیاب')).toBeTruthy();
+    // a fixed-salary panel never carries percentage-income wording
+    expect(screen.queryByText('داشبورد درآمد و کمیسیون')).toBeNull();
+    expect(screen.queryByText(/سهم درآمد شما/)).toBeNull();
   });
 
-  it('renders the admin dashboard with finance cards', async () => {
+  it('renders the super-admin dashboard in the approved design', async () => {
     renderAs(adminUser, <AdminDashboard />);
-    await waitFor(() => expect(screen.getByRole('heading',{name:'داشبورد مدیریت'})).toBeTruthy());
-    expect(screen.getByText('پرونده‌های در جریان')).toBeTruthy();
-    expect(screen.getByText('روند ثبت درخواست (۱۴ روز)')).toBeTruthy();
+    await waitFor(() => expect(screen.getByRole('heading', { name: /خوش آمدید/ })).toBeTruthy());
+    expect(screen.getByText('درآمد کل سیستم')).toBeTruthy();
+    expect(screen.getByText('کل کاربران سیستم')).toBeTruthy();
+    expect(screen.getByText('درخواست‌های فعال')).toBeTruthy();
+    expect(screen.getByText('عملکرد سیستم')).toBeTruthy();
+    expect(screen.getByText('وضعیت کارکنان')).toBeTruthy();
+    expect(screen.getByText('وضعیت سیستم')).toBeTruthy();
   });
 
   it('renders the services catalogue admin with both acceptance flags', async () => {

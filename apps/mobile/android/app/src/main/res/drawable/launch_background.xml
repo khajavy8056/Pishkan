@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Brand gradient behind the app icon on the native launch screen, so the
+     very first frame already looks like the approved design (never a blank
+     white screen). Colors match PishkanColors.brandGradient. -->
+<layer-list xmlns:android="http://schemas.android.com/apk/res/android">
+    <item>
+        <shape android:shape="rectangle">
+            <gradient
+                android:startColor="#2E8CFF"
+                android:endColor="#1452D9"
+                android:angle="270" />
+        </shape>
+    </item>
+</layer-list>

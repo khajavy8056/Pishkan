@@ -10,9 +10,9 @@
 همان کوکی استفاده می‌شود. برای درخواست‌های هم‌مبدأ هیچ هدر اضافه‌ای لازم نیست.
 
 ```bash
-curl -c cookies.txt -X POST https://دامنه/api/auth/login \
+curl -c cookies.txt -X POST https://دامنه/api/auth/staff/login \
   -H 'content-type: application/json' \
-  -d '{"username":"admin","password":"…"}'
+  -d '{"identifier":"admin","password":"…"}'
 curl -b cookies.txt https://دامنه/api/auth/me
 ```
 
@@ -78,9 +78,11 @@ curl -b cookies.txt https://دامنه/api/auth/me
 
 | متد | مسیر | توضیح |
 | --- | --- | --- |
-| POST | `/otp/request` | `{mobile}` → ارسال کد؛ در محیط توسعه `debugCode` |
-| POST | `/otp/verify` | `{mobile, code}` → نشست |
-| POST | `/login` | `{username, password}` (کارکنان/مشتری دارای رمز) |
+| POST | `/otp/request` | `{mobile, kind}` → ارسال کد؛ `kind` الزامی و برای مشتری `customer` است؛ در محیط توسعه `debugCode` |
+| POST | `/otp/verify` | `{mobile, code, kind}` → نشست |
+| POST | `/customer/login` | `{identifier, password}` — **فقط** حساب مشتری (درِ عمومی `/login`) |
+| POST | `/staff/login` | `{identifier, password}` — **فقط** کارکنان/مدیران (درِ اختصاصی `/login-admin`) |
+| POST | `/login` | مسیر قدیمی سازگار؛ بدون `audience` صریح (`customer`/`staff`) پاسخ `400` |
 | POST | `/mfa/verify` | `{challengeId, code}` مرحله دوم |
 | POST | `/register` | ثبت‌نام مشتری (اگر باز باشد) |
 | POST | `/password/reset` | بازنشانی رمز مشتری با کد پیامکی |

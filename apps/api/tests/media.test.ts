@@ -44,7 +44,7 @@ async function logoutRegister() {
     mobile: '09127770011', password: 'OtherCustomer#1234', fullName: 'مشتری دوم',
   });
   expect([200, 201, 409]).toContain(res.status);
-  const login = await request(server).post('/api/auth/login').send({ identifier: '09127770011', password: 'OtherCustomer#1234' });
+  const login = await request(server).post('/api/auth/customer/login').send({ identifier: '09127770011', password: 'OtherCustomer#1234' });
   expect(login.status).toBe(200);
   return { cookie: login.headers['set-cookie'] as unknown as string[] };
 }
@@ -434,8 +434,12 @@ describe('customer profile document archive', () => {
   }, 60_000);
 
   it('requires explicit confirmation, blocks expired documents and refuses duplicates', async () => {
+    const reuseService = await request(server).post('/api/catalog/services').set('Cookie', admin.cookie).send({
+      title: 'خدمت آرشیو مدارک', baseFee: 100000, form: [], workflow: [],
+      documents: [{ key: 'passport', title: 'گذرنامه متقاضی', required: false, documentType: 'passport' }],
+    }).expect(201);
     const createdRequest = await request(server).post('/api/requests').set('Cookie', customer.cookie)
-      .send({ serviceId, formData: {}, paymentMethod: 'online' });
+      .send({ serviceId: reuseService.body.data.id, formData: {}, paymentMethod: 'online' });
     expect(createdRequest.status).toBe(201);
     requestId = createdRequest.body.data.id;
 
@@ -446,24 +450,25 @@ describe('customer profile document archive', () => {
 
     const withoutConfirmation = await request(server).post(`/api/requests/${requestId}/documents`)
       .set('Cookie', customer.cookie)
-      .send({ customerDocumentId: profileDocumentId, confirmReuse: false });
+      .send({ customerDocumentId: profileDocumentId, confirmReuse: false, requirementKey: 'passport' });
     expect(withoutConfirmation.status).toBe(400);
     expect(withoutConfirmation.body.error.message).toContain('تأیید');
 
     const reused = await request(server).post(`/api/requests/${requestId}/documents`)
       .set('Cookie', customer.cookie)
-      .send({ customerDocumentId: profileDocumentId, confirmReuse: true });
+      .send({ customerDocumentId: profileDocumentId, confirmReuse: true, requirementKey: 'passport' });
     expect(reused.status).toBe(200);
     const attached = reused.body.data.documents.find((row: any) => row.customerDocumentId === profileDocumentId);
     expect(attached).toBeTruthy();
     expect(attached.documentType).toBe('passport');
+    expect(attached.status).toBe('approved');
     expect(attached.file.processing.status).toBe('ready');
     expect(attached.file.previewUrl).toContain('variant=preview');
     expect(attached.file.originalUrl).toContain('variant=original');
 
     const again = await request(server).post(`/api/requests/${requestId}/documents`)
       .set('Cookie', customer.cookie)
-      .send({ customerDocumentId: profileDocumentId, confirmReuse: true });
+      .send({ customerDocumentId: profileDocumentId, confirmReuse: true, requirementKey: 'passport' });
     expect(again.status).toBe(409);
 
     // An expired document can be archived (traceability) but never reused.
@@ -476,7 +481,7 @@ describe('customer profile document archive', () => {
       .send({ decision: 'approved', note: 'مدرک معتبر اما منقضی است.' }).expect(200);
     const expiredReuse = await request(server).post(`/api/requests/${requestId}/documents`)
       .set('Cookie', customer.cookie)
-      .send({ customerDocumentId: expired.body.data.id, confirmReuse: true });
+      .send({ customerDocumentId: expired.body.data.id, confirmReuse: true, requirementKey: 'passport' });
     expect(expiredReuse.status).toBe(409);
     expect(expiredReuse.body.error.message).toContain('اعتبار');
 

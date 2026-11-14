@@ -58,7 +58,7 @@ export function isSafeWindowsBindConfig(host, lanAccess) {
   return ['127.0.0.1', 'localhost', '::1'].includes(normalizedHost);
 }
 
-/** Stable, filesystem-independent name for this install's two firewall rules. */
+/** Stable, filesystem-independent base name for this install's firewall rule(s). */
 export function firewallRuleName(root) {
   const normalized = path.resolve(String(root ?? '.')).replace(/\\/g, '/').toLowerCase();
   const digest = crypto.createHash('sha256').update(normalized).digest('hex').slice(0, 16);
