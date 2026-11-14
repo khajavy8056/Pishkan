@@ -172,6 +172,52 @@ describe('test push', () => {
     // mistake for "the phone should have rung".
     expect(res.body.data.sent).toBe(0);
     expect(res.body.data.message).toBeTruthy();
+    // The message must name the actual cause (push is off), not the generic
+    // "no registered device" text — that one sends the operator to check the
+    // app when the switch is what needs turning on.
+    expect(res.body.data.message).toContain('خاموش');
+    expect(res.body.data.message).not.toContain('هیچ گوشی ثبت‌شده‌ای ندارد');
+  });
+
+  // The case the old message got wrong: a phone *is* registered, so the send is
+  // actually attempted and fails (Google rejects the key, or the network to
+  // Google is blocked). Previously every unsent outcome collapsed into "no
+  // registered device", which points the operator at the app instead of at the
+  // credential — the single most misleading thing this screen could say.
+  it('blames the credential, not the phone, when a registered device fails', async () => {
+    const me = await actor();
+    // Configure *something* so pushConfig() reports enabled, with a syntactically
+    // valid key whose signature Google will never accept.
+    const fake = JSON.stringify({
+      type: 'service_account',
+      project_id: 'test-project',
+      private_key_id: 'abc',
+      private_key: '-----BEGIN PRIVATE KEY-----\nAAAA\n-----END PRIVATE KEY-----\n',
+      client_email: 'test@test-project.iam.gserviceaccount.com',
+      token_uri: 'https://oauth2.googleapis.com/token',
+    });
+    await updateSettings(
+      { 'push.fcm_enabled': true, 'push.fcm_service_account': fake },
+      me,
+      { confirmCritical: true },
+    );
+    // Register a device for the admin so a send is genuinely attempted.
+    const registered = await request(server)
+      .post('/api/push/devices')
+      .set('Cookie', admin.cookie)
+      .send({ token: 'fake-token-for-delivery-test', platform: 'android' });
+    expect(registered.status).toBe(200);
+
+    const res = await request(server).post('/api/push/test').set('Cookie', admin.cookie).send({});
+    expect(res.status).toBe(200);
+    expect(res.body.data.sent).toBe(0);
+    // A device existed, so this is not a "no device" situation.
+    expect(res.body.data.withoutDevice).toBe(0);
+    // The exact wording the old collapsed branch produced. It is wrong here:
+    // a device exists and a send was attempted, so nothing about "no device"
+    // applies and the operator should be looking at the credential.
+    expect(res.body.data.message).not.toContain('هیچ دستگاه ثبت‌شده‌ای برای این حساب نیست');
+    expect(res.body.data.failed).toBeGreaterThan(0);
   });
 
   it('never lets the test endpoint reach somebody else’s device', async () => {

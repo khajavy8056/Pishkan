@@ -115,14 +115,26 @@ pushRouter.post('/test', asyncRoute(async (req, res) => {
     tag: `test-${Date.now()}`,
     kind: 'success',
   });
-  ok(res, {
-    ...result,
-    message: result.sent > 0
-      ? 'اعلان آزمایشی ارسال شد؛ چند ثانیه صبر کنید.'
-      : result.skipped
-        ? `ارسال نشد: ${result.skipped}`
-        : 'ارسال نشد؛ هیچ دستگاه ثبت‌شده‌ای برای این حساب نیست (یا کلید Firebase معتبر نیست).',
-  });
+  // Report the real reason. The previous message collapsed every non-sent
+  // outcome into "no registered device", which is only one of three very
+  // different problems: sending is off, the credential is rejected, or there
+  // really is no phone. Sending an operator to check the wrong thing is worse
+  // than saying nothing.
+  let message: string;
+  if (result.sent > 0) {
+    message = 'اعلان آزمایشی ارسال شد؛ چند ثانیه صبر کنید. اگر روی گوشی نیامد، بخش «اگر اعلان نرسید» در راهنما را ببینید.';
+  } else if (result.skipped) {
+    message = `ارسال نشد: ${result.skipped}`;
+  } else if (result.failed > 0) {
+    // Devices exist and the send was attempted: the failure is on the Google
+    // side (key, project, blocked network). The delivery log has the code.
+    message = 'ارسال به گوشی ناموفق بود. کلید Firebase یا دسترسی شبکه را بررسی کنید؛ کد خطا در گزارش تحویل پایین همین صفحه است.';
+  } else if (result.withoutDevice > 0) {
+    message = 'این حساب هیچ گوشی ثبت‌شده‌ای ندارد. در اپ با همین حساب وارد شوید و اجازهٔ اعلان را بدهید، سپس دوباره امتحان کنید.';
+  } else {
+    message = 'ارسال نشد؛ دلیل نامشخص است. گزارش تحویل پایین همین صفحه را ببینید.';
+  }
+  ok(res, { ...result, message });
 }));
 
 /** Delivery log, for diagnosing "it says sent but nothing arrived". */

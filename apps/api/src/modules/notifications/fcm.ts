@@ -429,12 +429,12 @@ export async function pushToUsers(
   userIds: string[],
   payload: PushPayload,
   options: { endpoint?: string } = {},
-): Promise<{ sent: number; failed: number; skipped: string }> {
+): Promise<{ sent: number; failed: number; withoutDevice: number; skipped: string }> {
   const unique = [...new Set(userIds.filter(Boolean))];
-  if (!unique.length) return { sent: 0, failed: 0, skipped: 'no-users' };
+  if (!unique.length) return { sent: 0, failed: 0, withoutDevice: 0, skipped: 'no-users' };
   const config = await pushConfig();
   if (!config.enabled || !config.account) {
-    return { sent: 0, failed: 0, skipped: config.problem || 'disabled' };
+    return { sent: 0, failed: 0, withoutDevice: 0, skipped: config.problem || 'disabled' };
   }
   const account = config.account;
   // Resolve the endpoint here, not from the caller. The operator sets it in the
@@ -445,9 +445,16 @@ export async function pushToUsers(
   const endpoint = options.endpoint || (await getString('push.fcm_endpoint').catch(() => ''));
   let sent = 0;
   let failed = 0;
+  // Users for whom there was nothing to send *to*, as opposed to a send that
+  // failed. The distinction is what lets the admin panel say "this account has
+  // no registered phone" instead of "sending failed" — two problems with
+  // completely different fixes, and guessing wrong sends the operator looking
+  // at the Firebase key when the real issue is that the app never registered.
+  let withoutDevice = 0;
   for (const userId of unique) {
     const devices = await devicesFor(userId);
     if (!devices.length) {
+      withoutDevice += 1;
       await logDelivery({ userId, notificationId: payload.notificationId, channel: 'none', ok: false, errorCode: 'NO_DEVICE' });
       continue;
     }
@@ -481,7 +488,7 @@ export async function pushToUsers(
       });
     }
   }
-  return { sent, failed, skipped: '' };
+  return { sent, failed, withoutDevice, skipped: '' };
 }
 
 /** Recent deliveries, for the admin diagnostics screen. */
