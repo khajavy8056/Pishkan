@@ -165,7 +165,31 @@ flutter run
 
 ---
 
-## ۸. خلاصهٔ یک‌خطی
+## ۸. ساخت APK در GitHub Actions
+
+هر بار که تگ `android-v*` روی شاخه push شود، گردش‌کار `.github/workflows/android.yml` سه APK (arm64، armv7، x86_64) و یک AAB می‌سازد و آن‌ها را در بخش Releases همان مخزن می‌گذارد. آخرین ساخت موفق: تگ `android-v1.20.8`.
+
+### چرا این‌قدر طول کشید (و چه چیزی درست شد)
+
+ساخت اندروید پیش از این روی هیچ شاخه‌ای بالا نمی‌آمد؛ مشکل در تنظیمات Gradle خود پروژه بود، نه در کد اپ. چهار مانع پشت سر هم:
+
+| # | خطا در لاگ | علت | راه‌حل در مخزن |
+|---|---|---|---|
+| ۱ | `Your project's Gradle version (8.14.0) is lower than Flutter's minimum supported version 9.3.1` | Flutter تازه حداقل نسخه‌ها را بالا برده | `gradle-wrapper.properties` → 9.5.1، `settings.gradle` → AGP 9.3.1 و Kotlin 2.4.20 |
+| ۲ | `Could not find method buildDir()` / `kotlinOptions` | Gradle 9 و AGP 9 این‌ها را حذف کرده‌اند | `layout.buildDirectory` و بلوک `kotlin { compilerOptions { } }` |
+| ۳ | `cannot find symbol WorkmanagerPlugin` | `workmanager` 0.9.x پلاگین Kotlin را بی‌قید اعمال می‌کند و با Kotlin داخلی AGP 9 نمی‌سازد | `workmanager: ^0.10.10` |
+| ۴ | `:file_picker:checkReleaseAarMetadata` — compiled against android-34 | `file_picker` 8.x عدد ۳۴ را دستی نوشته، ولی Flutter با API 36 می‌سازد | قید `compileSdk 36` برای همهٔ ماژول‌ها در `settings.gradle` |
+| ۵ | `NoSuchMethodError: List.removeLast()` در `lintVitalAnalyzeRelease` | lint خود AGP 9 به API جاوا ۲۱ نیاز دارد، CI روی جاوا ۱۷ است | `checkReleaseBuilds = false` برای هر ماژول |
+
+نکتهٔ مهم دربارهٔ مورد ۴: قید باید در `settings.gradle` باشد، نه در `build.gradle` ریشه. `afterEvaluate` بعد از خواندن `compileSdk` توسط AGP اجرا می‌شود و `plugins.withId` را بلوک `android { }` خود پلاگین بازنویسی می‌کند. `settings.gradle` پیش از هر اسکریپت ماژول اجرا می‌شود.
+
+### نکتهٔ امضای نسخه
+
+اگر رازهای `ANDROID_KEYSTORE_BASE64` و `ANDROID_KEYSTORE_PASSWORD` و `ANDROID_KEY_ALIAS` در تنظیمات مخزن نباشند، CI با **کلید دیباگ** امضا می‌کند و در لاگ هشدار می‌دهد. چنین APKای برای تست داخلی خوب است ولی نباید عمومی منتشر شود. برای انتشار واقعی، این سه راز را اضافه کنید.
+
+---
+
+## ۹. خلاصهٔ یک‌خطی
 
 ```
 ۱) PishkanSetup.cmd  →  تیک «دسترسی موبایل در Wi‑Fi» را بزن
