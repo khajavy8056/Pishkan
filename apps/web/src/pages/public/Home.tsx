@@ -136,6 +136,8 @@ export function HomePage() {
   const [results, setResults] = useState<Service[] | null>(null);
   const [searching, setSearching] = useState(false);
   const catRailRef = useRef<HTMLDivElement>(null);
+  const resultsRef = useRef<HTMLDivElement>(null);
+  const showResults = query.trim().length >= 2;
 
   // Pointer tokens live on the page root: the hero stage, the parallax band
   // and the phone all read `--mx`/`--my` from here instead of each running a
@@ -152,6 +154,24 @@ export function HomePage() {
   // rates as the section scrolls away, which is what makes the depth read on
   // the way out and not just on pointer hover.
   const heroScroll = useExitProgress<HTMLElement>('--hero');
+
+  // Dismiss the suggestions the way every other popover on the web does: a
+  // pointer press anywhere outside them. The text field keeps its value so the
+  // visitor can carry on typing, and Escape is handled on the input itself.
+  useEffect(() => {
+    if (!showResults) return;
+    const onPointerDown = (event: PointerEvent) => {
+      const node = resultsRef.current;
+      if (!node) return;
+      const target = event.target as Node;
+      if (!node.contains(target) && !(target instanceof Element && target.closest('form'))) {
+        setResults(null);
+        setQuery('');
+      }
+    };
+    document.addEventListener('pointerdown', onPointerDown, true);
+    return () => document.removeEventListener('pointerdown', onPointerDown, true);
+  }, [showResults]);
 
   useEffect(() => {
     if (query.trim().length < 2) { setResults(null); return; }
@@ -254,17 +274,36 @@ export function HomePage() {
                     onChange={(e) => setQuery(e.target.value)}
                     placeholder="چه خدمتی نیاز دارید؟ مثلاً: تعویض پلاک…"
                     aria-label="جست‌وجوی خدمات"
+                    role="combobox"
+                    aria-expanded={showResults}
+                    aria-controls="hero-search-results"
+                    aria-autocomplete="list"
+                    autoComplete="off"
+                    onKeyDown={(event) => {
+                      if (event.key === 'Escape') { setQuery(''); setResults(null); }
+                    }}
                     className="min-w-0 flex-1 bg-transparent py-2 text-sm text-navy-900 outline-none placeholder:text-navy-400"
                   />
                   <Button type="submit" className="rounded-full">جست‌وجو</Button>
                 </div>
-                {query.trim().length >= 2 && (
-                  <div className="animate-pop absolute inset-x-0 top-full z-30 mt-2 overflow-hidden rounded-3xl bg-surface text-navy-900 shadow-2xl ring-1 ring-line">
+                {showResults && (
+                  <div
+                    ref={resultsRef}
+                    // A listbox of links: screen readers get the count and the
+                    // open/closed state, and Escape or a click elsewhere closes
+                    // it. Previously the panel stayed open after choosing a
+                    // result and could only be dismissed by editing the text.
+                    id="hero-search-results"
+                    role="listbox"
+                    aria-label="نتایج جست‌وجوی خدمات"
+                    className="animate-pop absolute inset-x-0 top-full z-30 mt-2 overflow-hidden rounded-3xl bg-surface text-navy-900 shadow-2xl ring-1 ring-line"
+                  >
                     {searching && <p className="p-4 text-xs text-navy-500">در حال جست‌وجو…</p>}
                     {!searching && results?.length === 0 && <p className="p-4 text-xs text-navy-500">خدمتی یافت نشد. عبارت دیگری را امتحان کنید.</p>}
                     {results?.map((item) => (
-                      <Link key={item.id} to={serviceHref(item.slug)}
-                        className="flex items-center justify-between border-b border-line px-4 py-3 text-sm transition last:border-0 hover:bg-brand-50">
+                      <Link key={item.id} to={serviceHref(item.slug)} role="option" aria-selected={false}
+                        onClick={() => { setQuery(''); setResults(null); }}
+                        className="flex items-center justify-between border-b border-line px-4 py-3 text-sm transition last:border-0 hover:bg-brand-50 focus:bg-brand-50 focus:outline-none">
                         <span className="flex items-center gap-2">
                           <span className="grid size-8 place-items-center rounded-xl text-white" style={{ background: categoryBySlug.get(item.categorySlug ?? '')?.color ?? '#1d4ed8' }}>
                             <CategoryIcon name={item.icon || categoryBySlug.get(item.categorySlug ?? '')?.icon} className="size-4" />
@@ -345,7 +384,13 @@ export function HomePage() {
                 </Link>
               ))}
               {(site?.categories ?? []).length === 0 && (
-                <p className="px-2 py-6 text-sm text-navy-400">در حال بارگذاری دسته‌ها…</p>
+                // Three different situations, three different messages. Before
+                // this, a server that returned zero categories (a fresh install,
+                // or the API being down) showed "loading" forever, which reads
+                // as a broken page rather than an empty one.
+                <p className="px-2 py-6 text-sm text-navy-400">
+                  {!site ? 'در حال بارگذاری دسته‌ها…' : 'هنوز دسته‌بندی‌ای ثبت نشده است.'}
+                </p>
               )}
             </div>
           </div>
@@ -391,6 +436,26 @@ export function HomePage() {
                 </Link>
               );
             })}
+            {(site?.popularServices ?? []).length === 0 && (
+              // This section had no empty state at all: with no data — the API
+              // down, or a catalogue that has not been built yet — the heading
+              // rendered above blank space. Show placeholders while waiting and
+              // an honest line otherwise.
+              !site
+                ? Array.from({ length: 4 }).map((_, index) => (
+                    <div key={index} aria-hidden="true" className="card animate-pulse p-5">
+                      <div className="size-12 rounded-2xl bg-surface-3" />
+                      <div className="mt-3 h-3.5 w-3/4 rounded bg-surface-3" />
+                      <div className="mt-2 h-2.5 w-full rounded bg-surface-3" />
+                      <div className="mt-2 h-2.5 w-2/3 rounded bg-surface-3" />
+                    </div>
+                  ))
+                : (
+                  <p className="col-span-full rounded-2xl bg-surface-2 px-4 py-8 text-center text-sm text-navy-500">
+                    فهرست خدمات هنوز تکمیل نشده است. برای دیدن همهٔ خدمات، صفحهٔ «خدمات» را ببینید.
+                  </p>
+                )
+            )}
           </div>
         </section>
 

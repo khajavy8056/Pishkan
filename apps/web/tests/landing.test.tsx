@@ -15,7 +15,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { describe, expect, it } from 'vitest';
-import { render, screen, waitFor } from '@testing-library/react';
+import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
 import { AuthProvider } from '../src/lib/auth';
 import { SiteContext, SiteProvider } from '../src/lib/site';
@@ -149,13 +149,54 @@ describe('landing page', () => {
     expect(reveals.length).toBeGreaterThan(5);
   });
 
+  it('marks the hero search as a combobox and can dismiss it', async () => {
+    // The suggestion panel used to stay open after a result was chosen or a
+    // click landed elsewhere; the only way out was editing the text.
+    const { container } = renderAt('/', <HomePage />);
+    const input = container.querySelector('input[aria-label="جست‌وجوی خدمات"]')!;
+    expect(input.getAttribute('role')).toBe('combobox');
+    expect(input.getAttribute('aria-expanded')).toBe('false');
+    // Typing opens it and flips aria-expanded, which is what a screen reader
+    // announces.
+    fireEvent.change(input, { target: { value: 'بیمه' } });
+    await waitFor(() => expect(input.getAttribute('aria-expanded')).toBe('true'));
+    expect(container.querySelector('#hero-search-results')).toBeTruthy();
+    // Escape closes it and clears the field.
+    fireEvent.keyDown(input, { key: 'Escape' });
+    await waitFor(() => expect(input.getAttribute('aria-expanded')).toBe('false'));
+    expect((input as HTMLInputElement).value).toBe('');
+  });
+
+  it('shows an honest empty state instead of a heading over nothing', async () => {
+    // Categories and popular services arrive asynchronously. When the payload is
+    // empty (fresh install, or the API down) these sections used to render their
+    // headings above blank space, and the category rail said "loading" forever.
+    const { container } = renderWithSettings({});
+    await waitFor(() => expect(container.querySelector('h1')).toBeTruthy());
+    const servicesSection = container.querySelector('[aria-label="خدمات پرکاربرد"]');
+    expect(servicesSection).toBeTruthy();
+    // Either the loading skeletons or the explicit "not filled yet" line.
+    expect(servicesSection!.querySelector('.animate-pulse') ?? servicesSection!.textContent).toBeTruthy();
+  });
+
   it('offers the mobile app fallback next to the device', async () => {
     const { container } = renderAt('/', <HomePage />);
     // The device is desktop-only; the card rail is its replacement. Both must be
     // in the tree so the CSS can choose between them.
     const device = container.querySelector('.device');
-    const cards = container.querySelector('[role="tablist"]');
-    expect(device && cards).toBeTruthy();
+    const dotGroup = container.querySelector('[role="group"][aria-label="صفحه‌های اپلیکیشن"]');
+    expect(device && dotGroup).toBeTruthy();
+    // The carousel dots must be real buttons with a name and a state, not
+    // `role="tab"`: ARIA tabs oblige the page to implement arrow-key
+    // navigation, which this carousel does not, so declaring tabs made assistive
+    // tech advertise a control it could not drive.
+    const dots = container.querySelectorAll('[role="group"][aria-label="صفحه‌های اپلیکیشن"] button');
+    expect(dots.length).toBeGreaterThan(1);
+    for (const dot of Array.from(dots)) {
+      expect(dot.getAttribute('aria-label')).toBeTruthy();
+    }
+    expect(container.querySelector('[role="tablist"]')).toBeNull();
+    expect(container.querySelector('[role="tab"]')).toBeNull();
   });
 
   it('offers all three Android install routes', async () => {

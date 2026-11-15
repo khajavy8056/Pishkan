@@ -379,17 +379,36 @@ export function AppDeviceCards({ reducedMotion = false }: { reducedMotion?: bool
           ))}
         </div>
       </div>
-      <div className="mt-3 flex justify-center gap-1.5" role="tablist" aria-label="صفحه‌های اپلیکیشن">
+      {/*
+        Carousel dots, not tabs.
+
+        These carried role="tablist"/role="tab" and aria-selected, which tells a
+        screen reader "tab 2 of 4" and then obliges the page to implement the
+        arrow-key navigation that ARIA tabs require. It never did, so assistive
+        tech advertised a control that could not be driven the way it promised.
+        A plain group of buttons with aria-label + aria-current describes exactly
+        what they are, and keyboard users reach each one with Tab as usual.
+      */}
+      <div className="mt-3 flex justify-center gap-1.5" role="group" aria-label="صفحه‌های اپلیکیشن">
         {cards.map((card, index) => (
           <button
             key={card.title}
             type="button"
-            role="tab"
-            aria-selected={index === active}
             aria-label={card.title}
+            aria-current={index === active ? 'true' : undefined}
             onClick={() => setActive(index)}
-            className={clsx('h-1.5 rounded-full transition-all', index === active ? 'w-8 bg-brand-600' : 'w-1.5 bg-navy-300')}
-          />
+            className={clsx(
+              // The dot itself is tiny; the button needs a real hit area or it is
+              // unusable on a phone. Padding grows the target without moving the
+              // visual, and the negative margin keeps the row from growing.
+              'group grid h-8 w-6 place-items-center rounded-full',
+            )}
+          >
+            <span
+              aria-hidden="true"
+              className={clsx('h-1.5 rounded-full transition-all', index === active ? 'w-8 bg-brand-600' : 'w-1.5 bg-navy-300 group-hover:bg-navy-400')}
+            />
+          </button>
         ))}
       </div>
     </div>

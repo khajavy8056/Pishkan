@@ -1,8 +1,4 @@
-import { AutomationInbox } from './pages/shared/Automation';
-import { AdminPayroll } from './pages/admin/PayrollAdmin';
-import { StaffEarnings } from './pages/staff/Earnings';
-import { EligibleQueue } from './pages/staff/Queue';
-import { StrictMode } from 'react';
+import { StrictMode, lazy, Suspense } from 'react';
 import { createRoot } from 'react-dom/client';
 import { BrowserRouter, Navigate, Route, Routes, useLocation } from 'react-router-dom';
 import { AuthProvider, useAuth, homeFor } from './lib/auth';
@@ -17,34 +13,74 @@ import { ServiceDetailPage, ServicesPage } from './pages/public/Services';
 import {
   AssistantPage, LegalPage, LoginPage, NotFoundPage, RegisterPage, ResetPasswordPage, StaffLoginPage, StatusPage,
 } from './pages/public/Auth';
-import {
-  CustomerDashboard, CustomerInvoices, CustomerMessages, CustomerOffers, CustomerProfile,
-  CustomerRequestDetail, CustomerRequests,
-} from './pages/customer/CustomerPages';
-import { CustomerServices } from './pages/customer/ServicesPane';
-import { CustomerWallet } from './pages/customer/Wallet';
-import { CustomerDocuments } from './pages/customer/Documents';
-import {
-  RequestDetail, StaffCustomers, StaffCustomService, StaffDocuments,
-  StaffPerformance, StaffRequests, StaffShifts,
-} from './pages/staff/StaffPages';
-import { StaffWorkbench } from './pages/staff/Workbench';
-import { MessageCenter } from './pages/shared/MessageCenter';
-import { AdminDashboard } from './pages/admin/AdminDashboard';
-import { BlogAdmin, BlogEditor } from './pages/admin/BlogAdmin';
 import { BlogHome, BlogPostPage } from './pages/public/Blog';
-import { AdminServiceEditor, AdminServices } from './pages/admin/CatalogAdmin';
-import { AdminCustomers, AdminStaff } from './pages/admin/PeopleAdmin';
-import { AdminFinance, AdminReports } from './pages/admin/FinanceAdmin';
-import { AdminAudit, AdminShifts, AdminSystem } from './pages/admin/Operations';
-import { SettingsCenter } from './pages/admin/SettingsCenter';
-import { AdminWallet } from './pages/admin/WalletAdmin';
-import { AdminMonitoring } from './pages/admin/Monitoring';
-import { CustomerReferrals, InviteLanding } from './pages/customer/Referrals';
-import { AdminReferrals } from './pages/admin/Referrals';
-import { AdminDiscountsPage } from './pages/admin/Discounts';
-import { AdminAndroidApp } from './pages/admin/AndroidApp';
-import { AdminSupportPage, CustomerSupportPage, StaffSupportPage } from './pages/support/Support';
+
+
+/*
+ * Code splitting.
+ *
+ * Every page used to be imported statically, so a visitor who only wanted the
+ * landing page downloaded the whole product — admin panels, the staff
+ * workbench, the message centre — roughly 950 KB of page source, none of which
+ * they can even open without signing in. The public pages stay eager (they are
+ * one click from the landing page and are part of the first impression), and
+ * the authenticated app behind /app, /staff and /admin loads on demand.
+ *
+ * `lazy` needs a default export, and these modules export named ones, so each
+ * is a one-line re-map. Keeping the static `import type`-free shape means a
+ * typo fails at build time rather than silently at runtime.
+ */
+const lazyPage = <T extends Record<string, any>>(loader: () => Promise<T>, name: keyof T) =>
+  lazy(() => loader().then((module) => ({ default: module[name] as React.ComponentType<any> })));
+
+const CustomerDashboard = lazyPage(() => import('./pages/customer/CustomerPages'), 'CustomerDashboard');
+const CustomerInvoices = lazyPage(() => import('./pages/customer/CustomerPages'), 'CustomerInvoices');
+const CustomerMessages = lazyPage(() => import('./pages/customer/CustomerPages'), 'CustomerMessages');
+const CustomerOffers = lazyPage(() => import('./pages/customer/CustomerPages'), 'CustomerOffers');
+const CustomerProfile = lazyPage(() => import('./pages/customer/CustomerPages'), 'CustomerProfile');
+const CustomerRequestDetail = lazyPage(() => import('./pages/customer/CustomerPages'), 'CustomerRequestDetail');
+const CustomerRequests = lazyPage(() => import('./pages/customer/CustomerPages'), 'CustomerRequests');
+const CustomerServices = lazyPage(() => import('./pages/customer/ServicesPane'), 'CustomerServices');
+const CustomerWallet = lazyPage(() => import('./pages/customer/Wallet'), 'CustomerWallet');
+const CustomerDocuments = lazyPage(() => import('./pages/customer/Documents'), 'CustomerDocuments');
+const CustomerReferrals = lazyPage(() => import('./pages/customer/Referrals'), 'CustomerReferrals');
+const InviteLanding = lazyPage(() => import('./pages/customer/Referrals'), 'InviteLanding');
+const CustomerSupportPage = lazyPage(() => import('./pages/support/Support'), 'CustomerSupportPage');
+
+const RequestDetail = lazyPage(() => import('./pages/staff/StaffPages'), 'RequestDetail');
+const StaffCustomers = lazyPage(() => import('./pages/staff/StaffPages'), 'StaffCustomers');
+const StaffCustomService = lazyPage(() => import('./pages/staff/StaffPages'), 'StaffCustomService');
+const StaffDocuments = lazyPage(() => import('./pages/staff/StaffPages'), 'StaffDocuments');
+const StaffPerformance = lazyPage(() => import('./pages/staff/StaffPages'), 'StaffPerformance');
+const StaffRequests = lazyPage(() => import('./pages/staff/StaffPages'), 'StaffRequests');
+const StaffShifts = lazyPage(() => import('./pages/staff/StaffPages'), 'StaffShifts');
+const StaffWorkbench = lazyPage(() => import('./pages/staff/Workbench'), 'StaffWorkbench');
+const StaffEarnings = lazyPage(() => import('./pages/staff/Earnings'), 'StaffEarnings');
+const EligibleQueue = lazyPage(() => import('./pages/staff/Queue'), 'EligibleQueue');
+const StaffSupportPage = lazyPage(() => import('./pages/support/Support'), 'StaffSupportPage');
+const MessageCenter = lazyPage(() => import('./pages/shared/MessageCenter'), 'MessageCenter');
+const AutomationInbox = lazyPage(() => import('./pages/shared/Automation'), 'AutomationInbox');
+
+const AdminDashboard = lazyPage(() => import('./pages/admin/AdminDashboard'), 'AdminDashboard');
+const AdminPayroll = lazyPage(() => import('./pages/admin/PayrollAdmin'), 'AdminPayroll');
+const BlogAdmin = lazyPage(() => import('./pages/admin/BlogAdmin'), 'BlogAdmin');
+const BlogEditor = lazyPage(() => import('./pages/admin/BlogAdmin'), 'BlogEditor');
+const AdminServiceEditor = lazyPage(() => import('./pages/admin/CatalogAdmin'), 'AdminServiceEditor');
+const AdminServices = lazyPage(() => import('./pages/admin/CatalogAdmin'), 'AdminServices');
+const AdminCustomers = lazyPage(() => import('./pages/admin/PeopleAdmin'), 'AdminCustomers');
+const AdminStaff = lazyPage(() => import('./pages/admin/PeopleAdmin'), 'AdminStaff');
+const AdminFinance = lazyPage(() => import('./pages/admin/FinanceAdmin'), 'AdminFinance');
+const AdminReports = lazyPage(() => import('./pages/admin/FinanceAdmin'), 'AdminReports');
+const AdminAudit = lazyPage(() => import('./pages/admin/Operations'), 'AdminAudit');
+const AdminShifts = lazyPage(() => import('./pages/admin/Operations'), 'AdminShifts');
+const AdminSystem = lazyPage(() => import('./pages/admin/Operations'), 'AdminSystem');
+const SettingsCenter = lazyPage(() => import('./pages/admin/SettingsCenter'), 'SettingsCenter');
+const AdminWallet = lazyPage(() => import('./pages/admin/WalletAdmin'), 'AdminWallet');
+const AdminMonitoring = lazyPage(() => import('./pages/admin/Monitoring'), 'AdminMonitoring');
+const AdminReferrals = lazyPage(() => import('./pages/admin/Referrals'), 'AdminReferrals');
+const AdminDiscountsPage = lazyPage(() => import('./pages/admin/Discounts'), 'AdminDiscountsPage');
+const AdminAndroidApp = lazyPage(() => import('./pages/admin/AndroidApp'), 'AdminAndroidApp');
+const AdminSupportPage = lazyPage(() => import('./pages/support/Support'), 'AdminSupportPage');
 
 import './styles.css';
 
@@ -57,6 +93,23 @@ function PanelEntry() {
   const { user, loading } = useAuth();
   if (loading) return <div className="grid min-h-dvh place-items-center text-sm text-navy-500">در حال بررسی دسترسی…</div>;
   return <Navigate to={homeFor(user)} replace />;
+}
+
+/**
+ * Shown only while a lazily-imported panel is fetched. The public pages are
+ * eager, so a visitor never sees this on the landing page — it appears on the
+ * first navigation into the signed-in app, on a slow connection, instead of a
+ * blank screen.
+ */
+function RouteFallback() {
+  return (
+    <div className="grid min-h-[60vh] place-items-center px-4" role="status" aria-live="polite">
+      <div className="w-full max-w-sm space-y-3">
+        <div className="mx-auto size-10 animate-spin rounded-full border-[3px] border-line border-t-brand-600" />
+        <p className="text-center text-sm text-navy-500">در حال بارگذاری…</p>
+      </div>
+    </div>
+  );
 }
 
 function ScrollToTop() {
@@ -75,6 +128,7 @@ function App() {
         <ToastProvider>
           <BrowserRouter>
             <ScrollToTop />
+            <Suspense fallback={<RouteFallback />}>
             <Routes>
               {/* public */}
               <Route path="/" element={<HomePage />} />
@@ -162,6 +216,7 @@ function App() {
               <Route path="/dashboard" element={<Navigate to="/app" replace />} />
               <Route path="*" element={<NotFoundPage />} />
             </Routes>
+            </Suspense>
           </BrowserRouter>
         </ToastProvider>
         </SiteProvider>
