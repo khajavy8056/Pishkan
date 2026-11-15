@@ -328,11 +328,16 @@ export function HomePage() {
             <div className="relative mx-auto w-full max-w-xl lg:max-w-none">
               <HeroStage heroImage={brand.heroImage} />
 
-              {/* scroll cue */}
-              <div className="mt-6 flex justify-center lg:justify-start">
+              {/* Scroll cue. Two corrections: the icon was a mouse click while
+                  the text said "scroll", and the animated pill was `animate-bounce`
+                  which ignores prefers-reduced-motion on some engines — the
+                  stylesheet's reduced-motion block covers it, but hiding the cue
+                  there is quieter than a frozen dot. It is also hidden on phones,
+                  where the hero stage it points past is replaced by a flat card. */}
+              <div className="mt-6 hidden justify-center motion-safe:flex lg:justify-start">
                 <span className="inline-flex items-center gap-2 rounded-full bg-surface/70 px-3.5 py-1.5 text-[11px] font-semibold text-navy-500 ring-1 ring-line backdrop-blur">
                   <MousePointerClick className="size-3.5" />
-                  برای دیدن مسیر کامل، اسکرول کنید
+                  برای دیدن مسیر کامل، پایین بروید
                   <span className="relative flex h-4 w-2.5 items-start justify-center rounded-full border border-navy-300">
                     <span className="mt-0.5 size-1 animate-bounce rounded-full bg-navy-400" />
                   </span>
