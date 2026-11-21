@@ -205,7 +205,7 @@ export function AppStoreButtons({
  */
 export function AppInstallNote({ className }: { className?: string }) {
   return (
-    <p className={clsx('mt-3 flex flex-wrap items-center gap-x-4 gap-y-1 text-[11px] font-semibold text-white/55', className)}>
+    <p className={clsx('mt-3 flex flex-wrap items-center gap-x-4 gap-y-1 text-[11px] font-semibold text-white/85', className)}>
       <span className="flex items-center gap-1.5"><Check className="size-3.5 text-emerald-300" /> نصب رایگان</span>
       <span className="flex items-center gap-1.5"><Check className="size-3.5 text-emerald-300" /> بدون تبلیغات</span>
       <span className="flex items-center gap-1.5"><Store className="size-3.5 text-emerald-300" /> اندروید ۸ به بالا</span>

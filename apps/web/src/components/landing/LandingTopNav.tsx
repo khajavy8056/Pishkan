@@ -89,7 +89,7 @@ export function LandingTopNav({
         ) : null}
 
         {site?.maintenance ? (
-          <div className="pointer-events-auto flex items-center justify-center gap-2 border-b border-amber-400/30 bg-amber-500/20 px-4 py-1.5 text-xs font-bold text-amber-900 backdrop-blur dark:text-amber-200">
+          <div className="pointer-events-auto flex items-center justify-center gap-2 border-b border-amber-400/30 bg-amber-500/20 px-4 py-1.5 text-xs font-bold text-[#78350f] backdrop-blur dark:text-[#fef3c7]">
             <Wrench className="size-4 shrink-0" />
             <span>{setting('site.maintenance_message') || 'سامانه موقتاً در حال به‌روزرسانی است.'}</span>
           </div>

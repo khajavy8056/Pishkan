@@ -342,16 +342,16 @@ export function StaffLoginPage() {
   }, [brand.name]);
 
   return (
-    <div className="relative grid min-h-dvh place-items-center overflow-hidden bg-shell px-4 py-10">
-      <div aria-hidden="true" className="pointer-events-none absolute -top-32 right-[8%] size-96 rounded-full bg-brand-500/20 blur-3xl" />
+    <div className="relative grid min-h-dvh place-items-center overflow-hidden bg-shell px-4 py-10 text-shell-fg">
+      <div aria-hidden="true" className="pointer-events-none absolute -top-32 right-[8%] size-96 rounded-full bg-brand-500/15 blur-3xl" />
       <div aria-hidden="true" className="pointer-events-none absolute -bottom-32 left-[6%] size-80 rounded-full bg-brand-400/10 blur-3xl" />
-      <div aria-hidden="true" className="pointer-events-none absolute top-1/3 left-[16%] size-56 rounded-full border-2 border-dashed border-white/10" />
+      <div aria-hidden="true" className="pointer-events-none absolute top-1/3 left-[16%] size-56 rounded-full border-2 border-dashed border-shell-line" />
 
       <div className="relative w-full max-w-md animate-in">
         <div className="mb-6 flex flex-col items-center text-center">
           <BrandMark className="size-16" />
-          <h1 className="mt-4 text-xl font-black text-white">{brand.name}</h1>
-          <p className="mt-1 flex items-center gap-1.5 text-xs text-white/60">
+          <h1 className="mt-4 text-xl font-black text-shell-fg">{brand.name}</h1>
+          <p className="mt-1 flex items-center gap-1.5 text-xs text-shell-muted">
             <LockKeyhole className="size-3.5" /> درگاه اختصاصی ورود کارکنان و مدیران دفتر
           </p>
         </div>
@@ -360,7 +360,7 @@ export function StaffLoginPage() {
           <LoginPanel audience="staff" />
         </div>
 
-        <p className="mt-5 flex items-center justify-center gap-2 text-center text-[11px] leading-6 text-white/45">
+        <p className="mt-5 flex items-center justify-center gap-2 text-center text-[11px] leading-6 text-shell-muted">
           <ShieldCheck className="size-4 shrink-0" />
           تلاش‌های ورود ثبت و پایش می‌شوند. اگر رمز را فراموش کرده‌اید با مدیر کل سامانه تماس بگیرید.
         </p>

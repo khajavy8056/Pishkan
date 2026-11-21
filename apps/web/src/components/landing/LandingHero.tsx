@@ -151,7 +151,7 @@ export function LandingHero() {
               <div
                 id="hero-search-results"
                 role="listbox"
-                className="glass animate-pop absolute inset-x-0 top-full z-40 mt-2 overflow-hidden rounded-2xl border border-line-strong bg-surface/95 shadow-2xl backdrop-blur-xl"
+                className="glass animate-pop absolute inset-x-0 top-full z-40 mt-2 overflow-hidden rounded-2xl border border-line-strong !bg-surface/95 shadow-2xl backdrop-blur-xl"
               >
                 {searching ? (
                   <p className="px-4 py-4 text-xs font-semibold text-muted">در حال جست‌وجو در خدمات…</p>
@@ -240,15 +240,15 @@ export function LandingHero() {
                     <ShieldCheck className="size-5" />
                   </span>
                   <div className="min-w-0">
-                    <p className="text-xs font-black text-white">دفتر رسمی با پیگیری دیجیتال</p>
-                    <p className="text-[11px] text-slate-300">
+                    <p className="text-xs font-black text-text">دفتر رسمی با پیگیری دیجیتال</p>
+                    <p className="text-[11px] text-muted">
                       {stats
                         ? `${faNum(stats.services)}+ خدمت فعال · ${faNum(stats.completedRequests)}+ پرونده تکمیل‌شده`
                         : 'ثبت آنی · ارجاع خودکار به کارشناس'}
                     </p>
                   </div>
                 </div>
-                <span className="hidden rounded-full bg-emerald-400/20 px-2.5 py-1 text-[10px] font-extrabold text-emerald-300 ring-1 ring-emerald-400/35 sm:inline-flex">
+                <span className="hidden rounded-full bg-emerald-500/15 px-2.5 py-1 text-[10px] font-extrabold text-[#047857] ring-1 ring-emerald-500/35 dark:bg-emerald-400/20 dark:text-[#6ee7b7] sm:inline-flex">
                   آنلاین ۲۴/۷
                 </span>
               </div>

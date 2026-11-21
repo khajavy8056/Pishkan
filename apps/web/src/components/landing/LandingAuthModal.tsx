@@ -234,7 +234,7 @@ export function LandingAuthModal({
         aria-hidden="true"
       />
 
-      <div className="glass animate-pop relative z-10 w-full max-w-md overflow-hidden rounded-[2rem] border border-line-strong bg-surface/95 p-6 shadow-2xl">
+      <div className="glass animate-pop relative z-10 w-full max-w-md overflow-hidden rounded-[2rem] border border-line-strong !bg-surface/95 p-6 shadow-2xl">
         <div
           aria-hidden="true"
           className="pointer-events-none absolute -top-24 right-1/2 size-56 translate-x-1/2 rounded-full bg-cyan-400/20 blur-3xl"
@@ -378,7 +378,7 @@ export function LandingAuthModal({
                         className="w-full rounded-xl border border-line-strong bg-surface-2 px-4 py-2.5 text-center font-mono text-lg tracking-[0.5em] text-text focus:border-cyan-400 focus:outline-none"
                       />
                       {debugCode ? (
-                        <div className="flex items-start gap-2 rounded-xl border border-amber-400/35 bg-amber-400/10 p-2.5 text-[11px] text-amber-700 dark:text-amber-200">
+                        <div className="flex items-start gap-2 rounded-xl border border-amber-400/35 bg-amber-400/10 p-2.5 text-[11px] text-[#92400e] dark:text-[#fde68a]">
                           <Info className="mt-0.5 size-3.5 shrink-0" />
                           <span>کد آزمایشی: <b dir="ltr">{debugCode}</b></span>
                         </div>

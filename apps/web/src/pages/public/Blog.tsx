@@ -56,7 +56,7 @@ function PostCard({ post }: { post: BlogPost }) {
       <Link to={`/blog/${encodeURIComponent(post.slug)}`} className="relative block">
         <PostCover post={post} className="h-44 w-full transition duration-500 group-hover:scale-[1.03]" />
         {post.categoryTitle && (
-          <span className="absolute right-3 top-3 rounded-full bg-shell/85 px-2.5 py-1 text-[11px] font-bold text-white backdrop-blur">
+          <span className="absolute right-3 top-3 rounded-full bg-[#071a2e]/85 px-2.5 py-1 text-[11px] font-bold text-white backdrop-blur">
             {post.categoryTitle}
           </span>
         )}

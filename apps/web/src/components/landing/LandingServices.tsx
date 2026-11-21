@@ -193,12 +193,12 @@ function ServiceCard({
           />
         </div>
 
-        <span className="absolute right-3 top-3 z-[2] rounded-full bg-surface/90 px-2.5 py-1 text-[10px] font-bold text-text ring-1 ring-line backdrop-blur-md dark:bg-slate-950/70 dark:text-slate-100 dark:ring-white/15">
+        <span className="absolute right-3 top-3 z-[2] rounded-full bg-white/92 px-2.5 py-1 text-[10px] font-bold text-[#0d1c30] ring-1 ring-black/10 backdrop-blur-md dark:bg-[#081226]/85 dark:text-[#eef4ff] dark:ring-white/20">
           {service.categoryTitle ?? category?.title ?? 'خدمت'}
         </span>
 
         {isPopular ? (
-          <span className="absolute left-3 top-3 z-[2] inline-flex items-center gap-1 rounded-full bg-amber-100/95 px-2.5 py-1 text-[10px] font-extrabold text-amber-900 ring-1 ring-amber-400/45 backdrop-blur-md dark:bg-amber-400/20 dark:text-amber-200 dark:ring-amber-300/35">
+          <span className="absolute left-3 top-3 z-[2] inline-flex items-center gap-1 rounded-full bg-amber-100/95 px-2.5 py-1 text-[10px] font-extrabold text-[#78350f] ring-1 ring-amber-400/45 backdrop-blur-md dark:bg-[#2a1c05]/90 dark:text-[#fde68a] dark:ring-amber-300/35">
             <TrendingUp className="size-3" />
             پرکاربرد
           </span>

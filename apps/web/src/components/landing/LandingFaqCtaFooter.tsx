@@ -142,15 +142,15 @@ export function LandingCtaSection() {
           className="pointer-events-none absolute -top-24 left-1/2 size-80 -translate-x-1/2 rounded-full bg-cyan-400/20 blur-3xl"
         />
 
-        <span className="inline-flex items-center gap-1.5 rounded-full bg-white/10 px-3.5 py-1 text-xs font-extrabold text-sky-200 ring-1 ring-white/20">
-          <Sparkles className="size-3.5 text-gold" />
+        <span className="inline-flex items-center gap-1.5 rounded-full bg-white/15 px-3.5 py-1 text-xs font-extrabold text-[#e0f2fe] ring-1 ring-white/25">
+          <Sparkles className="size-3.5 text-[#fde68a]" />
           همین حالا شروع کنید
         </span>
 
         <h2 className="mt-4 text-3xl font-black text-white sm:text-4xl">
           آمادهٔ ثبت اولین درخواست آنلاین هستید؟
         </h2>
-        <p className="mx-auto mt-3 max-w-xl text-sm leading-relaxed text-sky-100 sm:text-base">
+        <p className="mx-auto mt-3 max-w-xl text-sm leading-relaxed text-[#e0f2fe]/90 sm:text-base">
           خدمت خود را انتخاب کنید، مدارک را آپلود کنید و بقیه کار را به دفتر پیشخوان آنلاین بسپارید.
         </p>
 

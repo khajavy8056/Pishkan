@@ -341,7 +341,7 @@ export function WelcomePanel({ title, subtitle, badge, actions, aside, className
   title: string; subtitle?: string; badge?: string; actions?: ReactNode; aside?: ReactNode; className?: string;
 }) {
   return (
-    <section className={clsx('relative isolate mb-6 overflow-hidden rounded-2xl border border-shell-line bg-gradient-to-l from-shell via-shell-2 to-primary p-5 text-white shadow-soft sm:p-7', className)}>
+    <section className={clsx('relative isolate mb-6 overflow-hidden rounded-2xl border border-white/15 bg-gradient-to-l from-[#0b264a] via-[#133d77] to-primary p-5 text-white shadow-soft sm:p-7', className)}>
       <div aria-hidden="true" className="pointer-events-none absolute -top-24 -left-16 size-64 rounded-full bg-white/10 blur-3xl" />
       <div aria-hidden="true" className="pointer-events-none absolute -right-10 -bottom-10 size-56 rounded-full bg-brand-300/20 blur-3xl" />
       <div className="relative flex flex-wrap items-end justify-between gap-5">

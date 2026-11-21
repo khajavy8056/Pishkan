@@ -118,7 +118,7 @@ export function StaffRequests({ variant = 'staff' }: { variant?: 'staff' | 'admi
           ].map((tab) => (
             <button key={tab.value} onClick={() => { setParam('group', tab.value); setParam('status', ''); }}
               className={clsx('rounded-full px-3 py-1.5 ring-1 transition',
-                tab.active ? 'bg-shell text-shell-fg ring-shell' : 'bg-surface text-navy-600 ring-line hover:bg-surface-3')}>
+                tab.active ? 'bg-brand-700 text-white ring-brand-700' : 'bg-surface text-navy-600 ring-line hover:bg-surface-3')}>
               {tab.label}
             </button>
           ))}

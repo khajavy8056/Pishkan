@@ -98,11 +98,11 @@
   --line-strong: rgb(13 33 61 / 0.16);
   --scrim: rgb(6 17 33 / 0.45);
 
-  --shell: #071a2e;
-  --shell-2: #0b2b4a;
-  --shell-fg: #f2f7ff;
-  --shell-muted: #a3b8d2;
-  --shell-line: rgb(255 255 255 / 0.1);
+  --shell: #e3ecf8;
+  --shell-2: #eef4fc;
+  --shell-fg: #0c1d37;
+  --shell-muted: #405879;
+  --shell-line: rgb(13 33 61 / 0.11);
 
   --primary: #0b5fd0;
   --primary-hover: #094eae;
@@ -361,6 +361,26 @@
   --color-blue-700: #93c5fd;
   --color-blue-800: #bfdbfe;
   --color-blue-900: #dbeafe;
+  --color-indigo-50: #111636;
+  --color-indigo-100: #19214d;
+  --color-indigo-200: #28336e;
+  --color-indigo-300: #818cf8;
+  --color-indigo-400: #818cf8;
+  --color-indigo-500: #6366f1;
+  --color-indigo-600: #4f46e5;
+  --color-indigo-700: #a5b4fc;
+  --color-indigo-800: #c7d2fe;
+  --color-indigo-900: #e0e7ff;
+  --color-orange-50: #2b1406;
+  --color-orange-100: #3d1d09;
+  --color-orange-200: #5c2d0e;
+  --color-orange-300: #fb923c;
+  --color-orange-400: #fb923c;
+  --color-orange-500: #f97316;
+  --color-orange-600: #c2410c;
+  --color-orange-700: #fdba74;
+  --color-orange-800: #fed7aa;
+  --color-orange-900: #ffedd5;
 }
 
 @layer base {
@@ -428,8 +448,8 @@
   .btn-primary:hover { filter: brightness(1.06); transform: translateY(-1px); }
   .btn-primary:active { transform: translateY(1px) scale(0.99); box-shadow: 0 5px 14px -8px color-mix(in oklab, var(--primary) 68%, transparent), inset 0 1px 0 rgb(255 255 255 / 0.25); }
   .btn-navy {
-    @apply text-shell-fg;
-    background-image: linear-gradient(180deg, color-mix(in oklab, var(--shell-2) 88%, #fff) 0%, var(--shell) 100%);
+    color: #ffffff;
+    background-image: linear-gradient(180deg, #133868 0%, #091e3a 100%);
     box-shadow: 0 12px 26px -12px rgb(4 12 26 / 0.65), inset 0 1px 0 rgb(255 255 255 / 0.22), inset 0 -2px 0 rgb(0 0 0 / 0.25);
   }
   .btn-navy:hover { filter: brightness(1.12); transform: translateY(-1px); }
@@ -489,10 +509,10 @@
   /* -------------------------------- shell --------------------------------- */
   .nav-link {
     @apply flex items-center gap-2.5 rounded-2xl px-3 py-2.5 text-sm text-shell-muted transition
-           hover:bg-white/8 hover:text-shell-fg;
+           hover:bg-[color-mix(in_oklab,var(--shell-fg)_7%,transparent)] hover:text-shell-fg;
   }
   .nav-link-active {
-    @apply font-semibold text-shell-fg;
+    @apply font-semibold text-white hover:text-white;
     background-image: linear-gradient(180deg, color-mix(in oklab, var(--primary) 78%, #fff) 0%, var(--primary) 55%, var(--primary-hover) 100%);
     box-shadow: 0 10px 22px -10px color-mix(in oklab, var(--primary) 75%, transparent),
       inset 0 1px 0 rgb(255 255 255 / 0.35), inset 0 -2px 0 rgb(0 0 0 / 0.16);
@@ -614,7 +634,7 @@
 
 /* Public hero: a deep civic gradient that stays legible in both themes. */
 .civic-hero {
-  background: linear-gradient(140deg, var(--shell) 0%, var(--shell-2) 55%, color-mix(in oklab, var(--primary) 75%, var(--shell)) 100%);
+  background: linear-gradient(140deg, #071a2e 0%, #0b2b4a 55%, color-mix(in oklab, var(--primary) 75%, #071a2e) 100%);
   isolation: isolate;
 }
 .civic-hero::before {
@@ -639,6 +659,12 @@
 
 .app-sidebar {
   background-image:
+    radial-gradient(420px 260px at 110% -6%, color-mix(in oklab, var(--primary) 12%, transparent), transparent 66%),
+    radial-gradient(360px 300px at -30% 88%, color-mix(in oklab, var(--brand-400) 14%, transparent), transparent 70%),
+    linear-gradient(180deg, var(--shell-2) 0%, var(--shell) 68%);
+}
+.dark .app-sidebar {
+  background-image:
     radial-gradient(420px 260px at 110% -6%, color-mix(in oklab, var(--primary) 42%, transparent), transparent 66%),
     radial-gradient(360px 300px at -30% 88%, color-mix(in oklab, var(--brand-500) 26%, transparent), transparent 70%),
     linear-gradient(180deg, var(--shell-2) 0%, var(--shell) 62%);
@@ -653,7 +679,7 @@
 
 .auth-intro {
   background:
-    linear-gradient(150deg, color-mix(in oklab, var(--shell-2) 92%, transparent), color-mix(in oklab, var(--primary) 60%, var(--shell))),
+    linear-gradient(150deg, rgb(11 43 74 / 0.92), color-mix(in oklab, var(--primary) 60%, #071a2e)),
     url('/images/hero-building.jpg') center / cover;
   border-radius: 1rem;
   padding: 2rem;

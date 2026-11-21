@@ -55,7 +55,7 @@ export function PublicLayout({ children }: { children: ReactNode }) {
   return (
     <div className="flex min-h-dvh flex-col">
       {setting('site.support_notice') && (
-        <div className="bg-shell px-4 py-2 text-center text-xs leading-6 text-shell-fg">
+        <div className="border-b border-shell-line bg-shell px-4 py-2 text-center text-xs leading-6 text-shell-fg">
           {setting('site.support_notice')}
         </div>
       )}
@@ -147,13 +147,13 @@ export function PublicLayout({ children }: { children: ReactNode }) {
 
       <main className="flex-1">{children}</main>
 
-      <footer className="relative mt-16 overflow-hidden bg-shell text-shell-muted">
+      <footer className="relative mt-16 overflow-hidden border-t border-shell-line bg-shell text-shell-muted">
         <div aria-hidden="true" className="pointer-events-none absolute -top-32 left-1/4 size-80 rounded-full bg-brand-500/15 blur-3xl" />
         <div aria-hidden="true" className="pointer-events-none absolute -top-24 right-0 size-64 rounded-full bg-brand-400/10 blur-3xl" />
         <div className="relative mx-auto max-w-7xl px-4 pt-12 pb-6 sm:px-6">
           <div className="flex flex-wrap items-center gap-x-10 gap-y-7">
             <div>
-              <BrandLockup tone="light" />
+              <BrandLockup />
               <p className="mt-3 max-w-xs text-[13px] leading-6 text-shell-muted">{brand.tagline || setting('site.description') || 'آیندهٔ خدمات دولتی، همین‌جاست…'}</p>
             </div>
 
@@ -169,7 +169,7 @@ export function PublicLayout({ children }: { children: ReactNode }) {
               ].map((link, index, arr) => (
                 <span key={link.to} className="flex items-center gap-2">
                   <Link to={link.to} className="rounded-lg px-2 py-1 transition hover:text-shell-fg">{link.label}</Link>
-                  {index < arr.length - 1 && <span aria-hidden="true" className="h-3.5 w-px bg-white/15" />}
+                  {index < arr.length - 1 && <span aria-hidden="true" className="h-3.5 w-px bg-shell-line" />}
                 </span>
               ))}
             </nav>
@@ -184,7 +184,7 @@ export function PublicLayout({ children }: { children: ReactNode }) {
                     rel="noreferrer"
                     title={social.title}
                     aria-label={social.title}
-                    className="grid size-10 place-items-center rounded-full border border-white/15 bg-white/5 text-shell-fg transition hover:-translate-y-0.5 hover:border-white/30 hover:bg-white/10"
+                    className="grid size-10 place-items-center rounded-full border border-shell-line bg-surface/75 text-shell-fg transition hover:-translate-y-0.5 hover:border-line-strong hover:bg-surface dark:border-white/15 dark:bg-white/5 dark:hover:border-white/30 dark:hover:bg-white/10"
                   >
                     {socialIcon(social.title)}
                   </a>
@@ -193,19 +193,19 @@ export function PublicLayout({ children }: { children: ReactNode }) {
             )}
           </div>
 
-          <div className="mt-9 flex flex-wrap items-center gap-x-8 gap-y-2.5 border-t border-white/10 pt-5 text-xs text-shell-muted">
-            {setting('office.address') && <span className="flex items-center gap-1.5"><MapPin className="size-3.5 text-brand-300" />{setting('office.address')}</span>}
+          <div className="mt-9 flex flex-wrap items-center gap-x-8 gap-y-2.5 border-t border-shell-line pt-5 text-xs text-shell-muted">
+            {setting('office.address') && <span className="flex items-center gap-1.5"><MapPin className="size-3.5 text-accent" />{setting('office.address')}</span>}
             {setting('office.phone') && (
               <a href={`tel:${setting('office.phone')}`} className="flex items-center gap-1.5 transition hover:text-shell-fg">
-                <Phone className="size-3.5 text-brand-300" /> <span dir="ltr">{setting('office.phone')}</span>
+                <Phone className="size-3.5 text-accent" /> <span dir="ltr">{setting('office.phone')}</span>
               </a>
             )}
             {setting('office.email') && (
               <a href={`mailto:${setting('office.email')}`} className="flex items-center gap-1.5 transition hover:text-shell-fg">
-                <Mail className="size-3.5 text-brand-300" /> <span dir="ltr">{setting('office.email')}</span>
+                <Mail className="size-3.5 text-accent" /> <span dir="ltr">{setting('office.email')}</span>
               </a>
             )}
-            {setting('office.working_hours') && <span className="flex items-center gap-1.5"><Clock className="size-3.5 text-brand-300" />{setting('office.working_hours')}</span>}
+            {setting('office.working_hours') && <span className="flex items-center gap-1.5"><Clock className="size-3.5 text-accent" />{setting('office.working_hours')}</span>}
             {(appUrl || setting('landing.app_bazaar_url') || setting('landing.app_myket_url')) && (
               <AppStoreButtons
                 className="ms-auto w-full max-w-md sm:w-auto"
@@ -221,14 +221,11 @@ export function PublicLayout({ children }: { children: ReactNode }) {
           </div>
         </div>
 
-        <Skyline className="relative block h-14 w-full text-white/[0.07]" />
-        <div className="relative border-t border-shell-line px-4 py-4 text-center text-xs text-shell-muted">
+        <Skyline className="relative block h-14 w-full text-navy-900/[0.06] dark:text-white/[0.07]" />
+        <div className="relative border-t border-shell-line px-4 pt-4 pb-20 text-center text-xs text-shell-muted lg:pb-4">
           © {setting('site.footer_text')} – {brand.name}
         </div>
       </footer>
-
-      {/* Spacer so the footer never hides behind the mobile dock. */}
-      <div aria-hidden="true" className="h-16 lg:hidden" />
 
       <nav aria-label="دسترسی سریع موبایل" className="mobile-dock fixed inset-x-0 bottom-0 z-30 flex justify-around border-t border-line px-2 pt-1 pb-[env(safe-area-inset-bottom)] backdrop-blur-md lg:hidden">
         {dockItems.map((item) => (

@@ -90,7 +90,7 @@ export function ServicesPage() {
           <button
             onClick={() => updateParam('category', '')}
             className={clsx('rounded-full px-3.5 py-1.5 text-xs ring-1 transition',
-              !category ? 'bg-shell text-shell-fg ring-shell' : 'bg-surface text-navy-600 ring-line hover:bg-surface-3')}
+              !category ? 'bg-brand-700 text-white ring-brand-700' : 'bg-surface text-navy-600 ring-line hover:bg-surface-3')}
           >
             همه دسته‌ها
           </button>
@@ -99,7 +99,7 @@ export function ServicesPage() {
               key={cat.id}
               onClick={() => updateParam('category', cat.slug)}
               className={clsx('rounded-full px-3.5 py-1.5 text-xs ring-1 transition',
-                category === cat.slug ? 'bg-shell text-shell-fg ring-shell' : 'bg-surface text-navy-600 ring-line hover:bg-surface-3')}
+                category === cat.slug ? 'bg-brand-700 text-white ring-brand-700' : 'bg-surface text-navy-600 ring-line hover:bg-surface-3')}
             >
               {cat.title}
             </button>

@@ -285,4 +285,21 @@ describe('landing page', () => {
       expect(text).not.toMatch(/[\p{Extended_Pictographic}]/u);
     }
   });
+
+  it('keeps light/dark shell tokens, service badges, and hero overlay readable in both themes', () => {
+    const styles = fs.readFileSync(path.resolve(__dirname, '../src/styles.css'), 'utf8');
+    const svcTsx = fs.readFileSync(path.resolve(__dirname, '../src/components/landing/LandingServices.tsx'), 'utf8');
+    const heroTsx = fs.readFileSync(path.resolve(__dirname, '../src/components/landing/LandingHero.tsx'), 'utf8');
+    const publicLayoutTsx = fs.readFileSync(path.resolve(__dirname, '../src/components/public-layout.tsx'), 'utf8');
+    const shellTsx = fs.readFileSync(path.resolve(__dirname, '../src/components/shell.tsx'), 'utf8');
+
+    expect(styles).toContain('--shell: #e3ecf8;');
+    expect(styles).toContain('--color-indigo-50:');
+    expect(styles).toContain('--color-orange-50:');
+    expect(svcTsx).not.toContain('dark:text-slate-100');
+    expect(svcTsx).not.toContain('dark:text-amber-200');
+    expect(heroTsx).not.toContain('text-xs font-black text-white');
+    expect(publicLayoutTsx).not.toContain('<BrandLockup tone="light"');
+    expect(shellTsx).not.toContain('<BrandLockup tone="light"');
+  });
 });

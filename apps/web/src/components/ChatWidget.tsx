@@ -232,7 +232,7 @@ export function ChatWidget({ placement = 'shell' }: { placement?: 'shell' | 'pag
         type="button"
         aria-label="پیام‌ها و پشتیبانی"
         onClick={() => { setOpen((v) => !v); if (!open && !guest) { setView(active ? 'thread' : 'list'); void loadTickets(); } }}
-        className={clsx('fixed z-40 grid size-14 place-items-center rounded-full bg-gradient-to-br from-brand-600 to-shell text-white shadow-2xl ring-1 ring-white/30 transition hover:scale-105', fabPosition)}
+        className={clsx('fixed z-40 grid size-14 place-items-center rounded-full bg-gradient-to-br from-brand-600 to-[#0b2b4a] text-white shadow-2xl ring-1 ring-white/30 transition hover:scale-105', fabPosition)}
       >
         {open ? <X className="size-6" /> : <MessagesSquare className="size-6" />}
         {!open && unreadTotal > 0 && (
@@ -248,7 +248,7 @@ export function ChatWidget({ placement = 'shell' }: { placement?: 'shell' | 'pag
           className={clsx('animate-pop fixed z-40 flex h-[min(34rem,calc(100dvh-10rem))] w-[min(24rem,calc(100vw-2rem))] flex-col overflow-hidden rounded-3xl border border-line bg-surface shadow-2xl', panelPosition)}
         >
           {/* Header */}
-          <header className="flex items-center gap-2 bg-gradient-to-l from-brand-700 to-shell px-4 py-3 text-white">
+          <header className="flex items-center gap-2 bg-gradient-to-l from-brand-700 to-[#0b2b4a] px-4 py-3 text-white">
             {view !== 'list' && (
               <button type="button" aria-label="بازگشت به فهرست گفت‌وگوها"
                 className="grid size-8 shrink-0 place-items-center rounded-lg transition hover:bg-white/15"

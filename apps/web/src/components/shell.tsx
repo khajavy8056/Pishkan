@@ -273,7 +273,7 @@ export function AppShell({ children, variant }: { children: ReactNode; variant: 
       {/* Sidebar */}
       <aside
         className={clsx(
-          'app-sidebar fixed inset-y-0 right-0 z-40 flex w-[min(17.5rem,86vw)] shrink-0 flex-col text-shell-fg shadow-2xl transition-transform duration-300 lg:sticky lg:top-0 lg:h-dvh lg:translate-x-0 lg:shadow-none',
+          'app-sidebar fixed inset-y-0 right-0 z-40 flex w-[min(17.5rem,86vw)] shrink-0 flex-col border-l border-shell-line text-shell-fg shadow-2xl transition-transform duration-300 lg:sticky lg:top-0 lg:h-dvh lg:translate-x-0 lg:shadow-none',
           open ? 'translate-x-0' : 'translate-x-full',
         )}
         aria-label="منوی اصلی"
@@ -282,10 +282,10 @@ export function AppShell({ children, variant }: { children: ReactNode; variant: 
         <div aria-hidden="true" className="pointer-events-none absolute -bottom-28 -left-20 size-72 rounded-full border-[16px] border-brand-400/10" />
         <div aria-hidden="true" className="pointer-events-none absolute -bottom-16 -left-10 size-48 rounded-full border-[10px] border-sky-400/10" />
         <div className="relative flex items-center justify-between gap-3 px-4 py-5">
-          <Link to={brandHome} className="group flex min-w-0 items-center gap-3 rounded-2xl p-1 transition hover:bg-white/5">
-            <BrandLockup tone="light" subtitle={variant === 'customer' ? undefined : roleLabel} />
+          <Link to={brandHome} className="group flex min-w-0 items-center gap-3 rounded-2xl p-1 transition hover:bg-navy-900/5 dark:hover:bg-white/5">
+            <BrandLockup subtitle={variant === 'customer' ? undefined : roleLabel} />
           </Link>
-          <button className="icon-btn text-shell-muted hover:bg-white/10 hover:text-shell-fg lg:hidden" onClick={() => setOpen(false)} aria-label="بستن منو">
+          <button className="icon-btn text-shell-muted hover:bg-navy-900/8 hover:text-shell-fg dark:hover:bg-white/10 lg:hidden" onClick={() => setOpen(false)} aria-label="بستن منو">
             <X className="size-5" />
           </button>
         </div>
@@ -324,7 +324,7 @@ export function AppShell({ children, variant }: { children: ReactNode; variant: 
 
         {(
           <div className="relative px-3 pb-3">
-            <div className="group relative overflow-hidden rounded-3xl border border-white/10 bg-white/5">
+            <div className="group relative overflow-hidden rounded-3xl border border-shell-line bg-surface/80 shadow-soft dark:border-white/10 dark:bg-white/5 dark:shadow-none">
               <div className="perspective-1200">
                 <img
                   src={brand.mascot}
@@ -333,12 +333,12 @@ export function AppShell({ children, variant }: { children: ReactNode; variant: 
                   className="h-40 w-full object-cover object-[50%_18%] transition duration-700 ease-out group-hover:scale-[1.06] group-hover:-rotate-1"
                 />
               </div>
-              <div aria-hidden="true" className="absolute inset-x-0 top-16 bottom-0 bg-gradient-to-t from-shell via-shell/72 to-transparent" />
+              <div aria-hidden="true" className="absolute inset-x-0 top-14 bottom-0 bg-gradient-to-t from-shell via-shell/90 to-transparent" />
               <div className="relative -mt-12 p-3.5">
-                <p className="text-sm font-black text-white">
+                <p className="text-sm font-black text-shell-fg">
                   {variant === 'customer' ? 'ربات پشتیبانی هوشمند' : variant === 'admin' ? brand.name : 'پشتیبانی آنلاین'}
                 </p>
-                <p className="mt-0.5 text-[11px] text-white/65">
+                <p className="mt-0.5 text-[11px] text-shell-muted">
                   {variant === 'customer'
                     ? 'همیشه در کنار شما؛ سؤال دارید؟ همین حالا بپرسید.'
                     : variant === 'admin'
@@ -367,9 +367,9 @@ export function AppShell({ children, variant }: { children: ReactNode; variant: 
         )}
 
         <div className="border-t border-shell-line p-3">
-          <div className="rounded-2xl border border-shell-line bg-white/5 p-3">
+          <div className="rounded-2xl border border-shell-line bg-surface/80 p-3 dark:bg-white/5">
             <div className="flex items-center gap-2.5">
-              <span className="grid size-9 shrink-0 place-items-center rounded-xl bg-white/10 text-sm font-bold text-shell-fg">
+              <span className="grid size-9 shrink-0 place-items-center rounded-xl bg-navy-900/8 text-sm font-bold text-shell-fg dark:bg-white/10">
                 {user?.fullName?.slice(0, 1) ?? '؟'}
               </span>
               <div className="min-w-0 flex-1">
@@ -379,16 +379,16 @@ export function AppShell({ children, variant }: { children: ReactNode; variant: 
                   {user?.mobile ? ` • ${user.mobile}` : ''}
                 </p>
               </div>
-              <ThemeToggle tone="on-dark" />
+              <ThemeToggle />
             </div>
             <div className="mt-3 grid grid-cols-2 gap-2">
-              <Link to={variant === 'customer' ? '/app/profile' : '/staff/shifts'} className="btn-ghost btn-sm justify-center border-white/15 bg-white/5 text-shell-fg hover:border-white/30 hover:bg-white/10">
+              <Link to={variant === 'customer' ? '/app/profile' : '/staff/shifts'} className="btn-ghost btn-sm justify-center border-shell-line bg-surface/90 text-shell-fg hover:bg-surface dark:border-white/15 dark:bg-white/5 dark:hover:border-white/30 dark:hover:bg-white/10">
                 <User className="size-3.5" /> حساب
               </Link>
               <button
                 type="button"
                 onClick={async () => { await logout(); navigate('/'); }}
-                className="btn-ghost btn-sm justify-center border-transparent bg-white/5 text-shell-fg hover:bg-rose-500/80 hover:text-white"
+                className="btn-ghost btn-sm justify-center border-transparent bg-surface/90 text-shell-fg hover:bg-rose-600 hover:text-white dark:bg-white/5 dark:hover:bg-rose-500/80"
               >
                 <LogOut className="size-3.5" /> خروج
               </button>
@@ -505,7 +505,7 @@ export function AppShell({ children, variant }: { children: ReactNode; variant: 
                 aria-label="حساب کاربری"
                 aria-expanded={accountOpen}
               >
-                <span className="grid size-8 place-items-center rounded-full bg-gradient-to-br from-brand-500 via-brand-700 to-shell text-xs font-bold text-white shadow-md shadow-brand-600/25">
+                <span className="grid size-8 place-items-center rounded-full bg-gradient-to-br from-brand-500 via-brand-700 to-[#0b2b4a] text-xs font-bold text-white shadow-md shadow-brand-600/25">
                   {user?.fullName?.slice(0, 1) ?? '؟'}
                 </span>
                 <span className="leading-tight">
