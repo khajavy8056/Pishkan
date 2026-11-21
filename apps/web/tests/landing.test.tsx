@@ -252,6 +252,13 @@ describe('landing page', () => {
     expect(LANDING_STYLES).toMatch(/@media \(max-width: 1023px\)[\s\S]*?\.landing-shell \.journey-mobile-rail \{ display: block; \}/);
     expect(LANDING_STYLES).toMatch(/@media \(max-width: 1023px\)[\s\S]*?\.landing-shell \.journey-track \{ height: auto; \}/);
     expect(LANDING_STYLES).toContain('overflow-x: clip');
+    expect(LANDING_STYLES).toContain('.landing-shell .landing-bg-stage');
+    expect(LANDING_STYLES).toContain('--svc-tint');
+  });
+
+  it('renders the category ticker as a single horizontal marquee track', async () => {
+    const { container } = renderAt('/', <HomePage />);
+    await waitFor(() => expect(container.querySelector('.ticker-wrap .ticker-track .ticker-item')).toBeTruthy());
   });
 
   it('opens the floating auth modal from the landing header and closes on Escape', async () => {

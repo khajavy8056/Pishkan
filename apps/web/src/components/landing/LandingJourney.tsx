@@ -329,7 +329,6 @@ export function LandingJourney() {
             <ol className="step-list mt-1 lg:mt-0">
               {steps.map((step, index) => {
                 const state = index < activeIndex ? 'done' : index === activeIndex ? 'active' : 'next';
-                const MobilePaper = PAPER_CONTENT[index];
                 return (
                   <li
                     key={step.id}
@@ -346,12 +345,6 @@ export function LandingJourney() {
                       <p className="step-title">{step.title}</p>
                       <p className="step-body">{step.body}</p>
                       <span className="step-tag">{step.tag}</span>
-
-                      {state === 'active' && MobilePaper ? (
-                        <div className="mt-3 max-w-[240px] animate-[fadeUp_.35s_ease_both] lg:hidden" aria-hidden="true">
-                          <MobilePaper />
-                        </div>
-                      ) : null}
                     </div>
                   </li>
                 );

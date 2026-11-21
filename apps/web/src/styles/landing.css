@@ -102,8 +102,16 @@ html {
 }
 
 /* ==========================================================================
-   Background system — aurora, dot grid, grain
+   Background system — aurora, dot grid, grain (clipped inside fixed stage)
    ========================================================================== */
+.landing-shell .landing-bg-stage {
+  position: fixed;
+  inset: 0;
+  z-index: -1;
+  overflow: hidden;
+  pointer-events: none;
+}
+
 .landing-shell .aurora {
   position: absolute;
   inset: -12%;
@@ -280,6 +288,7 @@ html {
 @keyframes lpPop { from { opacity: 0; transform: translateY(-8px) scale(0.96); } to { opacity: 1; transform: translateY(0) scale(1); } }
 .landing-shell .animate-pop { animation: lpPop 0.28s cubic-bezier(0.22, 1, 0.36, 1) both; }
 @keyframes fadeUp { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: translateY(0); } }
+@keyframes lpLoadSlide { 0% { transform: translateX(110%); } 100% { transform: translateX(-110%); } }
 
 .no-scrollbar { scrollbar-width: none; }
 .no-scrollbar::-webkit-scrollbar { display: none; }
@@ -496,24 +505,42 @@ html {
    ========================================================================== */
 .landing-shell .card-3d { position: relative; transform-style: preserve-3d; will-change: transform; transition: box-shadow 0.35s ease; }
 .landing-shell .svc-card {
+  display: flex;
+  flex-direction: column;
   border-radius: 1.35rem;
   overflow: hidden;
   background: linear-gradient(172deg, color-mix(in oklab, var(--surface-2) 88%, var(--ink)), var(--surface));
   border: 1px solid var(--line);
   height: 100%;
   box-shadow: 0 14px 32px -22px var(--stage-shadow);
-  transition: border-color 0.3s ease, box-shadow 0.3s ease;
+  transition: border-color 0.3s ease, box-shadow 0.3s ease, transform 0.3s ease;
 }
-.landing-shell .card-3d:hover .svc-card {
+.landing-shell .svc-card:hover {
   border-color: color-mix(in oklab, var(--brand-text) 42%, var(--line));
-  box-shadow: 0 30px 60px -24px var(--stage-shadow-lg);
+  box-shadow: 0 26px 52px -24px var(--stage-shadow-lg);
 }
-.landing-shell .svc-media { position: relative; height: 7rem; display: grid; place-items: center; overflow: hidden; }
+.landing-shell .svc-media {
+  position: relative;
+  height: 8.6rem;
+  display: grid;
+  place-items: center;
+  overflow: hidden;
+  background:
+    radial-gradient(115% 105% at 30% 15%, color-mix(in oklab, var(--svc-tint, #38bdf8) 20%, transparent) 0%, transparent 64%),
+    linear-gradient(155deg, color-mix(in oklab, var(--svc-tint, #38bdf8) 12%, var(--surface-2)), var(--surface));
+  border-bottom: 1px solid var(--line);
+}
+.dark .landing-shell .svc-media,
+[data-theme="dark"] .landing-shell .svc-media {
+  background:
+    radial-gradient(120% 100% at 30% 10%, color-mix(in oklab, var(--svc-tint, #38bdf8) 32%, transparent) 0%, rgb(10 16 32 / 0.45) 60%),
+    linear-gradient(150deg, rgb(17 27 51), rgb(10 16 32));
+}
 .landing-shell .svc-media::after {
   content: "";
   position: absolute;
   inset: 0;
-  background: linear-gradient(180deg, transparent 30%, color-mix(in oklab, var(--canvas) 30%, transparent) 96%);
+  background: linear-gradient(180deg, transparent 58%, color-mix(in oklab, var(--surface) 42%, transparent) 100%);
   pointer-events: none;
 }
 .landing-shell .svc-icon {
@@ -564,23 +591,22 @@ html {
 .landing-shell .journey-track { position: relative; }
 
 @media (min-width: 1024px) {
-  .landing-shell .journey-track { height: 310vh; }
+  .landing-shell .journey-track { height: 280vh; }
   .landing-shell .journey-sticky {
     position: sticky;
     top: 0;
-    height: 100svh;
-    overflow: hidden;
+    min-height: 100svh;
     display: flex;
     justify-content: center;
     flex-direction: column;
-    gap: 1.05rem;
-    padding-top: 4.6rem;
-    padding-bottom: 0.9rem;
+    gap: 0.9rem;
+    padding-top: 4.8rem;
+    padding-bottom: 1.2rem;
   }
 }
 @media (max-width: 1023px) {
   .landing-shell .journey-track { height: auto; }
-  .landing-shell .journey-sticky { position: relative; padding: 3.2rem 1rem 3.4rem; display: flex; flex-direction: column; gap: 1.3rem; }
+  .landing-shell .journey-sticky { position: relative; padding: 2.8rem 1rem 3rem; display: flex; flex-direction: column; gap: 1.15rem; }
 }
 
 .landing-shell .journey-eyebrow { display: inline-flex; align-items: center; gap: 0.5rem; font-size: 0.72rem; font-weight: 800; color: var(--brand-text); }

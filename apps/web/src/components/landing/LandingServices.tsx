@@ -33,14 +33,14 @@ export function LandingTicker() {
   const loop = [...categories, ...categories];
 
   return (
-    <div className="border-y border-line/60 bg-surface-2/60 py-3.5 backdrop-blur-md" aria-label="دسته‌های خدمات">
-      <div className="marquee">
-        <div className="marquee-track">
+    <div className="border-y border-line/60 bg-surface-2/65 py-3 backdrop-blur-md" aria-label="دسته‌های خدمات">
+      <div className="ticker-wrap">
+        <div className="ticker-track">
           {loop.map((cat, idx) => (
             <Link
               key={`${cat.id}-${idx}`}
               to={`/services?category=${encodeURIComponent(cat.slug)}`}
-              className="inline-flex shrink-0 items-center gap-2.5 rounded-full border border-line bg-surface/85 px-4 py-1.5 text-xs font-bold text-text transition hover:border-cyan-400/50 hover:text-brand-text"
+              className="ticker-item"
             >
               <img
                 src={resolveCategoryImage(cat)}
@@ -165,7 +165,7 @@ function ServiceCard({
   isPopular: boolean;
 }) {
   const tiltRef = useHoverTilt<HTMLAnchorElement>(7);
-  const [g0, g1] = resolveGradient(category?.slug, category?.color, index);
+  const [g0] = resolveGradient(category?.slug, category?.color, index);
   const imageSrc = resolveServiceImage(service, category);
 
   return (
@@ -177,15 +177,12 @@ function ServiceCard({
     >
       <div
         className="svc-media"
-        style={{
-          background: `radial-gradient(120% 100% at 30% 10%, ${g0}36 0%, rgb(10 16 32 / 0.45) 60%), linear-gradient(150deg, rgb(17 27 51), rgb(10 16 32))`,
-        }}
+        style={{ '--svc-tint': g0 } as React.CSSProperties}
       >
         <div
-          className="relative z-[1] grid size-[5.5rem] place-items-center overflow-hidden rounded-[1.35rem] border border-white/25 bg-white/10 shadow-2xl transition-transform duration-500 group-hover:scale-110 group-hover:-translate-y-1"
+          className="relative z-[1] grid size-[5.25rem] place-items-center overflow-hidden rounded-[1.35rem] border border-white/70 bg-surface shadow-xl transition-transform duration-500 group-hover:scale-110 group-hover:-translate-y-1 dark:border-white/25 dark:bg-white/10"
           style={{
-            background: `linear-gradient(150deg, ${g0}28, ${g1}28)`,
-            boxShadow: `0 18px 36px -10px ${g0}88`,
+            boxShadow: `0 16px 32px -12px ${g0}66`,
           }}
         >
           <img
@@ -196,12 +193,12 @@ function ServiceCard({
           />
         </div>
 
-        <span className="absolute right-3 top-3 z-[2] rounded-full bg-slate-950/65 px-2.5 py-1 text-[10px] font-bold text-slate-200 ring-1 ring-white/15 backdrop-blur-md">
+        <span className="absolute right-3 top-3 z-[2] rounded-full bg-surface/90 px-2.5 py-1 text-[10px] font-bold text-text ring-1 ring-line backdrop-blur-md dark:bg-slate-950/70 dark:text-slate-100 dark:ring-white/15">
           {service.categoryTitle ?? category?.title ?? 'خدمت'}
         </span>
 
         {isPopular ? (
-          <span className="absolute left-3 top-3 z-[2] inline-flex items-center gap-1 rounded-full bg-amber-400/20 px-2.5 py-1 text-[10px] font-extrabold text-amber-200 ring-1 ring-amber-300/35 backdrop-blur-md">
+          <span className="absolute left-3 top-3 z-[2] inline-flex items-center gap-1 rounded-full bg-amber-100/95 px-2.5 py-1 text-[10px] font-extrabold text-amber-900 ring-1 ring-amber-400/45 backdrop-blur-md dark:bg-amber-400/20 dark:text-amber-200 dark:ring-amber-300/35">
             <TrendingUp className="size-3" />
             پرکاربرد
           </span>

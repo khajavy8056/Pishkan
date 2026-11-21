@@ -6,6 +6,7 @@ import { homeFor, useAuth } from '../../lib/auth';
 import { ChatWidget } from '../../components/ChatWidget';
 import { LandingTopNav } from '../../components/landing/LandingTopNav';
 import { LandingAuthModal } from '../../components/landing/LandingAuthModal';
+import { LandingPreloader } from '../../components/landing/LandingPreloader';
 import { LandingHero } from '../../components/landing/LandingHero';
 import {
   LandingCategoryRail,
@@ -42,15 +43,18 @@ export function HomePage() {
 
   return (
     <>
-      <div className="landing-shell pb-16 lg:pb-0">
-        <div className="aurora" aria-hidden="true">
-          <div className="aurora-blob a1" />
-          <div className="aurora-blob a2" />
-          <div className="aurora-blob a3" />
+      <div className="landing-shell">
+        <div className="landing-bg-stage" aria-hidden="true">
+          <div className="aurora">
+            <div className="aurora-blob a1" />
+            <div className="aurora-blob a2" />
+            <div className="aurora-blob a3" />
+          </div>
+          <div className="dot-grid" />
+          <div className="grain" />
         </div>
-        <div className="dot-grid" aria-hidden="true" />
-        <div className="grain" aria-hidden="true" />
 
+        <LandingPreloader />
         <LandingTopNav onOpenAuth={openAuth} />
 
         <main id="main-content">

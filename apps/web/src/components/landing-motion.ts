@@ -291,6 +291,11 @@ export function useRevealOnScroll<T extends HTMLElement>(options: {
         showNow(el);
         return;
       }
+      const rect = el.getBoundingClientRect();
+      if (rect.top < (window.innerHeight || 900) + 120) {
+        showNow(el);
+        return;
+      }
       observer?.observe(el);
     };
 
@@ -305,14 +310,14 @@ export function useRevealOnScroll<T extends HTMLElement>(options: {
     if (canObserve) {
       observer = new IntersectionObserver((entries) => {
         for (const entry of entries) {
-          if (!entry.isIntersecting) continue;
+          if (!entry.isIntersecting && entry.boundingClientRect.top > (window.innerHeight || 900)) continue;
           const el = entry.target as HTMLElement;
           const index = Number(el.dataset.revealIndex ?? 0);
-          el.style.transitionDelay = `${Math.min(index * stagger, 480)}ms`;
+          el.style.transitionDelay = `${Math.min(index * stagger, 320)}ms`;
           el.classList.add('is-in');
           observer?.unobserve(el);
         }
-      }, { threshold, rootMargin: '0px 0px -8% 0px' });
+      }, { threshold: 0.01, rootMargin: '140px 0px 140px 0px' });
     }
 
     scan();

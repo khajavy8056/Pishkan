@@ -199,7 +199,7 @@ export function LandingFooter() {
 
   return (
     <footer className="footer-shell mt-12">
-      <div className="mx-auto max-w-7xl px-4 py-12 sm:px-6 lg:py-16">
+      <div className="mx-auto max-w-7xl px-4 pb-24 pt-12 sm:px-6 lg:py-16">
         <div className="grid gap-10 lg:grid-cols-12">
           <div className="space-y-4 lg:col-span-5">
             <Link to="/" className="inline-flex items-center gap-3 text-inherit no-underline">
