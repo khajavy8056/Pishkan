@@ -203,9 +203,9 @@ export function EligibleQueue() {
   return (
     <AppShell variant="staff">
       <HeroShell image="/images/queue-hero.jpg" aside={(
-        <Button variant="ghost" className="bg-white/80" onClick={load}><RefreshCw className="size-4" /> تازه‌سازی صف</Button>
+        <Button variant="ghost" onClick={load}><RefreshCw className="size-4" /> تازه‌سازی صف</Button>
       )}>
-        <span className="chip-soft mb-3 bg-white/70 text-brand-800">صف درخواست‌های آزاد</span>
+        <span className="chip-soft mb-3">صف درخواست‌های آزاد</span>
         <h1 className="text-2xl font-black tracking-tight text-navy-900 sm:text-[1.8rem]">دریافت درخواست‌ها</h1>
         <p className="mt-2 max-w-xl text-sm leading-7 text-navy-600">
           درخواست‌هایی که هنوز کارشناس ندارند اینجایند؛ با «تأیید و قبول انجام» پرونده همان لحظه به شما سپرده

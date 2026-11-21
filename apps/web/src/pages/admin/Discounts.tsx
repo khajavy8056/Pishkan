@@ -1,5 +1,6 @@
 import { FormEvent, useEffect, useState } from 'react';
 import { Pencil, Plus, ReceiptText, TicketPercent, Trash2 } from 'lucide-react';
+import clsx from 'clsx';
 import { AppShell, PageHeader } from '../../components/shell';
 import {
   Badge, Button, Card, EmptyState, Field, Input, Loading, Modal, Select, Switch, Textarea, useToast,
@@ -151,49 +152,91 @@ export function AdminDiscountsPage({ variant = 'admin' }: { variant?: 'admin' | 
         {loading ? <Loading rows={4} /> : codes.length === 0 ? (
           <EmptyState title="هنوز کد تخفیفی ساخته نشده است." description="با «کد جدید» اولین کد را بسازید؛ مثلاً WELCOME10 برای مشتریان تازه." icon={<TicketPercent className="size-6" />} />
         ) : (
-          <div className="overflow-x-auto">
-            <table className="w-full min-w-[760px] text-sm">
-              <thead>
-                <tr className="border-b border-line text-start text-xs text-navy-500">
-                  <th className="py-2 pe-3 font-bold">کد</th>
-                  <th className="py-2 pe-3 font-bold">عنوان</th>
-                  <th className="py-2 pe-3 font-bold">میزان</th>
-                  <th className="py-2 pe-3 font-bold">محدوده</th>
-                  <th className="py-2 pe-3 font-bold">اعتبار</th>
-                  <th className="py-2 pe-3 font-bold">مصرف</th>
-                  <th className="py-2 pe-3 font-bold">وضعیت</th>
-                  <th className="py-2 font-bold">عملیات</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-line">
-                {codes.map((code) => (
-                  <tr key={code.id} className="align-top">
-                    <td className="py-3 pe-3"><span className="rounded-lg bg-surface-3 px-2 py-1 font-mono text-xs font-bold" dir="ltr">{code.code}</span></td>
-                    <td className="py-3 pe-3">{code.title}<span className="block text-xs text-navy-500">{({code:'فقط با کد', all:'همه مشتریان', first_purchase:'خرید اول', assigned:'مشتریان انتخاب‌شده'} as Record<string,string>)[code.audience] ?? 'فقط با کد'}</span></td>
-                    <td className="py-3 pe-3">
-                      {code.type === 'percent' ? `${faNum(code.value)}٪` : rial(code.value)}
-                      {code.type === 'percent' && code.maxDiscount ? <span className="block text-[11px] text-navy-400">سقف {rial(code.maxDiscount)}</span> : null}
-                    </td>
-                    <td className="py-3 pe-3">{scopeLabel(code)}</td>
-                    <td className="py-3 pe-3 text-xs">
-                      {code.startsAt ? `از ${faDate(code.startsAt)}` : ''}{code.expiresAt ? `${code.startsAt ? ' تا ' : 'تا '}${faDate(code.expiresAt)}` : (!code.startsAt ? 'بدون محدودیت' : '')}
-                      {code.expired && <span className="block font-bold text-rose-600">منقضی شده</span>}
-                    </td>
-                    <td className="py-3 pe-3">{faNum(code.usedCount ?? 0)}{code.usageLimit ? ` از ${faNum(code.usageLimit)}` : ''}</td>
-                    <td className="py-3 pe-3">{code.isActive ? <Badge tone="success">فعال</Badge> : <Badge>غیرفعال</Badge>}</td>
-                    <td className="py-3">
-                      <div className="flex gap-1">
-                        {code.audience === 'assigned' && <Button size="sm" variant="ghost" onClick={() => { setAssigning(code); setCustomerQuery(''); setCustomers([]); }}>تخصیص مشتری</Button>}
-                        <Button size="sm" variant="ghost" aria-label="مصرف‌ها" onClick={() => void showUsages(code)}><ReceiptText className="size-4" /></Button>
-                        <Button size="sm" variant="ghost" aria-label="ویرایش" onClick={() => openEdit(code)}><Pencil className="size-4" /></Button>
-                        <Button size="sm" variant="ghost" aria-label="حذف" loading={busy === code.id} onClick={() => void remove(code)}><Trash2 className="size-4 text-rose-600" /></Button>
+          <>
+            <div className="divide-y divide-line md:hidden">
+              {codes.map((code) => (
+                <div key={code.id} className="space-y-2.5 py-3.5 first:pt-0 last:pb-0">
+                  <div className="flex flex-wrap items-start justify-between gap-2">
+                    <div className="min-w-0">
+                      <div className="flex flex-wrap items-center gap-2">
+                        <span className="rounded-lg bg-surface-3 px-2 py-1 font-mono text-xs font-bold" dir="ltr">{code.code}</span>
+                        <span className="font-bold text-navy-900">{code.title}</span>
                       </div>
-                    </td>
+                      <p className="mt-1 text-xs text-navy-500">
+                        {({ code: 'فقط با کد', all: 'همه مشتریان', first_purchase: 'خرید اول', assigned: 'مشتریان انتخاب‌شده' } as Record<string, string>)[code.audience] ?? 'فقط با کد'} · {scopeLabel(code)}
+                      </p>
+                    </div>
+                    {code.isActive ? <Badge tone="success">فعال</Badge> : <Badge>غیرفعال</Badge>}
+                  </div>
+                  <div className="grid grid-cols-3 gap-2 rounded-xl bg-surface-2 p-2.5 text-center text-xs">
+                    <div>
+                      <p className="text-[10px] text-navy-400">میزان</p>
+                      <p className="mt-0.5 font-bold text-navy-900">{code.type === 'percent' ? `${faNum(code.value)}٪` : rial(code.value)}</p>
+                    </div>
+                    <div>
+                      <p className="text-[10px] text-navy-400">مصرف</p>
+                      <p className="mt-0.5 font-bold text-navy-900">{faNum(code.usedCount ?? 0)}{code.usageLimit ? ` / ${faNum(code.usageLimit)}` : ''}</p>
+                    </div>
+                    <div>
+                      <p className="text-[10px] text-navy-400">اعتبار</p>
+                      <p className={clsx('mt-0.5 font-semibold', code.expired ? 'text-rose-600' : 'text-navy-700')}>
+                        {code.expired ? 'منقضی' : code.expiresAt ? faDate(code.expiresAt) : 'دائمی'}
+                      </p>
+                    </div>
+                  </div>
+                  <div className="flex flex-wrap justify-end gap-1.5">
+                    {code.audience === 'assigned' && <Button size="sm" variant="ghost" onClick={() => { setAssigning(code); setCustomerQuery(''); setCustomers([]); }}>تخصیص مشتری</Button>}
+                    <Button size="sm" variant="ghost" aria-label="مصرف‌ها" onClick={() => void showUsages(code)}><ReceiptText className="size-4" /> مصرف‌ها</Button>
+                    <Button size="sm" variant="ghost" aria-label="ویرایش" onClick={() => openEdit(code)}><Pencil className="size-4" /> ویرایش</Button>
+                    <Button size="sm" variant="ghost" aria-label="حذف" loading={busy === code.id} onClick={() => void remove(code)}><Trash2 className="size-4 text-rose-600" /></Button>
+                  </div>
+                </div>
+              ))}
+            </div>
+            <div className="hidden overflow-x-auto md:block">
+              <table className="w-full min-w-[760px] text-sm">
+                <thead>
+                  <tr className="border-b border-line text-start text-xs text-navy-500">
+                    <th className="py-2 pe-3 font-bold">کد</th>
+                    <th className="py-2 pe-3 font-bold">عنوان</th>
+                    <th className="py-2 pe-3 font-bold">میزان</th>
+                    <th className="py-2 pe-3 font-bold">محدوده</th>
+                    <th className="py-2 pe-3 font-bold">اعتبار</th>
+                    <th className="py-2 pe-3 font-bold">مصرف</th>
+                    <th className="py-2 pe-3 font-bold">وضعیت</th>
+                    <th className="py-2 font-bold">عملیات</th>
                   </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
+                </thead>
+                <tbody className="divide-y divide-line">
+                  {codes.map((code) => (
+                    <tr key={code.id} className="align-top">
+                      <td className="py-3 pe-3"><span className="rounded-lg bg-surface-3 px-2 py-1 font-mono text-xs font-bold" dir="ltr">{code.code}</span></td>
+                      <td className="py-3 pe-3">{code.title}<span className="block text-xs text-navy-500">{({code:'فقط با کد', all:'همه مشتریان', first_purchase:'خرید اول', assigned:'مشتریان انتخاب‌شده'} as Record<string,string>)[code.audience] ?? 'فقط با کد'}</span></td>
+                      <td className="py-3 pe-3">
+                        {code.type === 'percent' ? `${faNum(code.value)}٪` : rial(code.value)}
+                        {code.type === 'percent' && code.maxDiscount ? <span className="block text-[11px] text-navy-400">سقف {rial(code.maxDiscount)}</span> : null}
+                      </td>
+                      <td className="py-3 pe-3">{scopeLabel(code)}</td>
+                      <td className="py-3 pe-3 text-xs">
+                        {code.startsAt ? `از ${faDate(code.startsAt)}` : ''}{code.expiresAt ? `${code.startsAt ? ' تا ' : 'تا '}${faDate(code.expiresAt)}` : (!code.startsAt ? 'بدون محدودیت' : '')}
+                        {code.expired && <span className="block font-bold text-rose-600">منقضی شده</span>}
+                      </td>
+                      <td className="py-3 pe-3">{faNum(code.usedCount ?? 0)}{code.usageLimit ? ` از ${faNum(code.usageLimit)}` : ''}</td>
+                      <td className="py-3 pe-3">{code.isActive ? <Badge tone="success">فعال</Badge> : <Badge>غیرفعال</Badge>}</td>
+                      <td className="py-3">
+                        <div className="flex gap-1">
+                          {code.audience === 'assigned' && <Button size="sm" variant="ghost" onClick={() => { setAssigning(code); setCustomerQuery(''); setCustomers([]); }}>تخصیص مشتری</Button>}
+                          <Button size="sm" variant="ghost" aria-label="مصرف‌ها" onClick={() => void showUsages(code)}><ReceiptText className="size-4" /></Button>
+                          <Button size="sm" variant="ghost" aria-label="ویرایش" onClick={() => openEdit(code)}><Pencil className="size-4" /></Button>
+                          <Button size="sm" variant="ghost" aria-label="حذف" loading={busy === code.id} onClick={() => void remove(code)}><Trash2 className="size-4 text-rose-600" /></Button>
+                        </div>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </>
         )}
       </Card>
 

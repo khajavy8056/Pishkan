@@ -531,7 +531,7 @@ export function ServiceDetailPage({ variant = 'public' }: { variant?: 'public' |
               )}
 
               {service.hasExternalCosts && (
-                <div className="mt-4 rounded-xl bg-sky-50 p-4 text-xs leading-6 text-sky-950 ring-1 ring-sky-200">
+                <div className="mt-4 rounded-xl bg-sky-50 p-4 text-xs leading-6 text-sky-900 ring-1 ring-sky-200">
                   <p className="flex items-center gap-2 font-bold">
                     <Landmark className="size-4 shrink-0" />
                     هزینهٔ سازمانی جداگانه از حق‌الزحمه

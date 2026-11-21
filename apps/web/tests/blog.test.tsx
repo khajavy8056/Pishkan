@@ -159,7 +159,7 @@ describe('content studio', () => {
 
     await waitFor(() => expect(screen.getByText('کل مطالب')).toBeTruthy());
     expect(screen.getAllByText('بلاگ و تولید محتوا').length).toBeGreaterThan(0);
-    await waitFor(() => expect(screen.getByText('راهنمای کامل تعویض پلاک خودرو')).toBeTruthy());
+    await waitFor(() => expect(screen.getAllByText('راهنمای کامل تعویض پلاک خودرو').length).toBeGreaterThan(0));
     expect(screen.getAllByText('مطلب تازه').length).toBeGreaterThan(0);
   });
 

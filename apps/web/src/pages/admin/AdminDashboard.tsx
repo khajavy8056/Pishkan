@@ -89,12 +89,12 @@ export function AdminDashboard() {
   return (
     <AppShell variant="admin">
       <HeroShell image={brand.panelHero}>
-        <span className="chip-soft mb-3 bg-white/70 text-brand-800"><span className="size-1.5 rounded-full bg-emerald-500" aria-hidden="true" /> پنل مدیریت ارشد سیستم</span>
+        <span className="chip-soft mb-3"><span className="size-1.5 rounded-full bg-emerald-500" aria-hidden="true" /> پنل مدیریت ارشد سیستم</span>
         <h1 className="text-2xl font-black tracking-tight text-navy-900 sm:text-[1.8rem]">خوش آمدید، {user?.fullName}</h1>
         <p className="mt-2 max-w-xl text-sm leading-7 text-navy-600">خلاصهٔ وضعیت فعلی سیستم و عملکرد کلی {brand.name} را مشاهده می‌کنید.</p>
         <div className="mt-4 flex flex-wrap gap-2">
           <Link to="/admin/reports" className="btn-gradient btn-md">مشاهده گزارش‌ها <ArrowLeft className="size-4" /></Link>
-          <Link to="/admin/automation" className="btn-soft btn-md bg-white/80"><ClipboardList className="size-4" /> کارتابل تأیید</Link>
+          <Link to="/admin/automation" className="btn-ghost btn-md"><ClipboardList className="size-4" /> کارتابل تأیید</Link>
         </div>
       </HeroShell>
 
@@ -167,7 +167,7 @@ export function AdminDashboard() {
             ) : (
               <div className="space-y-2">
                 {data.pendingApprovals.map((item: any) => (
-                  <div key={item.handoffId} className="lift flex flex-wrap items-center gap-3 rounded-2xl bg-surface-3/70 px-3.5 py-3 ring-1 ring-navy-900/5">
+                  <div key={item.handoffId} className="lift flex flex-wrap items-center gap-3 rounded-2xl bg-surface-3/70 px-3.5 py-3 ring-1 ring-line">
                     <CategoryArt name={item.categoryIcon} color={item.categoryColor} className="size-11" glyphClassName="size-6" />
                     <span className="min-w-0 flex-1">
                       <span className="block truncate text-sm font-bold text-navy-900">{item.serviceTitle}</span>
@@ -176,7 +176,7 @@ export function AdminDashboard() {
                       </span>
                     </span>
                     <StatusBadge status={item.status} label={item.statusLabel} />
-                    <span className="flex items-center gap-1.5">
+                    <span className="flex w-full flex-wrap items-center justify-end gap-1.5 sm:w-auto">
                       <button type="button" onClick={() => setDecision({ item, kind: 'approved' })}
                         className="btn btn-sm bg-gradient-to-b from-emerald-500 to-emerald-600 font-bold text-white shadow-[0_8px_16px_-8px_rgb(16_185_129/.8)] transition hover:from-emerald-600 hover:to-emerald-700">
                         <Check className="size-4" /> تأیید

@@ -632,7 +632,7 @@ export function RequestDetail({ variant = 'staff' }: { variant?: 'staff' | 'admi
             <ol className="relative space-y-4 border-r border-navy-100 pr-4">
               {request.events.map((event: any) => (
                 <li key={event.id} className="relative">
-                  <span className="absolute -right-[21px] top-1.5 size-2.5 rounded-full bg-brand-500 ring-4 ring-white" />
+                  <span className="absolute -right-[21px] top-1.5 size-2.5 rounded-full bg-brand-500 ring-4 ring-surface" />
                   <p className="text-sm text-navy-800">{event.message}</p>
                   <p className="text-[11px] text-navy-400">{faDateTime(event.createdAt)}{event.actorName ? ` • ${event.actorName}` : ''}</p>
                 </li>
@@ -722,11 +722,11 @@ export function RequestDetail({ variant = 'staff' }: { variant?: 'staff' | 'admi
         </>}>
         <div className="space-y-3">
           {request.serviceRequiresApproval ? (
-            <p className="rounded-xl bg-amber-50 p-3 text-[11px] leading-6 text-amber-950 ring-1 ring-amber-200">
+            <p className="rounded-xl bg-amber-50 p-3 text-[11px] leading-6 text-amber-900 ring-1 ring-amber-200">
               این خدمت از موارد خاص است و تحویل آن نیازمند تأیید مدیر اصلی است؛ توضیحات و فایل‌های شما پس از تأیید مدیر برای مشتری منتشر می‌شود و تا آن زمان نزد مشتری دیده نمی‌شود.
             </p>
           ) : (
-            <p className="rounded-xl bg-emerald-50 p-3 text-[11px] leading-6 text-emerald-950 ring-1 ring-emerald-200">
+            <p className="rounded-xl bg-emerald-50 p-3 text-[11px] leading-6 text-emerald-900 ring-1 ring-emerald-200">
               با ثبت تحویل، توضیحات و فایل‌های نتیجه همان لحظه برای مشتری منتشر می‌شود، پرونده «تکمیل‌شده» می‌شود و برای مشتری اعلان و پیامک ارسال می‌گردد. نیازی به تأیید مدیر نیست.
             </p>
           )}
@@ -773,7 +773,7 @@ export function RequestDetail({ variant = 'staff' }: { variant?: 'staff' | 'admi
             صدور و ارسال برای مشتری
           </Button></>}>
         <div className="space-y-3">
-          <p className="rounded-xl bg-sky-50 p-3 text-[11px] leading-6 text-sky-950 ring-1 ring-sky-200">
+          <p className="rounded-xl bg-sky-50 p-3 text-[11px] leading-6 text-sky-900 ring-1 ring-sky-200">
             این مبلغ هزینهٔ سازمان مربوطه است (مثل حق بیمه یا عوارض) و جزو حق‌الزحمهٔ دفتر و پورسانت نیست.
             پس از صدور، پرونده «منتظر مشتری» می‌شود، برای مشتری پیامک می‌رود و در صفحهٔ پرونده‌اش دکمهٔ پرداخت می‌بیند؛
             به‌محض پرداخت، شما خبردار می‌شوید و پرونده به جریان برمی‌گردد.
@@ -1261,7 +1261,7 @@ export function StaffCustomService() {
                 ]} />
             </Field>
             {form.customRequestId && (
-              <p className="rounded-lg bg-sky-50 px-3 py-2 text-[11px] leading-6 text-sky-950 ring-1 ring-sky-200">
+              <p className="rounded-lg bg-sky-50 px-3 py-2 text-[11px] leading-6 text-sky-900 ring-1 ring-sky-200">
                 این پیشنهاد در پاسخ به درخواست اختصاصی مشتری ثبت می‌شود و وضعیت آن درخواست به «قیمت‌گذاری شده» تغییر می‌کند.
               </p>
             )}

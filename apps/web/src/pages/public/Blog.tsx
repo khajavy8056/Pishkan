@@ -103,8 +103,8 @@ function NewsletterCard() {
       <p className="mt-1.5 text-xs leading-6 text-white/80">برای دریافت جدیدترین مطالب و آموزش‌ها، ایمیل خود را وارد کنید.</p>
       <form onSubmit={submit} className="mt-4 space-y-2">
         <Input type="email" required dir="ltr" value={email} onChange={(e) => setEmail(e.target.value)}
-          placeholder="ایمیل شما…" className="border-white/25 bg-white/95 text-left text-navy-900" aria-label="ایمیل خبرنامه" />
-        <Button type="submit" loading={busy} className="w-full border border-white/30 bg-white font-bold text-brand-800 hover:bg-white/90">
+          placeholder="ایمیل شما…" className="border-white/25 bg-white/95 text-left text-[#0c1d37] placeholder:text-[#64748b]" aria-label="ایمیل خبرنامه" />
+        <Button type="submit" loading={busy} className="w-full border border-white/30 bg-white font-bold text-[#0a4eae] hover:bg-white/90">
           <Send className="size-4" /> عضویت
         </Button>
       </form>
@@ -164,7 +164,7 @@ export function BlogHome() {
           <img src="/images/blog-hero.jpg" alt="" className="absolute inset-0 -z-20 h-full w-full object-cover object-left" />
           <div aria-hidden="true" className="absolute inset-0 -z-10 bg-gradient-to-l from-white/85 via-white/45 to-transparent" />
           <div className="relative max-w-2xl p-6 sm:p-10">
-            <span className="chip-soft bg-white/75 text-brand-800">بلاگ و آموزش</span>
+            <span className="chip-soft">بلاگ و آموزش</span>
             <h1 className="mt-3 text-3xl font-black leading-snug tracking-tight text-navy-900 sm:text-4xl">بلاگ {brand.name}</h1>
             <p className="mt-2 text-base font-bold text-navy-700">دانش، تجربه و نکات کاربردی برای موفقیت بیشتر</p>
             <p className="mt-2 max-w-xl text-sm leading-7 text-navy-600">

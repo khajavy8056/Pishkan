@@ -399,7 +399,7 @@ export function ChatWidget({ placement = 'shell' }: { placement?: 'shell' | 'pag
                 {(active.messages ?? []).map((message: any) => {
                   const mine = message.senderId === user?.id;
                   return (
-                    <div key={message.id} className={clsx('max-w-[85%] rounded-2xl px-3 py-2 shadow-xs', mine ? 'self-end rounded-bl-md bg-brand-600 text-white' : 'self-start rounded-br-md bg-surface text-navy-800 ring-1 ring-line', message.isInternal && 'bg-amber-50 text-amber-950 ring-amber-200')}>
+                    <div key={message.id} className={clsx('max-w-[85%] rounded-2xl px-3 py-2 shadow-xs', mine ? 'self-end rounded-bl-md bg-brand-600 text-white' : 'self-start rounded-br-md bg-surface text-navy-800 ring-1 ring-line', message.isInternal && 'bg-amber-50 text-amber-900 ring-amber-200')}>
                       {!mine && message.senderName && (
                         <p className="mb-0.5 text-[10px] font-bold text-accent">{message.senderName}{message.senderRole !== 'customer' ? ' · پشتیبانی' : ''}</p>
                       )}

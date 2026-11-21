@@ -513,7 +513,7 @@ export function AdminServiceEditor() {
                       </Button>
                     </div>
                     <Field label="نوع مدرک متعلق به خود مشتری برای استفاده از پروفایل" hint="فقط وقتی این مدرک دقیقاً متعلق به خود مشتری است انتخاب کنید؛ برای شخص دیگر یا فایل موقت خالی بگذارید.">
-                      <select className="w-full rounded-xl border border-slate-300 bg-white px-3 py-2 text-sm" value={doc.documentType ?? ''} onChange={(e) => updateDoc(index, { documentType: e.target.value || undefined })}>
+                      <select className="input" value={doc.documentType ?? ''} onChange={(e) => updateDoc(index, { documentType: e.target.value || undefined })}>
                         <option value="">غیرفعال / مدرک پرونده‌ای</option>
                         <option value="national_card">کارت ملی</option><option value="birth_certificate">شناسنامه</option>
                         <option value="passport">گذرنامه</option><option value="residence_permit">مجوز اقامت</option>

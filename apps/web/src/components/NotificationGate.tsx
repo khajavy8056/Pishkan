@@ -143,7 +143,7 @@ export function NotificationGate({ kind }: { kind: 'customer' | 'staff' | 'admin
         <div className="flex items-start gap-3 rounded-2xl border border-amber-200 bg-amber-50 p-3.5 shadow-xl">
           <ShieldAlert className="mt-0.5 size-5 shrink-0 text-amber-700" />
           <div className="min-w-0 flex-1">
-            <p className="text-sm font-bold text-amber-950">اعلان‌های این دستگاه فعال نیست</p>
+            <p className="text-sm font-bold text-amber-900">اعلان‌های این دستگاه فعال نیست</p>
             <p className="mt-0.5 text-[11px] leading-5 text-amber-900/80">
               {state === 'insecure'
                 ? 'روی این نشانی (شبکهٔ محلی بدون HTTPS) مرورگر اجازهٔ اعلان نمی‌دهد. سامانه را روی همین رایانه با نشانی localhost یا از نشانی امن (HTTPS) باز کنید، یا اعلان‌ها را از زنگولهٔ بالای صفحه دنبال کنید.'

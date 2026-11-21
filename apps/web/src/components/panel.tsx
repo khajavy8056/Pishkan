@@ -228,7 +228,7 @@ export function LineChart({ points, color = '#2563eb', bars, format = (v: number
       {pts.length > 1 && <path d={line} fill="none" stroke={color} strokeWidth="3" strokeLinecap="round" />}
       {pts.map((p, i) => (
         <g key={i}>
-          <circle cx={p.x} cy={p.y} r="4" fill="#fff" stroke={color} strokeWidth="2.5">
+          <circle cx={p.x} cy={p.y} r="4" fill="var(--surface)" stroke={color} strokeWidth="2.5">
             <title>{points[i].label}: {format(points[i].value)}</title>
           </circle>
           {i === pts.length - 1 && (
@@ -278,12 +278,12 @@ export function HeroShell({ image, dark = false, children, className, aside }: {
   image: string; dark?: boolean; children: ReactNode; className?: string; aside?: ReactNode;
 }) {
   return (
-    <section className={clsx('relative isolate mb-6 overflow-hidden rounded-[1.6rem] shadow-soft ring-1 ring-navy-900/5', className)}>
+    <section className={clsx('relative isolate mb-6 overflow-hidden rounded-[1.6rem] shadow-soft ring-1 ring-line', className)}>
       <img src={image} alt="" className="absolute inset-0 -z-20 h-full w-full object-cover object-left" />
       <div aria-hidden="true" className={clsx('absolute inset-0 -z-10',
         dark
-          ? 'bg-gradient-to-l from-[#0a1d47]/85 via-[#0a1d47]/45 to-transparent'
-          : 'bg-gradient-to-l from-white/85 via-white/45 to-transparent')} />
+          ? 'bg-gradient-to-l from-[#0a1d47]/90 via-[#0a1d47]/65 to-[#0a1d47]/30 sm:via-[#0a1d47]/45 sm:to-transparent'
+          : 'bg-gradient-to-l from-surface/95 via-surface/82 to-surface/35 sm:via-surface/55 sm:to-transparent')} />
       <div className="relative flex min-h-44 flex-wrap items-center justify-between gap-5 p-5 sm:p-7">
         <div className="min-w-0 max-w-2xl">{children}</div>
         {aside}

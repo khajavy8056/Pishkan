@@ -1,3 +1,5 @@
+import fs from 'node:fs';
+import path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
@@ -172,5 +174,43 @@ describe('conversation center on a phone', () => {
 
     fireEvent.click(screen.getByRole('button', { name: 'بازگشت به فهرست گفت‌وگوها' }));
     await waitFor(() => expect(hasHidden(listCard)).toBe(false));
+  });
+});
+
+describe('customer and admin panel mobile & theme guards', () => {
+  it('defines btn-gradient, btn-md, chip-soft, and table-compact in styles.css', () => {
+    const css = fs.readFileSync(path.resolve(__dirname, '../src/styles.css'), 'utf8');
+    expect(css).toContain('.btn-gradient');
+    expect(css).toContain('.btn-md');
+    expect(css).toContain('.chip-soft');
+    expect(css).toContain('.table-compact');
+  });
+
+  it('gives customer wallet, invoices, and dashboard dedicated mobile layouts and dark-safe hero overlays', () => {
+    const customerPages = fs.readFileSync(path.resolve(__dirname, '../src/pages/customer/CustomerPages.tsx'), 'utf8');
+    const walletPage = fs.readFileSync(path.resolve(__dirname, '../src/pages/customer/Wallet.tsx'), 'utf8');
+    const panel = fs.readFileSync(path.resolve(__dirname, '../src/components/panel.tsx'), 'utf8');
+
+    expect(customerPages).toContain('grid-cols-2 gap-3 sm:grid-cols-3 sm:gap-4 md:grid-cols-6');
+    expect(customerPages).toContain('divide-y divide-line md:hidden');
+    expect(customerPages).toContain('table table-compact');
+    expect(customerPages).not.toContain('emerald-950');
+    expect(customerPages).not.toContain('sky-950');
+    expect(walletPage).toContain('divide-y divide-line md:hidden');
+    expect(panel).toContain('from-surface/95');
+    expect(panel).not.toContain('from-white/85');
+  });
+
+  it('gives admin discounts, customers, and blog mobile card lists alongside desktop tables', () => {
+    const discounts = fs.readFileSync(path.resolve(__dirname, '../src/pages/admin/Discounts.tsx'), 'utf8');
+    const people = fs.readFileSync(path.resolve(__dirname, '../src/pages/admin/PeopleAdmin.tsx'), 'utf8');
+    const blogAdmin = fs.readFileSync(path.resolve(__dirname, '../src/pages/admin/BlogAdmin.tsx'), 'utf8');
+
+    expect(discounts).toContain('divide-y divide-line md:hidden');
+    expect(discounts).toContain('hidden overflow-x-auto md:block');
+    expect(people).toContain('divide-y divide-line md:hidden');
+    expect(people).toContain('hidden table-wrap md:block');
+    expect(blogAdmin).toContain('divide-y divide-line md:hidden');
+    expect(blogAdmin).toContain('hidden table-wrap md:block');
   });
 });

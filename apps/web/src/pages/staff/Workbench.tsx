@@ -284,7 +284,7 @@ function FixedHome({ ctx }: { ctx: Ctx }) {
   return (
     <>
       <HeroShell image="/images/staff-fixed-hero.jpg">
-        <span className="chip-soft mb-3 bg-white/70 text-brand-800"><span className="size-1.5 rounded-full bg-emerald-500" aria-hidden="true" /> پنل کارمندی</span>
+        <span className="chip-soft mb-3"><span className="size-1.5 rounded-full bg-emerald-500" aria-hidden="true" /> پنل کارمندی</span>
         <h1 className="text-2xl font-black tracking-tight text-navy-900 sm:text-[1.8rem]">
           سلام {firstName(ctx.user?.fullName)} عزیز، خوش آمدید!
         </h1>
@@ -293,7 +293,7 @@ function FixedHome({ ctx }: { ctx: Ctx }) {
         </p>
         <div className="mt-4 flex flex-wrap gap-2">
           <Link to="/staff/requests" className="btn-gradient btn-md">مشاهده پرونده‌های فعال <ArrowLeft className="size-4" /></Link>
-          <Link to="/staff/shifts" className="btn-soft btn-md bg-white/80">حضور و غیاب</Link>
+          <Link to="/staff/shifts" className="btn-ghost btn-md">حضور و غیاب</Link>
         </div>
       </HeroShell>
 
@@ -450,7 +450,7 @@ function PercentHome({ ctx }: { ctx: Ctx }) {
           {firstName(ctx.user?.fullName)} عزیز، فروش دوره، سهم درآمد و پرداخت‌های شما بر پایهٔ درصد قرارداد و درآمد دفتر همین‌جا محاسبه می‌شود.
         </p>
         <div className="mt-4 flex flex-wrap gap-2">
-          <Link to="/staff/finance" className="btn btn-md border border-white/30 bg-white font-bold text-navy-900 hover:bg-white/90">گزارش درآمد <ArrowLeft className="size-4" /></Link>
+          <Link to="/staff/finance" className="btn btn-md border border-white/30 bg-white font-bold text-[#0c1d37] hover:bg-white/90">گزارش درآمد <ArrowLeft className="size-4" /></Link>
           <Link to="/staff/finance" className="btn btn-md border border-white/30 bg-white/10 font-bold text-white hover:bg-white/20">درخواست برداشت</Link>
         </div>
       </HeroShell>

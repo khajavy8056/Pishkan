@@ -291,7 +291,7 @@ export function LoginPage() {
         <div className="mx-auto grid max-w-6xl items-stretch gap-6 px-4 py-10 sm:px-6 lg:grid-cols-2 lg:py-14">
           <div className="relative hidden overflow-hidden rounded-[2rem] shadow-2xl shadow-brand-900/20 ring-1 ring-white/40 lg:block">
             <img src={brand.heroImage} alt={brand.name} className="absolute inset-0 size-full object-cover" />
-            <div aria-hidden="true" className="absolute inset-0 bg-gradient-to-t from-navy-950/85 via-navy-950/25 to-transparent" />
+            <div aria-hidden="true" className="absolute inset-0 bg-gradient-to-t from-[#071528]/88 via-[#071528]/30 to-transparent" />
             <div className="relative flex h-full flex-col justify-end p-8 text-white">
               <BrandLockup tone="light" />
               <p className="mt-5 max-w-sm text-sm leading-7 text-white/85">

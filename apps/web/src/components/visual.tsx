@@ -166,8 +166,8 @@ export function PhoneMockup({ className }: { className?: string }) {
   return (
     <div className={clsx('relative mx-auto w-52 sm:w-60', className)} dir="rtl">
       <div className="absolute -inset-6 rounded-[3rem] bg-brand-500/25 blur-2xl" aria-hidden="true" />
-      <div className="relative overflow-hidden rounded-[2.4rem] border-[6px] border-navy-950/90 bg-navy-950 shadow-2xl">
-        <div className="relative aspect-[9/18.5] overflow-hidden bg-gradient-to-b from-brand-600 via-brand-700 to-shell">
+      <div className="relative overflow-hidden rounded-[2.4rem] border-[6px] border-[#0b1324] bg-[#0b1324] shadow-2xl">
+        <div className="relative aspect-[9/18.5] overflow-hidden bg-gradient-to-b from-brand-600 via-brand-700 to-[#071a2e]">
           <img src={brand.heroImage} alt="" className="absolute inset-x-0 bottom-0 h-[46%] w-full object-cover opacity-90" loading="lazy" />
           <div className="absolute inset-x-0 bottom-0 h-[46%] bg-gradient-to-t from-transparent via-transparent to-brand-700" aria-hidden="true" />
           <div className="relative flex flex-col items-center px-4 pt-9 text-center">
@@ -176,14 +176,14 @@ export function PhoneMockup({ className }: { className?: string }) {
             {brand.nameEn && <p className="mt-0.5 text-[10px] font-medium tracking-wide text-white/70" dir="ltr">{brand.nameEn}</p>}
             <div className="mt-5 w-full space-y-2">
               {['ثبت درخواست جدید', 'پیگیری پرونده‌ها', 'کیف پول و پرداخت'].map((label, i) => (
-                <div key={label} className={clsx('flex items-center gap-2 rounded-xl px-3 py-2 text-right text-[11px] font-semibold', i === 0 ? 'bg-white text-navy-900 shadow-lg' : 'bg-white/12 text-white ring-1 ring-white/15')}>
+                <div key={label} className={clsx('flex items-center gap-2 rounded-xl px-3 py-2 text-right text-[11px] font-semibold', i === 0 ? 'bg-white text-[#0d1c30] shadow-lg' : 'bg-white/12 text-white ring-1 ring-white/15')}>
                   <span className={clsx('size-1.5 rounded-full', i === 0 ? 'bg-emerald-500' : 'bg-white/60')} />
                   {label}
                 </div>
               ))}
             </div>
           </div>
-          <div className="absolute left-1/2 top-2 h-4 w-20 -translate-x-1/2 rounded-full bg-navy-950/90" aria-hidden="true" />
+          <div className="absolute left-1/2 top-2 h-4 w-20 -translate-x-1/2 rounded-full bg-[#0b1324]" aria-hidden="true" />
         </div>
       </div>
     </div>

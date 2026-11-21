@@ -317,7 +317,7 @@ function SupportCore({ mode }: { mode: Mode }) {
                     <div key={message.id} className={clsx('flex', mine ? 'justify-start' : 'justify-end')}>
                       <div className={clsx('max-w-[85%] rounded-2xl px-4 py-3 text-sm leading-7',
                         message.isInternal
-                          ? 'border border-amber-300 bg-amber-50 text-amber-950'
+                          ? 'border border-amber-300 bg-amber-50 text-amber-900'
                           : mine ? 'bg-brand-50 text-navy-900' : 'bg-surface-3 text-navy-900')}>
                         <p className="mb-1 flex flex-wrap items-center gap-2 text-[11px] text-navy-500">
                           <b className="text-navy-700">{message.senderName ?? (fromCustomer ? 'مشتری' : 'پشتیبانی')}</b>
@@ -327,7 +327,7 @@ function SupportCore({ mode }: { mode: Mode }) {
                         <p className="whitespace-pre-wrap">{message.body}</p>
                         {message.fileId && (
                           <a href={`/api/files/${message.fileId}/download`} target="_blank" rel="noreferrer"
-                            className="mt-2 inline-flex items-center gap-1 rounded-lg bg-white/70 px-2 py-1 text-[11px] font-bold text-brand-700 ring-1 ring-line hover:bg-white">
+                            className="mt-2 inline-flex items-center gap-1 rounded-lg bg-surface/85 px-2 py-1 text-[11px] font-bold text-accent ring-1 ring-line hover:bg-surface">
                             <Paperclip className="size-3" /> مشاهدهٔ پیوست
                           </a>
                         )}

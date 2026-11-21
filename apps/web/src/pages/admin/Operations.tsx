@@ -568,7 +568,7 @@ export function AdminSystem() {
                 </span>
               </div>
               {can('backup.restore') && (
-                <div className="mb-4 rounded-2xl border-2 border-dashed border-navy-200 bg-white/60 p-3"
+                <div className="mb-4 rounded-2xl border-2 border-dashed border-navy-200 bg-surface/75 p-3"
                   onDragOver={(e) => e.preventDefault()}
                   onDrop={(e) => { e.preventDefault(); const f = e.dataTransfer.files?.[0]; if (f) void uploadPkg(f); }}>
                   <h3 className="flex items-center gap-2 text-sm font-bold text-navy-900"><FileArchive className="size-4 text-accent" /> بازیابی از فایل پشتیبان (تک‌فایل)</h3>

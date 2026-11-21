@@ -137,56 +137,93 @@ function PostsTab({ variant }: { variant: Variant }) {
           description={can('blog.create') ? 'با «مطلب تازه» نخستین مقالهٔ بلاگ را بنویسید.' : 'برای نوشتن مطلب، مجوز ایجاد بلاگ لازم است.'} />
       )}
       {rows && rows.length > 0 && (
-        <div className="table-wrap card">
-          <table className="table">
-            <thead>
-              <tr><th>مطلب</th><th>نویسنده</th><th>وضعیت</th><th>بازدید / نظر</th><th>به‌روزرسانی</th><th className="text-left">اقدام</th></tr>
-            </thead>
-            <tbody>
-              {rows.map((post) => (
-                <tr key={post.id}>
-                  <td>
-                    <span className="flex items-center gap-3">
-                      {post.coverUrl
-                        ? <img src={post.coverUrl} alt="" className="h-10 w-14 shrink-0 rounded-lg object-cover" />
-                        : <span className="grid h-10 w-14 shrink-0 place-items-center rounded-lg bg-brand-50 text-brand-600"><Newspaper className="size-5" /></span>}
-                      <span className="min-w-0">
-                        <Link to={`${base}/${post.id}/edit`} className="block max-w-72 truncate font-bold text-navy-900 hover:text-brand-700">{post.title}</Link>
-                        <span className="block text-[11px] text-navy-400">/blog/{post.slug}{post.categoryTitle ? ` · ${post.categoryTitle}` : ''}</span>
-                      </span>
-                    </span>
-                  </td>
-                  <td className="text-xs text-navy-600">{post.authorName}{post.authorId === user?.id ? ' (شما)' : ''}</td>
-                  <td>
+        <div className="card overflow-hidden">
+          <div className="divide-y divide-line md:hidden">
+            {rows.map((post) => (
+              <div key={post.id} className="space-y-2.5 p-4">
+                <div className="flex items-start gap-3">
+                  {post.coverUrl
+                    ? <img src={post.coverUrl} alt="" className="h-12 w-16 shrink-0 rounded-lg object-cover" />
+                    : <span className="grid h-12 w-16 shrink-0 place-items-center rounded-lg bg-brand-50 text-brand-600"><Newspaper className="size-5" /></span>}
+                  <div className="min-w-0 flex-1">
+                    <Link to={`${base}/${post.id}/edit`} className="block truncate font-bold text-navy-900 hover:text-brand-700">{post.title}</Link>
+                    <p className="mt-0.5 truncate text-[11px] text-navy-400">/blog/{post.slug}{post.categoryTitle ? ` · ${post.categoryTitle}` : ''}</p>
+                    <p className="mt-1 text-[11px] text-navy-500">{post.authorName}{post.authorId === user?.id ? ' (شما)' : ''} · {relative(post.updatedAt)}</p>
+                  </div>
+                </div>
+                <div className="flex flex-wrap items-center justify-between gap-2 text-xs">
+                  <div className="flex flex-wrap items-center gap-2">
                     <Badge tone={post.scheduled ? 'info' : STATUS_TONE[post.status]}>{post.statusLabel}</Badge>
-                    {post.scheduled && <span className="mt-1 block text-[10px] text-navy-400">{faDate(post.publishedAt)}</span>}
-                  </td>
-                  <td className="text-xs text-navy-600">
-                    <span className="flex items-center gap-1"><Eye className="size-3.5" /> {faNum(post.viewsCount)}</span>
-                    <span className="mt-0.5 flex items-center gap-1">
-                      <MessageSquare className="size-3.5" /> {faNum(post.commentsCount)}
-                      {post.pendingComments > 0 && <span className="rounded-full bg-amber-100 px-1.5 text-[10px] font-bold text-amber-800">{faNum(post.pendingComments)} در انتظار</span>}
-                    </span>
-                  </td>
-                  <td className="text-xs text-navy-500">{relative(post.updatedAt)}</td>
-                  <td>
-                    <span className="flex flex-wrap justify-end gap-1">
-                      <Link to={`${base}/${post.id}/edit`} className="btn-ghost btn-sm" title="ویرایش"><Pencil className="size-4" /></Link>
-                      {post.status === 'published' && !post.scheduled && (
-                        <Link to={`/blog/${encodeURIComponent(post.slug)}`} target="_blank" className="btn-ghost btn-sm" title="مشاهده در سایت"><Globe className="size-4" /></Link>
-                      )}
-                      {can('blog.publish') && (post.status === 'published'
-                        ? <button type="button" className="btn-ghost btn-sm" disabled={busy === post.id} onClick={() => void act(post, 'unpublish')} title="لغو انتشار"><X className="size-4" /></button>
-                        : <button type="button" className="btn-ghost btn-sm text-emerald-700" disabled={busy === post.id} onClick={() => void act(post, 'publish')} title="انتشار"><Send className="size-4" /></button>)}
-                      {can('blog.delete') && (
-                        <button type="button" className="btn-ghost btn-sm text-rose-600" onClick={() => setToDelete(post)} title="حذف"><Trash2 className="size-4" /></button>
-                      )}
-                    </span>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
+                    <span className="inline-flex items-center gap-1 text-navy-600"><Eye className="size-3.5" /> {faNum(post.viewsCount)}</span>
+                    <span className="inline-flex items-center gap-1 text-navy-600"><MessageSquare className="size-3.5" /> {faNum(post.commentsCount)}</span>
+                  </div>
+                  <span className="flex flex-wrap gap-1">
+                    <Link to={`${base}/${post.id}/edit`} className="btn-ghost btn-sm" title="ویرایش"><Pencil className="size-4" /></Link>
+                    {post.status === 'published' && !post.scheduled && (
+                      <Link to={`/blog/${encodeURIComponent(post.slug)}`} target="_blank" className="btn-ghost btn-sm" title="مشاهده در سایت"><Globe className="size-4" /></Link>
+                    )}
+                    {can('blog.publish') && (post.status === 'published'
+                      ? <button type="button" className="btn-ghost btn-sm" disabled={busy === post.id} onClick={() => void act(post, 'unpublish')} title="لغو انتشار"><X className="size-4" /></button>
+                      : <button type="button" className="btn-ghost btn-sm text-emerald-700" disabled={busy === post.id} onClick={() => void act(post, 'publish')} title="انتشار"><Send className="size-4" /></button>)}
+                    {can('blog.delete') && (
+                      <button type="button" className="btn-ghost btn-sm text-rose-600" onClick={() => setToDelete(post)} title="حذف"><Trash2 className="size-4" /></button>
+                    )}
+                  </span>
+                </div>
+              </div>
+            ))}
+          </div>
+          <div className="hidden table-wrap md:block">
+            <table className="table">
+              <thead>
+                <tr><th>مطلب</th><th>نویسنده</th><th>وضعیت</th><th>بازدید / نظر</th><th>به‌روزرسانی</th><th className="text-left">اقدام</th></tr>
+              </thead>
+              <tbody>
+                {rows.map((post) => (
+                  <tr key={post.id}>
+                    <td>
+                      <span className="flex items-center gap-3">
+                        {post.coverUrl
+                          ? <img src={post.coverUrl} alt="" className="h-10 w-14 shrink-0 rounded-lg object-cover" />
+                          : <span className="grid h-10 w-14 shrink-0 place-items-center rounded-lg bg-brand-50 text-brand-600"><Newspaper className="size-5" /></span>}
+                        <span className="min-w-0">
+                          <Link to={`${base}/${post.id}/edit`} className="block max-w-72 truncate font-bold text-navy-900 hover:text-brand-700">{post.title}</Link>
+                          <span className="block text-[11px] text-navy-400">/blog/{post.slug}{post.categoryTitle ? ` · ${post.categoryTitle}` : ''}</span>
+                        </span>
+                      </span>
+                    </td>
+                    <td className="text-xs text-navy-600">{post.authorName}{post.authorId === user?.id ? ' (شما)' : ''}</td>
+                    <td>
+                      <Badge tone={post.scheduled ? 'info' : STATUS_TONE[post.status]}>{post.statusLabel}</Badge>
+                      {post.scheduled && <span className="mt-1 block text-[10px] text-navy-400">{faDate(post.publishedAt)}</span>}
+                    </td>
+                    <td className="text-xs text-navy-600">
+                      <span className="flex items-center gap-1"><Eye className="size-3.5" /> {faNum(post.viewsCount)}</span>
+                      <span className="mt-0.5 flex items-center gap-1">
+                        <MessageSquare className="size-3.5" /> {faNum(post.commentsCount)}
+                        {post.pendingComments > 0 && <span className="rounded-full bg-amber-100 px-1.5 text-[10px] font-bold text-amber-800">{faNum(post.pendingComments)} در انتظار</span>}
+                      </span>
+                    </td>
+                    <td className="text-xs text-navy-500">{relative(post.updatedAt)}</td>
+                    <td>
+                      <span className="flex flex-wrap justify-end gap-1">
+                        <Link to={`${base}/${post.id}/edit`} className="btn-ghost btn-sm" title="ویرایش"><Pencil className="size-4" /></Link>
+                        {post.status === 'published' && !post.scheduled && (
+                          <Link to={`/blog/${encodeURIComponent(post.slug)}`} target="_blank" className="btn-ghost btn-sm" title="مشاهده در سایت"><Globe className="size-4" /></Link>
+                        )}
+                        {can('blog.publish') && (post.status === 'published'
+                          ? <button type="button" className="btn-ghost btn-sm" disabled={busy === post.id} onClick={() => void act(post, 'unpublish')} title="لغو انتشار"><X className="size-4" /></button>
+                          : <button type="button" className="btn-ghost btn-sm text-emerald-700" disabled={busy === post.id} onClick={() => void act(post, 'publish')} title="انتشار"><Send className="size-4" /></button>)}
+                        {can('blog.delete') && (
+                          <button type="button" className="btn-ghost btn-sm text-rose-600" onClick={() => setToDelete(post)} title="حذف"><Trash2 className="size-4" /></button>
+                        )}
+                      </span>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
         </div>
       )}
       {total > 15 && (

@@ -109,7 +109,35 @@ export function AdminCustomers() {
 
       {loading && <Loading />}
       <Card pad={false}>
-        <div className="table-wrap">
+        <div className="divide-y divide-line md:hidden">
+          {items.map((customer) => (
+            <div key={customer.id} className="space-y-2.5 p-4">
+              <div className="flex items-start justify-between gap-2">
+                <div className="min-w-0">
+                  <p className="truncate font-bold text-navy-900">{customer.fullName}</p>
+                  <p className="mt-0.5 text-xs text-navy-500">
+                    <span dir="ltr">{customer.mobile}</span>
+                    {customer.city ? ` · ${customer.city}` : ''}
+                  </p>
+                </div>
+                <StatusBadge status={customer.status} />
+              </div>
+              <div className="flex items-center justify-between gap-2 rounded-xl bg-surface-2 px-3 py-2 text-xs">
+                <span>پرونده: <b>{faNum(customer.requestCount)}</b></span>
+                <span className={customer.outstanding > 0 ? 'font-bold text-rose-700' : 'text-navy-500'}>
+                  بدهی: {rial(customer.outstanding)}
+                </span>
+              </div>
+              <div className="flex flex-wrap justify-end gap-1.5">
+                <Button size="sm" variant="ghost" onClick={() => openDetail(customer)}>پرونده</Button>
+                {can('customers.edit') && <Button size="sm" variant="ghost" onClick={() => setEditing({ ...customer, profile: customer.profile ?? {} })}>ویرایش</Button>}
+                {can('customers.edit') && <Button size="sm" variant="ghost" onClick={() => resetPassword(customer)} aria-label="بازیابی رمز"><KeyRound className="size-3.5" /></Button>}
+                {can('customers.delete') && <Button size="sm" variant="ghost" onClick={() => remove(customer)} aria-label="غیرفعال‌سازی"><Trash2 className="size-3.5" /></Button>}
+              </div>
+            </div>
+          ))}
+        </div>
+        <div className="hidden table-wrap md:block">
           <table className="table">
             <thead><tr><th>نام</th><th>موبایل</th><th>شهر</th><th>پرونده</th><th>بدهی</th><th>وضعیت</th><th /></tr></thead>
             <tbody>

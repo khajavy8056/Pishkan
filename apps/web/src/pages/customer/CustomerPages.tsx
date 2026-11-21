@@ -117,14 +117,11 @@ export function CustomerDashboard() {
         <img src={brand.panelHero} alt="" aria-hidden="true" className="absolute inset-0 size-full object-cover" />
         <div
           aria-hidden="true"
-          className="absolute inset-0"
-          style={{
-            background: 'linear-gradient(to left, color-mix(in oklab, var(--surface) 94%, transparent) 18%, color-mix(in oklab, var(--surface) 72%, transparent) 44%, color-mix(in oklab, var(--surface) 12%, transparent) 68%, transparent 82%)',
-          }}
+          className="absolute inset-0 bg-gradient-to-l from-surface/95 via-surface/85 to-surface/35 sm:via-surface/70 sm:to-transparent"
         />
 
         <div className="relative flex min-h-[15rem] items-center sm:min-h-[16.5rem]">
-          <div key={hero.key} className="animate-pop max-w-xl p-6 sm:p-9">
+          <div key={hero.key} className={clsx('animate-pop max-w-xl p-6 sm:p-9', slides.length > 1 && 'pb-16 sm:pb-9')}>
             <h1 className="text-[1.65rem] leading-[1.45] font-black tracking-tight text-navy-950 sm:text-4xl sm:leading-[1.4]">{hero.title}</h1>
             {hero.sub && <p className="mt-1.5 text-base font-extrabold text-navy-900 sm:text-lg">{hero.sub}</p>}
             {hero.text && <p className="mt-2 max-w-md text-[13px] leading-7 text-navy-600 sm:text-sm">{hero.text}</p>}
@@ -142,11 +139,11 @@ export function CustomerDashboard() {
               type="button"
               aria-label="اسلاید قبلی"
               onClick={() => setSlide((activeSlide - 1 + slides.length) % slides.length)}
-              className="grid size-9 place-items-center rounded-full bg-white/85 text-navy-700 shadow-lg ring-1 ring-white/60 backdrop-blur transition hover:scale-105 hover:bg-white"
+              className="grid size-9 place-items-center rounded-full bg-surface/90 text-navy-900 shadow-lg ring-1 ring-line backdrop-blur transition hover:scale-105 hover:bg-surface"
             >
               <ChevronRight className="size-5" />
             </button>
-            <span className="flex items-center gap-1.5 rounded-full bg-white/70 px-2.5 py-2 shadow ring-1 ring-white/50 backdrop-blur">
+            <span className="flex items-center gap-1.5 rounded-full bg-surface/80 px-2.5 py-2 shadow ring-1 ring-line backdrop-blur">
               {slides.map((item, index) => (
                 <button
                   key={item.key}
@@ -162,7 +159,7 @@ export function CustomerDashboard() {
               type="button"
               aria-label="اسلاید بعدی"
               onClick={() => setSlide((activeSlide + 1) % slides.length)}
-              className="grid size-9 place-items-center rounded-full bg-white/85 text-navy-700 shadow-lg ring-1 ring-white/60 backdrop-blur transition hover:scale-105 hover:bg-white"
+              className="grid size-9 place-items-center rounded-full bg-surface/90 text-navy-900 shadow-lg ring-1 ring-line backdrop-blur transition hover:scale-105 hover:bg-surface"
             >
               <ChevronLeft className="size-5" />
             </button>
@@ -177,12 +174,12 @@ export function CustomerDashboard() {
             <h2 className="text-base font-black text-navy-900">دسترسی سریع به خدمات</h2>
             <Link to="/app/services" className="text-xs font-bold text-accent hover:underline">همهٔ خدمات</Link>
           </div>
-          <div className="grid grid-cols-3 gap-3 sm:gap-4 md:grid-cols-6">
+          <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 sm:gap-4 md:grid-cols-6">
             {quickCategories.map((category) => (
               <Link
                 key={category.id}
                 to={`/app/services?category=${category.slug}`}
-                className="group relative rounded-[1.7rem] bg-surface p-4 pb-6 text-center shadow-soft ring-1 ring-line transition duration-300 hover:-translate-y-1.5 hover:shadow-xl"
+                className="group relative rounded-[1.5rem] bg-surface p-3.5 pb-5 text-center shadow-soft ring-1 ring-line transition duration-300 hover:-translate-y-1.5 hover:shadow-xl sm:rounded-[1.7rem] sm:p-4 sm:pb-6"
               >
                 <CategoryArt name={category.icon} color={category.color} className="mx-auto size-16 transition duration-300 group-hover:scale-110 group-hover:-rotate-3 sm:size-[4.4rem]" glyphClassName="size-9" />
                 <span className="mt-3 block text-xs leading-5 font-bold text-navy-900">{category.title}</span>
@@ -221,9 +218,9 @@ export function CustomerDashboard() {
                   <img src="/images/wallet-3d.jpg" alt="کیف پول" loading="lazy" className="animate-bob aspect-square w-full rounded-[1.6rem] object-cover shadow-lg ring-1 ring-line" />
                 </Tilt>
               </div>
-              <div className="mt-4 flex gap-2">
-                <Link to="/app/wallet" className="btn-primary btn-sm flex-1 justify-center"><Plus className="size-4" /> شارژ کیف پول</Link>
-                <Link to="/app/wallet" className="btn-ghost btn-sm flex-1 justify-center"><History className="size-4" /> تاریخچهٔ تراکنش‌ها</Link>
+              <div className="mt-4 flex flex-wrap gap-2">
+                <Link to="/app/wallet" className="btn-primary btn-sm min-w-[8rem] flex-1 justify-center"><Plus className="size-4" /> شارژ کیف پول</Link>
+                <Link to="/app/wallet" className="btn-ghost btn-sm min-w-[8rem] flex-1 justify-center"><History className="size-4" /> تاریخچهٔ تراکنش‌ها</Link>
               </div>
             </div>
           </Card>
@@ -297,7 +294,7 @@ export function CustomerDashboard() {
                 <ul className="mt-4 space-y-2 text-[13px] font-semibold">
                   {['ثبت درخواست‌ها', 'پیگیری پرونده‌ها', 'پرداخت آنلاین'].map((text) => (
                     <li key={text} className="flex items-center gap-2">
-                      <span className="grid size-5 place-items-center rounded-full bg-emerald-400 text-emerald-950"><CheckCircle2 className="size-3.5" /></span>
+                      <span className="grid size-5 place-items-center rounded-full bg-emerald-400 text-[#064e3b]"><CheckCircle2 className="size-3.5" /></span>
                       {text}
                     </li>
                   ))}
@@ -414,14 +411,14 @@ export function CustomerRequests() {
       <PageHeader title="درخواست‌های من" description="وضعیت هر پرونده، تاریخچه و مدارک را در یک نگاه ببینید."
         actions={<Link to="/app/services" className="btn-primary btn-sm"><Plus className="size-4" /> درخواست جدید</Link>} />
 
-      <div className="mb-4 flex gap-1 rounded-xl bg-surface p-1 ring-1 ring-line sm:w-fit">
+      <div className="mb-4 flex w-full gap-1 rounded-xl bg-surface p-1 ring-1 ring-line sm:w-fit">
         {[
           { key: 'all', label: 'همه' },
           { key: 'open', label: 'در جریان' },
           { key: 'closed', label: 'بسته‌شده' },
         ].map((tab) => (
           <button key={tab.key} onClick={() => setGroup(tab.key)}
-            className={clsx('rounded-lg px-4 py-1.5 text-sm transition', group === tab.key ? 'bg-brand-700 text-white' : 'text-navy-600 hover:bg-surface-3')}>
+            className={clsx('flex-1 rounded-lg px-4 py-2 text-sm transition sm:flex-initial sm:py-1.5', group === tab.key ? 'bg-brand-700 text-white' : 'text-navy-600 hover:bg-surface-3')}>
             {tab.label}
           </button>
         ))}
@@ -636,7 +633,7 @@ export function CustomerRequestDetail() {
         <div className="space-y-6 lg:col-span-2">
           <Card>
             <div className="flex flex-wrap items-center justify-between gap-3">
-              <div className="flex items-center gap-2">
+              <div className="flex flex-wrap items-center gap-2">
                 <StatusBadge status={request.status} label={request.statusLabel} />
                 <StatusBadge status={request.paymentStatus} />
                 {request.estimatedCompletionAt && <span className="text-xs text-navy-500">برآورد پایان: {faDate(request.estimatedCompletionAt)}</span>}
@@ -651,9 +648,9 @@ export function CustomerRequestDetail() {
                   <span>مراحل رسیدگی</span>
                   <span>{faNum(Math.min(request.currentStep + 1, steps.length))} از {faNum(steps.length)}</span>
                 </div>
-                <ol className="mt-2 flex gap-1">
+                <ol className="no-scrollbar mt-2 flex gap-1.5 overflow-x-auto pb-1 sm:overflow-visible sm:pb-0">
                   {steps.map((step: any, index: number) => (
-                    <li key={step.title} className="flex-1">
+                    <li key={step.title} className="min-w-[4.5rem] flex-1 sm:min-w-0">
                       <div className={clsx('h-1.5 rounded-full', index <= request.currentStep ? 'bg-brand-600' : 'bg-navy-100')} title={step.title} />
                       <p className="mt-1.5 line-clamp-1 text-[10px] text-navy-500">{step.title}</p>
                     </li>
@@ -670,15 +667,15 @@ export function CustomerRequestDetail() {
             return (
               <Card className="border-emerald-200 bg-emerald-50/60">
                 <h2 className="mb-2 flex items-center gap-2 font-bold text-emerald-900">کار تحویل شد</h2>
-                <p className="whitespace-pre-wrap text-sm leading-7 text-emerald-950">
+                <p className="whitespace-pre-wrap text-sm leading-7 text-emerald-900">
                   {String(delivery.message ?? '').replace(/^تحویل نهایی به مشتری:\s*/, '')}
                 </p>
-                <p className="mt-1 text-[11px] text-emerald-800/70">{faDateTime(delivery.createdAt)}</p>
+                <p className="mt-1 text-[11px] text-emerald-700">{faDateTime(delivery.createdAt)}</p>
                 {deliveredDocs.length > 0 && (
                   <div className="mt-3 space-y-1.5">
                     {deliveredDocs.map((doc: any) => (
                       <a key={doc.id} href={doc.file?.originalUrl ?? doc.file?.displayUrl} target="_blank" rel="noreferrer"
-                        className="flex items-center gap-2 rounded-xl bg-white/70 px-3 py-2 text-xs font-medium text-emerald-950 ring-1 ring-emerald-200 transition hover:bg-white">
+                        className="flex items-center gap-2 rounded-xl bg-surface/80 px-3 py-2 text-xs font-medium text-emerald-900 ring-1 ring-emerald-200 transition hover:bg-surface">
                         <FileText className="size-4 shrink-0 text-emerald-700" />
                         <span className="min-w-0 flex-1 truncate">{doc.title}</span>
                         <span className="shrink-0 text-[10px] text-emerald-700">دریافت فایل</span>
@@ -695,7 +692,7 @@ export function CustomerRequestDetail() {
             <ol className="relative space-y-4 border-r border-navy-100 pr-4">
               {request.events.map((event: any) => (
                 <li key={event.id} className="relative">
-                  <span className="absolute -right-[21px] top-1.5 size-2.5 rounded-full bg-brand-500 ring-4 ring-white" />
+                  <span className="absolute -right-[21px] top-1.5 size-2.5 rounded-full bg-brand-500 ring-4 ring-surface" />
                   <p className="text-sm text-navy-800">{event.message}</p>
                   <p className="mt-0.5 text-[11px] text-navy-400">
                     {faDateTime(event.createdAt)} {event.actorName ? `• ${event.actorName}` : ''}
@@ -789,8 +786,8 @@ export function CustomerRequestDetail() {
 
           {request.invoices?.some((invoice: any) => invoice.purpose === 'external_cost' && invoice.status !== 'paid' && invoice.status !== 'void') && (
             <Card className="border-sky-200 bg-sky-50/70">
-              <h2 className="flex items-center gap-2 font-bold text-sky-950"><Landmark className="size-4" /> هزینهٔ سازمانی در انتظار پرداخت</h2>
-              <p className="mt-2 text-xs leading-6 text-sky-950">
+              <h2 className="flex items-center gap-2 font-bold text-sky-900"><Landmark className="size-4" /> هزینهٔ سازمانی در انتظار پرداخت</h2>
+              <p className="mt-2 text-xs leading-6 text-sky-900">
                 کارشناس مبلغ اعلامی سازمان مربوطه را برای پروندهٔ شما مشخص کرده است. این مبلغ هزینهٔ خودِ سازمان است و جزو حق‌الزحمهٔ دفتر نیست.
                 برای اینکه کارتان ادامه پیدا کند، فاکتور «هزینهٔ سازمانی» را در بخش فاکتورها پرداخت کنید.
               </p>
@@ -988,7 +985,7 @@ export function CustomerInvoices() {
                 <p className="mt-0.5 text-xs font-semibold text-amber-800">{rial(invoice.remaining)}</p>
               </div>
             </div>
-            <div className="mt-3 flex gap-2">
+            <div className="mt-3 flex flex-wrap gap-2">
               <Button size="sm" variant="ghost" onClick={() => setSelected(invoice)}><ReceiptText className="size-4" /> جزئیات</Button>
               {invoice.remaining > 0 && invoice.status !== 'void' && (
                 <>
@@ -1008,22 +1005,39 @@ export function CustomerInvoices() {
       <Card className="mt-6">
         <h2 className="mb-3 font-bold text-navy-900">تراکنش‌ها</h2>
         {payments.length === 0 ? <p className="text-sm text-navy-400">تراکنشی ثبت نشده است.</p> : (
-          <div className="table-wrap">
-            <table className="table">
-              <thead><tr><th>تاریخ</th><th>مبلغ</th><th>روش</th><th>وضعیت</th><th>شماره پیگیری</th></tr></thead>
-              <tbody>
-                {payments.map((payment) => (
-                  <tr key={payment.id}>
-                    <td>{faDateTime(payment.createdAt)}</td>
-                    <td>{rial(payment.amount)}</td>
-                    <td>{STATUS_LABELS[payment.method] ?? payment.method}</td>
-                    <td><StatusBadge status={payment.status} /></td>
-                    <td className="text-xs text-navy-500">{payment.reference ?? '—'}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
+          <>
+            <div className="divide-y divide-line md:hidden">
+              {payments.map((payment) => (
+                <div key={payment.id} className="py-3 first:pt-0 last:pb-0">
+                  <div className="flex items-center justify-between gap-2">
+                    <span className="text-sm font-bold text-navy-900">{rial(payment.amount)}</span>
+                    <StatusBadge status={payment.status} />
+                  </div>
+                  <div className="mt-1 flex flex-wrap items-center justify-between gap-2 text-xs text-navy-500">
+                    <span>{STATUS_LABELS[payment.method] ?? payment.method}</span>
+                    <span>{faDateTime(payment.createdAt)}</span>
+                  </div>
+                  {payment.reference && <p className="mt-1 text-[11px] text-navy-400" dir="ltr">پیگیری: {payment.reference}</p>}
+                </div>
+              ))}
+            </div>
+            <div className="hidden table-wrap md:block">
+              <table className="table">
+                <thead><tr><th>تاریخ</th><th>مبلغ</th><th>روش</th><th>وضعیت</th><th>شماره پیگیری</th></tr></thead>
+                <tbody>
+                  {payments.map((payment) => (
+                    <tr key={payment.id}>
+                      <td>{faDateTime(payment.createdAt)}</td>
+                      <td>{rial(payment.amount)}</td>
+                      <td>{STATUS_LABELS[payment.method] ?? payment.method}</td>
+                      <td><StatusBadge status={payment.status} /></td>
+                      <td className="text-xs text-navy-500">{payment.reference ?? '—'}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </>
         )}
       </Card>
 
@@ -1032,7 +1046,7 @@ export function CustomerInvoices() {
           <div className="space-y-3 text-sm">
             <p><span className="text-navy-500">عنوان:</span> {selected.title}</p>
             <div className="table-wrap">
-              <table className="table">
+              <table className="table table-compact">
                 <thead><tr><th>شرح</th><th>تعداد</th><th>مبلغ</th></tr></thead>
                 <tbody>
                   {selected.items.map((item: any, index: number) => (

@@ -144,12 +144,12 @@ export function CustomerWallet() {
             <h2 className="font-bold text-navy-900">تاریخچه تراکنش‌ها</h2>
             <p className="mt-0.5 text-xs text-navy-500">سابقه مالی قابل حذف نیست؛ هر ردیف با کد رهگیری و مانده قبل/بعد ثبت می‌شود.</p>
           </div>
-          <div className="flex items-center gap-2">
+          <div className="flex w-full items-center gap-2 sm:w-auto">
             <select
               value={type}
               onChange={(e) => { setPage(1); setType(e.target.value); }}
               aria-label="نوع تراکنش"
-              className="input h-9 w-44 text-xs"
+              className="input h-10 flex-1 text-xs sm:h-9 sm:w-44 sm:flex-initial"
             >
               <option value="">همه تراکنش‌ها</option>
               {meta?.types.map((item) => <option key={item.value} value={item.value}>{item.label}</option>)}
@@ -167,41 +167,72 @@ export function CustomerWallet() {
             action={<Button size="sm" onClick={() => setTopUpOpen(true)}>شارژ کیف پول</Button>}
           />
         ) : (
-          <div className="table-wrap">
-            <table className="table">
-              <thead>
-                <tr><th>تاریخ</th><th>نوع</th><th>مبلغ</th><th>مانده پس از تراکنش</th><th>کد رهگیری</th><th>توضیح</th><th /></tr>
-              </thead>
-              <tbody>
-                {transactions.map((tx) => (
-                  <tr key={tx.id}>
-                    <td className="whitespace-nowrap text-xs text-navy-500">{faDateTime(tx.createdAt)}</td>
-                    <td className="text-xs">
-                      <span className="font-medium text-navy-900">{tx.typeLabel}</span>
-                      <span className={clsx('mr-1.5 inline-flex items-center gap-0.5 text-[10px]',
-                        tx.direction === 'credit' ? 'text-emerald-700' : 'text-rose-700')}>
-                        {tx.direction === 'credit' ? <ArrowDownLeft className="size-3" /> : <ArrowUpRight className="size-3" />}
-                        {tx.direction === 'credit' ? 'واریز' : 'برداشت'}
-                      </span>
-                    </td>
-                    <td className={clsx('text-xs font-bold', tx.direction === 'credit' ? 'text-emerald-700' : 'text-rose-700')}>
-                      {tx.direction === 'credit' ? '+' : '−'}{rial(tx.amount)}
-                    </td>
-                    <td className="text-xs text-navy-700">{rial(tx.balanceAfter)}</td>
-                    <td className="text-[11px] text-navy-500" dir="ltr">{tx.trackingCode}</td>
-                    <td className="max-w-56 text-[11px] text-navy-500">
-                      {tx.description ?? tx.reason ?? '—'}
-                      {tx.status !== 'completed' && <span className="mr-1 inline-flex"><StatusBadge status={tx.status} /></span>}
-                    </td>
-                    <td className="text-left">
-                      {tx.requestId && <Link to={`/app/requests/${tx.requestId}`} className="text-[11px] text-brand-700 hover:underline">پرونده</Link>}
-                      {!tx.requestId && tx.invoiceId && <Link to="/app/invoices" className="text-[11px] text-brand-700 hover:underline"><ReceiptText className="inline size-3" /> فاکتور</Link>}
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
+          <>
+            <div className="divide-y divide-line md:hidden">
+              {transactions.map((tx) => (
+                <div key={tx.id} className="space-y-1.5 p-4">
+                  <div className="flex items-start justify-between gap-2">
+                    <div className="min-w-0">
+                      <p className="text-sm font-bold text-navy-900">{tx.typeLabel}</p>
+                      <p className="mt-0.5 text-[11px] text-navy-500">{faDateTime(tx.createdAt)}</p>
+                    </div>
+                    <div className="shrink-0 text-left">
+                      <p className={clsx('text-sm font-black', tx.direction === 'credit' ? 'text-emerald-700' : 'text-rose-700')}>
+                        {tx.direction === 'credit' ? '+' : '−'}{rial(tx.amount)}
+                      </p>
+                      <p className="text-[11px] text-navy-500">مانده: {rial(tx.balanceAfter)}</p>
+                    </div>
+                  </div>
+                  {(tx.description || tx.reason) && (
+                    <p className="text-xs text-navy-600">{tx.description ?? tx.reason}</p>
+                  )}
+                  <div className="flex flex-wrap items-center justify-between gap-2 pt-1 text-[11px]">
+                    <span className="text-navy-400" dir="ltr">{tx.trackingCode}</span>
+                    <div className="flex items-center gap-2">
+                      {tx.status !== 'completed' && <StatusBadge status={tx.status} />}
+                      {tx.requestId && <Link to={`/app/requests/${tx.requestId}`} className="font-semibold text-accent hover:underline">پرونده</Link>}
+                      {!tx.requestId && tx.invoiceId && <Link to="/app/invoices" className="inline-flex items-center gap-1 font-semibold text-accent hover:underline"><ReceiptText className="size-3" /> فاکتور</Link>}
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </div>
+            <div className="hidden table-wrap md:block">
+              <table className="table">
+                <thead>
+                  <tr><th>تاریخ</th><th>نوع</th><th>مبلغ</th><th>مانده پس از تراکنش</th><th>کد رهگیری</th><th>توضیح</th><th /></tr>
+                </thead>
+                <tbody>
+                  {transactions.map((tx) => (
+                    <tr key={tx.id}>
+                      <td className="whitespace-nowrap text-xs text-navy-500">{faDateTime(tx.createdAt)}</td>
+                      <td className="text-xs">
+                        <span className="font-medium text-navy-900">{tx.typeLabel}</span>
+                        <span className={clsx('mr-1.5 inline-flex items-center gap-0.5 text-[10px]',
+                          tx.direction === 'credit' ? 'text-emerald-700' : 'text-rose-700')}>
+                          {tx.direction === 'credit' ? <ArrowDownLeft className="size-3" /> : <ArrowUpRight className="size-3" />}
+                          {tx.direction === 'credit' ? 'واریز' : 'برداشت'}
+                        </span>
+                      </td>
+                      <td className={clsx('text-xs font-bold', tx.direction === 'credit' ? 'text-emerald-700' : 'text-rose-700')}>
+                        {tx.direction === 'credit' ? '+' : '−'}{rial(tx.amount)}
+                      </td>
+                      <td className="text-xs text-navy-700">{rial(tx.balanceAfter)}</td>
+                      <td className="text-[11px] text-navy-500" dir="ltr">{tx.trackingCode}</td>
+                      <td className="max-w-56 text-[11px] text-navy-500">
+                        {tx.description ?? tx.reason ?? '—'}
+                        {tx.status !== 'completed' && <span className="mr-1 inline-flex"><StatusBadge status={tx.status} /></span>}
+                      </td>
+                      <td className="text-left">
+                        {tx.requestId && <Link to={`/app/requests/${tx.requestId}`} className="text-[11px] text-brand-700 hover:underline">پرونده</Link>}
+                        {!tx.requestId && tx.invoiceId && <Link to="/app/invoices" className="text-[11px] text-brand-700 hover:underline"><ReceiptText className="inline size-3" /> فاکتور</Link>}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </>
         )}
 
         {total > pageSize && (

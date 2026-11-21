@@ -239,7 +239,7 @@ export function Modal({ open, onClose, title, children, footer, size = 'md' }: {
         role="dialog"
         aria-modal="true"
         aria-label={title}
-        className={clsx('animate-pop max-h-[92vh] w-full overflow-hidden rounded-t-3xl border border-line bg-surface shadow-2xl sm:rounded-2xl', widths[size])}
+        className={clsx('animate-pop max-h-[92dvh] w-full overflow-hidden rounded-t-3xl border border-line bg-surface shadow-2xl sm:rounded-2xl', widths[size])}
         onClick={(e) => e.stopPropagation()}
       >
         <div className="flex items-center justify-between gap-3 border-b border-line px-5 py-4">
@@ -248,8 +248,8 @@ export function Modal({ open, onClose, title, children, footer, size = 'md' }: {
             <X className="size-5" />
           </button>
         </div>
-        <div className="max-h-[70vh] overflow-y-auto px-5 py-4 scrollbar-thin">{children}</div>
-        {footer && <div className="flex justify-end gap-2 border-t border-line bg-surface-2 px-5 py-3">{footer}</div>}
+        <div className="max-h-[70dvh] overflow-y-auto px-5 py-4 scrollbar-thin">{children}</div>
+        {footer && <div className="flex flex-wrap justify-end gap-2 border-t border-line bg-surface-2 px-5 py-3 pb-[max(0.75rem,env(safe-area-inset-bottom))] sm:pb-3">{footer}</div>}
       </div>
     </div>
   );
