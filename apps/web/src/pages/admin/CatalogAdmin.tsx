@@ -41,6 +41,21 @@ export function AdminServices() {
   const [category, setCategory] = useState('');
   const [tab, setTab] = useState<'services' | 'categories'>('services');
   const [catModal, setCatModal] = useState<any>(null);
+  const [uploadingCatArtwork, setUploadingCatArtwork] = useState(false);
+
+  const uploadCategoryArtwork = async (file: File, field: 'image' | 'icon') => {
+    setUploadingCatArtwork(true);
+    try {
+      const result = await api.upload<{ data: { url: string; isPublic: boolean } }>('/api/files/upload', file, { purpose: 'service', public: true });
+      if (!result.data.isPublic || !result.data.url) throw new Error('تصویر عمومی ذخیره نشد.');
+      setCatModal((prev: any) => (prev ? { ...prev, [field]: result.data.url } : prev));
+      notify('تصویر دسته بارگذاری شد؛ برای ثبت نهایی ذخیره کنید.', 'success');
+    } catch (err) {
+      notify(err instanceof Error ? err.message : 'بارگذاری تصویر ناموفق بود.', 'error');
+    } finally {
+      setUploadingCatArtwork(false);
+    }
+  };
 
   const load = () => {
     setLoading(true);
@@ -198,8 +213,20 @@ export function AdminServices() {
             <Field label="عنوان" required><Input value={catModal.title} onChange={(e) => setCatModal({ ...catModal, title: e.target.value })} /></Field>
             <Field label="شناسه (slug)" hint="حروف لاتین، برای نشانی صفحه استفاده می‌شود."><Input value={catModal.slug} onChange={(e) => setCatModal({ ...catModal, slug: e.target.value })} dir="ltr" className="text-left" /></Field>
             <Field label="توضیح"><Textarea value={catModal.description ?? ''} onChange={(e) => setCatModal({ ...catModal, description: e.target.value })} /></Field>
-            <Field label="نشانی تصویر پس‌زمینه" hint="نشانی عمومی تصویر یا فایل بارگذاری‌شده را وارد کنید."><Input value={catModal.image ?? ''} onChange={(e) => setCatModal({ ...catModal, image: e.target.value })} dir="ltr" className="text-left" /></Field>
-            <Field label="نشانی آیکون" hint="نشانی عمومی تصویر آیکون"><Input value={catModal.icon ?? ''} onChange={(e) => setCatModal({ ...catModal, icon: e.target.value })} dir="ltr" className="text-left" /></Field>
+            <Field label="تصویر پس‌زمینه دسته" hint="در وب‌سایت و اپلیکیشن نمایش داده می‌شود؛ تصویر بارگذاری کنید یا نشانی وارد کنید.">
+              <Input value={catModal.image ?? ''} onChange={(e) => setCatModal({ ...catModal, image: e.target.value })} dir="ltr" className="text-left" />
+              <input type="file" accept="image/*" disabled={uploadingCatArtwork} onChange={(e) => { const f = e.target.files?.[0]; if (f) void uploadCategoryArtwork(f, 'image'); e.target.value = ''; }} className="mt-2 block w-full text-xs" aria-label="بارگذاری تصویر دسته" />
+              {catModal.image && /^(\/(uploads|images)\/|https?:\/\/)/.test(catModal.image) && (
+                <img src={catModal.image} alt="پیش‌نمایش تصویر دسته" className="mt-2 h-20 rounded-xl object-cover" />
+              )}
+            </Field>
+            <Field label="تصویر آیکون دسته" hint="تصویر آیکون در نوار دسته‌بندی‌های صفحه اصلی و اپ نمایش داده می‌شود.">
+              <Input value={catModal.icon ?? ''} onChange={(e) => setCatModal({ ...catModal, icon: e.target.value })} dir="ltr" className="text-left" />
+              <input type="file" accept="image/*" disabled={uploadingCatArtwork} onChange={(e) => { const f = e.target.files?.[0]; if (f) void uploadCategoryArtwork(f, 'icon'); e.target.value = ''; }} className="mt-2 block w-full text-xs" aria-label="بارگذاری آیکون دسته" />
+              {catModal.icon && /^(\/(uploads|images)\/|https?:\/\/)/.test(catModal.icon) && (
+                <img src={catModal.icon} alt="پیش‌نمایش آیکون دسته" className="mt-2 size-14 rounded-xl object-cover" />
+              )}
+            </Field>
             <Field label="رنگ دسته" hint="برای نمونه #2563EB"><Input value={catModal.color ?? ''} onChange={(e) => setCatModal({ ...catModal, color: e.target.value })} dir="ltr" className="text-left" /></Field>
             <Field label="ترتیب نمایش"><Input type="number" value={catModal.sortOrder ?? 0} onChange={(e) => setCatModal({ ...catModal, sortOrder: Number(e.target.value) })} /></Field>
             <Switch checked={Boolean(catModal.isActive)} onChange={(v) => setCatModal({ ...catModal, isActive: v })} label="دسته فعال است" />
@@ -395,10 +422,10 @@ export function AdminServiceEditor() {
                   <Textarea value={service.description} onChange={(e) => set({ description: e.target.value })} className="min-h-32" />
                 </Field>
                 <div className="grid gap-4 sm:grid-cols-2">
-                  <Field label="آیکون خدمت" hint="یک ایموجی بنویسید یا تصویر آیکون بارگذاری کنید؛ در اپ و سایت نمایش داده می‌شود.">
-                    <Input value={service.icon ?? ''} maxLength={60} onChange={e=>set({icon:e.target.value})} placeholder="مثلاً 🪪" />
+                  <Field label="آیکون خدمت" hint="تصویر آیکون بارگذاری کنید یا نشانی تصویر را وارد نمایید؛ در وب و اپلیکیشن نمایش داده می‌شود.">
+                    <Input value={service.icon ?? ''} maxLength={180} onChange={e=>set({icon:e.target.value})} dir="ltr" className="text-left" placeholder="/uploads/public/... یا /images/..." />
                     <input type="file" accept="image/*" disabled={uploadingArtwork} onChange={e=>{const file=e.target.files?.[0];if(file) void uploadArtwork(file,'icon');e.target.value='';}} className="mt-2 block w-full text-xs" aria-label="بارگذاری آیکون خدمت" />
-                    {service.icon?.startsWith('/uploads/') && <img src={service.icon} alt="پیش‌نمایش آیکون" className="mt-2 size-16 rounded-xl object-cover" />}
+                    {service.icon && /^(\/(uploads|images)\/|https?:\/\/)/.test(service.icon) && <img src={service.icon} alt="پیش‌نمایش آیکون" className="mt-2 size-16 rounded-xl object-cover" />}
                   </Field>
                   <Field label="تصویر خدمت" hint="تصویر صفحهٔ جزئیات خدمت در سایت و اپ.">
                     <input type="file" accept="image/*" disabled={uploadingArtwork} onChange={e=>{const file=e.target.files?.[0];if(file) void uploadArtwork(file,'image');e.target.value='';}} className="block w-full text-xs" aria-label="بارگذاری تصویر خدمت" />

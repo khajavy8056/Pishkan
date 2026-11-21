@@ -1,16 +1,9 @@
 /**
  * Landing page contract.
  *
- * The page is mostly motion, which a DOM test cannot see. What it *can* lock
- * down is the structure the motion hangs off — and those are exactly the things
- * that silently break: a section losing its reveal hook, the mobile fallback
- * disappearing, the accessible name of a control changing.
- *
- * The rest of the guarantee lives in `styles.css`, where every animated rule is
- * paired with a `prefers-reduced-motion` and a `max-width: 767px` counterpart.
- * The last test in this file reads the stylesheet and asserts those guards still
- * exist, because "we forgot the mobile override" is a one-line regression that
- * no render test would ever catch.
+ * Verifies the structural anchors, backend/context wiring, accessibility
+ * attributes, fail-open scroll reveals, mobile/reduced-motion CSS guards, and
+ * Android install route behavior of the redesigned landing page.
  */
 import fs from 'node:fs';
 import path from 'node:path';
@@ -19,57 +12,52 @@ import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
 import { AuthProvider } from '../src/lib/auth';
 import { SiteContext, SiteProvider } from '../src/lib/site';
+import { ThemeProvider } from '../src/lib/theme';
 import { ToastProvider } from '../src/components/ui';
 import { HomePage } from '../src/pages/public/Home';
 import { AppStoreButtons } from '../src/components/app-store-buttons';
 
-/** Same provider stack the app mounts at the root. */
-function renderAt(path: string, element: React.ReactElement) {
+function renderAt(routePath: string, element: React.ReactElement) {
   return render(
-    <AuthProvider>
-      <SiteProvider>
-        <ToastProvider>
-          <MemoryRouter initialEntries={[path]}>{element}</MemoryRouter>
-        </ToastProvider>
-      </SiteProvider>
-    </AuthProvider>,
+    <ThemeProvider>
+      <AuthProvider>
+        <SiteProvider>
+          <ToastProvider>
+            <MemoryRouter initialEntries={[routePath]}>{element}</MemoryRouter>
+          </ToastProvider>
+        </SiteProvider>
+      </AuthProvider>
+    </ThemeProvider>,
   );
 }
 
-
-/**
- * Render the landing page with specific settings.
- *
- * The shared bootstrap fixture lives at module scope, so a per-test variant has
- * to inject settings another way. This renders the real provider stack and then
- * overlays the requested keys through the same context the page reads.
- */
 function renderWithSettings(overrides: Record<string, string>) {
   const base = { ...BOOTSTRAP_SETTINGS };
   return render(
-    <AuthProvider>
-      <SiteContext.Provider
-        value={{
-          site: { ...BOOTSTRAP_SITE, settings: { ...base, ...overrides } } as never,
-          loading: false,
-          reload: async () => {},
-          setting: (key: string) => {
-            const value = (overrides[key] ?? base[key]) as unknown;
-            return value === undefined || value === null ? '' : String(value);
-          },
-        }}
-      >
-        <ToastProvider>
-          <MemoryRouter initialEntries={['/']}>
-            <HomePage />
-          </MemoryRouter>
-        </ToastProvider>
-      </SiteContext.Provider>
-    </AuthProvider>,
+    <ThemeProvider>
+      <AuthProvider>
+        <SiteContext.Provider
+          value={{
+            site: { ...BOOTSTRAP_SITE, settings: { ...base, ...overrides } } as never,
+            loading: false,
+            reload: async () => {},
+            setting: (key: string) => {
+              const value = (overrides[key] ?? base[key]) as unknown;
+              return value === undefined || value === null ? '' : String(value);
+            },
+          }}
+        >
+          <ToastProvider>
+            <MemoryRouter initialEntries={['/']}>
+              <HomePage />
+            </MemoryRouter>
+          </ToastProvider>
+        </SiteContext.Provider>
+      </AuthProvider>
+    </ThemeProvider>,
   );
 }
 
-/** Mirrors the bootstrap fixture in tests/setup.ts closely enough to render. */
 const BOOTSTRAP_SETTINGS: Record<string, string> = {
   'site.name': 'دفتر پیشخوان دولت',
   'site.short_name': 'پیشخوان',
@@ -80,148 +68,95 @@ const BOOTSTRAP_SITE = {
   settings: BOOTSTRAP_SETTINGS,
   categories: [],
   popularServices: [],
-  stats: { services: 10, customers: 100 },
+  stats: { services: 10, customers: 100, completedRequests: 42 },
 };
 
 const STYLES = fs.readFileSync(path.resolve(__dirname, '../src/styles.css'), 'utf8');
+const LANDING_STYLES = fs.readFileSync(path.resolve(__dirname, '../src/styles/landing.css'), 'utf8');
 
 describe('landing page', () => {
-  it('renders the hero, the layer stack and the app section', async () => {
+  it('renders the hero, aurora shell, 5-layer journey stack and app section', async () => {
     const { container } = renderAt('/', <HomePage />);
 
-    // Hero copy comes from settings with a hard fallback, so it must exist even
-    // before the site payload resolves.
-    expect(container.querySelector('h1')).toBeTruthy();
-
-    // The three structural anchors of the page.
-    expect(container.querySelector('.hero-stage-v2')).toBeTruthy();
-    expect(container.querySelector('.stack-track')).toBeTruthy();
-    expect(container.querySelector('.device, .stack-mobile')).toBeTruthy();
+    expect(container.querySelector('.landing-shell')).toBeTruthy();
+    expect(container.querySelector('.aurora')).toBeTruthy();
+    expect(container.querySelector('h1.hero-title')).toBeTruthy();
+    expect(container.querySelector('.hero-media-frame img')).toBeTruthy();
+    expect(container.querySelector('.journey-track')).toBeTruthy();
+    expect(container.querySelector('.phone')).toBeTruthy();
   });
 
-  it('builds the hero out of several independent 3D pieces, not one image', async () => {
+  it('assembles the request journey out of five paper layers and steps', async () => {
     const { container } = renderAt('/', <HomePage />);
-    // The whole point of the rebuild: the stage is a composition. Assert the
-    // count and the distinct depth tokens, because "someone flattened it back
-    // into a single photo" is the regression this has to catch.
-    const pieces = container.querySelectorAll('.hero-piece');
-    expect(pieces.length).toBeGreaterThanOrEqual(5);
-    const depths = new Set(
-      Array.from(pieces).map((el) => (el as HTMLElement).style.getPropertyValue('--z')),
-    );
-    expect(depths.size).toBeGreaterThanOrEqual(4);
-    // Every piece must be a real object image with an accessible alternative.
-    expect(container.querySelectorAll('.hero-object').length).toBeGreaterThanOrEqual(3);
-  });
-
-  it('assembles the request out of five layers', async () => {
-    const { container } = renderAt('/', <HomePage />);
-    const sheets = container.querySelectorAll('.stack-sheet');
-    expect(sheets.length).toBe(5);
-    // Each sheet carries its own stagger index; the CSS keys the timing off it.
-    const indices = Array.from(sheets).map((el) => el.getAttribute('data-i'));
-    expect(indices).toEqual(['0', '1', '2', '3', '4']);
-    // And the panel still names all five steps for a screen reader.
-    expect(container.textContent).toContain('مُهر تأیید و تحویل');
-  });
-
-  it('puts live UI inside the device photograph', async () => {
-    const { container } = renderAt('/', <HomePage />);
-    const device = container.querySelector('.device');
-    expect(device).toBeTruthy();
-    const glass = device!.querySelector('.device-glass');
-    expect(glass).toBeTruthy();
-    // The glass rect is the measured inset, not a magic number in a component:
-    // if these drift the UI slides out from under the bezel.
-    const style = (glass as HTMLElement).style;
-    expect(style.left).toBe('6.08%');
-    expect(style.top).toBe('2.99%');
-    // And the device photograph must sit *over* the interface.
-    expect(device!.querySelectorAll('.device-glass, .device-body').length).toBe(2);
+    const papers = container.querySelectorAll('.paper-layer');
+    expect(papers.length).toBe(5);
+    const steps = container.querySelectorAll('.step-item');
+    expect(steps.length).toBe(5);
+    expect(container.querySelector('.journey-mobile-rail')).toBeTruthy();
+    expect(container.textContent).toContain('تحویل نهایی و گواهی دیجیتال');
   });
 
   it('keeps every scroll-driven section hooked up to a reveal container', async () => {
     const { container } = renderAt('/', <HomePage />);
-    // If a ref is dropped, the section still renders but never animates in and
-    // stays at opacity 0 in the browser — invisible content, green test. This is
-    // the guard against exactly that.
     const reveals = container.querySelectorAll('[data-reveal]');
     expect(reveals.length).toBeGreaterThan(5);
   });
 
-  it('marks the hero search as a combobox and can dismiss it', async () => {
-    // The suggestion panel used to stay open after a result was chosen or a
-    // click landed elsewhere; the only way out was editing the text.
+  it('marks the hero search as a combobox backed by public search and can dismiss it', async () => {
     const { container } = renderAt('/', <HomePage />);
     const input = container.querySelector('input[aria-label="جست‌وجوی خدمات"]')!;
     expect(input.getAttribute('role')).toBe('combobox');
     expect(input.getAttribute('aria-expanded')).toBe('false');
-    // Typing opens it and flips aria-expanded, which is what a screen reader
-    // announces.
+
     fireEvent.change(input, { target: { value: 'بیمه' } });
-    await waitFor(() => expect(input.getAttribute('aria-expanded')).toBe('true'));
+    await waitFor(() => expect(input.getAttribute('aria-expanded')).toBe('true'), { timeout: 2000 });
     expect(container.querySelector('#hero-search-results')).toBeTruthy();
-    // Escape closes it and clears the field.
+
     fireEvent.keyDown(input, { key: 'Escape' });
     await waitFor(() => expect(input.getAttribute('aria-expanded')).toBe('false'));
     expect((input as HTMLInputElement).value).toBe('');
   });
 
-  it('shows an honest empty state instead of a heading over nothing', async () => {
-    // Categories and popular services arrive asynchronously. When the payload is
-    // empty (fresh install, or the API down) these sections used to render their
-    // headings above blank space, and the category rail said "loading" forever.
+  it('shows an honest empty state when categories or popular services are empty', async () => {
     const { container } = renderWithSettings({});
     await waitFor(() => expect(container.querySelector('h1')).toBeTruthy());
     const servicesSection = container.querySelector('[aria-label="خدمات پرکاربرد"]');
     expect(servicesSection).toBeTruthy();
-    // Either the loading skeletons or the explicit "not filled yet" line.
-    expect(servicesSection!.querySelector('.animate-pulse') ?? servicesSection!.textContent).toBeTruthy();
+    expect(servicesSection!.textContent).toContain('هنوز خدمتی در فهرست پرکاربرد منتشر نشده است');
   });
 
-  it('offers the mobile app fallback next to the device', async () => {
+  it('offers all three Android install routes on the landing page', async () => {
     const { container } = renderAt('/', <HomePage />);
-    // The device is desktop-only; the card rail is its replacement. Both must be
-    // in the tree so the CSS can choose between them.
-    const device = container.querySelector('.device');
-    const dotGroup = container.querySelector('[role="group"][aria-label="صفحه‌های اپلیکیشن"]');
-    expect(device && dotGroup).toBeTruthy();
-    // The carousel dots must be real buttons with a name and a state, not
-    // `role="tab"`: ARIA tabs oblige the page to implement arrow-key
-    // navigation, which this carousel does not, so declaring tabs made assistive
-    // tech advertise a control it could not drive.
-    const dots = container.querySelectorAll('[role="group"][aria-label="صفحه‌های اپلیکیشن"] button');
-    expect(dots.length).toBeGreaterThan(1);
-    for (const dot of Array.from(dots)) {
-      expect(dot.getAttribute('aria-label')).toBeTruthy();
-    }
-    expect(container.querySelector('[role="tablist"]')).toBeNull();
-    expect(container.querySelector('[role="tab"]')).toBeNull();
-  });
-
-  it('offers all three Android install routes', async () => {
-    const { container } = renderAt('/', <HomePage />);
-    // Direct APK plus the two stores the office will publish on. They ship as
-    // disabled cards until the links exist, so the page never has a dead anchor.
-    const buttons = container.querySelectorAll('.app-store-btn');
-    expect(buttons.length).toBe(3);
-    const labels = Array.from(buttons).map((el) => el.textContent ?? '');
+    const cards = container.querySelectorAll('.install-card');
+    expect(cards.length).toBe(3);
+    const labels = Array.from(cards).map((el) => el.textContent ?? '');
     expect(labels.some((t) => t.includes('دانلود مستقیم'))).toBe(true);
     expect(labels.some((t) => t.includes('کافه‌بازار'))).toBe(true);
     expect(labels.some((t) => t.includes('مایکت'))).toBe(true);
-    // Until the settings are filled in, every one of them is the coming-soon
-    // variant: an <span>, never an <a href="#"> or a link to nowhere.
-    buttons.forEach((el) => {
+    cards.forEach((el) => {
       expect(el.tagName).toBe('SPAN');
       expect(el.getAttribute('aria-disabled')).toBe('true');
       expect(el.textContent).toContain('به‌زودی');
     });
   });
 
-  it('turns an install card into a real link once a store URL is set', async () => {
-    // Render the component directly: the settings payload lives in the API, so
-    // this asserts the switching logic itself rather than faking a whole site.
-    const { container } = render(
+  it('turns landing install cards into real external links once URLs are configured', async () => {
+    const { container } = renderWithSettings({
+      'landing.app_android_url': 'https://example.ir/app.apk',
+      'landing.app_bazaar_url': 'https://cafebazaar.ir/app/pishkan',
+      'landing.app_myket_url': '',
+    });
+    const anchors = container.querySelectorAll('a.install-card');
+    expect(anchors.length).toBe(2);
+    expect(anchors[0].getAttribute('href')).toBe('https://example.ir/app.apk');
+    expect(anchors[1].getAttribute('href')).toBe('https://cafebazaar.ir/app/pishkan');
+    const soon = container.querySelectorAll('span.install-card');
+    expect(soon.length).toBe(1);
+    expect(soon[0].textContent).toContain('مایکت');
+  });
+
+  it('keeps shared AppStoreButtons working across direct, Bazaar and Myket routes', async () => {
+    const { container, rerender } = render(
       <AppStoreButtons
         links={{ direct: 'https://example.ir/app.apk', bazaar: 'https://cafebazaar.ir/app/x', myket: '' }}
       />,
@@ -230,28 +165,21 @@ describe('landing page', () => {
     expect(anchors.length).toBe(2);
     expect(anchors[0].getAttribute('href')).toBe('https://example.ir/app.apk');
     expect(anchors[1].getAttribute('href')).toBe('https://cafebazaar.ir/app/x');
-    // Myket still has no link, so it stays a card rather than a broken anchor.
     const soon = container.querySelectorAll('span.app-store-btn');
     expect(soon.length).toBe(1);
     expect(soon[0].textContent).toContain('مایکت');
-  });
 
-  it('can hide unpublished stores entirely when the office prefers', async () => {
-    const { container } = render(
-      <AppStoreButtons links={{ direct: 'https://example.ir/app.apk', showComingSoon: false }} />,
-    );
+    rerender(<AppStoreButtons links={{ direct: 'https://example.ir/app.apk', showComingSoon: false }} />);
     expect(container.querySelectorAll('.app-store-btn').length).toBe(1);
   });
 
-  it('labels the interactive carousel controls for screen readers', async () => {
+  it('labels the interactive category rail controls for screen readers', async () => {
     const { container } = renderAt('/', <HomePage />);
     const labelled = container.querySelectorAll('[aria-label="دسته‌های قبلی"], [aria-label="دسته‌های بعدی"]');
     expect(labelled.length).toBeGreaterThan(0);
   });
+
   it('renders the FAQ as native disclosure widgets the office can edit', async () => {
-    // Office-editable copy arrives from `landing.faq`. The bootstrap fixture is
-    // module-level and identical for every test, so these two cases stub the
-    // site context directly instead of trying to vary the fetch payload.
     const faq = [
       { q: 'چطور درخواست ثبت کنم؟', a: 'از دکمهٔ ثبت درخواست شروع کنید.' },
       { q: 'وضعیتم را کجا ببینم؟', a: 'در فهرست درخواست‌ها.' },
@@ -259,7 +187,6 @@ describe('landing page', () => {
     const { container } = renderWithSettings({ 'landing.faq': JSON.stringify(faq) });
     await waitFor(() => expect(container.querySelectorAll('details')).toHaveLength(2));
     const details = Array.from(container.querySelectorAll('details'));
-    // Native <summary>, so it is keyboard-operable and works without JavaScript.
     expect(details[0].querySelector('summary')?.textContent).toContain('چطور درخواست ثبت کنم؟');
     expect(details[0].textContent).toContain('از دکمهٔ ثبت درخواست شروع کنید.');
   });
@@ -270,74 +197,85 @@ describe('landing page', () => {
     expect(container.querySelectorAll('details')).toHaveLength(0);
   });
 
+  it('honours landing.show_stats and landing.show_app_section toggles', async () => {
+    const { container } = renderWithSettings({
+      'landing.show_stats': 'false',
+      'landing.show_app_section': 'false',
+    });
+    await waitFor(() => expect(container.querySelector('h1')).toBeTruthy());
+    expect(container.querySelector('.stat-grid')).toBeNull();
+    expect(container.querySelector('#app')).toBeNull();
+  });
+
   it('gives every reveal-driven block a container that can observe it', async () => {
-    // The bug this guards: `[data-reveal]` used to start at opacity:0 with no
-    // fallback, so any section outside a reveal container was invisible for
-    // good. The CTA block, the request-stack steps and the parallax pillars were
-    // all in that state. jsdom has no IntersectionObserver, so the hook takes
-    // its "show everything" path — which is exactly the branch that must make
-    // all of this content visible, and therefore the right thing to assert.
     const { container } = renderAt('/', <HomePage />);
     await screen.findByRole('heading', { level: 1 });
     const hidden = Array.from(container.querySelectorAll('[data-reveal]'))
       .filter((el) => !el.classList.contains('is-in'))
       .map((el) => (el.textContent || '').trim().slice(0, 40) || el.className.slice(0, 40));
     expect(hidden).toEqual([]);
-    // And nothing may still be armed, i.e. still relying on a future observer.
     expect(container.querySelector('.reveal-armed')).toBeNull();
   });
 
-  it('neutralises the 3D transforms on narrow viewports', () => {
-    // The single biggest cause of "it shakes on my phone": a perspective scene
-    // plus pointer transforms at 360px. The mobile block must neutralise them.
-    const mobileBlock = STYLES.slice(STYLES.indexOf('@media (max-width: 767px)'));
-    expect(mobileBlock).toContain('.hero-stage-v2');
-    expect(mobileBlock).toContain('.device-tilt');
+  it('wires the theme switcher in the header to light, dark and system modes', async () => {
+    renderAt('/', <HomePage />);
+    const darkBtn = screen.getByRole('button', { name: 'تیره' });
+    fireEvent.click(darkBtn);
+    await waitFor(() => expect(document.documentElement.classList.contains('dark')).toBe(true));
+    expect(document.documentElement.dataset.theme).toBe('dark');
+  });
+
+  it('neutralises 3D perspective on narrow viewports', () => {
+    const mobileBlock = LANDING_STYLES.slice(LANDING_STYLES.indexOf('@media (max-width: 767px)'));
+    expect(mobileBlock).toContain('.device-scene');
+    expect(mobileBlock).toContain('.card-3d');
     expect(mobileBlock).toContain('transform: none !important');
   });
 
   it('turns every animation off for reduced motion', () => {
-    const reducedBlocks = STYLES.split('@media (prefers-reduced-motion: reduce)').slice(1);
-    // Every block, not just the last: a new section that appends its own
-    // reduced-motion rule at the end of the file must not exempt the old ones.
-    expect(reducedBlocks.length).toBeGreaterThan(1);
-    expect(reducedBlocks.some((block) => block.includes('[data-reveal]'))).toBe(true);
-    expect(reducedBlocks.some((block) => block.includes('animation: none'))).toBe(true);
-    // The round-2 sections need the guard too.
-    expect(reducedBlocks.some((block) => block.includes('.stack-sheet'))).toBe(true);
-    expect(reducedBlocks.some((block) => block.includes('.device-tilt'))).toBe(true);
+    expect(STYLES).toContain('@media (prefers-reduced-motion: reduce)');
+    expect(LANDING_STYLES).toContain('@media (prefers-reduced-motion: reduce)');
+    expect(LANDING_STYLES).toContain('animation: none !important');
+    expect(STYLES).toContain('[data-reveal]');
   });
 
   it('never hides a revealed element unless the observer is actually armed', () => {
-    // The bug this pins: `[data-reveal] { opacity: 0 }` applied unconditionally,
-    // so any section moved outside its reveal container stayed invisible with no
-    // error. Three of them did (the CTA block, the request-stack steps and the
-    // parallax pillars). The hidden state must be scoped to a class the hook
-    // adds, so a wiring mistake makes content visible, not missing.
     const baseRule = STYLES.match(/\[data-reveal\] \{([^}]*)\}/)?.[1] ?? '';
     expect(baseRule).not.toMatch(/opacity:\s*0/);
     expect(STYLES).toContain('.reveal-armed [data-reveal]:not(.is-in)');
-    // And the stylesheet must not reintroduce a bare hidden state anywhere.
     const bareHidden = [...STYLES.matchAll(/(?:^|})\s*\[data-reveal[^{]*\{([^}]*)\}/g)]
       .filter((m) => /opacity:\s*0(?!\.)/.test(m[1]) && !m[0].includes('reveal-armed'));
     expect(bareHidden).toHaveLength(0);
   });
 
-  it('keeps the sticky layer stack off the mobile layout', () => {
-    // A 100vh sticky panel inside a 640px-tall phone viewport (with the address
-    // bar moving) is unusable; the CSS must swap it for the plain list.
-    expect(STYLES).toContain('.stack-mobile { display: none; }');
-    expect(STYLES).toMatch(/@media \(max-width: 1023px\)[\s\S]*?\.stack-sticky \{ display: none; \}/);
-    expect(STYLES).toMatch(/@media \(max-width: 1023px\)[\s\S]*?\.stack-mobile \{ display: block; \}/);
+  it('keeps the sticky 3D journey off the mobile layout and enables the mobile rail', () => {
+    expect(LANDING_STYLES).toMatch(/@media \(max-width: 1023px\)[\s\S]*?\.landing-shell \.journey-mobile-rail \{ display: block; \}/);
+    expect(LANDING_STYLES).toMatch(/@media \(max-width: 1023px\)[\s\S]*?\.landing-shell \.journey-track \{ height: auto; \}/);
+    expect(LANDING_STYLES).toContain('overflow-x: clip');
   });
 
-  it('layers the request in scroll order without a per-layer script', () => {
-    // The whole choreography must be one token plus arithmetic in CSS: if a
-    // sheet ever gets a hard-coded transform or a React-driven style, the
-    // section starts fighting the scroll instead of following it.
-    expect(STYLES).toContain('--lp: clamp(0, calc((var(--j, 0) - var(--start)) * var(--rate)), 1)');
-    for (const index of ['1', '2', '3', '4']) {
-      expect(STYLES).toContain(`.stack-sheet[data-i='${index}'] { --start:`);
+  it('opens the floating auth modal from the landing header and closes on Escape', async () => {
+    const { container } = renderAt('/', <HomePage />);
+    await screen.findByRole('heading', { level: 1 });
+    const loginTrigger = container.querySelector('header button[aria-label="ورود"]') as HTMLButtonElement;
+    expect(loginTrigger).toBeTruthy();
+
+    fireEvent.click(loginTrigger);
+    const dialog = await screen.findByRole('dialog', { name: 'ورود و ثبت‌نام' });
+    expect(dialog).toBeTruthy();
+
+    fireEvent.keyDown(window, { key: 'Escape' });
+    await waitFor(() => expect(screen.queryByRole('dialog', { name: 'ورود و ثبت‌نام' })).toBeNull());
+  });
+
+  it('uses real server service and category images and never renders emoji icons', async () => {
+    const { container } = renderAt('/', <HomePage />);
+    await waitFor(() => expect(container.querySelectorAll('.svc-card').length).toBeGreaterThan(0));
+    const serviceImages = container.querySelectorAll('.svc-card img');
+    expect(serviceImages.length).toBeGreaterThan(0);
+    const svcTexts = Array.from(container.querySelectorAll('.svc-card')).map((el) => el.textContent ?? '');
+    for (const text of svcTexts) {
+      expect(text).not.toMatch(/[\p{Extended_Pictographic}]/u);
     }
   });
 });

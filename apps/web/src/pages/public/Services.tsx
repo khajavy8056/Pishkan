@@ -121,7 +121,13 @@ export function ServicesPage() {
           {services.map((service) => (
             <Link key={service.id} to={`/services/${service.slug}`} className="card group flex flex-col p-5 transition hover:-translate-y-0.5 hover:shadow-lg">
               <div className="flex items-start justify-between gap-2">
-                <span className="flex items-center gap-2"><CategoryIcon name={service.icon} className="size-7" /><span className="badge bg-brand-50 text-accent">{service.categoryTitle ?? 'خدمت'}</span></span>
+                <span className="flex items-center gap-2.5">
+                  <CategoryIcon
+                    name={service.icon && /^(\/(uploads|images)\/|https?:\/\/)/.test(service.icon) ? service.icon : (service.image || service.icon)}
+                    className="size-9 rounded-xl shadow-sm"
+                  />
+                  <span className="badge bg-brand-50 text-accent">{service.categoryTitle ?? 'خدمت'}</span>
+                </span>
                 {!service.acceptingRequests && <span className="badge bg-amber-50 text-amber-800">موقتاً غیرفعال</span>}
               </div>
               <h3 className="mt-3 font-semibold leading-6 text-navy-900">{service.title}</h3>
