@@ -72,7 +72,11 @@ export function CaseAutomation({ request, onChange }: { request: any; onChange: 
   return (
     <Card>
       <h2 className="mb-1 flex items-center gap-2 font-bold"><ClipboardCheck className="size-5 text-accent" />تحویل نتیجه و گردش اداری</h2>
-      <p className="mb-5 text-xs leading-6 text-navy-500">فایل نتیجه تا تأیید مدیریت برای مشتری منتشر نمی‌شود. ارجاع مالی پرداخت یا تسویه خودکار ایجاد نمی‌کند.</p>
+      <p className="mb-5 text-xs leading-6 text-navy-500">
+        {request.serviceRequiresApproval
+          ? 'این خدمت نیازمند تأیید مدیر است؛ فایل نتیجه تا تأیید مدیریت برای مشتری منتشر نمی‌شود. ارجاع مالی پرداخت یا تسویهٔ خودکار ایجاد نمی‌کند.'
+          : 'تحویل این پرونده مستقیم است: با ثبت تحویل، توضیحات و فایل‌های نتیجه برای مشتری منتشر و پرونده بسته می‌شود. ارجاع مالی پرداخت یا تسویهٔ خودکار ایجاد نمی‌کند.'}
+      </p>
       {error && <p className="text-sm text-rose-700">{error}</p>}
 
       {can('requests.edit') && !closed && (
@@ -96,14 +100,14 @@ export function CaseAutomation({ request, onChange }: { request: any; onChange: 
                 files: files.map(({ fileId, title, replacesDocumentId }) => ({ fileId, title, replacesDocumentId })), summary,
               }));
             }}>
-              <h3 className="text-sm font-bold">تحویل کار برای تأیید</h3>
-              <Field label="فایل‌های نتیجه" hint="PDF یا تصویر؛ حداکثر ۱۰ فایل. فایل‌ها ابتدا خصوصی بارگذاری می‌شوند." required>
+              <h3 className="text-sm font-bold">{request.serviceRequiresApproval ? 'تحویل کار برای تأیید مدیر' : 'تحویل نهایی به مشتری'}</h3>
+              <Field label="فایل‌های نتیجه" required={Boolean(request.serviceRequiresApproval)}
+                hint={request.serviceRequiresApproval ? 'PDF یا تصویر؛ حداکثر ۱۰ فایل. فایل‌ها ابتدا خصوصی بارگذاری می‌شوند.' : 'PDF یا تصویر؛ حداکثر ۱۰ فایل. پیوست فایل اختیاری است.'}>
                 <Input type="file" accept=".pdf,.jpg,.jpeg,.png,.webp" multiple disabled={busy} onChange={async (event) => {
                   const selected = Array.from(event.target.files ?? []);
                   if (files.length + selected.length > 10) { notify('حداکثر ۱۰ فایل مجاز است.', 'error'); return; }
                   setBusy(true);
                   const uploaded: { fileId: string; title: string; file?: any; replacesDocumentId?: string }[] = [];
-                  let savedTotal = 0;
                   try {
                     for (const file of selected) {
                       const response = await api.upload<{ data: any }>('/api/files/upload', file, { purpose: 'delivery' });
@@ -114,14 +118,10 @@ export function CaseAutomation({ request, onChange }: { request: any; onChange: 
                       const remaining = replacementCandidates.filter((document: any) => !reservedIds.has(document.id));
                       if (!replacesDocumentId && remaining.length === 1 && selected.length === 1) replacesDocumentId = remaining[0].id;
                       uploaded.push({ fileId: response.data.id, title: response.data.name, file: response.data, replacesDocumentId });
-                      savedTotal += response.data.savingsPercent ?? 0;
                     }
                     setFiles((old) => [...old, ...uploaded]);
                     if (uploaded.length) {
-                      const failed = uploaded.some((file) => file.file?.processing?.status === 'failed');
-                      notify(failed
-                        ? 'فایل‌ها خصوصی ذخیره شدند؛ بهینه‌سازی برخی فایل‌ها انجام نشد ولی نسخه اصلی سالم است.'
-                        : `${faNum(uploaded.length)} فایل خصوصی ذخیره شد؛ میانگین کاهش حجم ${faNum(Math.round(savedTotal / uploaded.length))}٪.`, 'success');
+                      notify(`${faNum(uploaded.length)} فایل ذخیره شد.`, 'success');
                     }
                   } catch (cause) {
                     setFiles((old) => [...old, ...uploaded]);
@@ -141,7 +141,7 @@ export function CaseAutomation({ request, onChange }: { request: any; onChange: 
                   <div key={file.fileId} className="rounded-lg border border-navy-100 bg-surface p-2">
                     <div className="flex items-start gap-3">
                       <FileThumbnail file={file.file} onOpen={() => file.file && setPreview(file.file)} />
-                      <div className="min-w-0 flex-1">{file.file ? <FileSummary file={file.file} /> : <p className="truncate text-xs">{file.title}</p>}</div>
+                      <div className="min-w-0 flex-1">{file.file ? <FileSummary file={file.file} technical /> : <p className="truncate text-xs">{file.title}</p>}</div>
                       <button type="button" onClick={() => setFiles((current) => current.filter((item) => item.fileId !== file.fileId))}
                         className="shrink-0 text-xs text-rose-700">حذف</button>
                     </div>
@@ -159,9 +159,9 @@ export function CaseAutomation({ request, onChange }: { request: any; onChange: 
               {missingReplacements.length > 0 && (
                 <p role="status" className="text-xs text-amber-800">برای {faNum(missingReplacements.length)} نتیجهٔ ردشده هنوز فایل جایگزین انتخاب نشده است.</p>
               )}
-              <Field label="گزارش انجام کار" required><Textarea required minLength={5} maxLength={2000} value={summary} onChange={(event) => setSummary(event.target.value)} /></Field>
-              <Button type="submit" loading={busy} disabled={!files.length || missingReplacements.length > 0}>
-                <UploadCloud className="size-4" />ارسال برای تأیید مدیریت
+              <Field label={request.serviceRequiresApproval ? 'گزارش انجام کار برای مدیر' : 'توضیحات تحویل برای مشتری'} required><Textarea required minLength={5} maxLength={2000} value={summary} onChange={(event) => setSummary(event.target.value)} /></Field>
+              <Button type="submit" loading={busy} disabled={(Boolean(request.serviceRequiresApproval) && !files.length) || missingReplacements.length > 0}>
+                <UploadCloud className="size-4" />{request.serviceRequiresApproval ? 'ارسال برای تأیید مدیریت' : 'تحویل نهایی به مشتری'}
               </Button>
             </form>
           )}

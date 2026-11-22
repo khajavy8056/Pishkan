@@ -150,10 +150,23 @@ export function Textarea(props: TextareaHTMLAttributes<HTMLTextAreaElement>) {
   return <textarea {...props} className={clsx('input min-h-24 resize-y', props.className)} />;
 }
 
+type SelectOption = { value: string; label: string };
+type SelectGroup = { label: string; options: SelectOption[] };
+
+/**
+ * A native select.
+ *
+ * `options` may be flat or grouped. Groups exist because some pickers are
+ * genuinely long and hierarchical — the banner editor's service picker has to
+ * choose one of nearly two hundred services, and a flat list of those is a
+ * scroll you cannot aim in. Inside a group, an option with an empty value is
+ * treated as its heading placeholder rather than a real choice.
+ */
 export function Select({ options, placeholder, ...props }: SelectHTMLAttributes<HTMLSelectElement> & {
-  options: { value: string; label: string }[];
+  options: (SelectOption | SelectGroup)[];
   placeholder?: string;
 }) {
+  const isGroup = (item: SelectOption | SelectGroup): item is SelectGroup => 'options' in item;
   return (
     <select {...props} className={clsx('input appearance-none bg-[length:14px] pl-8', props.className)}
       style={{
@@ -162,7 +175,13 @@ export function Select({ options, placeholder, ...props }: SelectHTMLAttributes<
       }}
     >
       {placeholder && <option value="">{placeholder}</option>}
-      {options.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
+      {options.map((item, index) => isGroup(item)
+        ? (
+          <optgroup key={`g-${index}-${item.label}`} label={item.label}>
+            {item.options.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
+          </optgroup>
+        )
+        : <option key={item.value} value={item.value}>{item.label}</option>)}
     </select>
   );
 }
@@ -220,7 +239,7 @@ export function Modal({ open, onClose, title, children, footer, size = 'md' }: {
         role="dialog"
         aria-modal="true"
         aria-label={title}
-        className={clsx('animate-pop max-h-[92vh] w-full overflow-hidden rounded-t-3xl border border-line bg-surface shadow-2xl sm:rounded-2xl', widths[size])}
+        className={clsx('animate-pop max-h-[92dvh] w-full overflow-hidden rounded-t-3xl border border-line bg-surface shadow-2xl sm:rounded-2xl', widths[size])}
         onClick={(e) => e.stopPropagation()}
       >
         <div className="flex items-center justify-between gap-3 border-b border-line px-5 py-4">
@@ -229,8 +248,8 @@ export function Modal({ open, onClose, title, children, footer, size = 'md' }: {
             <X className="size-5" />
           </button>
         </div>
-        <div className="max-h-[70vh] overflow-y-auto px-5 py-4 scrollbar-thin">{children}</div>
-        {footer && <div className="flex justify-end gap-2 border-t border-line bg-surface-2 px-5 py-3">{footer}</div>}
+        <div className="max-h-[70dvh] overflow-y-auto px-5 py-4 scrollbar-thin">{children}</div>
+        {footer && <div className="flex flex-wrap justify-end gap-2 border-t border-line bg-surface-2 px-5 py-3 pb-[max(0.75rem,env(safe-area-inset-bottom))] sm:pb-3">{footer}</div>}
       </div>
     </div>
   );
@@ -322,7 +341,7 @@ export function WelcomePanel({ title, subtitle, badge, actions, aside, className
   title: string; subtitle?: string; badge?: string; actions?: ReactNode; aside?: ReactNode; className?: string;
 }) {
   return (
-    <section className={clsx('relative isolate mb-6 overflow-hidden rounded-2xl border border-shell-line bg-gradient-to-l from-shell via-shell-2 to-primary p-5 text-white shadow-soft sm:p-7', className)}>
+    <section className={clsx('relative isolate mb-6 overflow-hidden rounded-2xl border border-white/15 bg-gradient-to-l from-[#0b264a] via-[#133d77] to-primary p-5 text-white shadow-soft sm:p-7', className)}>
       <div aria-hidden="true" className="pointer-events-none absolute -top-24 -left-16 size-64 rounded-full bg-white/10 blur-3xl" />
       <div aria-hidden="true" className="pointer-events-none absolute -right-10 -bottom-10 size-56 rounded-full bg-brand-300/20 blur-3xl" />
       <div className="relative flex flex-wrap items-end justify-between gap-5">
@@ -359,7 +378,7 @@ export function StatCard({ label, value, hint, icon, tone = 'brand' }: {
     <div className="card card-pad lift flex items-start justify-between gap-3">
       <div className="min-w-0">
         <p className="truncate text-xs font-medium text-navy-500">{label}</p>
-        <p className="mt-1 text-2xl font-bold tracking-tight text-navy-900">{value}</p>
+        <p className="mt-1 text-lg font-bold tracking-tight text-navy-900 sm:text-2xl">{value}</p>
         {hint && <p className="mt-1 text-xs text-navy-400">{hint}</p>}
       </div>
       {icon && <span className={clsx('grid size-11 shrink-0 place-items-center rounded-xl', tones[tone])}>{icon}</span>}

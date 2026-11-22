@@ -54,6 +54,8 @@ export interface CreateInvoiceInput {
   serviceId?: string | null;
   customOfferId?: string | null;
   kind?: 'public' | 'custom';
+  /** 'external_cost' = pass-through organization fee (no VAT, no revenue). */
+  purpose?: 'service' | 'external_cost';
   title: string;
   items?: InvoiceItem[];
   subtotal?: number;
@@ -78,7 +80,7 @@ export async function createInvoice(input: CreateInvoiceInput, actor?: { id: str
 
   const subtotal = Math.max(0, Math.round(items.reduce((sum, i) => sum + i.amount, 0)));
   const discount = Math.min(subtotal, Math.max(0, Math.round(Number(input.discount ?? 0))));
-  const taxPercent = input.taxPercent ?? (await getNumber('accounting.tax_percent'));
+  const taxPercent = input.purpose === 'external_cost' ? 0 : (input.taxPercent ?? (await getNumber('accounting.tax_percent')));
   const tax = Math.round(((subtotal - discount) * taxPercent) / 100);
   const total = subtotal - discount + tax;
   const ts = nowIso();
@@ -88,13 +90,13 @@ export async function createInvoice(input: CreateInvoiceInput, actor?: { id: str
 
   await run(
     `INSERT INTO invoices (id, number, customer_id, request_id, service_id, custom_offer_id, kind, title, items,
-      subtotal, discount, tax, total, paid_amount, status, due_at, notes, issued_by, issued_at, created_at, updated_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?, ?, ?, ?, ?, ?)`,
+      subtotal, discount, tax, total, paid_amount, status, due_at, notes, issued_by, issued_at, created_at, updated_at, purpose)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?, ?, ?, ?, ?, ?, ?)`,
     [
       invoiceId, number, input.customerId, input.requestId ?? null, input.serviceId ?? null,
       input.customOfferId ?? null, input.kind ?? 'public', input.title, JSON.stringify(items),
       subtotal, discount, tax, total, status, input.dueAt ?? null, input.notes ?? null,
-      actor?.id ?? null, ts, ts, ts,
+      actor?.id ?? null, ts, ts, ts, input.purpose ?? 'service',
     ],
   );
 
@@ -104,8 +106,10 @@ export async function createInvoice(input: CreateInvoiceInput, actor?: { id: str
       refType: 'invoice', refId: invoiceId, description: `صدور فاکتور ${number}`,
     });
     await addLedgerEntry({
-      account: `revenue:${input.serviceId ?? 'other'}`, direction: 'credit', amount: total,
-      refType: 'invoice', refId: invoiceId, description: `درآمد فاکتور ${number}`,
+      account: input.purpose === 'external_cost' ? 'external:liability' : `revenue:${input.serviceId ?? 'other'}`,
+      direction: 'credit', amount: total,
+      refType: 'invoice', refId: invoiceId,
+      description: input.purpose === 'external_cost' ? `بدهی هزینهٔ سازمانی فاکتور ${number}` : `درآمد فاکتور ${number}`,
     });
   }
 
@@ -249,6 +253,8 @@ export async function createPayment(input: {
   walletId?: string | null;
 }, actor?: { id: string; name: string; ip?: string }) {
   return tx(async () => {
+  // Coordinate first-purchase eligibility with confirmed payments. Lock before invoices.
+  await run('UPDATE users SET id=id WHERE id=?', [input.customerId]);
   const amount = Math.round(Number(input.amount));
   if (!Number.isFinite(amount) || amount <= 0) throw badRequest('مبلغ پرداخت معتبر نیست.');
   // Wallet debits only ever settle a service invoice; `purpose` defaults to
@@ -303,7 +309,7 @@ export async function createPayment(input: {
 
 async function refreshRequestPaymentStatus(requestId: string, timestamp = nowIso()) {
   const totals = await one<any>(
-    "SELECT COALESCE(SUM(total),0) AS total, COALESCE(SUM(paid_amount),0) AS paid FROM invoices WHERE request_id=? AND status NOT IN ('void','draft')",
+    "SELECT COALESCE(SUM(total),0) AS total, COALESCE(SUM(paid_amount),0) AS paid FROM invoices WHERE request_id=? AND status NOT IN ('void','draft') AND purpose = 'service'",
     [requestId],
   );
   const refunds = await one<any>("SELECT COUNT(*) AS c FROM payments WHERE request_id=? AND status='refunded'", [requestId]);
@@ -346,6 +352,11 @@ async function applyConfirmedPayment(paymentId: string) {
     // Wallet-funded service payments settle against the customer's custody
     // balance instead of office cash.
     const settlementAccount = payment.method === 'wallet' ? 'wallet:liability' : `cash:${payment.method}`;
+    // Pass-through organization fees are a liability we hand over, not income.
+    const invoiceForLedger = payment.invoice_id
+      ? await db.one<any>('SELECT purpose FROM invoices WHERE id = ?', [payment.invoice_id])
+      : null;
+    const isExternalCost = invoiceForLedger?.purpose === 'external_cost';
     await db.run(
       `INSERT INTO ledger_entries (id, entry_date, account, direction, amount, ref_type, ref_id, description, created_at)
        VALUES (?, ?, ?, 'debit', ?, 'payment', ?, ?, ?)`,
@@ -354,7 +365,8 @@ async function applyConfirmedPayment(paymentId: string) {
     await db.run(
       `INSERT INTO ledger_entries (id, entry_date, account, direction, amount, ref_type, ref_id, description, created_at)
        VALUES (?, ?, ?, 'credit', ?, 'payment', ?, ?, ?)`,
-      [id('led'), ts, mode === 'on_invoice' ? 'receivable' : 'revenue', amount, paymentId, 'ثبت درآمد', ts],
+      [id('led'), ts, isExternalCost ? 'external:liability' : (mode === 'on_invoice' ? 'receivable' : 'revenue'),
+       amount, paymentId, isExternalCost ? 'دریافت هزینهٔ سازمانی (امانی)' : 'ثبت درآمد', ts],
     );
 
     if (payment.invoice_id) {
@@ -371,12 +383,59 @@ async function applyConfirmedPayment(paymentId: string) {
     }
     await accrueCommission(paymentId);
   });
+  // Outside the money transaction: tell the expert, log the event and let a
+  // case that was only waiting for this payment flow again.
+  await afterExternalInvoicePayment(payment).catch(() => undefined);
+}
+
+/**
+ * When an organization-fee invoice becomes fully paid: record it on the case,
+ * notify the assignee, and if the case was parked in "waiting for customer"
+ * solely for this payment (no other unpaid org invoice remains), resume it.
+ */
+async function afterExternalInvoicePayment(payment: any) {
+  if (!payment.invoice_id) return;
+  const invoice: any = await (await import('../../db/index.js')).one(
+    'SELECT * FROM invoices WHERE id = ?', [payment.invoice_id],
+  );
+  if (!invoice || invoice.purpose !== 'external_cost' || invoice.status !== 'paid' || !invoice.request_id) return;
+  const db = await import('../../db/index.js');
+  const request: any = await db.one('SELECT * FROM requests WHERE id = ?', [invoice.request_id]);
+  if (!request) return;
+  const { addEvent, changeStatus } = await import('../requests/service.js');
+  const { notifyUser } = await import('../notifications/service.js');
+  await addEvent({
+    requestId: request.id, type: 'payment',
+    message: `مشتری فاکتور هزینهٔ سازمانی «${invoice.title}» (${Number(invoice.total).toLocaleString('fa-IR')} ریال) را پرداخت کرد.`,
+    actorId: 'system', actorName: 'سامانه پرداخت',
+  }).catch(() => undefined);
+  if (request.assigned_to) {
+    await notifyUser(request.assigned_to, {
+      title: 'فاکتور هزینهٔ سازمانی پرداخت شد',
+      body: `${invoice.title} — پروندهٔ ${request.tracking_code} می‌تواند ادامه پیدا کند.`,
+      kind: 'success',
+      link: `/staff/requests/${request.id}`,
+      idempotencyKey: `external-invoice-paid:${invoice.id}`,
+    }).catch(() => undefined);
+  }
+  if (request.status === 'waiting_customer') {
+    const unpaid: any = await db.one(
+      `SELECT COUNT(*) AS c FROM invoices WHERE request_id = ? AND purpose = 'external_cost'
+       AND status NOT IN ('paid','void','draft')`,
+      [request.id],
+    );
+    if (Number(unpaid?.c ?? 0) === 0) {
+      await changeStatus(request.id, 'in_progress', { id: 'system', name: 'سامانه پرداخت' },
+        'پرداخت هزینهٔ سازمانی انجام شد؛ پرونده به جریان انجام برگشت.').catch(() => undefined);
+    }
+  }
 }
 
 export async function confirmPayment(paymentId: string, actor: { id: string; name: string; ip?: string }, reference?: string) {
   return tx(async () => {
   const payment = await one<any>('SELECT * FROM payments WHERE id = ?', [paymentId]);
   if (!payment) throw notFound('تراکنش یافت نشد.');
+  await run('UPDATE users SET id=id WHERE id=?', [payment.customer_id]);
   if (payment.status === 'confirmed') return mapPayment(payment);
   if (payment.status !== 'pending') throw conflict('این تراکنش قابل تأیید نیست.');
   if (payment.invoice_id) {
@@ -428,8 +487,12 @@ export async function refundPayment(paymentId: string, reason: string, actor: { 
     if (!(await getBool('wallet.refund_to_wallet'))) throw badRequest('بازگشت وجه پرداخت کیف پولی در تنظیمات غیرفعال است.');
     await refundToWallet(payment);
   }
+  const refundInvoice = payment.invoice_id
+    ? await one<any>('SELECT service_id, purpose FROM invoices WHERE id=?', [payment.invoice_id])
+    : null;
   await addLedgerEntry({
-    account: recognition === 'on_invoice' ? `receivable:${payment.customer_id}` : `revenue:${(payment.invoice_id ? (await one<any>('SELECT service_id FROM invoices WHERE id=?',[payment.invoice_id]))?.service_id : null) ?? 'other'}`,
+    account: refundInvoice?.purpose === 'external_cost' ? 'external:liability'
+      : recognition === 'on_invoice' ? `receivable:${payment.customer_id}` : `revenue:${refundInvoice?.service_id ?? 'other'}`,
     direction: 'debit', amount: Number(payment.amount), refType: 'refund', refId: paymentId,
     description: `برگشت دریافت — ${reason}`,
   });

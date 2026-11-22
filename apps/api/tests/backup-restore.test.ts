@@ -8,6 +8,7 @@ import { migrate } from '../src/db/migrate.js';
 import { runSeed } from '../src/modules/catalog/seed.js';
 import { createBackup, restoreBackup } from '../src/modules/system/backup.js';
 import { invalidateSettingsCache, updateSettings } from '../src/modules/settings/service.js';
+import { isSqlite } from './helpers.js';
 
 const original = { sqliteFile: env.sqliteFile, uploadDir: env.uploadDir, backupDir: env.backupDir };
 const root = fs.mkdtempSync(path.join(os.tmpdir(), 'pishkan-restore-test-'));
@@ -24,7 +25,7 @@ afterAll(async () => {
   fs.rmSync(root, { recursive: true, force: true });
 });
 
-describe('isolated SQLite backup restore', () => {
+describe.skipIf(!isSqlite)('isolated SQLite backup restore', () => {
   it('restores both the database snapshot and its paired upload archive', async () => {
     await migrate();
     await runSeed({ admin: { username: 'restore-admin', password: 'RestoreTest#12345', fullName: 'نام پیش از پشتیبان' }, log: () => undefined });
@@ -41,9 +42,18 @@ describe('isolated SQLite backup restore', () => {
     fs.writeFileSync(marker, 'modified-after-backup');
     fs.writeFileSync(path.join(env.uploadDir, 'should-be-removed.txt'), 'not-in-snapshot');
 
+    // Restore from the panel is refused on PostgreSQL. Flip the flag only for
+    // the duration of that one assertion and always restore the ORIGINAL
+    // driver: hardcoding 'sqlite' on the way back turned a PostgreSQL run into
+    // a half-SQLite process, and every later test file in the same worker then
+    // reported "relation does not exist" against a driver it was not using.
+    const driverBefore = env.dbDriver;
     Object.assign(env, { dbDriver: 'postgres' });
-    await expect(restoreBackup(backup.id, 'RESTORE', { id: admin!.id, name: 'آزمون بازیابی' })).rejects.toThrow('از API پشتیبانی نمی‌شود');
-    Object.assign(env, { dbDriver: 'sqlite' });
+    try {
+      await expect(restoreBackup(backup.id, 'RESTORE', { id: admin!.id, name: 'آزمون بازیابی' })).rejects.toThrow('از API پشتیبانی نمی‌شود');
+    } finally {
+      Object.assign(env, { dbDriver: driverBefore });
+    }
     const restored = await restoreBackup(backup.id, 'RESTORE', { id: admin!.id, name: 'آزمون بازیابی' });
     expect(restored.ok).toBe(true);
     expect((await one<{ full_name: string }>('SELECT full_name FROM users WHERE id = ?', [admin!.id]))?.full_name).toBe('نام پیش از پشتیبان');

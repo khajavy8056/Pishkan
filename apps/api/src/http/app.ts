@@ -30,6 +30,12 @@ import { systemRouter } from '../routes/system.js';
 import { paymentsRouter } from '../routes/payments.js';
 import { walletRouter } from '../routes/wallet.js';
 import { monitoringRouter } from '../routes/monitoring.js';
+import { discountsRouter } from '../routes/discounts.js';
+import { referralsRouter } from '../routes/referrals.js';
+import { supportRouter } from '../routes/support.js';
+import { pushRouter } from '../routes/push.js';
+import { mobileRouter } from '../routes/mobile.js';
+import { blogRouter, blogSeoRouter, publicBlogRouter } from '../routes/blog.js';
 import { recordRequest } from '../modules/monitoring/metrics.js';
 import { logEvent, setMinimumLevel } from '../modules/logging/service.js';
 
@@ -60,17 +66,25 @@ export async function createApp(): Promise<Express> {
   app.set('trust proxy', env.trustProxy ? 1 : false);
   app.disable('x-powered-by');
 
-  const csp = await getBool('security.content_security_policy').catch(() => false);
   const customCsp = await import('../modules/settings/service.js')
     .then((m) => m.getString('security.content_security_policy'))
     .catch(() => '');
+  const customDirectives = customCsp ? JSON.parse(customCsp) as Record<string, unknown> : null;
+  const customUpgrade = customDirectives && ('upgrade-insecure-requests' in customDirectives || 'upgradeInsecureRequests' in customDirectives);
+  const hsts = env.isProd && (await getBool('security.hsts').catch(() => true))
+    ? { maxAge: 15552000, includeSubDomains: true }
+    : false as const;
 
-  app.use(helmet({
-    contentSecurityPolicy: customCsp
-      ? { directives: { defaultSrc: ["'self'"], ...(JSON.parse(customCsp) as object) } }
-      : {
-          useDefaults: true,
-          directives: {
+  // Helmet defaults to upgrade-insecure-requests. On an HTTP LAN origin this
+  // upgrades the SPA's own JS/CSS to HTTPS, but the local Windows server does
+  // not speak TLS. Keep the upgrade on HTTPS, including trusted TLS proxies.
+  // An explicitly configured CSP directive still takes precedence.
+  const securityHeaders = (secure: boolean) => helmet({
+    contentSecurityPolicy: {
+      useDefaults: true,
+      directives: customDirectives
+        ? { defaultSrc: ["'self'"], ...(!secure && !customUpgrade ? { 'upgrade-insecure-requests': null } : {}), ...customDirectives }
+        : {
             'default-src': ["'self'"],
             'img-src': ["'self'", 'data:', 'blob:'],
             'script-src': ["'self'"],
@@ -81,14 +95,16 @@ export async function createApp(): Promise<Express> {
             'object-src': ["'none'"],
             'base-uri': ["'self'"],
             'form-action': ["'self'"],
+            ...(!secure ? { 'upgrade-insecure-requests': null } : {}),
           },
-        },
+    },
     crossOriginEmbedderPolicy: false,
-    hsts: env.isProd && (await getBool('security.hsts').catch(() => true))
-      ? { maxAge: 15552000, includeSubDomains: true }
-      : false,
+    hsts,
     referrerPolicy: { policy: 'strict-origin-when-cross-origin' },
-  }));
+  });
+  const secureHeaders = securityHeaders(true);
+  const httpHeaders = securityHeaders(false);
+  app.use((req, res, next) => (req.secure ? secureHeaders : httpHeaders)(req, res, next));
 
   app.use((req, res, next) => {
     res.setHeader('Permissions-Policy', 'geolocation=(self), camera=(self), microphone=()');
@@ -156,7 +172,22 @@ export async function createApp(): Promise<Express> {
       const token = bearer || (req.cookies?.[env.sessionCookie] as string | undefined) || '';
       if (token) {
         const ctx = await resolveSession(token, { ip: req.ip, userAgent: req.header('user-agent') });
-        if (ctx) req.auth = ctx;
+        if (ctx) {
+          req.auth = ctx;
+          // Presence heartbeat for fair automatic assignment: at most one
+          // write per user per minute, never allowed to fail the request.
+          if (ctx.user.kind !== 'customer') {
+            const userId = ctx.user.id;
+            const now = new Date();
+            const staleBefore = new Date(now.getTime() - 60_000).toISOString();
+            void import('../db/index.js')
+              .then(({ run }) => run(
+                'UPDATE users SET last_seen_at = ? WHERE id = ? AND (last_seen_at IS NULL OR last_seen_at < ?)',
+                [now.toISOString(), userId, staleBefore],
+              ))
+              .catch(() => undefined);
+          }
+        }
       }
       next();
     } catch (err) {
@@ -187,6 +218,14 @@ export async function createApp(): Promise<Express> {
   app.use(['/api/payments','/api/v1/payments'],paymentsRouter);
   app.use(['/api/wallet','/api/v1/wallet'],walletRouter);
   app.use(['/api/monitoring','/api/v1/monitoring'],monitoringRouter);
+  app.use(['/api/discount-codes','/api/v1/discount-codes'],discountsRouter);
+  app.use(['/api/referrals','/api/v1/referrals'],referralsRouter);
+  app.use(['/api/support','/api/v1/support'],supportRouter);
+  app.use(['/api/push','/api/v1/push'],pushRouter);
+  app.use(['/api/app','/api/v1/app'],mobileRouter);
+  app.use(['/api/blog','/api/v1/blog'],blogRouter);
+  app.use(['/api/public/blog','/api/v1/public/blog'],publicBlogRouter);
+  app.use(blogSeoRouter);
 
   /* -------------------------- static web application ----------------------- */
   // The SPA can be served from several layouts: a repo checkout started from the

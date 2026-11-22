@@ -299,7 +299,7 @@ export function AdminMonitoring() {
               <div key={component.key} className={clsx('rounded-2xl border p-3', STATUS_TONE[component.status] ?? STATUS_TONE.unknown)}>
                 <div className="flex items-center justify-between gap-2">
                   <span className="flex items-center gap-1.5 text-xs font-bold">{iconFor(component.key)} {component.label}</span>
-                  <span className="rounded-full bg-white/70 px-2 py-0.5 text-[10px] font-semibold">{STATUS_LABEL[component.status] ?? component.status}</span>
+                  <span className="rounded-full bg-surface/80 px-2 py-0.5 text-[10px] font-semibold text-navy-800">{STATUS_LABEL[component.status] ?? component.status}</span>
                 </div>
                 <p className="mt-2 text-sm font-bold">{component.value}</p>
                 {component.detail && <p className="mt-0.5 text-[10px] leading-5 opacity-80">{component.detail}</p>}

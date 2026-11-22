@@ -9,6 +9,7 @@ import {
   Tabs, useToast,
 } from '../../components/ui';
 import { api, ApiFailure } from '../../lib/api';
+import { useAuth } from '../../lib/auth';
 import { faDate, faDateTime, faNum, rial } from '../../lib/format';
 
 interface Overview {
@@ -49,7 +50,82 @@ const ACTIONS: Record<string, { label: string; tone?: 'danger' | 'success' }> = 
   reject: { label: 'رد درخواست', tone: 'danger' },
 };
 
+/**
+ * Per-service commission override editor (spec: a manager may set a special
+ * percent for one person on one service). Loaded inside the staff file.
+ */
+function ServicePercentsEditor({ staffId }: { staffId: string }) {
+  const { can } = useAuth();
+  const { notify } = useToast();
+  const [items, setItems] = useState<{ serviceId: string; percent: number }[]>([]);
+  const [services, setServices] = useState<any[]>([]);
+  const [loaded, setLoaded] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const editable = can('payroll.contracts.edit');
+
+  useEffect(() => {
+    api.get<{ data: any }>(`/api/payroll/staff/${staffId}/service-percents`)
+      .then((res) => setItems(Array.isArray(res.data) ? res.data : []))
+      .catch(() => undefined)
+      .finally(() => setLoaded(true));
+    api.list<any>('/api/catalog/admin/services', { pageSize: 200 })
+      .then((res) => setServices(res.data ?? []))
+      .catch(() => undefined);
+  }, [staffId]);
+
+  const save = async () => {
+    setBusy(true);
+    try {
+      const res = await api.put<{ data: any }>(`/api/payroll/staff/${staffId}/service-percents`, {
+        items: items.filter((item) => item.serviceId).map((item) => ({ serviceId: item.serviceId, percent: Number(item.percent) })),
+      });
+      setItems(Array.isArray(res.data) ? res.data : []);
+      notify('درصدهای ویژهٔ خدمت ذخیره شد. روی درآمدهای قطعی گذشته اثری ندارد.', 'success');
+    } catch (err) {
+      notify(err instanceof ApiFailure ? err.message : 'خطا در ذخیره', 'error');
+    } finally { setBusy(false); }
+  };
+
+  if (!loaded) return <Loading rows={1} />;
+
+  return (
+    <div>
+      <h3 className="mb-1 font-semibold">درصد ویژه به‌ازای خدمت</h3>
+      <p className="mb-2 text-[11px] leading-6 text-navy-500">
+        برای خدمت‌های خاص، به‌جای درصد کلی قرارداد. هر خدمتی که اینجا نباشد با درصد کلی قرارداد محاسبه می‌شود.
+      </p>
+      <div className="space-y-2">
+        {items.map((item, index) => (
+          <div key={index} className="flex flex-wrap items-center gap-2">
+            <Select className="min-w-52 flex-1" value={item.serviceId} disabled={!editable}
+              onChange={(e) => setItems(items.map((row, i) => (i === index ? { ...row, serviceId: e.target.value } : row)))}
+              options={[{ value: '', label: 'انتخاب خدمت' }, ...services.map((svc) => ({ value: svc.id, label: svc.title }))]} />
+            <Input type="number" min={0} max={100} className="w-24" dir="ltr" value={item.percent} disabled={!editable}
+              onChange={(e) => setItems(items.map((row, i) => (i === index ? { ...row, percent: Number(e.target.value) } : row)))} />
+            <span className="text-xs text-navy-500">٪</span>
+            {editable && (
+              <Button size="sm" variant="ghost" aria-label="حذف" onClick={() => setItems(items.filter((_, i) => i !== index))}>
+                <XCircle className="size-4 text-rose-600" />
+              </Button>
+            )}
+          </div>
+        ))}
+        {items.length === 0 && <p className="text-xs text-navy-400">درصد ویژه‌ای تعریف نشده است.</p>}
+      </div>
+      {editable && (
+        <div className="mt-2 flex items-center gap-2">
+          <Button size="sm" variant="ghost" onClick={() => setItems([...items, { serviceId: '', percent: 0 }])}>افزودن خدمت</Button>
+          <Button size="sm" className="ms-auto" loading={busy} disabled={items.some((item) => !item.serviceId)} onClick={() => void save()}>
+            ذخیره درصدهای ویژه
+          </Button>
+        </div>
+      )}
+    </div>
+  );
+}
+
 export function AdminPayroll() {
+  const { can } = useAuth();
   const { notify } = useToast();
   const [tab, setTab] = useState('withdrawals');
   const [overview, setOverview] = useState<Overview | null>(null);
@@ -62,7 +138,10 @@ export function AdminPayroll() {
   const [detail, setDetail] = useState<any>(null);
   const [file, setFile] = useState<StaffFile | null>(null);
   const [payModal, setPayModal] = useState<Withdrawal | null>(null);
-  const [payForm, setPayForm] = useState({ method: 'bank_transfer', trackingCode: '', note: '' });
+  const [payForm, setPayForm] = useState<{ method: string; trackingCode: string; note: string; receiptFileId: string | null; receiptName: string }>(
+    { method: 'bank_transfer', trackingCode: '', note: '', receiptFileId: null, receiptName: '' },
+  );
+  const [receiptBusy, setReceiptBusy] = useState(false);
   const [rejectModal, setRejectModal] = useState<Withdrawal | null>(null);
   const [rejectNote, setRejectNote] = useState('');
   const [salaryModal, setSalaryModal] = useState<StaffRow | null>(null);
@@ -74,7 +153,7 @@ export function AdminPayroll() {
   const [contractForm, setContractForm] = useState({
     kind: 'commission' as 'monthly' | 'commission', monthlyAmount: 0, commissionPercent: 10,
     startsOn: new Date().toISOString().slice(0, 10), settlementPeriod: 'monthly' as 'daily' | 'weekly' | 'monthly' | 'custom',
-    settlementDays: 0, minWithdrawal: 0, note: '',
+    settlementDays: 0, minWithdrawal: 0, monthlyTarget: 0, note: '',
   });
 
   const loadOverview = () => {
@@ -93,6 +172,21 @@ export function AdminPayroll() {
   };
   const loadReports = () => {
     api.get<{ data: any }>('/api/payroll/reports').then((res) => setReports(res.data)).catch(() => undefined);
+  };
+
+  /** Safety net: accrue any confirmed payment whose commission was missed. */
+  const reconcileCommissions = async () => {
+    setBusy('reconcile');
+    try {
+      const res = await api.post<{ data: { checkedRequests: number; accruedPayments: number } }>('/api/payroll/commissions/reconcile', {});
+      notify(res.data.accruedPayments > 0
+        ? `بازبینی انجام شد: کمیسیون ${faNum(res.data.accruedPayments)} پرداختِ جاافتاده ثبت و به موجودی کارشناس‌های درصدی اضافه شد.`
+        : 'بازبینی انجام شد؛ کمیسیون جاافتاده‌ای پیدا نشد.', 'success');
+      loadOverview();
+      loadStaff();
+    } catch (err) {
+      notify(err instanceof ApiFailure ? err.message : 'خطا در بازبینی کمیسیون‌ها', 'error');
+    } finally { setBusy(''); }
   };
 
   useEffect(() => { setError(''); loadOverview(); loadStaff(); }, []);
@@ -117,10 +211,13 @@ export function AdminPayroll() {
     if (!payModal) return;
     setBusy(payModal.id);
     try {
-      await api.post(`/api/payroll/withdrawals/${payModal.id}/pay`, { ...payForm, note: payForm.note || undefined });
+      await api.post(`/api/payroll/withdrawals/${payModal.id}/pay`, {
+        method: payForm.method, trackingCode: payForm.trackingCode, note: payForm.note || undefined,
+        receiptFileId: payForm.receiptFileId ?? undefined,
+      });
       notify('پرداخت ثبت شد و در سوابق کارمند نمایش داده می‌شود.', 'success');
       setPayModal(null);
-      setPayForm({ method: 'bank_transfer', trackingCode: '', note: '' });
+      setPayForm({ method: 'bank_transfer', trackingCode: '', note: '', receiptFileId: null, receiptName: '' });
       loadWithdrawals();
       loadOverview();
     } catch (err) {
@@ -196,7 +293,17 @@ export function AdminPayroll() {
       <PageHeader
         title="حقوق و تسویه کارکنان"
         description="درآمد کارکنان درصدی، درخواست‌های برداشت، حقوق کارکنان ثابت و پروندهٔ مالی هر کارمند — همه بر پایهٔ اسناد واقعی سامانه."
-        actions={<Button variant="ghost" onClick={() => { loadOverview(); loadWithdrawals(); loadStaff(); }}><RefreshCw className="size-4" /> به‌روزرسانی</Button>}
+        actions={(
+          <>
+            {can('payroll.accrue') && (
+              <Button variant="ghost" loading={busy === 'reconcile'} onClick={reconcileCommissions}
+                title="پرداخت‌های تأییدشده‌ای که کمیسیونشان ثبت نشده (مثلاً پرداخت پیش از تخصیص مجری) پیدا و در درآمد کارشناس ثبت می‌شود">
+                <Coins className="size-4" /> بازبینی کمیسیون‌های جاافتاده
+              </Button>
+            )}
+            <Button variant="ghost" onClick={() => { loadOverview(); loadWithdrawals(); loadStaff(); }}><RefreshCw className="size-4" /> به‌روزرسانی</Button>
+          </>
+        )}
       />
 
       {error && <ErrorState message={error} onRetry={loadOverview} />}
@@ -366,7 +473,17 @@ export function AdminPayroll() {
 
       {tab === 'reports' && (
         <Card>
-          <h2 className="mb-4 font-bold text-navy-900">گزارش مالی کارکنان (۳۰ روز اخیر)</h2>
+          <div className="mb-4 flex flex-wrap items-center justify-between gap-2">
+            <h2 className="font-bold text-navy-900">گزارش مالی و عملکرد کارکنان (۳۰ روز اخیر)</h2>
+            <span className="flex gap-2">
+              <a className="btn-ghost btn-sm" href="/api/payroll/reports/export.csv">
+                خروجی اکسل (CSV)
+              </a>
+              <a className="btn-ghost btn-sm" href="/api/payroll/reports/print" target="_blank" rel="noreferrer">
+                چاپ گزارش (PDF)
+              </a>
+            </span>
+          </div>
           {!reports && <Loading rows={3} />}
           {reports && (
             <>
@@ -390,6 +507,27 @@ export function AdminPayroll() {
                     ))}
                   </tbody>
                 </table>
+              </div>
+              <div className="mt-6">
+                <h3 className="mb-2 font-semibold text-navy-900">عملکرد پرونده‌ای و مقایسهٔ کارکنان</h3>
+                <div className="table-wrap">
+                  <table className="table">
+                    <thead><tr><th>کارمند</th><th>پرونده‌های دریافتی</th><th>تکمیل‌شده در بازه</th><th>میانگین زمان انجام</th></tr></thead>
+                    <tbody>
+                      {(reports.performance ?? []).map((row: any) => (
+                        <tr key={row.userId}>
+                          <td className="font-medium">{row.fullName ?? row.userId}</td>
+                          <td>{faNum(row.received)}</td>
+                          <td>{faNum(row.completed)}</td>
+                          <td>{row.completed > 0 ? `${faNum(row.averageCompletionMinutes)} دقیقه` : '—'}</td>
+                        </tr>
+                      ))}
+                      {(reports.performance ?? []).length === 0 && (
+                        <tr><td colSpan={4} className="text-center text-xs text-navy-500">در این بازه پرونده‌ای ثبت نشده است.</td></tr>
+                      )}
+                    </tbody>
+                  </table>
+                </div>
               </div>
               <div className="mt-5">
                 <h3 className="mb-2 font-semibold text-navy-900">درخواست‌های برداشت</h3>
@@ -418,6 +556,11 @@ export function AdminPayroll() {
               <p><span className="text-navy-500">ثبت: </span>{faDateTime(detail.requestedAt)}</p>
               {detail.periodStart && <p><span className="text-navy-500">دوره: </span>{faDate(detail.periodStart)} تا {detail.periodEnd ? faDate(detail.periodEnd) : '—'}</p>}
               {detail.trackingCode && <p><span className="text-navy-500">پیگیری: </span>{detail.trackingCode}</p>}
+              {detail.receiptUrl && (
+                <p><span className="text-navy-500">رسید پرداخت: </span>
+                  <a className="font-medium text-accent underline" href={detail.receiptUrl} target="_blank" rel="noreferrer">مشاهده سند واریز</a>
+                </p>
+              )}
             </div>
             {detail.note && <p className="rounded-xl bg-surface-3 px-3 py-2 text-xs">توضیح کارمند: {detail.note}</p>}
             {detail.decisionNote && <p className="rounded-xl bg-rose-50 px-3 py-2 text-xs text-rose-800">تصمیم: {detail.decisionNote}</p>}
@@ -499,6 +642,26 @@ export function AdminPayroll() {
           <Field label="توضیح حسابداری">
             <Input value={payForm.note} onChange={(e) => setPayForm({ ...payForm, note: e.target.value })} />
           </Field>
+          <Field label="رسید پرداخت (تصویر یا PDF)" hint="سند واریز بانکی؛ در پروندهٔ برداشت و سوابق کارمند می‌ماند.">
+            <div className="flex items-center gap-2">
+              <label className="btn-ghost btn-sm cursor-pointer">
+                {receiptBusy ? 'در حال بارگذاری…' : payForm.receiptName ? 'تغییر رسید' : 'انتخاب رسید'}
+                <input type="file" accept="image/*,.pdf" className="hidden" onChange={async (e) => {
+                  const file = e.target.files?.[0];
+                  if (!file) return;
+                  setReceiptBusy(true);
+                  try {
+                    const uploaded = await api.upload<{ data: { id: string; name: string } }>('/api/files/upload', file, { purpose: 'receipt' });
+                    setPayForm((current) => ({ ...current, receiptFileId: uploaded.data.id, receiptName: uploaded.data.name || file.name }));
+                    notify('رسید پرداخت بارگذاری شد.', 'success');
+                  } catch (err) {
+                    notify(err instanceof ApiFailure ? err.message : 'بارگذاری رسید ناموفق بود.', 'error');
+                  } finally { setReceiptBusy(false); e.target.value = ''; }
+                }} />
+              </label>
+              {payForm.receiptName && <span className="truncate text-[11px] text-emerald-700">{payForm.receiptName}</span>}
+            </div>
+          </Field>
         </div>
       </Modal>
 
@@ -569,9 +732,14 @@ export function AdminPayroll() {
             />
           </Field>
           {contractForm.kind === 'commission' ? (
-            <Field label="درصد همکاری" required hint="مثلاً ۱۰ یعنی ۱۰٪ از درآمد دفتر هر خدمت">
-              <Input type="number" min={0} max={100} value={contractForm.commissionPercent} onChange={(e) => setContractForm({ ...contractForm, commissionPercent: Number(e.target.value) })} />
-            </Field>
+            <>
+              <Field label="درصد همکاری" required hint="مثلاً ۱۰ یعنی ۱۰٪ از درآمد دفتر هر خدمت">
+                <Input type="number" min={0} max={100} value={contractForm.commissionPercent} onChange={(e) => setContractForm({ ...contractForm, commissionPercent: Number(e.target.value) })} />
+              </Field>
+              <Field label="هدف درآمد ماهانه (ریال، اختیاری)" hint="در داشبورد درآمد کارمند به‌صورت حلقهٔ پیشرفت هدف نشان داده می‌شود؛ صفر یعنی بدون هدف.">
+                <Input type="number" min={0} value={contractForm.monthlyTarget || ''} onChange={(e) => setContractForm({ ...contractForm, monthlyTarget: Number(e.target.value) })} />
+              </Field>
+            </>
           ) : (
             <Field label="حقوق ماهانه (ریال)" required>
               <Input type="number" min={0} value={contractForm.monthlyAmount} onChange={(e) => setContractForm({ ...contractForm, monthlyAmount: Number(e.target.value) })} />
@@ -685,6 +853,10 @@ export function AdminPayroll() {
                 ))}
               </div>
             </div>
+
+            {file.cooperationType === 'commission' && file.staff?.id && (
+              <ServicePercentsEditor staffId={file.staff.id} />
+            )}
 
             <div>
               <h3 className="mb-2 font-semibold">آخرین پرونده‌ها</h3>

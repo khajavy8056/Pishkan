@@ -20,10 +20,23 @@ export const EXPERT = { username: 'expert_test', password: 'Expert#12345', fullN
 /** Fresh database + seeded catalogue for the whole test run (single fork). */
 export async function setup() {
   if (!seeded) {
-    // start from an empty file so repeated local runs are deterministic
-    for (const suffix of ['', '-wal', '-shm']) {
-      const file = `${env.sqliteFile}${suffix}`;
-      if (fs.existsSync(file)) fs.unlinkSync(file);
+    if (env.dbDriver === 'sqlite') {
+      // start from an empty file so repeated local runs are deterministic
+      for (const suffix of ['', '-wal', '-shm']) {
+        const file = `${env.sqliteFile}${suffix}`;
+        if (fs.existsSync(file)) fs.unlinkSync(file);
+      }
+    } else {
+      // The SQLite path gets a brand-new file per process. PostgreSQL is a
+      // real server with a persistent database, so without this reset the
+      // second run starts on top of the first one's rows: `createStaff` hits
+      // a duplicate username, and a setting changed by an earlier test file
+      // stays changed for every file after it.
+      //
+      // This is why the suite never caught a dialect difference: the SQLite
+      // runs were always clean, so they could not show what a dirty database
+      // does.
+      await resetPostgresSchema();
     }
     await migrate();
     await runSeed({
@@ -48,6 +61,20 @@ export async function setup() {
   return appPromise;
 }
 
+/**
+ * Drop and recreate `public`. Only ever called by the test harness, and only
+ * when the driver is postgres — a guard is cheap insurance against a future
+ * refactor that copies this import somewhere it does not belong.
+ */
+async function resetPostgresSchema(): Promise<void> {
+  if (env.dbDriver !== 'postgres') {
+    throw new Error('resetPostgresSchema is only valid for the postgres driver');
+  }
+  const { q } = await import('../src/db/index.js');
+  await q('DROP SCHEMA IF EXISTS public CASCADE');
+  await q('CREATE SCHEMA public');
+}
+
 export async function app() {
   return setup();
 }
@@ -58,10 +85,10 @@ export async function resetDb() {
 
 export interface Session { cookie: string[] }
 
-/** Log in and return a supertest-friendly cookie jar. */
-export async function login(identifier: string, password: string): Promise<Session> {
+/** Log in through one of the two separated doors and return a cookie jar. */
+export async function login(identifier: string, password: string, audience: 'customer' | 'staff' = 'staff'): Promise<Session> {
   const server = await app();
-  const res = await request(server).post('/api/auth/login').send({ identifier, password });
+  const res = await request(server).post(`/api/auth/${audience}/login`).send({ identifier, password });
   if (!res.body.ok) throw new Error(`login failed for ${identifier}: ${JSON.stringify(res.body)}`);
   const cookie = res.headers['set-cookie'] as unknown as string[];
   return { cookie };
@@ -78,7 +105,7 @@ export async function customerSession() {
     mobile: CUSTOMER.mobile, password: CUSTOMER.password, fullName: CUSTOMER.fullName,
   });
   if (!reg.body.ok && reg.body?.error?.code !== 'conflict') throw new Error(`register failed: ${JSON.stringify(reg.body)}`);
-  const session = await login(CUSTOMER.mobile, CUSTOMER.password);
+  const session = await login(CUSTOMER.mobile, CUSTOMER.password, 'customer');
   await request(server).patch('/api/auth/profile').set('Cookie',session.cookie).send({firstName:'مشتری',lastName:'آزمایشی',nationalId:'0013546295',cityId:'tehran'}).expect(200);
   return session;
 }
@@ -89,7 +116,7 @@ export async function newCustomer(name = 'مشتری دوم') {
   const mobile = `0935${Math.floor(1000000 + Math.random() * 8999999)}`;
   const password = 'Customer#12345';
   await request(server).post('/api/auth/register').send({ mobile, password, fullName: name }).expect(201);
-  const session = await login(mobile, password);
+  const session = await login(mobile, password, 'customer');
   await request(server).patch('/api/auth/profile').set('Cookie', session.cookie).send({
     firstName: 'مشتری', lastName: 'دوم', nationalId: '0013546295', cityId: 'tehran',
   }).expect(200);
@@ -127,3 +154,16 @@ export async function firstServiceId(): Promise<{ id: string; title: string; req
 export function auth(session: Session) {
   return { Cookie: session.cookie };
 }
+
+/**
+ * True when the suite is running against SQLite.
+ *
+ * Some features are *defined* in terms of the SQLite database file: the
+ * one-file restore package stores a literal `database.sqlite` inside a zip, and
+ * the backup/restore round trip swaps that file. They are not portability bugs,
+ * they are SQLite-only by design, and the production route rejects them on
+ * PostgreSQL with an explicit message. Guard those suites with this flag so a
+ * PostgreSQL run reports "skipped" instead of "failed" — a red test that means
+ * "wrong engine" trains people to ignore red tests.
+ */
+export const isSqlite = env.dbDriver === 'sqlite';

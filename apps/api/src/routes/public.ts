@@ -1,6 +1,8 @@
 import { Router } from 'express';
+import fs from 'node:fs';
 import { asyncRoute } from '../http/middleware.js';
 import { getBool, getString, publicSettings } from '../modules/settings/service.js';
+import { getFile, resolveStoragePath } from '../modules/media/service.js';
 import { getServiceBySlug, listCategories, listServices, searchServices } from '../modules/catalog/service.js';
 import { env } from '../env.js';
 import { one } from '../db/index.js';
@@ -23,6 +25,12 @@ publicRouter.get('/bootstrap', asyncRoute(async (req, res) => {
     listServices({ onlyPublic: true, pageSize: 6, sort: 'newest', customerId: req.auth?.user.id }),
   ]);
 
+  const [serviceCount, customerCount, completedCount] = await Promise.all([
+    one<{ c: number }>('SELECT COUNT(*) AS c FROM services WHERE is_published = 1'),
+    one<{ c: number }>("SELECT COUNT(*) AS c FROM users WHERE kind = 'customer'"),
+    one<{ c: number }>("SELECT COUNT(*) AS c FROM requests WHERE status = 'completed'"),
+  ]);
+
   const authMethods = {
     staffOtp:await getBool('auth.staff_otp_enabled'),
     otp: await getBool('auth.customer_otp_enabled'),
@@ -39,6 +47,11 @@ publicRouter.get('/bootstrap', asyncRoute(async (req, res) => {
       categories,
       popularServices: popular.items,
       newestServices: newest.items,
+      stats: {
+        services: Number(serviceCount?.c ?? 0),
+        customers: Number(customerCount?.c ?? 0),
+        completedRequests: Number(completedCount?.c ?? 0),
+      },
       authMethods,
       maintenance: await getBool('maintenance.mode'),
       assistant: {
@@ -125,4 +138,22 @@ publicRouter.get('/status', asyncRoute(async (_req, res) => {
       checkedAt: new Date().toISOString(),
     },
   });
+}));
+
+/** Public brand logo (the file pointed to by `site.logo_file_id`). */
+publicRouter.get('/brand-asset/logo', asyncRoute(async (_req, res) => {
+  const fileId = (await getString('site.logo_file_id')).trim();
+  if (!fileId) return res.status(404).json({ ok: false, error: { code: 'not_found', message: 'لوگویی تنظیم نشده است.' } });
+  const file = await getFile(fileId).catch(() => null);
+  if (!file || !String(file.mime ?? '').startsWith('image/')) {
+    return res.status(404).json({ ok: false, error: { code: 'not_found', message: 'لوگو یافت نشد.' } });
+  }
+  const absolute = resolveStoragePath(file.storage_key);
+  if (!fs.existsSync(absolute)) return res.status(404).json({ ok: false, error: { code: 'not_found', message: 'لوگو یافت نشد.' } });
+  res.setHeader('content-type', file.mime);
+  res.setHeader('content-disposition', 'inline');
+  res.setHeader('x-content-type-options', 'nosniff');
+  res.setHeader('cache-control', 'public, max-age=300');
+  if (file.sha256) res.setHeader('etag', `"logo-${file.sha256.slice(0, 32)}"`);
+  fs.createReadStream(absolute).on('error', () => { if (!res.headersSent) res.status(500).end(); }).pipe(res);
 }));

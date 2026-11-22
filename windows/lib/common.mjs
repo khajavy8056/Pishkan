@@ -7,6 +7,7 @@
  * PowerShell GUI layer stays Windows-specific.
  */
 import fs from 'node:fs';
+import crypto from 'node:crypto';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -72,10 +73,20 @@ export function stateFile(root) {
   return path.join(dataDir(root), 'pishkan-manager.json');
 }
 
+/** Historical pipe names used only the basename; two ZIP extractions collided. */
+export function legacyWindowsControlPipePath(root) {
+  const basename = path.win32.basename(path.win32.resolve(root));
+  return `\\\\.\\pipe\\pishkan-${basename.replace(/[^a-zA-Z0-9_-]/g, '').toLowerCase() || 'local'}`;
+}
+
+export function windowsControlPipePath(root) {
+  const absolute = path.win32.resolve(root).toLowerCase();
+  const digest = crypto.createHash('sha256').update(absolute, 'utf8').digest('hex').slice(0, 20);
+  return `\\\\.\\pipe\\pishkan-${digest}`;
+}
+
 export function controlPipePath(root) {
-  return isWindows()
-    ? `\\\\.\\pipe\\pishkan-${path.basename(root).replace(/[^a-zA-Z0-9_-]/g, '').toLowerCase() || 'local'}`
-    : path.join(dataDir(root), 'pishkan-control.sock');
+  return isWindows() ? windowsControlPipePath(root) : path.join(dataDir(root), 'pishkan-control.sock');
 }
 
 export function installReportPath(root) {

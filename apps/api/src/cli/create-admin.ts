@@ -1,23 +1,33 @@
 import { closeDb, one } from '../db/index.js';
-import { ensureAdmin } from '../modules/catalog/seed.js';
+import { ensureAdmin, upsertInstallerAdmin } from '../modules/catalog/seed.js';
 import { env } from '../env.js';
 import { validatePasswordAgainstPolicy } from '../modules/auth/service.js';
+import { writeAudit } from '../modules/audit/service.js';
 
 /**
  * Usage (three supported ways to pass the password — pick the least exposing one):
  *
  *   1. stdin  — recommended for installers and GUI launchers:
- *        node dist/cli/create-admin.js --username admin --stdin
- *      (the password is read from the first line of stdin; it never appears in
- *       the process list, the shell history or the environment)
+ *        node dist/cli/create-admin.js --username admin --stdin [--upsert]
+ *      (the password is read from the first line of stdin, verbatim; it never
+ *       appears in the process list, the shell history or the environment)
  *   2. CLI flag / positional argument: visible in the process list
  *   3. BOOTSTRAP_ADMIN_USERNAME / BOOTSTRAP_ADMIN_PASSWORD environment variables
  *
- * The command is idempotent: it only creates the first super admin when no admin
- * account exists yet, so it is safe to re-run after a retry or an upgrade.
+ * Default mode is conservative: it only creates the first super admin when no
+ * admin account exists yet, so it is safe to re-run after a retry or upgrade.
+ *
+ * `--upsert` mode (used by the Windows installer) guarantees the account the
+ * operator just typed can log in: it creates the account when missing, keeps
+ * it when the supplied password already matches, and resets the password to
+ * the supplied one when an account with that username exists but its password
+ * differs (e.g. a previous half-finished install). A username owned by a
+ * non-admin account is refused (`username-taken`). This runs only from the
+ * server console, where the operator already has full database access.
+ *
  * Password rules come from the same settings the login screen uses
- * (auth.password_min_length / auth.password_require_mixed), so the installer can
- * never create an admin that the API would later refuse.
+ * (auth.password_min_length / auth.password_require_mixed), so the installer
+ * can never create an admin that the API would later refuse.
  */
 
 function readFlag(name: string): string | undefined {
@@ -28,10 +38,13 @@ function readFlag(name: string): string | undefined {
 async function readStdin(): Promise<string> {
   const chunks: Buffer[] = [];
   for await (const chunk of process.stdin) chunks.push(Buffer.from(chunk));
-  return Buffer.concat(chunks).toString('utf8').split(/\r?\n/)[0].trim();
+  // Verbatim first line — no trim(): the password must hash exactly what the
+  // operator typed in the installer window, spaces included.
+  return Buffer.concat(chunks).toString('utf8').split(/\r?\n/)[0];
 }
 
 const useStdin = process.argv.includes('--stdin');
+const upsert = process.argv.includes('--upsert');
 const username = readFlag('username') || process.env.BOOTSTRAP_ADMIN_USERNAME || process.argv[2];
 const password = useStdin
   ? await readStdin()
@@ -53,6 +66,32 @@ try {
 } catch (error) {
   console.error((error as Error)?.message ?? String(error));
   process.exit(1);
+}
+
+if (upsert) {
+  const result = await upsertInstallerAdmin(
+    { username, password, fullName, mobile },
+    (m) => console.log(`[admin] ${m}`),
+  );
+  if (result.status === 'conflict') {
+    console.error('[admin] username-taken: this username belongs to a non-admin account; choose a different admin username.');
+    await closeDb();
+    process.exit(1);
+  }
+  if (result.status === 'updated' && result.userId) {
+    await writeAudit({
+      actorId: 'system', actorName: 'CLI (installer)',
+      action: 'user.password_reset_cli', entityType: 'user', entityId: result.userId,
+      after: { username: username.toLowerCase(), via: 'create-admin --upsert' },
+    });
+    console.log('[admin] existing account updated — password was reset to the supplied one.');
+  } else if (result.status === 'verified') {
+    console.log('[admin] existing account verified — the supplied password already works.');
+  } else {
+    console.log(`[admin] initial account created (db=${env.dbDriver})`);
+  }
+  await closeDb();
+  process.exit(0);
 }
 
 const existing = await one<{ id: string }>('SELECT id FROM users WHERE kind = ?', ['admin']);

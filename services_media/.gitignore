@@ -1,0 +1,9 @@
+# Sheets and scratch renders must never be committed: only the six cropped
+# icons, each under its service slug. tools/crop_icon_sheet.py deletes the
+# sheet itself, and this is the second line of defence for anything that slips
+# past it (a half-finished sheet, a test render, an ImageMagick temp file).
+_*.png
+_*.jpg
+_*.webp
+*.tmp
+*.mvg

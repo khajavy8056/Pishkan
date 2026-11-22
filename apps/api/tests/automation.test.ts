@@ -12,16 +12,16 @@ beforeAll(async()=>{
  manager=await createStaff('manager',{username:'auto_manager',password:'Manager#Pass123',fullName:'سرپرست دفتر'});
  admin=await adminSession();workerId=(await request(server).get('/api/auth/me').set('Cookie',operator.cookie)).body.data.id;
  await updateSettings({'services.auto_assign':false}, {id:'system',name:'automation test'});
- const service=await request(server).post('/api/catalog/services').set('Cookie',admin.cookie).send({title:'خدمت گردش اداری',baseFee:500000,form:[],documents:[],workflow:[]});expect(service.status).toBe(201);
+ const service=await request(server).post('/api/catalog/services').set('Cookie',admin.cookie).send({title:'خدمت گردش اداری',baseFee:500000,form:[],documents:[],workflow:[],requiresManagerApproval:true});expect(service.status).toBe(201);
  const r=await request(server).post('/api/requests').set('Cookie',customer.cookie).send({serviceId:service.body.data.id,formData:{},paymentMethod:'online'});expect(r.status).toBe(201);requestId=r.body.data.id;
  await run("UPDATE requests SET assigned_to=?,status='in_progress' WHERE id=?",[workerId,requestId]);
  const pdfFixture=Buffer.from('%PDF-1.4\n1 0 obj<</Type/Catalog/Pages 2 0 R>>endobj\n2 0 obj<</Type/Pages/Kids[3 0 R]/Count 1>>endobj\n3 0 obj<</Type/Page/Parent 2 0 R/MediaBox[0 0 200 200]>>endobj\ntrailer<</Root 1 0 R>>\nstartxref\n0\n%%EOF\n');
  const upload=await request(server).post('/api/files/upload?purpose=delivery').set('Cookie',operator.cookie).attach('file',pdfFixture,'result.pdf');expect(upload.status).toBe(201);fileId=upload.body.data.id;
 });
 describe('role-aware professional case automation',()=>{
- it('uses the same password login endpoint for worker, accountant, supervisor and super admin',async()=>{
+ it('uses the staff door for worker, accountant, supervisor and super admin',async()=>{
   for(const [identifier,password,role,kind] of [['auto_worker','Worker#Pass123','operator','staff'],['auto_finance','Finance#Pass123','accountant','staff'],['auto_manager','Manager#Pass123','manager','admin'],[ADMIN.username,ADMIN.password,'super_admin','admin']]){
-   const r=await request(server).post('/api/auth/login').send({identifier,password});expect(r.status).toBe(200);expect(r.body.data.user.roleCode).toBe(role);expect(r.body.data.user.kind).toBe(kind);
+   const r=await request(server).post('/api/auth/staff/login').send({identifier,password});expect(r.status).toBe(200);expect(r.body.data.user.roleCode).toBe(role);expect(r.body.data.user.kind).toBe(kind);
    // Keep the most recent sessions, avoiding the intentional session cap in subsequent assertions.
    if(role==='super_admin')admin={cookie:r.headers['set-cookie']};
   }

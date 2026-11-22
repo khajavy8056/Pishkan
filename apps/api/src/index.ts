@@ -7,12 +7,13 @@ import { migrate } from './db/migrate.js';
 import { ensureSettingDefaults } from './modules/settings/service.js';
 import { ensureAdmin, upsertRolesOnly, seedCatalog, syncSystemRolePermissions } from './modules/catalog/seed.js';
 import { ensureMediaDirs, recoverStuckMedia } from './modules/media/service.js';
-import { isLanFirewallLeaseValid, resolveListenHost } from './lib/server-bind.js';
+import { isLanFirewallLeaseValid, isLanStrictMode, resolveListenHost } from './lib/server-bind.js';
 import { safeErrorText } from './lib/safe-log.js';
 import { startMetricsCollector, stopMetricsCollector } from './modules/monitoring/metrics.js';
 import { evaluateAlerts } from './modules/monitoring/alerts.js';
 import { startAlertScheduler, stopAlertScheduler } from './modules/monitoring/scheduler.js';
 import { startAssignmentScheduler, stopAssignmentScheduler } from './modules/requests/scheduler.js';
+import { startBackupScheduler, stopBackupScheduler } from './modules/system/scheduler.js';
 import { setMinimumLevel } from './modules/logging/service.js';
 import { getString } from './modules/settings/service.js';
 
@@ -41,6 +42,27 @@ async function bootstrap() {
   const upgradedRoles = await syncSystemRolePermissions();
   if (upgradedRoles) console.log(`[boot] roles: ${upgradedRoles} system role(s) received the wallet/monitoring permission set`);
   await seedCatalog((m) => console.log(`[boot] ${m}`));
+  // Starter banners for the customer app on a completely fresh install
+  // (no-op afterwards; the same idempotent pattern as the catalogue seed).
+  const { seedDefaultBanners, upgradeStarterBanners } = await import('./modules/mobile/service.js');
+  await seedDefaultBanners((m) => console.log(`[boot] ${m}`)).catch((error) => {
+    console.error(`[boot] starter banners failed: ${safeErrorText(error)}`);
+  });
+  // An install seeded before the five-slide set keeps its first-generation
+  // cards until this runs once. Idempotent, and it only rewrites cards the
+  // office has never edited.
+  await upgradeStarterBanners((m) => console.log(`[boot] ${m}`)).catch((error) => {
+    console.error(`[boot] starter banner upgrade failed: ${safeErrorText(error)}`);
+  });
+  // Requirements seeded before they carried a `documentType` cannot be matched
+  // to anything in the customer's archive, so «ذخیره مدارک» looks like it did
+  // nothing and every new request asks for the same national card again. This
+  // files the types the titles already imply. Idempotent; it never overwrites a
+  // type the office set by hand.
+  const { backfillServiceDocumentTypes } = await import('./modules/catalog/service.js');
+  await backfillServiceDocumentTypes((m) => console.log(`[boot] ${m}`)).catch((error) => {
+    console.error(`[boot] document type backfill failed: ${safeErrorText(error)}`);
+  });
   setMinimumLevel(await getString('monitoring.log_level').catch(() => 'INFO'));
 
   if (env.bootstrapAdmin.username && env.bootstrapAdmin.password) {
@@ -56,6 +78,12 @@ async function bootstrap() {
   }
 
   const app = await createApp();
+  // Simple LAN mode (default): an explicit installer opt-in
+  // (HOST=0.0.0.0 + LAN_ACCESS=true) is enough to serve the office Wi-Fi; the
+  // firewall rule is best-effort and must never stop the service. Strict mode
+  // (PISHKAN_LAN_STRICT=true) keeps the original fail-closed behaviour where
+  // the launcher must continuously refresh a verified firewall lease.
+  const lanStrict = isLanStrictMode();
   const lanAccessRequested = process.platform === 'win32'
     && env.host.trim().toLowerCase() === '0.0.0.0'
     && process.env.LAN_ACCESS?.trim().toLowerCase() === 'true';
@@ -66,11 +94,13 @@ async function bootstrap() {
     firewallLeaseFile, firewallLeaseToken, firewallLeasePort,
   );
   const listenHost = resolveListenHost(env.host);
-  if (lanAccessRequested && (listenHost !== '0.0.0.0' || !firewallLeaseValid())) {
-    throw new Error('LAN requested but the Windows firewall verification lease is missing, expired, or invalid.');
+  if (lanStrict && lanAccessRequested && (listenHost !== '0.0.0.0' || !firewallLeaseValid())) {
+    throw new Error('Strict LAN mode: the Windows firewall verification lease is missing, expired, or invalid.');
   }
   if (listenHost !== env.host) {
-    console.warn('[boot] Windows safety: binding to loopback because LAN opt-in and verified firewall lease were not both present.');
+    console.warn('[boot] Windows safety: binding to loopback because LAN opt-in was not fully present.');
+  } else if (!lanStrict && lanAccessRequested && listenHost === '0.0.0.0') {
+    console.log('[boot] LAN simple mode: serving the local network on 0.0.0.0 (sign-in required; firewall rule is best-effort).');
   }
   // Monitoring runs in-process: one metric sample per interval plus the alert
   // evaluator. Both are unref'd so they never keep a test process alive.
@@ -79,12 +109,19 @@ async function bootstrap() {
   });
   startAlertScheduler();
   startAssignmentScheduler();
+  startBackupScheduler();
   await evaluateAlerts({ notify: true }).catch((error) => {
     console.error(`[boot] alert evaluation failed: ${safeErrorText(error)}`);
   });
 
   const server = app.listen(env.port, listenHost, () => {
     console.log(`[boot] Pishkan API ${env.version} listening on http://${listenHost}:${env.port} (${env.nodeEnv}, db=${env.dbDriver})`);
+  });
+  server.on('error', (error) => {
+    // e.g. EADDRINUSE from a leftover process: land a clear line in the error
+    // log (which the Windows manager now surfaces) instead of a bare stack.
+    console.error(`[boot] server error: ${safeErrorText(error)}`);
+    process.exit(1);
   });
 
   let shuttingDown = false;
@@ -96,6 +133,7 @@ async function bootstrap() {
     stopMetricsCollector();
     stopAlertScheduler();
     stopAssignmentScheduler();
+    stopBackupScheduler();
     console.log(`[shutdown] received ${signal}`);
     server.close(() => {
       void closeDb().catch(() => undefined).finally(() => process.exit(exitCode));
@@ -104,10 +142,11 @@ async function bootstrap() {
     setTimeout(() => process.exit(1), 10_000).unref();
   };
 
-  // PowerShell/Windows Firewall inspection remains in the Windows launcher.
-  // The cross-platform API only trusts its short-lived lease and closes the
-  // listener if that independent watchdog stops refreshing it.
-  if (lanAccessRequested && listenHost === '0.0.0.0') {
+  // Strict mode only: PowerShell/Windows Firewall inspection remains in the
+  // Windows launcher. The cross-platform API trusts its short-lived lease and
+  // closes the listener if that independent watchdog stops refreshing it. In
+  // the default simple mode nothing here can shut the office service down.
+  if (lanStrict && lanAccessRequested && listenHost === '0.0.0.0') {
     leaseTimer = setInterval(() => {
       if (firewallLeaseValid() || shuttingDown) return;
       console.error('[boot] Windows safety: firewall lease expired; closing the LAN listener.');

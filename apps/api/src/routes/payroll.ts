@@ -4,6 +4,7 @@ import { asyncRoute, requireAuth, requirePermission } from '../http/middleware.j
 import { badRequest, forbidden } from '../http/errors.js';
 import {
   accrueMonth, closeContract, compensation, contractHistory, createContract, settle,
+  reconcileCommissions,
 } from '../modules/payroll/service.js';
 import {
   advanceWithdrawal, createWithdrawal, incomeEntries, incomeSummary, listWithdrawals, payWithdrawal,
@@ -14,7 +15,8 @@ import { created, ok } from '../http/respond.js';
 import { q } from '../db/index.js';
 import { param } from '../http/params.js';
 import { hasPermission } from '../lib/permissions.js';
-import { todayIso } from '../modules/payroll/compensation.js';
+import { listServicePercents, setServicePercents, todayIso } from '../modules/payroll/compensation.js';
+import { writeAudit } from '../modules/audit/service.js';
 
 export const payrollRouter = Router();
 payrollRouter.use(requireAuth, (req, _res, next) => {
@@ -111,6 +113,133 @@ payrollRouter.get('/reports', requirePermission('payroll.reports.view'), asyncRo
   ok(res, await payrollReports({ from, to }));
 }));
 
+/**
+ * Excel-friendly CSV of the payroll report (BOM + CRLF, same convention as
+ * the accounting export). One file with three labelled sections: staff
+ * income, request performance and withdrawal aggregates.
+ */
+payrollRouter.get('/reports/export.csv', requirePermission('payroll.reports.view'), asyncRoute(async (req, res) => {
+  const from = typeof req.query.from === 'string' ? req.query.from : undefined;
+  const to = typeof req.query.to === 'string' ? req.query.to : undefined;
+  const report = await payrollReports({ from, to });
+  const escape = (value: unknown) => {
+    const text = value === null || value === undefined ? '' : String(value);
+    return /[",\n\r]/.test(text) ? `"${text.replace(/"/g, '""')}"` : text;
+  };
+  const lines: string[] = [`گزارش حقوق و درآمد کارکنان — ${report.from} تا ${report.to}`];
+  lines.push('');
+  lines.push('درآمد کارکنان');
+  lines.push(['کارمند', 'نوع همکاری', 'تعداد خدمت دارای سهم', 'مبنای درآمد دفتر (ریال)', 'درآمد کارمند (ریال)'].map(escape).join(','));
+  for (const row of report.staff) {
+    lines.push([row.fullName, row.cooperationType === 'commission' ? 'درصدی' : row.cooperationType === 'monthly' ? 'حقوق ثابت' : '—', row.services, row.basis, row.income].map(escape).join(','));
+  }
+  lines.push('');
+  lines.push('عملکرد پرونده‌ای');
+  lines.push(['کارمند', 'پرونده‌های دریافتی (کل)', 'تکمیل‌شده در بازه', 'میانگین زمان انجام (دقیقه)'].map(escape).join(','));
+  for (const row of report.performance) {
+    lines.push([row.fullName ?? row.userId, row.received, row.completed, row.averageCompletionMinutes].map(escape).join(','));
+  }
+  lines.push('');
+  lines.push('درخواست‌های برداشت در بازه');
+  lines.push(['وضعیت', 'تعداد', 'مبلغ کل (ریال)'].map(escape).join(','));
+  for (const row of report.withdrawals) {
+    lines.push([row.statusLabel, row.count, row.total].map(escape).join(','));
+  }
+  lines.push('');
+  lines.push(['درآمد دفتر در بازه (بدون مالیات)', report.office.officeRevenue].map(escape).join(','));
+  lines.push(['جمع سهم کارکنان در بازه', report.office.staffShare].map(escape).join(','));
+  res.setHeader('content-type', 'text/csv; charset=utf-8');
+  res.setHeader('content-disposition', `attachment; filename="pishkan-payroll-report-${new Date().toISOString().slice(0, 10)}.csv"`);
+  res.send(`\uFEFF${lines.join('\r\n')}`);
+}));
+
+/**
+ * Printable (PDF-ready) payroll report. Persian text must survive printing,
+ * so instead of a binary PDF generator (which breaks Arabic-script shaping
+ * without an embedded font pipeline) the server renders a clean RTL HTML
+ * page; the browser's "Save as PDF" produces a faithful document.
+ */
+payrollRouter.get('/reports/print', requirePermission('payroll.reports.view'), asyncRoute(async (req, res) => {
+  const from = typeof req.query.from === 'string' ? req.query.from : undefined;
+  const to = typeof req.query.to === 'string' ? req.query.to : undefined;
+  const report = await payrollReports({ from, to });
+  const esc = (value: unknown) => String(value ?? '')
+    .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+  const num = (value: number) => Number(value || 0).toLocaleString('fa-IR');
+  const cooperation = (type: string) => (type === 'commission' ? 'درصدی' : type === 'monthly' ? 'حقوق ثابت' : '—');
+  const staffRows = report.staff.map((row) => `<tr><td>${esc(row.fullName)}</td><td>${cooperation(row.cooperationType)}</td><td>${num(row.services)}</td><td>${num(row.basis)}</td><td>${num(row.income)}</td></tr>`).join('');
+  const perfRows = report.performance.map((row) => `<tr><td>${esc(row.fullName ?? row.userId)}</td><td>${num(row.received)}</td><td>${num(row.completed)}</td><td>${row.completed > 0 ? `${num(row.averageCompletionMinutes)} دقیقه` : '—'}</td></tr>`).join('');
+  const withdrawalRows = report.withdrawals.map((row) => `<tr><td>${esc(row.statusLabel)}</td><td>${num(row.count)}</td><td>${num(row.total)}</td></tr>`).join('');
+  const html = `<!doctype html>
+<html lang="fa" dir="rtl">
+<head>
+<meta charset="utf-8" />
+<title>گزارش حقوق و عملکرد کارکنان — پیشخوان</title>
+<style>
+  * { box-sizing: border-box; }
+  body { font-family: Vazirmatn, Tahoma, sans-serif; color: #0f1c2e; margin: 24px; font-size: 13px; }
+  h1 { font-size: 18px; margin: 0 0 4px; }
+  h2 { font-size: 14px; margin: 26px 0 8px; border-bottom: 2px solid #1d4ed8; padding-bottom: 4px; }
+  .meta { color: #5b6b80; font-size: 12px; }
+  table { width: 100%; border-collapse: collapse; margin-top: 6px; }
+  th, td { border: 1px solid #d7e0ec; padding: 6px 8px; text-align: right; }
+  th { background: #eef3fa; font-weight: 700; }
+  .cards { display: flex; gap: 12px; margin-top: 14px; flex-wrap: wrap; }
+  .card { border: 1px solid #d7e0ec; border-radius: 10px; padding: 10px 14px; min-width: 180px; }
+  .card b { display: block; font-size: 16px; margin-top: 2px; }
+  .card span { color: #5b6b80; font-size: 11px; }
+  button { font-family: inherit; background: #1d4ed8; color: #fff; border: 0; border-radius: 10px; padding: 9px 16px; cursor: pointer; font-size: 13px; }
+  @media print { button { display: none; } body { margin: 8px; } }
+</style>
+</head>
+<body>
+  <button onclick="window.print()">🖨 چاپ / ذخیره به‌صورت PDF</button>
+  <h1 style="margin-top:14px">گزارش حقوق و عملکرد کارکنان</h1>
+  <p class="meta">بازهٔ گزارش: ${esc(report.from)} تا ${esc(report.to)} — مبالغ به ریال — مبنای درآمد: درآمد دفتر بدون مالیات؛ هزینه‌های سازمانی در این گزارش نیستند.</p>
+  <div class="cards">
+    <div class="card"><span>درآمد دفتر در بازه</span><b>${num(report.office.officeRevenue)}</b></div>
+    <div class="card"><span>جمع سهم کارکنان</span><b>${num(report.office.staffShare)}</b></div>
+    <div class="card"><span>وصول‌شده از مشتریان</span><b>${num(report.office.collected)}</b></div>
+  </div>
+  <h2>درآمد کارکنان</h2>
+  <table><thead><tr><th>کارمند</th><th>نوع همکاری</th><th>خدمات دارای سهم</th><th>مبنای درآمد دفتر</th><th>درآمد کارمند</th></tr></thead><tbody>${staffRows || '<tr><td colspan="5">داده‌ای در این بازه نیست.</td></tr>'}</tbody></table>
+  <h2>عملکرد پرونده‌ای</h2>
+  <table><thead><tr><th>کارمند</th><th>پرونده‌های دریافتی (کل)</th><th>تکمیل‌شده در بازه</th><th>میانگین زمان انجام</th></tr></thead><tbody>${perfRows || '<tr><td colspan="4">داده‌ای در این بازه نیست.</td></tr>'}</tbody></table>
+  <h2>درخواست‌های برداشت در بازه</h2>
+  <table><thead><tr><th>وضعیت</th><th>تعداد</th><th>مبلغ کل</th></tr></thead><tbody>${withdrawalRows || '<tr><td colspan="3">درخواستی در این بازه ثبت نشده است.</td></tr>'}</tbody></table>
+  <p class="meta" style="margin-top:24px">این گزارش از دفتر مالی سامانه تولید شده و هر مبلغ آن به پرونده، قرارداد و پرداخت متناظر قابل ردیابی است.</p>
+  <script>window.addEventListener('load', () => setTimeout(() => window.print(), 350));</script>
+</body>
+</html>`;
+  res.setHeader('content-type', 'text/html; charset=utf-8');
+  res.send(html);
+}));
+
+/* ---------------------- per-service commission percent --------------------- */
+
+payrollRouter.get('/staff/:id/service-percents', requirePermission('payroll.view'), asyncRoute(async (req, res) => {
+  ok(res, await listServicePercents(param(req, 'id')));
+}));
+
+payrollRouter.put('/staff/:id/service-percents', requirePermission('payroll.contracts.edit'), asyncRoute(async (req, res) => {
+  const body = z.object({
+    items: z.array(z.object({
+      serviceId: z.string().min(3),
+      percent: z.number().int().min(0).max(100),
+      note: z.string().max(300).nullish(),
+    })).max(300),
+  }).parse(req.body);
+  const actor = { id: req.auth!.user.id, name: req.auth!.user.fullName };
+  const result = await setServicePercents(param(req, 'id'), body.items.map((item) => ({
+    serviceId: item.serviceId, percent: item.percent, note: item.note ?? null,
+  })), actor);
+  await writeAudit({
+    actorId: actor.id, actorName: actor.name, action: 'payroll.service_percents',
+    entityType: 'user', entityId: param(req, 'id'), after: { items: body.items }, ip: req.ip,
+  });
+  ok(res, result);
+}));
+
 /* ------------------------------- withdrawals ------------------------------ */
 
 payrollRouter.get('/withdrawals', requirePermission('payroll.view'), asyncRoute(async (req, res) => {
@@ -150,9 +279,10 @@ payrollRouter.post('/withdrawals/:id/pay', requirePermission('payroll.settle'), 
     trackingCode: z.string().min(3).max(60),
     paidAt: z.string().datetime().optional(),
     note: z.string().max(500).optional(),
+    receiptFileId: z.string().min(3).nullish(),
   }).parse(req.body);
   const actor = { id: req.auth!.user.id, name: req.auth!.user.fullName };
-  ok(res, await payWithdrawal(param(req, 'id'), body, actor));
+  ok(res, await payWithdrawal(param(req, 'id'), { ...body, receiptFileId: body.receiptFileId ?? null }, actor));
 }));
 
 /* ------------------------------ salary payments --------------------------- */
@@ -200,6 +330,7 @@ payrollRouter.post('/contracts', requirePermission('payroll.contracts.edit'), as
     settlementPeriod: z.enum(['daily', 'weekly', 'monthly', 'custom']).optional(),
     settlementDays: z.number().int().min(0).max(365).optional(),
     minWithdrawal: z.number().int().min(0).max(1e12).optional(),
+    monthlyTarget: z.number().int().min(0).max(1e13).nullable().optional(),
     note: z.string().max(500).optional(),
   }).parse(req.body);
   created(res, await createContract(body, req.auth!.user.id, req.auth!.user.fullName));
@@ -213,6 +344,15 @@ payrollRouter.post('/contracts/:id/close', requirePermission('payroll.contracts.
 payrollRouter.post('/accrue', requirePermission('payroll.accrue'), asyncRoute(async (req, res) => {
   const body = z.object({ month: z.string().regex(/^20\d{2}-(0[1-9]|1[0-2])$/) }).parse(req.body);
   ok(res, await accrueMonth(body.month, req.auth!.user.id));
+}));
+
+/**
+ * Backfill sweep: find confirmed payments whose commission never landed
+ * (paid before an executor took the case) and accrue them now. Idempotent,
+ * so it is safe to run whenever an income looks missing.
+ */
+payrollRouter.post('/commissions/reconcile', requirePermission('payroll.accrue'), asyncRoute(async (req, res) => {
+  ok(res, await reconcileCommissions({ id: req.auth!.user.id, name: req.auth!.user.fullName }));
 }));
 
 payrollRouter.post('/settlements', requirePermission('payroll.settle'), asyncRoute(async (req, res) => {

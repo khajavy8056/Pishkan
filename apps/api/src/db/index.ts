@@ -27,6 +27,8 @@ export interface Db {
   run(sql: string, params?: Params): Promise<ExecResult>;
   exec(sql: string): Promise<void>;
   tx<T>(fn: (db: Db) => Promise<T>): Promise<T>;
+  /** Run `fn` so that a failing statement cannot poison the enclosing transaction. */
+  savepoint<T>(fn: (db: Db) => Promise<T>): Promise<T>;
   close(): Promise<void>;
   snapshot?(target: string): Promise<void>;
 }
@@ -112,6 +114,20 @@ async function createSqliteDb(file: string, readonly = false): Promise<Db> {
     async exec(sql: string) {
       connection.exec(sql);
     },
+    async savepoint<T>(fn: (db: Db) => Promise<T>) {
+      const name = `sp_${++savepointSeq}`;
+      connection.exec(`SAVEPOINT ${name}`);
+      try {
+        const result = await fn(make(connection));
+        connection.exec(`RELEASE ${name}`);
+        return result;
+      } catch (err) {
+        // SQLite tolerates statements after an error inside a transaction, so
+        // this is only about undoing the partial work, not about unpoisoning.
+        try { connection.exec(`ROLLBACK TO ${name}`); connection.exec(`RELEASE ${name}`); } catch { /* ignore */ }
+        throw err;
+      }
+    },
     async tx<T>(fn: (db: Db) => Promise<T>) {
       connection.exec('BEGIN IMMEDIATE');
       try {
@@ -137,6 +153,18 @@ async function createSqliteDb(file: string, readonly = false): Promise<Db> {
 
 async function createPostgresDb(connectionString: string): Promise<Db> {
   const { default: pg } = await import('pg');
+  // PostgreSQL hands COUNT(*), SUM(integer) and every bigint column back as a
+  // *string* so that 64-bit values cannot lose precision in JavaScript. SQLite
+  // returns a number for the same SQL. Left alone, that difference surfaces far
+  // from the cause: `SUM(x)` comparisons fail, `count + 1` becomes "11", and
+  // JSON responses change shape between Windows and the server. Every bigint we
+  // produce is a row count, an IRR amount or a duration, all well below
+  // Number.MAX_SAFE_INTEGER, so parsing to a number is lossless and makes the
+  // two drivers return identical types.
+  pg.types.setTypeParser(20, (value: string) => Number(value)); // int8
+  // NUMERIC/DECIMAL is never used by a schema that is TEXT/INTEGER only, but a
+  // ranking expression can still produce one; keep it a number for symmetry.
+  pg.types.setTypeParser(1700, (value: string) => Number(value)); // numeric
   const pool = new pg.Pool({
     connectionString,
     max: Number(process.env.DB_POOL_MAX ?? 15),
@@ -161,6 +189,22 @@ async function createPostgresDb(connectionString: string): Promise<Db> {
     },
     async exec(sql: string) {
       await client.query(sql);
+    },
+    async savepoint<T>(fn: (db: Db) => Promise<T>) {
+      const name = `sp_${++savepointSeq}`;
+      await client.query(`SAVEPOINT ${name}`);
+      try {
+        const result = await fn(runner(client));
+        await client.query(`RELEASE SAVEPOINT ${name}`);
+        return result;
+      } catch (err) {
+        // Without this, a single failed statement leaves the transaction in the
+        // aborted state and every subsequent statement fails with "current
+        // transaction is aborted, commands ignored until end of transaction
+        // block" — the production-only failure that SQLite never reproduced.
+        try { await client.query(`ROLLBACK TO SAVEPOINT ${name}`); await client.query(`RELEASE SAVEPOINT ${name}`); } catch { /* ignore */ }
+        throw err;
+      }
     },
     async tx<T>(fn: (db: Db) => Promise<T>) {
       if (client.__inTx) return fn(runner(client));
@@ -195,6 +239,8 @@ async function createPostgresDb(connectionString: string): Promise<Db> {
 /* -------------------------------------------------------------------------- */
 
 const transactionScope = new AsyncLocalStorage<Db>();
+/** Monotonic counter for savepoint names; must be unique within one transaction. */
+let savepointSeq = 0;
 let sqliteTail: Promise<unknown> = Promise.resolve();
 let instance: Db | null = null;
 let instancePromise: Promise<Db> | null = null;
@@ -239,6 +285,28 @@ export async function tx<T>(fn: (db: Db) => Promise<T>): Promise<T> {
  const scoped = transactionScope.getStore();
  if (scoped) return fn(scoped);
  return withDb(db => db.tx(connection => transactionScope.run(connection, () => fn(connection))));
+}
+
+/**
+ * Run `fn` inside a savepoint of the current transaction.
+ *
+ * `tx` gives up and rolls back the whole transaction on any error. Sometimes the
+ * work is genuinely best-effort — an audit row, a notification, a log line — and
+ * a failure there must not undo the business result. On SQLite simply swallowing
+ * the error worked, because the engine keeps accepting statements after one
+ * fails. PostgreSQL does not: the transaction enters an aborted state and every
+ * later statement raises "current transaction is aborted, commands ignored until
+ * end of transaction block". Wrapping the optional part in a savepoint restores
+ * the SQLite behaviour *explicitly* and identically on both engines.
+ */
+export async function txSavepoint<T>(fn: (db: Db) => Promise<T>): Promise<T> {
+  const scoped = transactionScope.getStore();
+  if (!scoped) {
+    // Not inside a transaction: a savepoint would be meaningless (and on
+    // PostgreSQL would silently start one). Run plainly, let the caller decide.
+    return fn(scoped ?? (await getDb()));
+  }
+  return scoped.savepoint(fn);
 }
 
 /* --------------------------------- helpers -------------------------------- */

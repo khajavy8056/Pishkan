@@ -3,9 +3,18 @@ import { id } from '../../lib/crypto.js';
 import { badRequest,conflict,forbidden,notFound } from '../../http/errors.js';
 import { hasPermission } from '../../lib/permissions.js';
 import { officeScope } from '../../lib/scope.js';
-import { addEvent,attachDocument,reviewDocument,reconcileAfterDocumentReview } from '../requests/service.js';
+import { addEvent,attachDocument,reviewDocument,reconcileAfterDocumentReview,snapshotSteps,refreshWorkBucket } from '../requests/service.js';
 import { notifyRole,notifyUser } from '../notifications/service.js';
 import { writeAudit } from '../audit/service.js';
+import { accrueCommissionsForRequest } from '../payroll/service.js';
+import { logEvent } from '../logging/service.js';
+
+/** Best-effort commission sweep after a delivery milestone; never blocks it. */
+async function sweepCommissions(requestId:string){
+ await accrueCommissionsForRequest(requestId).catch((error)=>{
+  logEvent({level:'WARNING',category:'payment',action:'commission.sweep_failed',result:'failure',entityType:'request',entityId:requestId,message:String((error as Error)?.message??error)}).catch(()=>undefined);
+ });
+}
 
 type Auth = {user:{id:string;kind:string;fullName:string;roleCode:string|null};permissions:string[]|'*'};
 function canDecide(auth:Auth,department:string){
@@ -33,15 +42,21 @@ export async function handoff(requestId:string,department:'management'|'accounti
  });
 }
 export async function deliver(requestId:string,files:{fileId:string;title:string;replacesDocumentId?:string|null}[],summary:string,auth:Auth){
- return tx(async()=>{
+ const outcome=await tx(async()=>{
   await run('UPDATE requests SET updated_at=updated_at WHERE id=?',[requestId]);
   const row=await caseAccess(requestId,auth);
   if(!hasPermission(auth.permissions,'requests.edit'))throw forbidden();
   if(!['assigned','in_progress','waiting_documents','waiting_customer'].includes(row.status))throw conflict('پرونده در وضعیت قابل تحویل نیست.');
-  if(!files.length)throw badRequest('حداقل یک فایل نتیجه لازم است.');
   if(await one("SELECT id FROM request_handoffs WHERE request_id=? AND department='management' AND status='pending' LIMIT 1",[requestId])) {
    throw conflict('ارجاع مدیریت قبلی هنوز باز است؛ ابتدا تصمیم آن را ثبت کنید.');
   }
+  // Direct delivery is the normal path: the executor hands the result to
+  // the customer and the case completes immediately. Services flagged
+  // `requires_manager_approval` (special cases) keep the old review loop:
+  // result files stay hidden until a manager approves them.
+  const service=await one<any>('SELECT requires_manager_approval,title FROM services WHERE id=?',[row.service_id]);
+  const needsApproval=Boolean(Number(service?.requires_manager_approval??0));
+  if(needsApproval&&!files.length)throw badRequest('برای این خدمت، پیوست‌کردن حداقل یک فایل نتیجه برای بررسی مدیر لازم است.');
 
   const rejected=await q<any>(`SELECT d.id,d.title FROM request_documents d
    WHERE d.request_id=? AND d.kind='staff' AND d.status='rejected'
@@ -66,15 +81,40 @@ export async function deliver(requestId:string,files:{fileId:string;title:string
    throw conflict('برای هر نتیجهٔ ردشده، نسخهٔ جایگزین را انتخاب کنید؛ نتیجهٔ قبلی تا آن زمان جلوی تحویل نهایی را می‌گیرد.');
   }
 
-  for(const file of preparedFiles)await attachDocument(requestId,file.fileId,file.title,{id:auth.user.id,name:auth.user.fullName},'staff',{replacesDocumentId:file.replacesDocumentId});
-  await run("UPDATE requests SET status='under_review',updated_at=? WHERE id=?",[nowIso(),requestId]);
-  await addEvent({requestId,type:'delivery',actorId:auth.user.id,actorName:auth.user.fullName,message:`ارسال نتیجه برای تأیید: ${summary}`,fromStatus:row.status,toStatus:'under_review',visibleToCustomer:false});
-  const review=await handoff(requestId,'management',summary,auth);
-  return {status:'under_review',handoffId:review.id};
+  for(const file of preparedFiles)await attachDocument(requestId,file.fileId,file.title,{id:auth.user.id,name:auth.user.fullName},'staff',{replacesDocumentId:file.replacesDocumentId,delivered:!needsApproval});
+
+  if(needsApproval){
+   await run("UPDATE requests SET status='under_review',updated_at=? WHERE id=?",[nowIso(),requestId]);
+   await addEvent({requestId,type:'delivery',actorId:auth.user.id,actorName:auth.user.fullName,message:`ارسال نتیجه برای تأیید: ${summary}`,fromStatus:row.status,toStatus:'under_review',visibleToCustomer:false});
+   const review=await handoff(requestId,'management',summary,auth);
+   await writeAudit({actorId:auth.user.id,actorName:auth.user.fullName,action:'request.deliver',entityType:'request',entityId:requestId,before:{status:row.status},after:{status:'under_review',mode:'approval',handoffId:review.id,files:preparedFiles.length}});
+   await refreshWorkBucket(requestId);
+   return {status:'under_review',handoffId:review.id,mode:'approval'};
+  }
+
+  const steps=snapshotSteps(row.snapshot);
+  const lastStep=Math.max(0,steps.length-1);
+  const ts=nowIso();
+  await run("UPDATE requests SET status='completed',completed_at=?,current_step=?,updated_at=? WHERE id=?",[ts,lastStep,ts,requestId]);
+  await addEvent({requestId,type:'delivery',actorId:auth.user.id,actorName:auth.user.fullName,message:`تحویل نهایی به مشتری: ${summary}`,fromStatus:row.status,toStatus:'completed',visibleToCustomer:true,metadata:{files:preparedFiles.map((file)=>file.fileId)}});
+  await refreshWorkBucket(requestId);
+  await notifyUser(row.customer_id,{
+   title:'درخواست شما تحویل شد',
+   body:`«${service?.title??'درخواست'}» (${row.tracking_code}) — ${summary}`.slice(0,300),
+   kind:'success',link:`/app/requests/${requestId}`,push:true,
+   idempotencyKey:`request:${requestId}:delivered`,
+   sms:{eventCode:'request_status',variables:{tracking_code:row.tracking_code,status:'تکمیل‌شده'}},
+  }).catch(()=>undefined);
+  await writeAudit({actorId:auth.user.id,actorName:auth.user.fullName,action:'request.deliver',entityType:'request',entityId:requestId,before:{status:row.status},after:{status:'completed',mode:'direct',files:preparedFiles.length}});
+  return {status:'completed',mode:'direct'};
  });
+ // Delivery is the last safety net: any confirmed payment that predates the
+ // assignment becomes the executor's recorded income now.
+ if(outcome.status==='completed')await sweepCommissions(requestId);
+ return outcome;
 }
 export async function decide(handoffId:string,decision:'approved'|'returned',note:string,auth:Auth){
- return tx(async()=>{
+ const outcome=await tx(async()=>{
   const current=await one<any>('SELECT * FROM request_handoffs WHERE id=?',[handoffId]);
   if(!current)throw notFound('ارجاع یافت نشد.');
   if(!canDecide(auth,current.department))throw forbidden('دسترسی تصمیم‌گیری این واحد را ندارید.');
@@ -110,8 +150,11 @@ export async function decide(handoffId:string,decision:'approved'|'returned',not
   await addEvent({requestId:row.id,type:'handoff_decision',actorId:auth.user.id,actorName:auth.user.fullName,message:`${decision==='approved'?'تأیید':'برگشت برای اصلاح'} ${current.department==='management'?'مدیریت':'حسابداری'}: ${note}`,visibleToCustomer:false,metadata:{handoffId,decision}});
   if(row.assigned_to)await notifyUser(row.assigned_to,{title:decision==='approved'?'ارجاع شما تأیید شد':'ارجاع برای اصلاح برگشت خورد',body:note,link:`/staff/requests/${row.id}`});
   await writeAudit({actorId:auth.user.id,actorName:auth.user.fullName,action:'request.handoff_decide',entityType:'request',entityId:row.id,after:{handoffId,decision,note}});
-  return {id:handoffId,status:decision};
+  await refreshWorkBucket(row.id);
+  return {id:handoffId,status:decision,requestId:row.id,department:current.department};
  });
+ if(outcome.department==='management'&&outcome.status==='approved')await sweepCommissions(outcome.requestId);
+ return {id:outcome.id,status:outcome.status};
 }
 export async function handoffsForCase(requestId:string,auth:Auth){
  await caseAccess(requestId,auth);

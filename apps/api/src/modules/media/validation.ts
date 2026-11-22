@@ -14,6 +14,8 @@ export const EXTENSION_BY_MIME: Record<string, string> = {
   'image/png': 'png',
   'image/webp': 'webp',
   'application/pdf': 'pdf',
+  'video/mp4': 'mp4',
+  'video/webm': 'webm',
 };
 
 export const MIME_BY_EXTENSION: Record<string, string> = {
@@ -22,6 +24,8 @@ export const MIME_BY_EXTENSION: Record<string, string> = {
   png: 'image/png',
   webp: 'image/webp',
   pdf: 'application/pdf',
+  mp4: 'video/mp4',
+  webm: 'video/webm',
 };
 
 export interface SignatureResult {
@@ -47,6 +51,14 @@ export function sniffSignature(filePath: string): SignatureResult {
     }
     if (bytes.length >= 5 && bytes.toString('ascii', 0, 5) === '%PDF-') {
       return { mime: 'application/pdf', detail: 'PDF' };
+    }
+    // ISO BMFF (MP4/MOV family): a box size followed by the `ftyp` brand box.
+    if (bytes.length >= 12 && bytes.toString('ascii', 4, 8) === 'ftyp') {
+      return { mime: 'video/mp4', detail: 'MP4' };
+    }
+    // WebM/Matroska EBML header.
+    if (bytes.length >= 4 && bytes[0] === 0x1a && bytes[1] === 0x45 && bytes[2] === 0xdf && bytes[3] === 0xa3) {
+      return { mime: 'video/webm', detail: 'WEBM' };
     }
     // Known but unsupported signatures get a precise message instead of "unknown".
     if (bytes.length >= 4 && bytes.toString('ascii', 0, 4) === 'GIF8') return { mime: null, detail: 'GIF' };

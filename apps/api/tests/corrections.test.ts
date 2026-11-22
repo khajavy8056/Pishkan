@@ -6,7 +6,7 @@ import { createBackup } from '../src/modules/system/backup.js';
 import { env } from '../src/env.js';
 import { beforeAll,afterEach,describe,it,expect,vi } from 'vitest';
 import request from 'supertest';
-import {app,adminSession,customerSession,createStaff} from './helpers.js';
+import {app,adminSession,customerSession,createStaff, isSqlite } from './helpers.js';
 import {one,q,run} from '../src/db/index.js';
 import {updateSettings} from '../src/modules/settings/service.js';
 import {createInvoice,createPayment,confirmPayment,refundPayment,getInvoice} from '../src/modules/accounting/service.js';
@@ -82,7 +82,11 @@ describe('corrected workflows',()=>{
    await refundPayment(payment.id,'refund original share',actor);const reversal=await one<any>("SELECT amount FROM compensation_entries WHERE payment_id=? AND kind='reversal'",[payment.id]);expect(reversal.amount).toBe(-accrued.amount);
   }finally{vi.useRealTimers()}
  });
- it('round-trips a SQLite snapshot into an isolated restore target',async()=>{
+ // SQLite-only by construction: it copies the backup file and opens it with
+ // `node:sqlite`. On PostgreSQL the same backup is a pg_dump archive, so the
+ // assertion is meaningless rather than broken. The npm script runs this suite
+ // on both engines; a guard keeps the PostgreSQL run green and honest.
+ it.skipIf(!isSqlite)('round-trips a SQLite snapshot into an isolated restore target',async()=>{
   const before=await one<any>('SELECT COUNT(*) AS c FROM invoices');
   const backup=await createBackup(actor,'isolated restore round-trip');
   const dir=fs.mkdtempSync(path.join(os.tmpdir(),'pishkan-restore-'));

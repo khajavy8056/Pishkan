@@ -22,9 +22,9 @@ page.on('pageerror',error=>errors.push(error.message));page.on('console',msg=>{i
 const screenshot=async(name)=>{await page.evaluate(()=>document.fonts.ready);await page.screenshot({path:path.join(out,`${name}.png`),fullPage:true})};
 async function login(username,password,{simulateRefreshFailure=false}={}){
  const initialAuthProbe=page.waitForResponse(r=>new URL(r.url()).pathname==='/api/auth/me');
- await page.goto(`${base}/login?account=staff`);
+ await page.goto(`${base}/login-admin`);
  await initialAuthProbe;
- await page.getByLabel('نام کاربری، موبایل یا ایمیل').fill(username);
+ await page.getByLabel('نام کاربری یا موبایل').fill(username);
  await page.getByLabel('رمز عبور',{exact:false}).first().fill(password);
  if(simulateRefreshFailure){
   let failOnce=true;
@@ -39,7 +39,7 @@ async function login(username,password,{simulateRefreshFailure=false}={}){
 }
 async function api(method,url,body){const r=await context.request.fetch(`${base}${url}`,{method,data:body});assert(r.ok(),`${method} ${url}: ${r.status()}`);return(await r.json()).data}
 try{
- await page.goto(base);await page.getByRole('heading',{name:'ورود به سامانه',exact:true}).waitFor();await page.getByText(/اندیمشک/).first().waitFor();await screenshot('01-home-desktop');
+ await page.goto(base);await page.getByText('ثبت درخواست خدمت').first().waitFor();await page.getByRole('heading',{name:'دسته‌بندی خدمات'}).waitFor();await page.getByText(/اندیمشک/).first().waitFor();await screenshot('01-home-desktop');
  await login(credentials.username,credentials.password,{simulateRefreshFailure:true});
  await page.goto(`${base}/panel`);await page.waitForURL('**/admin');
  await page.getByRole('heading',{name:'داشبورد مدیریت',exact:true}).waitFor();await screenshot('02-admin-desktop');
@@ -67,9 +67,30 @@ try{
  await page.setViewportSize({width:390,height:844});await page.goto(`${base}/staff`);await page.getByRole('heading',{name:/میز کار/}).waitFor();await screenshot('06-worker-mobile');
  assert(await page.locator('nav.mobile-dock').isVisible(),'mobile navigation visible');
  assert(await page.evaluate(()=>document.documentElement.scrollWidth<=window.innerWidth),'no horizontal page overflow');
+ await page.setViewportSize({width:1440,height:1024});
+ const customerMobile=`09${crypto.randomInt(100000000,999999999)}`;
+ const customerPassword=`Cust#${crypto.randomBytes(10).toString('hex')}`;
+ await context.clearCookies();
+ const registered=await context.request.fetch(`${base}/api/auth/register`,{method:'POST',data:{mobile:customerMobile,password:customerPassword,fullName:'مشتری آزمون مرورگر',nationalId:'0013546295'}});assert(registered.ok(),`customer register: ${registered.status()}`);
+ await api('PATCH','/api/auth/profile',{firstName:'مشتری',lastName:'آزمون مرورگر',nationalId:'0013546295',cityId:'Ahvaz'});
+ // The customer door must refuse the super-admin's perfectly valid credentials.
+ await context.clearCookies();await page.goto(`${base}/login`);
+ await page.getByLabel('نام کاربری، موبایل یا ایمیل').fill(credentials.username);
+ await page.getByLabel('رمز عبور',{exact:false}).first().fill(credentials.password);
+ await page.getByRole('button',{name:'ورود',exact:true}).click();
+ await page.getByText(/صحیح نیست/).waitFor();assert(page.url().includes('/login'),'admin stayed out at the customer door');await screenshot('08-customer-door-refuses-admin');
+ // …and the same door lets the real customer straight into the new dashboard.
+ await page.getByLabel('نام کاربری، موبایل یا ایمیل').fill(customerMobile);
+ await page.getByLabel('رمز عبور',{exact:false}).first().fill(customerPassword);
+ await page.getByRole('button',{name:'ورود',exact:true}).click();
+ await page.waitForURL('**/app');await page.getByRole('heading',{name:/سلام .* عزیز!/}).waitFor();await screenshot('09-customer-dashboard-desktop');
+ // A customer session at the staff door is told, not silently let through.
+ await page.goto(`${base}/login-admin`);await page.getByText(/با حساب/).first().waitFor();
+ await page.setViewportSize({width:390,height:844});await page.goto(`${base}/app`);await page.getByRole('heading',{name:/سلام .* عزیز!/}).waitFor();await screenshot('10-customer-dashboard-mobile');
+ assert(await page.evaluate(()=>document.documentElement.scrollWidth<=window.innerWidth),'customer dashboard does not overflow on mobile');
  await context.clearCookies();await page.goto(base);await screenshot('07-home-mobile');
  assert(await page.evaluate(()=>document.documentElement.scrollWidth<=window.innerWidth),'home does not overflow');
  assert.deepEqual(errors,[],'no browser JavaScript errors');
- console.log('PASS: real Chromium desktop/mobile; shared login with one simulated /me refresh failure; admin/manager/accountant/operator panels; manager creation permissions; payroll; access denial; overflow; no JS errors.');
+ console.log('PASS: real Chromium desktop/mobile; separated customer/staff doors (admin refused at the customer door); staff login with one simulated /me refresh failure; admin/manager/accountant/operator panels; customer dashboard; manager creation permissions; payroll; access denial; overflow; no JS errors.');
  console.log('Screenshots: .data/ui-smoke/ (local only).');if(unauthorized.length)console.log('Unauthenticated background probes after logout/role change:',[...new Set(unauthorized.map(u=>new URL(u).pathname))]);
 }catch(error){await screenshot('failure');console.error('Browser errors:',errors);console.error('Page:',await page.locator('body').innerText());throw error}finally{await browser.close()}

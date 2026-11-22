@@ -6,7 +6,7 @@
  * manager is looking at the screen. The timer is unref'd so it never blocks
  * shutdown, and a running guard prevents overlapping sweeps.
  */
-import { forceAssignSweep } from './service.js';
+import { followUpReminderSweep, forceAssignSweep } from './service.js';
 import { logEvent } from '../logging/service.js';
 
 const INTERVAL_MS = () => {
@@ -28,6 +28,11 @@ export function startAssignmentScheduler() {
       .then((result) => {
         lastResult = { at: new Date().toISOString(), assigned: result.assigned.length, checked: result.checked };
       })
+      .then(() => followUpReminderSweep().catch((error) => logEvent({
+        level: 'WARNING', category: 'background', action: 'request.followup_reminder', result: 'failure',
+        message: 'یادآوری پیگیری پرونده‌های منتظر ناموفق بود.',
+        details: { error: error instanceof Error ? error.message : String(error) },
+      })))
       .catch((error) => logEvent({
         level: 'WARNING', category: 'background', action: 'request.force_assign', result: 'failure',
         message: 'واگذاری خودکار پرونده‌های پذیرفته‌نشده ناموفق بود.',

@@ -10,11 +10,14 @@ import { writeAudit } from '../audit/service.js';
 import { assertWalletUsable } from '../wallet/service.js';
 import { settleInvoiceWithWallet } from '../payments/service.js';
 import { logEvent } from '../logging/service.js';
+import { archiveRequestDocument, inferDocumentType, reuseDocumentInRequest, reviewCustomerDocument } from '../documents/service.js';
 import { toPersianDigits } from '../../lib/text.js';
 
 import { requireCompleteProfile, requireCoverage, validNationalId } from '../profiles/service.js';
-import { commissionAmount, commissionPercent, cooperationType } from '../payroll/compensation.js';
-import { notifyUser } from '../notifications/service.js';
+import { commissionAmount, commissionPercentFor, cooperationType, earningsByRequest } from '../payroll/compensation.js';
+import { accrueCommissionsForRequest } from '../payroll/service.js';
+import { notifyUser, notifyRole } from '../notifications/service.js';
+import { normalizeCode, previewDiscount, redeemDiscount } from '../discounts/service.js';
 
 export const STATUSES = [
   'new', 'assigned', 'in_progress', 'waiting_documents', 'waiting_customer',
@@ -34,6 +37,72 @@ export const STATUS_LABELS: Record<RequestStatus, string> = {
   cancelled: 'لغو‌شده',
   rejected: 'رد‌شده',
 };
+
+/** Kind of a workflow step: whose move it is while the case sits on that step. */
+export const STEP_KINDS = ['action', 'waiting_customer', 'waiting_organization', 'followup', 'delivery'] as const;
+export type StepKind = (typeof STEP_KINDS)[number];
+export const STEP_KIND_LABELS: Record<StepKind, string> = {
+  action: 'اقدام کارشناس',
+  waiting_customer: 'منتظر مشتری',
+  waiting_organization: 'منتظر سازمان',
+  followup: 'پیگیری کارشناس',
+  delivery: 'تحویل به مشتری',
+};
+
+/**
+ * Work bucket: the one field staff queues and capacity maths agree on. It is
+ * derived from the request status plus the kind of the current workflow step
+ * and denormalised into `requests.work_bucket` so lists can filter on it.
+ */
+export const WORK_BUCKETS = ['action', 'in_progress', 'waiting_customer', 'waiting_organization', 'followup', 'completed', 'cancelled'] as const;
+export type WorkBucket = (typeof WORK_BUCKETS)[number];
+export const WORK_BUCKET_LABELS: Record<WorkBucket, string> = {
+  action: 'نیازمند اقدام',
+  in_progress: 'در حال انجام',
+  waiting_customer: 'منتظر مشتری',
+  waiting_organization: 'منتظر سازمان',
+  followup: 'نیازمند پیگیری',
+  completed: 'تکمیل‌شده',
+  cancelled: 'لغوشده',
+};
+
+/** Workflow steps frozen into the request snapshot at creation time. */
+export function snapshotSteps(snapshot: unknown): { title: string; kind: StepKind }[] {
+  const parsed = jsonParse<any>(snapshot, null);
+  const steps = Array.isArray(parsed?.service?.workflow) ? parsed.service.workflow : [];
+  return steps.map((step: any) => ({
+    title: String(step?.title ?? ''),
+    kind: (STEP_KINDS as readonly string[]).includes(step?.kind) ? step.kind as StepKind : 'action',
+  }));
+}
+
+export function stepKindOf(snapshot: unknown, currentStep: number): StepKind {
+  const steps = snapshotSteps(snapshot);
+  if (!steps.length) return 'action';
+  const index = Math.max(0, Math.min(steps.length - 1, Number(currentStep) || 0));
+  return steps[index]?.kind ?? 'action';
+}
+
+export function deriveBucket(status: string, stepKind: StepKind): WorkBucket {
+  if (status === 'completed') return 'completed';
+  if (status === 'cancelled' || status === 'rejected') return 'cancelled';
+  if (status === 'waiting_documents' || status === 'waiting_customer' || stepKind === 'waiting_customer') return 'waiting_customer';
+  if (stepKind === 'waiting_organization' || status === 'under_review') return 'waiting_organization';
+  if (stepKind === 'followup') return 'followup';
+  if (status === 'in_progress') return 'in_progress';
+  return 'action';
+}
+
+/** Recompute and persist `work_bucket` after any status/step mutation. */
+export async function refreshWorkBucket(requestId: string): Promise<WorkBucket> {
+  const row = await one<any>('SELECT status, current_step, snapshot, work_bucket FROM requests WHERE id = ?', [requestId]);
+  if (!row) return 'action';
+  const bucket = deriveBucket(row.status, stepKindOf(row.snapshot, Number(row.current_step)));
+  if (row.work_bucket !== bucket) {
+    await run('UPDATE requests SET work_bucket = ? WHERE id = ?', [bucket, requestId]);
+  }
+  return bucket;
+}
 
 const ALLOWED_TRANSITIONS: Record<RequestStatus, RequestStatus[]> = {
   new: ['assigned', 'in_progress', 'under_review', 'cancelled', 'rejected'],
@@ -188,16 +257,36 @@ async function onShiftToday(userId: string): Promise<boolean> {
   return Boolean(row);
 }
 
+/**
+ * Weighted active load: a case waiting on the customer or an external
+ * organization still belongs to the employee (it must be chased later) but
+ * does not occupy a full work slot right now. `workforce.waiting_case_weight`
+ * is a percentage (default 25 = a quarter of an active case).
+ */
 async function activeLoad(userId: string): Promise<number> {
-  const row = await one<{ c: number }>(
-    `SELECT COUNT(*) AS c FROM requests WHERE assigned_to = ? AND status NOT IN ('completed','cancelled','rejected')`,
-    [userId],
+  const weightPercent = Math.max(0, Math.min(100, await getNumber('workforce.waiting_case_weight')));
+  const weight = weightPercent / 100;
+  // The weight is fractional (0.25), so the whole SUM must be numeric. Writing
+  // `ELSE 1` makes PostgreSQL infer the parameter type from the integer literal
+  // and reject "0.25" with `invalid input syntax for type integer`, whereas
+  // SQLite silently coerces. Both branches are cast explicitly so the result is
+  // identical on SQLite and PostgreSQL and never depends on literal inference.
+  const row = await one<{ w: number }>(
+    `SELECT COALESCE(SUM(CASE WHEN work_bucket IN ('waiting_customer','waiting_organization')
+        THEN CAST(? AS NUMERIC) ELSE 1 END), 0) AS w
+     FROM requests WHERE assigned_to = ? AND work_bucket NOT IN ('completed','cancelled')`,
+    [weight, userId],
   );
-  return Number(row?.c ?? 0);
+  return Math.round(Number(row?.w ?? 0) * 100) / 100;
 }
 
+export { activeLoad as weightedActiveLoad };
+
 /** Candidate staff for a service, ordered by the configured strategy. */
-export async function candidatesForService(service: ServiceDTO): Promise<{ id: string; name: string; load: number; onShift: boolean }[]> {
+export async function candidatesForService(
+  service: ServiceDTO,
+  opts: { requireOnline?: boolean } = {},
+): Promise<{ id: string; name: string; load: number; onShift: boolean }[]> {
   const rule = await one<any>('SELECT * FROM assignment_rules WHERE service_id = ? AND is_active = 1', [service.id]);
   const explicitIds: string[] = jsonParse<string[]>(rule?.staff_ids, []);
   const strategy: string = rule?.strategy ?? (await getString('services.auto_assign_strategy')) ?? 'least_loaded';
@@ -207,7 +296,7 @@ export async function candidatesForService(service: ServiceDTO): Promise<{ id: s
   if (strategy === 'fixed') {
     if (!explicitIds.length) return [];
     staffRows = await q<any>(
-      `SELECT u.id, u.full_name, sp.max_active_cases, sp.accepts_new_cases, sp.specialties
+      `SELECT u.id, u.full_name, u.last_seen_at, sp.max_active_cases, sp.accepts_new_cases, sp.specialties
        FROM users u
        JOIN staff_profiles sp ON sp.user_id = u.id
        JOIN roles r ON r.id = u.role_id
@@ -217,7 +306,7 @@ export async function candidatesForService(service: ServiceDTO): Promise<{ id: s
     );
   } else {
     staffRows = await q<any>(
-      `SELECT u.id, u.full_name, sp.max_active_cases, sp.accepts_new_cases, sp.specialties
+      `SELECT u.id, u.full_name, u.last_seen_at, sp.max_active_cases, sp.accepts_new_cases, sp.specialties
        FROM users u
        JOIN staff_profiles sp ON sp.user_id = u.id
        JOIN roles r ON r.id = u.role_id
@@ -238,8 +327,14 @@ export async function candidatesForService(service: ServiceDTO): Promise<{ id: s
   }
 
   const requireShift = await getBool('workforce.auto_assign_on_shift');
+  // Automatic placement must not hand a case to someone who has not been
+  // around for hours. Manual claiming is never gated by presence, and an
+  // account that has never been seen (fresh/seed) is not excluded.
+  const onlineWindowMinutes = opts.requireOnline ? await getNumber('workforce.online_window_minutes') : 0;
+  const onlineCutoff = onlineWindowMinutes > 0 ? Date.now() - onlineWindowMinutes * 60_000 : null;
   const candidates: { id: string; name: string; load: number; onShift: boolean }[] = [];
   for (const row of staffRows) {
+    if (onlineCutoff && row.last_seen_at && Date.parse(row.last_seen_at) < onlineCutoff) continue;
     const load = await activeLoad(row.id);
     const limit = Number(row.max_active_cases) > 0 ? Math.min(Number(row.max_active_cases), maxLoad) : maxLoad;
     if (load >= limit) continue;
@@ -263,7 +358,7 @@ export async function candidatesForService(service: ServiceDTO): Promise<{ id: s
 }
 
 export async function autoAssign(requestId: string): Promise<string | null> {
- return tx(async () => {
+ const chosenId = await tx(async () => {
   if (!(await getBool('services.auto_assign'))) return null;
   const request = await one<RequestRow>('SELECT * FROM requests WHERE id = ?', [requestId]);
   if (!request || request.assigned_to) return null;
@@ -273,7 +368,7 @@ export async function autoAssign(requestId: string): Promise<string | null> {
   const strategy = rule?.strategy ?? (await getString('services.auto_assign_strategy')) ?? 'least_loaded';
   if (strategy === 'queue') return null;
 
-  const candidates = await candidatesForService(service);
+  const candidates = await candidatesForService(service, { requireOnline: true });
   const chosen = candidates[0];
   if (!chosen) return null;
 
@@ -287,8 +382,27 @@ export async function autoAssign(requestId: string): Promise<string | null> {
   });
   await writeAudit({ actorId: 'system', actorName: 'Pishkan auto-assignment', action: 'request.auto_assign', entityType: 'request', entityId: requestId,
     before: { staffId: null, status: request.status }, after: { staffId: chosen.id, status: nextStatus } });
+  // The assignee must learn about the new case immediately; until now only
+  // forced assignments produced a notification, so ordinary auto-assigned
+  // cases could sit unseen in the workbench.
+  await notifyUser(chosen.id, {
+    title: 'پروندهٔ جدید برای شما ثبت شد',
+    body: `درخواست «${service.title}» (کد پیگیری ${toPersianDigits(request.tracking_code)}) به شما ارجاع شد.`,
+    kind: 'info', link: `/staff/requests/${requestId}`,
+    idempotencyKey: `auto-assign:${requestId}:${chosen.id}`,
+  }).catch(() => undefined);
+  await refreshWorkBucket(requestId);
   return chosen.id;
  });
+ if (chosenId) {
+   await accrueCommissionsForRequest(requestId).catch((error) => {
+     logEvent({
+       level: 'WARNING', category: 'payment', action: 'commission.sweep_failed', result: 'failure',
+       entityType: 'request', entityId: requestId, message: String((error as Error)?.message ?? error),
+     }).catch(() => undefined);
+   });
+ }
+ return chosenId;
 }
 
 /* --------------------------------- events ---------------------------------- */
@@ -322,9 +436,10 @@ export interface CreateRequestInput {
   paymentMethod?: string;
   priority?: string;
   note?: string;
-  documentIds?: { fileId: string; title?: string; requirementKey?: string }[];
+  documentIds?: { fileId?: string; customerDocumentId?: string; confirmReuse?: boolean; title?: string; requirementKey?: string }[];
   existingInvoiceId?: string;
   idempotencyKey?: string;
+  discountCode?: string;
 }
 
 function canonicalJson(value: unknown): string {
@@ -336,7 +451,24 @@ function canonicalJson(value: unknown): string {
   return JSON.stringify(value) ?? 'null';
 }
 
-type RequestDocumentAttachment = { fileId: string; title: string; requirementKey: string | null };
+type RequestDocumentAttachment = { fileId?: string; customerDocumentId?: string; confirmReuse?: boolean; title: string; requirementKey: string | null };
+
+/**
+ * The archive type a requirement should be filed under.
+ *
+ * Seeded requirements only carry a title ("تصویر کارت ملی"); the optional
+ * `documentType` field is what an operator can add afterwards. Without a type
+ * the archive cannot match the document to a later requirement, so fall back to
+ * reading the type out of the title rather than filing nothing — but never
+ * invent one when the title says nothing recognisable.
+ */
+function documentTypeForRequirement(service: ServiceDTO, requirementKey: string | null): string | null {
+  if (!requirementKey) return null;
+  const requirement = (service.documents ?? []).find((document) => document.key === requirementKey);
+  if (!requirement) return null;
+  if (requirement.documentType && requirement.documentType !== 'other') return requirement.documentType;
+  return inferDocumentType(requirement.title);
+}
 
 function documentAttachmentsForSubmission(
   service: ServiceDTO,
@@ -351,13 +483,15 @@ function documentAttachmentsForSubmission(
   const seenFiles = new Set<string>();
 
   for (const document of submitted ?? []) {
+    if (Boolean(document.fileId) === Boolean(document.customerDocumentId)) { errors.push({ field: 'documents', message: 'یک فایل یا مدرک پروفایل انتخاب کنید.' }); continue; }
+    const identity = document.fileId ?? `profile:${document.customerDocumentId}`;
     const key = document.requirementKey?.trim();
     if (!key) {
       if (requirements.length) errors.push({ field: 'documents', message: 'برای هر مدرک، شناسهٔ مدرک موردنیاز را انتخاب کنید.' });
       else {
-        if (seenFiles.has(document.fileId)) errors.push({ field: 'documents', message: 'یک فایل را نمی‌توان بیش از یک‌بار پیوست کرد.' });
-        seenFiles.add(document.fileId);
-        attachments.push({ fileId: document.fileId, title: document.title?.trim() || 'مدرک تکمیلی', requirementKey: null });
+        if (seenFiles.has(identity)) errors.push({ field: 'documents', message: 'یک فایل را نمی‌توان بیش از یک‌بار پیوست کرد.' });
+        seenFiles.add(identity);
+        attachments.push({ fileId: document.fileId, customerDocumentId: document.customerDocumentId, confirmReuse: document.confirmReuse, title: document.title?.trim() || 'مدرک تکمیلی', requirementKey: null });
       }
       continue;
     }
@@ -367,10 +501,10 @@ function documentAttachmentsForSubmission(
       continue;
     }
     if (seenKeys.has(key)) errors.push({ field: `documents.${key}`, message: `مدرک «${requirement.title}» بیش از یک‌بار انتخاب شده است.` });
-    if (seenFiles.has(document.fileId)) errors.push({ field: `documents.${key}`, message: 'یک فایل را نمی‌توان برای چند مدرک استفاده کرد.' });
+    if (seenFiles.has(identity)) errors.push({ field: `documents.${key}`, message: 'یک فایل را نمی‌توان برای چند مدرک استفاده کرد.' });
     seenKeys.add(key);
-    seenFiles.add(document.fileId);
-    attachments.push({ fileId: document.fileId, title: requirement.title, requirementKey: key });
+    seenFiles.add(identity);
+    attachments.push({ fileId: document.fileId, customerDocumentId: document.customerDocumentId, confirmReuse: document.confirmReuse, title: requirement.title, requirementKey: key });
   }
 
   for (const requirement of requirements) {
@@ -394,6 +528,7 @@ function documentAttachmentsForSubmission(
 
 async function assertCustomerDocumentFiles(attachments: RequestDocumentAttachment[], customerId: string) {
   for (const [index, attachment] of attachments.entries()) {
+    if (attachment.customerDocumentId) continue; // validated under lock when linked inside the request transaction
     const file = await one<any>('SELECT id, owner_id, mime, is_public FROM files WHERE id = ?', [attachment.fileId]);
     const field = attachment.requirementKey?.startsWith('field:')
       ? attachment.requirementKey.slice('field:'.length)
@@ -421,6 +556,7 @@ export async function createRequest(input: CreateRequestInput, actor?: { id: str
       formData: input.formData ?? {},
       paymentMethod: input.paymentMethod ?? null,
       existingInvoiceId: input.existingInvoiceId ?? null,
+      discountCode: input.discountCode ? normalizeCode(input.discountCode) : null,
       priority: input.priority ?? 'normal',
       documentIds: input.documentIds ?? [],
     }), env.encryptionKey || 'pishkan-development-only-idempotency-secret');
@@ -451,19 +587,24 @@ export async function createRequest(input: CreateRequestInput, actor?: { id: str
   if (service.archivedAt) throw conflict('این خدمت بایگانی شده است.');
   if (service.isCustom && service.ownerCustomerId !== input.customerId) throw forbidden('این خدمت اختصاصی برای شما نیست.');
 
+  // Serialize discount eligibility and first-purchase reservations per customer.
+  await run("UPDATE users SET id = id WHERE id = ? AND kind = 'customer'", [input.customerId]);
   const customer = await one<any>('SELECT * FROM users WHERE id = ? AND kind = ?', [input.customerId, 'customer']);
   if (!customer) throw notFound('مشتری یافت نشد.');
 
   const profile = await requireCompleteProfile(input.customerId);
   await requireCoverage(service.id, input.customerId);
   if (input.priority === 'high' && !service.urgentEnabled) throw badRequest('انجام فوری برای این خدمت فعال نیست.');
-  const pricing = await quoteRequest(service.id,input.customerId,input.priority);
+  if (input.discountCode?.trim() && input.existingInvoiceId) {
+    throw badRequest('کد تخفیف روی فاکتورِ از پیش صادرشده قابل اعمال نیست.', [{ field: 'discountCode', message: 'کد تخفیف را بردارید یا فاکتور جدید بگیرید.' }]);
+  }
+  const pricing = await quoteRequest(service.id,input.customerId,input.priority,input.discountCode);
   const urgentFee = pricing.urgentFee;
   const formData = validateFormData(service, input.formData ?? {});
   const documentAttachments = documentAttachmentsForSubmission(service, formData, input.documentIds);
   await assertCustomerDocumentFiles(documentAttachments, input.customerId);
   const fee = service.baseFee;
-  const discount = pricing.discount;
+  const discount = pricing.discount + (pricing.codeDiscount ?? 0);
   let total = pricing.total;
   let existingInvoice: any = null;
   if (input.existingInvoiceId) {
@@ -529,7 +670,7 @@ export async function createRequest(input: CreateRequestInput, actor?: { id: str
   const snapshot = {
     service: {
       id: service.id, title: service.title, slug: service.slug, baseFee: service.baseFee,
-      discountPercent: service.discountPercent, estimatedMinutes: service.estimatedMinutes, estimatedDays: service.estimatedDays,
+      discountPercent: service.discountPercent, discountCode: pricing.discountCode ?? null, estimatedMinutes: service.estimatedMinutes, estimatedDays: service.estimatedDays,
       urgentFee, urgentPercent: service.urgentPercent, urgentMinutes: service.urgentMinutes, urgentDays: service.urgentDays, coverage: service.coverage,
       form: service.form, documents: service.documents, workflow: service.workflow,
       categoryTitle: service.categoryTitle, paymentMethods: methods,
@@ -598,6 +739,27 @@ export async function createRequest(input: CreateRequestInput, actor?: { id: str
       );
     }
 
+    // Redeem the discount code in the same transaction: if anything below
+    // fails, the use is rolled back with the request itself.
+    if (pricing.discountCode) {
+      const preview = await previewDiscount({
+        code: pricing.discountCode.code, customerId: input.customerId,
+        serviceId: service.id, categoryId: service.categoryId,
+        subtotal: Math.max(0, fee + urgentFee - pricing.discount),
+      });
+      await redeemDiscount({
+        codeId: preview.codeId, customerId: input.customerId,
+        requestId, invoiceId: createdInvoice?.id ?? null, amount: preview.amount,
+      });
+      await db.run(
+        `INSERT INTO request_events (id, request_id, actor_id, actor_name, type, message, metadata, visible_to_customer, created_at)
+         VALUES (?, ?, ?, ?, 'discount', ?, ?, 1, ?)`,
+        [id('evt'), requestId, actor?.id ?? input.customerId, actor?.name ?? customer.full_name,
+          `کد تخفیف «${preview.code}» اعمال شد.`,
+          jsonStringify({ codeId: preview.codeId, code: preview.code, amount: preview.amount }), ts],
+      );
+    }
+
     // Wallet settlement happens in the same transaction as the request. If the
     // balance moved or the invoice could not be paid, the whole request is
     // rolled back: money is never taken without a case (and vice versa).
@@ -613,13 +775,52 @@ export async function createRequest(input: CreateRequestInput, actor?: { id: str
   });
 
   await run('UPDATE requests SET urgent_fee=? WHERE id=?',[urgentFee,requestId]);
-  for (const document of documentAttachments) {
-    await attachDocument(requestId, document.fileId, document.title,
+  for (const document of documentAttachments.filter(item => !item.customerDocumentId)) {
+    await attachDocument(requestId, document.fileId!, document.title,
       { id: actor?.id ?? input.customerId, name: actor?.name ?? customer.full_name }, 'customer',
       { ownerId: input.customerId, requirementKey: document.requirementKey });
+    // Mirror the upload into the customer's profile archive, here rather than
+    // in each client, so a document sent from the web and the same document
+    // sent from the app both come back on the next request. `pending`, never
+    // `approved`: the archive records that we hold the document, the reviewer
+    // still decides whether it is any good.
+    await archiveRequestDocument({
+      customerId: input.customerId,
+      fileId: document.fileId!,
+      docType: documentTypeForRequirement(service, document.requirementKey),
+      title: document.title,
+      actor: { id: actor?.id ?? input.customerId, name: actor?.name ?? customer.full_name },
+    });
+  }
+  for (const document of documentAttachments.filter(item => item.customerDocumentId)) {
+    await reuseDocumentInRequest({ documentId: document.customerDocumentId!, requestId, customerId: input.customerId,
+      confirm: document.confirmReuse === true, requirementKey: document.requirementKey,
+      actor: { id: input.customerId, name: actor?.name ?? customer.full_name } });
   }
 
-  await autoAssign(requestId);
+  const assignedTo = await autoAssign(requestId);
+  // The customer is notified by the HTTP layer (with SMS). When nobody was
+  // auto-assigned, the office roles must hear about the case so it cannot be
+  // silently lost in the open pool.
+  if (!assignedTo) {
+    await notifyRole(['super_admin', 'manager'], {
+      title: 'درخواست جدید در صف بررسی',
+      body: `درخواست «${service.title}» (کد پیگیری ${toPersianDigits(trackingCode)}) ثبت شده و هنوز مسئولی ندارد.`,
+      kind: 'info', link: '/admin/requests',
+      idempotencyKey: `request-unassigned:${requestId}`,
+    }).catch(() => undefined);
+    // Ring the devices of everyone who could pick this case from the free
+    // pool right now (Snapp-style): eligible + has free capacity. Best-effort.
+    const candidates = await candidatesForService(service).catch(() => []);
+    for (const candidate of candidates) {
+      await notifyUser(candidate.id, {
+        title: 'پروندهٔ تازه در صف آزاد',
+        body: `«${service.title}» — کد پیگیری ${toPersianDigits(trackingCode)}`,
+        kind: 'info', link: '/staff/queue', push: true,
+        idempotencyKey: `queue:${requestId}:${candidate.id}`,
+      }).catch(() => undefined);
+    }
+  }
 
   await writeAudit({
     actorId: actor?.id ?? input.customerId, actorName: actor?.name ?? customer.full_name,
@@ -647,6 +848,7 @@ export async function createRequest(input: CreateRequestInput, actor?: { id: str
 export async function getRequest(requestId: string, viewer?: { actorId: string; isCustomer: boolean; canViewDocuments?: boolean }) {
   const row = await one<any>(`
     SELECT r.*, s.title AS service_title, s.slug AS service_slug, s.workflow_steps, s.is_custom,
+           s.has_external_costs, s.external_costs_note, s.external_cost_items, s.requires_manager_approval,
            c.full_name AS customer_name, c.mobile AS customer_mobile, c.national_id AS customer_national_id,
            a.full_name AS assignee_name
     FROM requests r
@@ -684,6 +886,11 @@ export async function getRequest(requestId: string, viewer?: { actorId: string; 
     ? await q<any>(`SELECT * FROM document_reviews WHERE request_document_id IN (${documents.map(() => '?').join(',')}) ORDER BY created_at ASC`, documents.map((document) => document.id))
     : [];
   const invoices = await q<any>('SELECT * FROM invoices WHERE request_id = ? ORDER BY created_at ASC', [requestId]);
+  // "Your share from this case" for percentage staff; null for customers,
+  // fixed-salary staff and anyone without a stake in this request.
+  const earningPreview = viewer && !viewer.isCustomer
+    ? (await earningsByRequest(viewer.actorId, [row]).catch(() => new Map())).get(row.id) ?? null
+    : null;
 
   return {
     id: row.id,
@@ -699,11 +906,27 @@ export async function getRequest(requestId: string, viewer?: { actorId: string; 
     serviceTitle: row.service_title,
     serviceSlug: row.service_slug,
     isCustom: Boolean(row.is_custom),
+    serviceRequiresApproval: Boolean(row.requires_manager_approval),
     assignedTo: row.assigned_to,
     assigneeName: row.assignee_name,
+    earnings: earningPreview,
     formData,
     snapshot,
     workflow: jsonParse<any>(row.snapshot, {}).service?.workflow ?? jsonParse(row.workflow_steps, []),
+    workBucket: row.work_bucket ?? deriveBucket(row.status, stepKindOf(row.snapshot, Number(row.current_step))),
+    workBucketLabel: WORK_BUCKET_LABELS[(row.work_bucket as WorkBucket) ?? deriveBucket(row.status, stepKindOf(row.snapshot, Number(row.current_step)))] ?? null,
+    currentStepKind: stepKindOf(row.snapshot, Number(row.current_step)),
+    currentStepTitle: snapshotSteps(row.snapshot)[Math.max(0, Math.min(snapshotSteps(row.snapshot).length - 1, Number(row.current_step) || 0))]?.title ?? null,
+    nextStepTitle: snapshotSteps(row.snapshot)[(Number(row.current_step) || 0) + 1]?.title ?? null,
+    assignmentSource: !row.assigned_to ? null : (() => {
+      const last = [...events].reverse().find((e) => e.type === 'assigned');
+      if (!last) return 'manual';
+      const meta = jsonParse<any>(last.metadata, {});
+      if (meta?.forced) return 'forced';
+      if (last.actor_id === row.assigned_to) return 'claimed';
+      if (last.actor_id === 'system') return 'auto';
+      return 'manual';
+    })(),
     fee: Number(row.fee),
     discount: Number(row.discount),
     total: Number(row.total),
@@ -746,16 +969,26 @@ export async function getRequest(requestId: string, viewer?: { actorId: string; 
       createdAt: d.created_at,
     })),
     invoices: invoices.map((i) => ({
-      id: i.id, number: i.number, total: Number(i.total), paidAmount: Number(i.paid_amount),
+      id: i.id, number: i.number, title: i.title, purpose: i.purpose ?? 'service',
+      total: Number(i.total), paidAmount: Number(i.paid_amount),
       status: i.status, issuedAt: i.issued_at,
     })),
+    externalCosts: {
+      enabled: Boolean(row.has_external_costs),
+      note: row.has_external_costs
+        ? (row.external_costs_note || 'در حین انجام این خدمت ممکن است مبالغی بابت هزینهٔ سازمان مربوطه لازم باشد که جزو حق‌الزحمهٔ دفتر نیست؛ مبلغ دقیق با فاکتور جداگانه در همین پرونده اعلام می‌شود.')
+        : null,
+      items: jsonParse<any[]>(row.external_cost_items, []),
+    },
   };
 }
 
 export interface ListRequestsOptions {
   page?: number; pageSize?: number; customerId?: string; assignedTo?: string;
   status?: string; statusGroup?: 'open' | 'closed' | 'all'; search?: string; urgent?: boolean;
-  serviceId?: string; unassigned?: boolean; from?: string; to?: string;
+  serviceId?: string; unassigned?: boolean; from?: string; to?: string; bucket?: string;
+  /** Staff viewer whose own per-request earnings are attached to each card. */
+  viewerId?: string;
 }
 
 export async function listRequests(opts: ListRequestsOptions = {}) {
@@ -769,6 +1002,7 @@ export async function listRequests(opts: ListRequestsOptions = {}) {
   if (opts.unassigned) where.push('r.assigned_to IS NULL');
   if (opts.serviceId) { where.push('r.service_id = ?'); args.push(opts.serviceId); }
   if (opts.status) { where.push('r.status = ?'); args.push(opts.status); }
+  if (opts.bucket && (WORK_BUCKETS as readonly string[]).includes(opts.bucket)) { where.push('r.work_bucket = ?'); args.push(opts.bucket); }
   if (opts.statusGroup === 'open') where.push(`r.status NOT IN ('completed','cancelled','rejected')`);
   if (opts.statusGroup === 'closed') where.push(`r.status IN ('completed','cancelled','rejected')`);
   if (opts.urgent) where.push(`(r.priority = 'high' OR (r.due_at IS NOT NULL AND r.due_at < ?))`), args.push(nowIso());
@@ -792,11 +1026,18 @@ export async function listRequests(opts: ListRequestsOptions = {}) {
     [...args, pageSize, (page - 1) * pageSize],
   );
 
+  const earningsMap = opts.viewerId
+    ? await earningsByRequest(opts.viewerId, rows).catch(() => new Map())
+    : new Map();
+
   return {
     items: rows.map((r) => ({
       id: r.id,
       trackingCode: r.tracking_code,
       status: r.status,
+      workBucket: r.work_bucket ?? deriveBucket(r.status, stepKindOf(r.snapshot, Number(r.current_step))),
+      workBucketLabel: WORK_BUCKET_LABELS[((r.work_bucket ?? deriveBucket(r.status, stepKindOf(r.snapshot, Number(r.current_step)))) as WorkBucket)] ?? null,
+      currentStepKind: stepKindOf(r.snapshot, Number(r.current_step)),
       statusLabel: STATUS_LABELS[r.status as RequestStatus] ?? r.status,
       priority: r.priority,
       customerId: r.customer_id,
@@ -806,6 +1047,7 @@ export async function listRequests(opts: ListRequestsOptions = {}) {
       serviceTitle: r.service_title,
       assignedTo: r.assigned_to,
       assigneeName: r.assignee_name,
+      earnings: earningsMap.get(r.id) ?? null,
       total: Number(r.total),
       paymentStatus: r.payment_status,
       dueAt: r.due_at,
@@ -861,7 +1103,7 @@ export async function changeStatus(
   if (toStatus === 'completed') { sets.push('completed_at = ?'); args.push(ts); }
   if (toStatus === 'cancelled') { sets.push('cancelled_at = ?'); args.push(ts); }
   if (toStatus === 'rejected') { sets.push('rejected_reason = ?'); args.push(note ?? ''); }
-  if (toStatus === 'in_progress') { sets.push('current_step = ?'); args.push(Math.max(1, request.current_step + 1)); }
+  if (toStatus === 'in_progress' && Number(request.current_step) === 0) { sets.push('current_step = 1'); }
 
   await run(`UPDATE requests SET ${sets.join(', ')} WHERE id = ?`, [...args, requestId]);
   await addEvent({
@@ -873,7 +1115,96 @@ export async function changeStatus(
     actorId: actor.id, actorName: actor.name, action: 'request.status', entityType: 'request',
     entityId: requestId, before: { status: from }, after: { status: toStatus, note }, ip: actor.ip,
   });
+  await refreshWorkBucket(requestId);
   return getRequest(requestId);
+  });
+}
+
+/**
+ * Move a case one workflow step forward (+1) or back (-1).
+ *
+ * The step list comes from the immutable snapshot, so editing the service
+ * later never rewires live cases. Entering a "waiting on customer" step
+ * mirrors the request status to `waiting_customer` (and back to
+ * `in_progress` when leaving it) whenever the status machine allows it;
+ * the work bucket always follows the step kind either way.
+ */
+export async function moveStep(
+  requestId: string,
+  direction: 1 | -1,
+  actor: { id: string; name: string; ip?: string },
+  note?: string,
+) {
+  return tx(async () => {
+    await run('UPDATE requests SET updated_at=updated_at WHERE id=?', [requestId]);
+    const request = await one<RequestRow>('SELECT * FROM requests WHERE id = ?', [requestId]);
+    if (!request) throw notFound('درخواست یافت نشد.');
+    if (['completed', 'cancelled', 'rejected'].includes(request.status)) {
+      throw conflict('مراحل پروندهٔ بسته‌شده قابل تغییر نیست.');
+    }
+    const steps = snapshotSteps(request.snapshot);
+    if (steps.length < 2) throw badRequest('برای این خدمت گردش‌کار چندمرحله‌ای تعریف نشده است.');
+    const current = Math.max(0, Math.min(steps.length - 1, Number(request.current_step) || 0));
+    const next = Math.max(0, Math.min(steps.length - 1, current + direction));
+    if (next === current) {
+      throw badRequest(direction > 0
+        ? 'در آخرین مرحله هستید؛ برای پایان کار از تغییر وضعیت استفاده کنید.'
+        : 'در اولین مرحله هستید.');
+    }
+    const fromStatus = request.status as RequestStatus;
+    const nextKind = steps[next].kind;
+    let toStatus: RequestStatus = fromStatus;
+    const allowed = ALLOWED_TRANSITIONS[fromStatus] ?? [];
+    if (nextKind === 'waiting_customer' && allowed.includes('waiting_customer')) toStatus = 'waiting_customer';
+    else if ((fromStatus === 'waiting_customer' || fromStatus === 'waiting_documents') && allowed.includes('in_progress')) toStatus = 'in_progress';
+    else if ((fromStatus === 'new' || fromStatus === 'assigned') && allowed.includes('in_progress')) toStatus = 'in_progress';
+
+    const ts = nowIso();
+    await run('UPDATE requests SET current_step = ?, status = ?, updated_at = ? WHERE id = ?',
+      [next, toStatus, ts, requestId]);
+    await addEvent({
+      requestId, type: 'step', actorId: actor.id, actorName: actor.name,
+      message: direction > 0
+        ? `مرحلهٔ «${steps[current].title}» انجام شد؛ مرحلهٔ فعلی: «${steps[next].title}».`
+        : `برگشت به مرحلهٔ «${steps[next].title}».`,
+      fromStatus, toStatus, visibleToCustomer: true,
+      metadata: { stepIndex: next, stepTitle: steps[next].title, stepKind: nextKind, direction, note: note ?? null },
+    });
+    if (note?.trim()) {
+      await addEvent({
+        requestId, type: 'note', actorId: actor.id, actorName: actor.name,
+        message: note.trim(), visibleToCustomer: true,
+      });
+    }
+    await writeAudit({
+      actorId: actor.id, actorName: actor.name, action: 'request.step', entityType: 'request',
+      entityId: requestId,
+      before: { step: current, status: fromStatus }, after: { step: next, status: toStatus, kind: nextKind },
+      ip: actor.ip,
+    });
+    await refreshWorkBucket(requestId);
+    await notifyUser(request.customer_id, {
+      title: 'مرحلهٔ پروندهٔ شما به‌روز شد',
+      body: `مرحلهٔ فعلی: «${steps[next].title}»`,
+      kind: 'info',
+      link: `/app/requests/${requestId}`,
+      push: true,
+      // The app keys its stage styling, its replacement behaviour ("stage 4"
+      // must replace "stage 3" in the shade, not stack under it) and its
+      // progress bar off this value. Without it every stage notice rendered as
+      // a generic announcement.
+      eventType: 'request_stage',
+      // The bar the customer actually sees. Fraction of the workflow that is
+      // behind them, and the step they are on now. Sent as the real numbers
+      // rather than a pre-rendered "۳ از ۵" so the phone can draw a bar and a
+      // screen reader can say it in words.
+      progress: steps.length > 1 ? Math.min(1, Math.max(0, next / (steps.length - 1))) : null,
+      stageLabel: steps[next].title,
+      // Stable per case, so two consecutive stage changes overwrite instead of
+      // both staying in the tray.
+      idempotencyKey: `request-stage:${requestId}:${next}`,
+    }).catch(() => undefined);
+    return getRequest(requestId);
   });
 }
 
@@ -897,7 +1228,7 @@ export async function setRequestDeadline(requestId: string, deadlineAt: string |
 }
 
 export async function assignRequest(requestId: string, staffId: string | null, actor: { id: string; name: string; ip?: string }) {
-  return tx(async () => {
+  const result = await tx(async () => {
     await run('UPDATE requests SET updated_at=updated_at WHERE id=?', [requestId]);
     const request = await one<RequestRow>('SELECT * FROM requests WHERE id = ?', [requestId]);
     if (!request) throw notFound('درخواست یافت نشد.');
@@ -922,8 +1253,21 @@ export async function assignRequest(requestId: string, staffId: string | null, a
     });
     await writeAudit({ actorId: actor.id, actorName: actor.name, action: 'request.assign', entityType: 'request', entityId: requestId,
       before: { staffId: request.assigned_to, status: request.status }, after: { staffId, status: newStatus }, ip: actor.ip });
+    await refreshWorkBucket(requestId);
     return getRequest(requestId);
   });
+  // A case can already hold confirmed payments (the customer paid before an
+  // executor took it, or the previous executor was fixed-salary): sweep them
+  // now so a percentage executor's income appears the moment they take over.
+  if (staffId) {
+    await accrueCommissionsForRequest(requestId).catch((error) => {
+      logEvent({
+        level: 'WARNING', category: 'payment', action: 'commission.sweep_failed', result: 'failure',
+        entityType: 'request', entityId: requestId, message: String((error as Error)?.message ?? error),
+      }).catch(() => undefined);
+    });
+  }
+  return result;
 }
 
 export async function addNote(requestId: string, message: string, actor: { id: string; name: string }, visibleToCustomer = true) {
@@ -939,7 +1283,7 @@ export async function attachDocument(
   title: string,
   actor: { id: string; name: string },
   kind: 'customer' | 'staff' = 'staff',
-  meta: { customerDocumentId?: string | null; documentType?: string | null; expiresAt?: string | null; requirementKey?: string | null; replacesDocumentId?: string | null; ownerId?: string } = {},
+  meta: { customerDocumentId?: string | null; documentType?: string | null; expiresAt?: string | null; requirementKey?: string | null; replacesDocumentId?: string | null; ownerId?: string; delivered?: boolean } = {},
 ) {
   return tx(async () => {
     await run('UPDATE requests SET updated_at=updated_at WHERE id=?', [requestId]);
@@ -1000,24 +1344,26 @@ export async function attachDocument(
     }
 
     const ts = nowIso();
-    const nextStatus = 'under_review';
+    const nextStatus = meta.delivered ? request.status : 'under_review';
     await run(
-      `INSERT INTO request_documents (id, request_id, file_id, title, kind, status, created_at, customer_document_id, document_type, expires_at, requirement_key, replaces_document_id)
-       VALUES (?, ?, ?, ?, ?, 'pending', ?, ?, ?, ?, ?, ?)`,
-      [id('doc'), requestId, fileId, title, kind, ts, meta.customerDocumentId ?? null, meta.documentType ?? null,
-        meta.expiresAt ?? null, meta.requirementKey ?? null, replacesDocumentId],
+      `INSERT INTO request_documents (id, request_id, file_id, title, kind, status, created_at, customer_document_id, document_type, expires_at, requirement_key, replaces_document_id, reviewed_by, review_note)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      [id('doc'), requestId, fileId, title, kind, meta.delivered ? 'approved' : 'pending', ts, meta.customerDocumentId ?? null, meta.documentType ?? null,
+        meta.expiresAt ?? null, meta.requirementKey ?? null, replacesDocumentId,
+        meta.delivered ? actor.id : null, meta.delivered ? 'تحویل مستقیم توسط مجری' : null],
     );
     await run('UPDATE requests SET status = ?, updated_at = ? WHERE id = ?', [nextStatus, ts, requestId]);
     await addEvent({
       requestId, type: 'document', actorId: actor.id, actorName: actor.name,
       message: `مدرک «${title}» بارگذاری شد.`, metadata: { fileId, requirementKey: meta.requirementKey ?? null, replacesDocumentId },
-      visibleToCustomer: kind === 'customer',
+      visibleToCustomer: kind === 'customer' || Boolean(meta.delivered),
     });
     if (nextStatus !== request.status) {
       await addEvent({ requestId, type: 'status', actorId: actor.id, actorName: actor.name,
         fromStatus: request.status, toStatus: nextStatus,
         message: 'مدارک جدید برای بررسی ارسال شد؛ پرونده دوباره در صف بازبینی قرار گرفت.' });
     }
+    await refreshWorkBucket(requestId);
   });
 }
 
@@ -1067,6 +1413,7 @@ export async function reconcileAfterDocumentReview(requestId: string, actor: { i
     message: nextStatus === 'ready' ? 'مدارک و نتیجهٔ کار تأیید شد؛ پرونده آماده تحویل است.' : 'مدارک تأیید شد؛ رسیدگی پرونده ادامه می‌یابد.' });
   await writeAudit({ actorId: actor.id, actorName: actor.name, action: 'request.document_review_reconciled', entityType: 'request', entityId: requestId,
     before: { status: request.status }, after: { status: nextStatus }, ip: actor.ip });
+  await refreshWorkBucket(requestId);
 }
 
 export async function reviewDocument(
@@ -1092,6 +1439,17 @@ export async function reviewDocument(
     if (!changed.changes) throw conflict('این مدرک هم‌زمان توسط کاربر دیگری بررسی شد.');
     await run(`INSERT INTO document_reviews (id, request_document_id, customer_document_id, decision, note, reviewer_id, reviewer_name, created_at)
       VALUES (?, ?, NULL, ?, ?, ?, ?, ?)`, [id('drev'), documentId, decision, cleanNote, actor.id, actor.name, ts]);
+    // If this exact customer file was saved under the explicitly configured
+    // profile type, the expert's decision applies to that same copy as well.
+    if (doc.kind === 'customer' && doc.requirement_key && !doc.customer_document_id) {
+      const snapshot = jsonParse<any>(request.snapshot, {});
+      const requirement = (snapshot?.service?.documents ?? []).find((item: any) => item.key === doc.requirement_key);
+      if (requirement?.documentType && requirement.documentType !== 'other') {
+        const archive = await one<any>(`SELECT id FROM customer_documents WHERE customer_id=? AND file_id=? AND doc_type=? AND status='pending'`,
+          [request.customer_id, doc.file_id, requirement.documentType]);
+        if (archive) await reviewCustomerDocument(archive.id, decision, cleanNote ?? undefined, actor);
+      }
+    }
     const eventId = await addEvent({
       requestId: doc.request_id, type: 'document', actorId: actor.id, actorName: actor.name,
       message: decision === 'approved' ? 'مدرک تأیید شد.' : `مدرک رد شد: ${cleanNote}`,
@@ -1116,6 +1474,7 @@ export async function reviewDocument(
     }
     await writeAudit({ actorId: actor.id, actorName: actor.name, action: `document.${decision}`, entityType: 'document', entityId: documentId,
       before: { status: doc.status }, after: { status: decision, note: cleanNote }, ip: actor.ip });
+    await refreshWorkBucket(doc.request_id);
     return { eventId, requestId: doc.request_id, previousStatus: doc.status, kind: doc.kind };
   });
 }
@@ -1171,7 +1530,7 @@ export async function requestStats(scope: { customerId?: string; assignedTo?: st
 export { addHours };
 
 /** One server pricing path for quote, request snapshot and invoice. All amounts are integer IRR. */
-export async function quoteRequest(serviceId: string, customerId: string, priority = 'normal') {
+export async function quoteRequest(serviceId: string, customerId: string, priority = 'normal', discountCode?: string) {
  const service = await getServiceById(serviceId);
  if (!service || (!service.isPublished && !service.isCustom) || !service.acceptingRequests || (service.isCustom && service.ownerCustomerId !== customerId)) throw notFound('این خدمت قابل درخواست نیست.');
  await requireCompleteProfile(customerId);
@@ -1180,10 +1539,17 @@ export async function quoteRequest(serviceId: string, customerId: string, priori
  const urgentFee = priority === 'high' ? Math.round(service.baseFee * service.urgentPercent / 100) : 0;
  const discount = Math.round(service.baseFee * service.discountPercent / 100);
  const subtotal = service.baseFee + urgentFee;
- const tax = Math.round((subtotal-discount)*await getNumber('accounting.tax_percent')/100);
+ // A discount code applies to what remains after the service's own discount;
+ // previewing throws a customer-readable reason when the code cannot be used.
+ const afterServiceDiscount = Math.max(0, subtotal - discount);
+ const codePreview = discountCode?.trim()
+   ? await previewDiscount({ code: discountCode, customerId, serviceId: service.id, categoryId: service.categoryId, subtotal: afterServiceDiscount })
+   : null;
+ const codeDiscount = codePreview?.amount ?? 0;
+ const tax = Math.round((afterServiceDiscount - codeDiscount) * await getNumber('accounting.tax_percent') / 100);
  const active = await one<any>("SELECT COUNT(*) AS c FROM requests WHERE service_id=? AND priority='high' AND status NOT IN ('completed','cancelled','rejected')",[serviceId]);
  const estimatedMinutes=priority==='high'?service.urgentMinutes:service.estimatedMinutes;
- return {baseFee:service.baseFee,discount,urgentFee,tax,total:subtotal-discount+tax,currency:'IRR',estimatedMinutes,estimatedDays:Math.ceil(estimatedMinutes/1440),urgentAvailable:service.urgentEnabled && service.urgentCapacity>Number(active?.c),quotedAt:nowIso()};
+ return {baseFee:service.baseFee,discount,codeDiscount,discountCode:codePreview ? {code:codePreview.code,title:codePreview.title,amount:codePreview.amount} : null,urgentFee,tax,total:afterServiceDiscount-codeDiscount+tax,currency:'IRR',estimatedMinutes,estimatedDays:Math.ceil(estimatedMinutes/1440),urgentAvailable:service.urgentEnabled && service.urgentCapacity>Number(active?.c),quotedAt:nowIso()};
 }
 
 /**
@@ -1200,13 +1566,17 @@ export async function eligibleQueue(staffId: string) {
   const rows = await q<any>(
     `SELECT r.id, r.tracking_code, r.service_id, r.created_at, r.priority, r.status, r.total,
             r.estimated_completion_at, r.force_assign_at, s.title,
-            (SELECT COALESCE(SUM(i.total - i.tax), 0) FROM invoices i WHERE i.request_id = r.id AND i.status <> 'void') AS net_total
+            (SELECT COALESCE(SUM(i.total - i.tax), 0) FROM invoices i WHERE i.request_id = r.id AND i.status <> 'void' AND i.purpose = 'service') AS net_total,
+            (SELECT COUNT(*) FROM request_documents d WHERE d.request_id = r.id) AS docs_attached,
+            cat.icon AS category_icon, cat.color AS category_color, cat.title AS category_title
      FROM requests r JOIN services s ON s.id = r.service_id
+     LEFT JOIN service_categories cat ON cat.id = s.category_id
      WHERE r.assigned_to IS NULL AND r.status IN ('new','under_review')
+       AND NOT EXISTS (SELECT 1 FROM request_declines dc WHERE dc.request_id = r.id AND dc.user_id = ?)
      ORDER BY CASE r.priority WHEN 'high' THEN 0 ELSE 1 END, r.created_at ASC LIMIT 200`,
+    [staffId],
   );
   const type = await cooperationType(staffId);
-  const percent = type === 'commission' ? await commissionPercent(staffId) : 0;
   const result: any[] = [];
   for (const r of rows) {
     const service = await getServiceById(r.service_id);
@@ -1214,10 +1584,14 @@ export async function eligibleQueue(staffId: string) {
     const eligible = (await candidatesForService(service)).some((candidate) => candidate.id === staffId);
     if (!eligible) continue;
     const officeRevenue = Number(r.net_total ?? 0) > 0 ? Number(r.net_total) : Math.max(0, Number(r.total ?? 0));
+    const percent = type === 'commission' ? await commissionPercentFor(staffId, r.service_id) : 0;
     result.push({
       id: r.id,
       trackingCode: r.tracking_code,
       serviceTitle: r.title,
+      categoryIcon: r.category_icon ?? null,
+      categoryColor: r.category_color ?? null,
+      categoryTitle: r.category_title ?? null,
       priority: r.priority,
       status: r.status,
       createdAt: r.created_at,
@@ -1227,6 +1601,10 @@ export async function eligibleQueue(staffId: string) {
       remainingMinutes: r.estimated_completion_at
         ? Math.max(0, Math.round((Date.parse(r.estimated_completion_at) - Date.now()) / 60_000))
         : null,
+      serviceEstimatedMinutes: service.estimatedMinutes,
+      documentsRequired: (service.documents ?? []).filter((d: any) => d.required).length,
+      documentsTotal: (service.documents ?? []).length,
+      documentsAttached: Number(r.docs_attached ?? 0),
       cooperationType: type,
       // Only commission employees get an income preview; there is no number
       // to show for a fixed-salary employee (their pay is a monthly contract).
@@ -1246,6 +1624,140 @@ export async function eligibleQueue(staffId: string) {
  * update can match `assigned_to IS NULL`. The loser gets a precise 409 message
  * naming who took it, and the attempt is recorded in `request_claim_attempts`.
  */
+/**
+ * Issue a mid-process organization-fee invoice on a case (e.g. the social
+ * security premium the expert just looked up). The money is pass-through: it
+ * never becomes office revenue and never feeds commissions. The case moves
+ * to "waiting for customer" (when the state machine allows) and the customer
+ * is told in-app + by SMS that a payable invoice is waiting on the case.
+ */
+/**
+ * Daily nudge for cases parked in others' courts: when a case has been
+ * waiting on the customer / an organization (or flagged follow-up) without
+ * any change for longer than the configured threshold, remind the owner —
+ * and, for customer-waiting cases, gently remind the customer too. One
+ * reminder per case per Tehran day via notification idempotency keys.
+ */
+/** Decline a case in the open pool: it leaves only the decliner's queue.
+ * Colleagues still see it and automatic assignment may still pick it up,
+ * so declining can never starve a request of an owner. */
+export async function declineRequest(requestId: string, staffId: string) {
+  const row = await one<any>(
+    "SELECT id FROM requests WHERE id=? AND assigned_to IS NULL AND status IN ('new','under_review')",
+    [requestId],
+  );
+  if (!row) throw notFound('این درخواست دیگر در صف آزاد نیست.');
+  const existing = await one<any>('SELECT request_id FROM request_declines WHERE request_id=? AND user_id=?', [requestId, staffId]);
+  if (!existing) {
+    await run('INSERT INTO request_declines (request_id, user_id, created_at) VALUES (?,?,?)', [requestId, staffId, nowIso()]);
+  }
+  return { declined: true };
+}
+
+export async function followUpReminderSweep() {
+  if (!(await getBool('workforce.followup_reminder_enabled'))) return { reminded: 0, checked: 0 };
+  const hours = Math.max(1, await getNumber('workforce.followup_after_hours'));
+  const cutoff = new Date(Date.now() - hours * 3_600_000).toISOString();
+  const rows = await q<any>(
+    `SELECT r.id, r.tracking_code, r.assigned_to, r.customer_id, r.work_bucket, s.title AS service_title
+     FROM requests r JOIN services s ON s.id = r.service_id
+     WHERE r.assigned_to IS NOT NULL
+       AND r.status NOT IN ('completed','cancelled','rejected')
+       AND r.work_bucket IN ('waiting_customer','waiting_organization','followup')
+       AND r.updated_at <= ?
+     ORDER BY r.updated_at ASC LIMIT 100`,
+    [cutoff],
+  );
+  let reminded = 0;
+  for (const row of rows) {
+    const day = tehranNow().date;
+    const waitingLabel = row.work_bucket === 'waiting_customer' ? 'منتظر اقدام مشتری'
+      : row.work_bucket === 'waiting_organization' ? 'منتظر پاسخ سازمان' : 'نیازمند پیگیری';
+    await notifyUser(row.assigned_to, {
+      title: 'یادآوری پیگیری پرونده',
+      body: `پروندهٔ «${row.service_title}» (${toPersianDigits(row.tracking_code)}) بیش از ${toPersianDigits(String(hours))} ساعت است که ${waitingLabel} مانده و تغییری نکرده است.`,
+      kind: 'warning',
+      link: `/staff/requests/${row.id}`,
+      idempotencyKey: `followup:${row.id}:${day}`,
+    }).catch(() => undefined);
+    if (row.work_bucket === 'waiting_customer') {
+      await notifyUser(row.customer_id, {
+        title: 'پروندهٔ شما منتظر اقدام شماست',
+        body: `برای ادامهٔ «${row.service_title}» (کد پیگیری ${toPersianDigits(row.tracking_code)}) اقدامی از طرف شما لازم است؛ جزئیات در صفحهٔ پرونده آمده است.`,
+        kind: 'info',
+        link: `/app/requests/${row.id}`,
+        idempotencyKey: `followup-customer:${row.id}:${day}`,
+      }).catch(() => undefined);
+    }
+    reminded += 1;
+  }
+  return { reminded, checked: rows.length };
+}
+
+export async function createExternalCostInvoice(
+  requestId: string,
+  input: { title: string; amount: number; note?: string | null },
+  actor: { id: string; name: string; ip?: string },
+) {
+  const request = await one<any>(
+    `SELECT r.*, s.title AS service_title, s.is_custom FROM requests r
+     JOIN services s ON s.id = r.service_id WHERE r.id = ?`,
+    [requestId],
+  );
+  if (!request) throw notFound('درخواست یافت نشد.');
+  if (['completed', 'cancelled', 'rejected'].includes(request.status)) {
+    throw conflict('برای پروندهٔ بسته‌شده نمی‌توان فاکتور صادر کرد.');
+  }
+  const title = String(input.title ?? '').trim();
+  const amount = Math.round(Number(input.amount ?? 0));
+  if (title.length < 3) throw badRequest('عنوان هزینهٔ سازمانی را مشخص کنید (مثلاً «حق بیمه تأمین اجتماعی»).');
+  if (!Number.isFinite(amount) || amount <= 0 || amount > 10_000_000_000) {
+    throw badRequest('مبلغ هزینهٔ سازمانی نامعتبر است.');
+  }
+
+  const invoice: any = await createInvoice({
+    customerId: request.customer_id,
+    requestId,
+    serviceId: request.service_id,
+    kind: request.is_custom ? 'custom' : 'public',
+    purpose: 'external_cost',
+    title,
+    items: [{ title, qty: 1, unitPrice: amount, amount }],
+    notes: input.note?.trim() || 'هزینهٔ سازمانی مربوط به این پرونده؛ جزو حق‌الزحمهٔ دفتر نیست.',
+  }, actor);
+
+  await addEvent({
+    requestId, type: 'invoice', actorId: actor.id, actorName: actor.name,
+    message: `فاکتور هزینهٔ سازمانی صادر شد: «${title}» به مبلغ ${amount.toLocaleString('fa-IR')} ریال — منتظر پرداخت مشتری.`,
+    metadata: { invoiceId: invoice.id, purpose: 'external_cost', amount },
+  });
+
+  // Park the case on the customer while this is unpaid, when allowed.
+  if (request.status !== 'waiting_customer'
+    && (ALLOWED_TRANSITIONS[request.status as RequestStatus] ?? []).includes('waiting_customer')) {
+    await changeStatus(requestId, 'waiting_customer', actor,
+      `در انتظار پرداخت هزینهٔ سازمانی توسط مشتری: «${title}»`).catch(() => undefined);
+  }
+
+  await writeAudit({
+    actorId: actor.id, actorName: actor.name, action: 'request.external_invoice',
+    entityType: 'request', entityId: requestId,
+    after: { invoiceId: invoice.id, title, amount }, ip: actor.ip,
+  });
+
+  const { notifyUser } = await import('../notifications/service.js');
+  await notifyUser(request.customer_id, {
+    title: 'فاکتور هزینهٔ سازمانی پروندهٔ شما صادر شد',
+    body: `«${title}» به مبلغ ${amount.toLocaleString('fa-IR')} ریال — این مبلغ هزینهٔ سازمان مربوطه است و جزو حق‌الزحمه نیست. از صفحهٔ پرونده می‌توانید آن را پرداخت کنید تا کارتان ادامه پیدا کند.`,
+    kind: 'warning',
+    link: `/app/requests/${requestId}`,
+    idempotencyKey: `external-invoice:${invoice.id}`,
+    sms: { eventCode: 'invoice_created', variables: { invoice_number: String(invoice.number ?? ''), amount: String(amount) } },
+  }).catch(() => undefined);
+
+  return getRequest(requestId);
+}
+
 export async function claimRequest(requestId: string, staffId: string, name: string) {
   // The attempt log lives outside the transaction on purpose: a losing claim
   // is rolled back, but the evidence of "somebody else took it" must survive.
@@ -1304,6 +1816,7 @@ export async function claimRequest(requestId: string, staffId: string, name: str
         message: 'پرونده از صف پذیرش برداشته شد.', details: { trackingCode: r.tracking_code },
       });
       outcome = { result: 'won' };
+      await refreshWorkBucket(requestId);
       return { id: requestId, assignedAt, status: nextStatus };
     });
   } catch (error) {
@@ -1320,6 +1833,14 @@ export async function claimRequest(requestId: string, staffId: string, name: str
          VALUES (?,?,?,?,?,?,?)`,
         [id('clm'), requestId, staffId, name, 'won', null, nowIso()],
       ).catch(() => undefined);
+      // The customer may have paid before anyone took the case: turn those
+      // confirmed payments into this executor's income right away.
+      await accrueCommissionsForRequest(requestId).catch((error) => {
+        logEvent({
+          level: 'WARNING', category: 'payment', action: 'commission.sweep_failed', result: 'failure',
+          entityType: 'request', entityId: requestId, message: String((error as Error)?.message ?? error),
+        }).catch(() => undefined);
+      });
     }
   }
 }
@@ -1359,8 +1880,19 @@ export async function forceAssignSweep(options: { now?: Date; limit?: number } =
   for (const request of rows) {
     const service = await getServiceById(request.service_id);
     if (!service) { skipped.push({ requestId: request.id, reason: 'service-missing' }); continue; }
-    const candidates = await candidatesForService(service);
-    if (!candidates.length) { skipped.push({ requestId: request.id, reason: 'no-available-staff' }); continue; }
+    const candidates = await candidatesForService(service, { requireOnline: true });
+    if (!candidates.length) {
+      skipped.push({ requestId: request.id, reason: 'no-available-staff' });
+      // The case must not silently rot in the pool: tell the managers (at most
+      // once per Tehran day per case) so a human can place it manually.
+      await notifyRole(['super_admin', 'manager'], {
+        title: 'پروندهٔ بدون کارشناس از موعد واگذاری گذشته است',
+        body: `درخواست «${service.title}» (کد پیگیری ${toPersianDigits(request.tracking_code)}) کارشناس واجد شرایط و آزاد ندارد و در صف مانده است.`,
+        kind: 'warning', link: '/admin/requests?unassigned=true',
+        idempotencyKey: `unassigned-overdue:${request.id}:${tehranNow().date}`,
+      }).catch(() => undefined);
+      continue;
+    }
     const ranked: { id: string; name: string; load: number; onShift: boolean; type: string }[] = [];
     for (const candidate of candidates) {
       ranked.push({ ...candidate, type: await cooperationType(candidate.id) });
@@ -1404,6 +1936,7 @@ export async function forceAssignSweep(options: { now?: Date; limit?: number } =
       entityType: 'request', entityId: request.id,
       details: { staffId: chosen.id, cooperationType: chosen.type, reason: 'deadline' },
     });
+    await refreshWorkBucket(request.id);
     assigned.push({ requestId: request.id, staffId: chosen.id, staffName: chosen.name, cooperationType: chosen.type });
   }
   return { enabled: true, checked: rows.length, assigned, skipped };

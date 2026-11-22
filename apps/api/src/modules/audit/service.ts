@@ -1,4 +1,4 @@
-import { q, run, one, nowIso, jsonStringify, jsonParse } from '../../db/index.js';
+import { q, run, one, nowIso, jsonStringify, jsonParse, txSavepoint } from '../../db/index.js';
 import { id } from '../../lib/crypto.js';
 import { safeErrorText } from '../../lib/safe-log.js';
 
@@ -13,10 +13,20 @@ export interface AuditInput {
   ip?: string;
 }
 
-/** Sensitive records for every privileged action. Never throws into the request path. */
+/**
+ * Sensitive records for every privileged action. Never throws into the request path.
+ *
+ * The insert runs inside a savepoint when a transaction is open (the usual case:
+ * the audit row is written from within the business transaction). Without it a
+ * failure here — a constraint, a column that does not exist yet during an
+ * upgrade — would abort the whole PostgreSQL transaction, and the business
+ * operation that had already succeeded would then fail on its own next read
+ * with "current transaction is aborted". SQLite never showed this because it
+ * keeps accepting statements after an error.
+ */
 export async function writeAudit(input: AuditInput): Promise<void> {
   try {
-    await run(
+    await txSavepoint((db) => db.run(
       `INSERT INTO audit_logs (id, actor_id, actor_name, action, entity_type, entity_id, before_data, after_data, ip, created_at)
        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       [
@@ -31,7 +41,7 @@ export async function writeAudit(input: AuditInput): Promise<void> {
         input.ip ?? null,
         nowIso(),
       ],
-    );
+    ));
   } catch (err) {
     console.error(`[audit] failed to persist audit entry: ${safeErrorText(err)}`);
   }

@@ -1,0 +1,109 @@
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+    <uses-permission android:name="android.permission.INTERNET"/>
+    <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE"/>
+    <uses-permission android:name="android.permission.CAMERA"/>
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS"/>
+    <!-- Optional fingerprint/face unlock (local_auth). -->
+    <uses-permission android:name="android.permission.USE_BIOMETRIC"/>
+    <!-- Lets scheduled background notification checks come back after a
+         reboot. WorkManager enables its own BOOT_COMPLETED receiver as soon as
+         a task is enqueued, so declaring one here would be both redundant and
+         a way to wake the app on every boot for nothing. -->
+    <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED"/>
+    <!-- Background checks are polling, so the device must be allowed to wake
+         for them; without WAKE_LOCK the scheduled pass can be cut short. -->
+    <uses-permission android:name="android.permission.WAKE_LOCK"/>
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE"/>
+    <!-- Remind the customer if the OS has put the app to sleep. Requesting the
+         exemption is opt-in and only ever triggered from a button the user
+         presses; the app never asks for it on its own. -->
+    <uses-permission android:name="android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS"/>
+    <!-- No SCHEDULE_EXACT_ALARM on purpose. The few-minute notification check
+         is a one-off WorkManager task that re-queues itself from its own
+         callback: one-off work has no periodic floor, so it reaches the same
+         cadence as an alarm without asking the user for a special permission
+         or standing out in review. Alarms would also not survive the app being
+         swiped away any better than WorkManager does. -->
+
+    <!-- Cleartext stays on because the same APK must reach an office PC over
+         the local Wi-Fi (Windows edition). Production servers are expected
+         to be HTTPS; see README before tightening this. -->
+    <application
+        android:label="تک پیشخوان"
+        android:name="${applicationName}"
+        android:icon="@mipmap/ic_launcher"
+        android:usesCleartextTraffic="true"
+        android:supportsRtl="true">
+        <activity
+            android:name=".MainActivity"
+            android:exported="true"
+            android:launchMode="singleTop"
+            android:taskAffinity=""
+            android:theme="@style/LaunchTheme"
+            android:configChanges="orientation|keyboardHidden|keyboard|screenSize|smallestScreenSize|locale|layoutDirection|fontScale|screenLayout|density|uiMode"
+            android:hardwareAccelerated="true"
+            android:windowSoftInputMode="adjustResize">
+            <meta-data
+              android:name="io.flutter.embedding.android.NormalTheme"
+              android:resource="@style/NormalTheme"
+              />
+            <meta-data android:name="flutter_deeplinking_enabled" android:value="false" />
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data android:scheme="pishkan" android:host="invite" />
+            </intent-filter>
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN"/>
+                <category android:name="android.intent.category.LAUNCHER"/>
+            </intent-filter>
+        </activity>
+        <activity android:name="com.yalantis.ucrop.UCropActivity"
+            android:screenOrientation="portrait"
+            android:theme="@style/Theme.AppCompat.Light.NoActionBar"/>
+        <!-- Push notifications (FCM). A data-only message is delivered to this
+             service by the system even when the app has never been opened, which
+             is what makes "notification while the app is closed" work without
+             relying on the app being allowed to wake itself up.
+             android:exported is declared explicitly because Android 12+
+             requires it on components with an intent-filter. It is FALSE: GMS
+             dispatches MESSAGING_EVENT with an explicit bind, so the service
+             does not need to be reachable by other apps. Leaving it true would
+             let any installed app invoke this component. (Copying the Firebase
+             doc snippet verbatim is a common way to get an exported, callable
+             service.) -->
+        <service
+            android:name=".push.PishkanPushService"
+            android:exported="false"
+            android:directBootAware="false">
+            <intent-filter>
+                <action android:name="com.google.firebase.MESSAGING_EVENT" />
+            </intent-filter>
+        </service>
+        <!-- The registration token is reposted by the service itself, so no
+             default-notification metadata is needed: nothing is rendered by the
+             system for a data-only message. -->
+        <meta-data
+            android:name="flutterEmbedding"
+            android:value="2" />
+    </application>
+    <queries>
+        <intent>
+            <action android:name="android.intent.action.PROCESS_TEXT"/>
+            <data android:mimeType="text/plain"/>
+        </intent>
+        <intent>
+            <action android:name="android.intent.action.VIEW"/>
+            <data android:scheme="https"/>
+        </intent>
+        <intent>
+            <action android:name="android.intent.action.VIEW"/>
+            <data android:scheme="http"/>
+        </intent>
+        <intent>
+            <action android:name="android.intent.action.DIAL"/>
+            <data android:scheme="tel"/>
+        </intent>
+    </queries>
+</manifest>

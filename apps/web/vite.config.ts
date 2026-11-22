@@ -11,8 +11,8 @@ export default defineConfig({
       registerType: 'autoUpdate',
       includeAssets: ['favicon.svg', 'images/**/*.svg'],
       manifest: {
-        name: 'سامانه دفتر پیشخوان دولت',
-        short_name: 'پیشخوان',
+        name: 'تک پیشخوان',
+        short_name: 'تک پیشخوان',
         description: 'سامانه جامع خدمات دفتر پیشخوان دولت',
         lang: 'fa',
         dir: 'rtl',
@@ -28,6 +28,7 @@ export default defineConfig({
         ],
       },
       workbox: {
+        importScripts: ['/push-sw.js'],
         navigateFallback: '/index.html',
         navigateFallbackDenylist: [/^\/api\//, /^\/uploads\//],
         globPatterns: ['**/*.{js,css,html,svg,png,woff2}'],

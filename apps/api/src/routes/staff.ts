@@ -7,7 +7,7 @@ import { created, ok, pagination } from '../http/respond.js';
 import { one, q, run, nowIso, jsonParse, jsonStringify } from '../db/index.js';
 import { hashPassword, id } from '../lib/crypto.js';
 import {
-  ACTIONS, PERMISSION_LABELS, RESOURCES, RESOURCE_LABELS, allPermissions, expandPermissions, hasPermission,
+  ACTIONS, EXTRA_PERMISSION_LABELS, PERMISSION_LABELS, RESOURCES, RESOURCE_LABELS, allPermissions, expandPermissions, hasPermission,
 } from '../lib/permissions.js';
 import { writeAudit } from '../modules/audit/service.js';
 import { validatePasswordAgainstPolicy, revokeAllSessions } from '../modules/auth/service.js';
@@ -35,8 +35,12 @@ function mapStaff(row: any) {
     maxActiveCases: Number(row.max_active_cases ?? 0),
     acceptsNewCases: Boolean(row.accepts_new_cases),
     activeCases: Number(row.active_cases ?? 0),
+    cooperationKind: row.cooperation_kind ?? null,
+    commissionPercent: row.commission_percent == null ? null : Number(row.commission_percent),
+    monthlyAmount: row.monthly_amount == null ? null : Number(row.monthly_amount),
     mfaEnabled: Boolean(row.mfa_enabled),
     lastLoginAt: row.last_login_at,
+    lastSeenAt: row.last_seen_at ?? null,
     hiredAt: row.hired_at,
     createdAt: row.created_at,
   };
@@ -45,7 +49,10 @@ function mapStaff(row: any) {
 const STAFF_SELECT = `
   SELECT u.*, r.code AS role_code, r.name AS role_name, sp.employee_code, sp.position, sp.specialties,
          sp.max_active_cases, sp.accepts_new_cases, sp.hired_at,
-         (SELECT COUNT(*) FROM requests rq WHERE rq.assigned_to = u.id AND rq.status NOT IN ('completed','cancelled','rejected')) AS active_cases
+         (SELECT COUNT(*) FROM requests rq WHERE rq.assigned_to = u.id AND rq.status NOT IN ('completed','cancelled','rejected')) AS active_cases,
+         (SELECT c.kind FROM compensation_contracts c WHERE c.user_id = u.id AND c.is_active = 1 ORDER BY c.starts_on DESC LIMIT 1) AS cooperation_kind,
+         (SELECT c.commission_percent FROM compensation_contracts c WHERE c.user_id = u.id AND c.is_active = 1 ORDER BY c.starts_on DESC LIMIT 1) AS commission_percent,
+         (SELECT c.monthly_amount FROM compensation_contracts c WHERE c.user_id = u.id AND c.is_active = 1 ORDER BY c.starts_on DESC LIMIT 1) AS monthly_amount
   FROM users u
   LEFT JOIN roles r ON r.id = u.role_id
   LEFT JOIN staff_profiles sp ON sp.user_id = u.id
@@ -101,8 +108,10 @@ staffRouter.get('/me/workload', asyncRoute(async (req, res) => {
     `SELECT COUNT(*) AS c FROM requests WHERE assigned_to = ? AND status = 'completed' AND completed_at >= ?`,
     [userId, new Date(Date.now() - 30 * 86_400_000).toISOString()],
   );
+  const profile = await one<any>('SELECT accepts_new_cases FROM staff_profiles WHERE user_id = ?', [userId]);
 
   ok(res, {
+    acceptsNewCases: profile ? Boolean(profile.accepts_new_cases) : true,
     activeRequests: active.map((r) => ({
       id: r.id, trackingCode: r.tracking_code, status: r.status, priority: r.priority,
       dueAt: r.due_at, deadlineAt: r.due_at, estimatedCompletionAt: r.estimated_completion_at,
@@ -202,7 +211,14 @@ staffRouter.patch('/:id', requirePermission('staff.edit'), asyncRoute(async (req
     roleId = role.id;
   }
 
-  if (body.newPassword) await validatePasswordAgainstPolicy(body.newPassword);
+  if (body.newPassword) {
+    // Resetting a colleague's password is a break-glass action: only the
+    // super admin may do it, never every holder of staff.edit.
+    if (req.auth!.user.roleCode !== 'super_admin' && req.auth!.permissions !== '*') {
+      throw forbidden('بازنشانی رمز عبور همکاران فقط توسط مدیر کل انجام می‌شود.');
+    }
+    await validatePasswordAgainstPolicy(body.newPassword);
+  }
 
   await run(
     `UPDATE users SET full_name = ?, email = ?, role_id = ?, status = ?, password_hash = ?, mfa_enabled = ?, updated_at = ? WHERE id = ?`,
@@ -236,7 +252,8 @@ staffRouter.patch('/:id', requirePermission('staff.edit'), asyncRoute(async (req
 
   await writeAudit({
     actorId: req.auth!.user.id, actorName: req.auth!.user.fullName, action: 'staff.update',
-    entityType: 'user', entityId: user.id, after: { status: body.status, roleCode: body.roleCode }, ip: req.ip,
+    entityType: 'user', entityId: user.id,
+    after: { status: body.status, roleCode: body.roleCode, passwordReset: Boolean(body.newPassword) }, ip: req.ip,
   });
   const row = await one<any>(`${STAFF_SELECT} WHERE u.id = ?`, [user.id]);
   ok(res, mapStaff(row));
@@ -310,6 +327,7 @@ staffRouter.get('/meta/permissions', asyncRoute(async (req, res) => {
   ok(res, {
     resources: RESOURCES.map((r) => ({ code: r, label: RESOURCE_LABELS[r] })),
     actions: ACTIONS.map((a) => ({ code: a, label: PERMISSION_LABELS[a] })),
+    extras: Object.entries(EXTRA_PERMISSION_LABELS).map(([code, label]) => ({ code, label })),
     all: allPermissions(),
   });
 }));

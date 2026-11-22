@@ -28,6 +28,40 @@ export const DOCUMENT_TYPES = [
 export type DocumentTypeCode = (typeof DOCUMENT_TYPES)[number]['code'];
 export const DOCUMENT_TYPE_CODES = DOCUMENT_TYPES.map((type) => type.code) as unknown as [DocumentTypeCode, ...DocumentTypeCode[]];
 
+/**
+ * Guess a document type from a Persian title.
+ *
+ * The seeded requirements carry only a title, so without this the archive can
+ * never recognise "تصویر کارت ملی" as a national card, and every new request
+ * asks for it again. The patterns are deliberately narrow and checked
+ * most-specific-first (پروانه کسب before کسب, گذرنامه before نامه): a wrong
+ * guess would file a document under a type it does not satisfy, which is worse
+ * than filing nothing at all.
+ */
+const DOCUMENT_TYPE_HINTS: { type: DocumentTypeCode; pattern: RegExp }[] = [
+  { type: 'business_license', pattern: /پروانه\s*(کسب|کسب\s*و\s*کار)|مجوز\s*(کسب|فعالیت)/ },
+  { type: 'birth_certificate', pattern: /شناسنامه/ },
+  { type: 'national_card', pattern: /کارت\s*ملی|کارت\s*ملى/ },
+  { type: 'passport', pattern: /گذرنامه|پاسپورت/ },
+  { type: 'residence_permit', pattern: /اقامت|ویزا/ },
+  { type: 'insurance_card', pattern: /کارت\s*بیمه/ },
+  { type: 'personal_photo', pattern: /عکس\s*(پرسنلی|شخصی)|۳[\s-]*۴|3[\s-]*4/ },
+  { type: 'bank_card', pattern: /کارت\s*بانک|شماره\s*کارت/ },
+  { type: 'utility_bill', pattern: /قبض|صورتحساب\s*(آب|برق|گاز|تلفن)/ },
+];
+
+export function inferDocumentType(title: string | null | undefined): DocumentTypeCode | null {
+  const text = String(title ?? '').replace(/\u200c/g, ' ').trim();
+  if (!text) return null;
+  const matches = DOCUMENT_TYPE_HINTS.filter((hint) => hint.pattern.test(text));
+  // A title naming two different documents — «تصویر شناسنامه و کارت ملی همسر»
+  // asks for both in one slot — has no single correct type. Filing it under
+  // either one would let a future request offer the wrong paper, so it stays
+  // untyped and is simply uploaded per request.
+  if (new Set(matches.map((hint) => hint.type)).size > 1) return null;
+  return matches[0]?.type ?? null;
+}
+
 export function documentTypeLabel(code: string): string {
   return DOCUMENT_TYPES.find((type) => type.code === code)?.label ?? code;
 }
@@ -159,6 +193,60 @@ export interface AddDocumentInput {
   issuedAt?: string | null;
   expiresAt?: string | null;
   replacesDocumentId?: string | null;
+}
+
+/**
+ * Mirror a request's freshly-attached document into the customer's archive.
+ *
+ * The app does this client-side after an upload, but the web request form made
+ * the customer tick a modal to do it, so the archive filled up on one client and
+ * stayed empty on the other. Whether a document the office already holds comes
+ * back automatically on the *next* request is a property of the server's data,
+ * not of which browser the customer used — so the mirror belongs here, where
+ * both clients and any future one get it.
+ *
+ * Deliberately quiet and strictly additive:
+ *  - No `docType` means we do not know what the document *is* (free-form
+ *    uploads, personal photos). Guessing `other` would create an archive entry
+ *    that can never satisfy a later requirement, so it is skipped.
+ *  - The file must be the customer's own, private, and an image or PDF:
+ *    `addCustomerDocument` enforces that, and this helper simply respects a
+ *    rejection instead of failing the request the customer is submitting.
+ *  - A file already in the archive is left alone.
+ *  - The entry lands as `pending`, exactly like a manual upload. Archiving is
+ *    not approval; an unapproved document is still offered on the next request,
+ *    the customer confirms reuse, and the reviewer decides. What it must never
+ *    do is pretend the document was approved.
+ */
+export async function archiveRequestDocument(input: {
+  customerId: string;
+  fileId: string;
+  docType?: string | null;
+  title?: string | null;
+  actor: { id: string; name: string; ip?: string };
+}): Promise<string | null> {
+  const docType = String(input.docType ?? '').trim();
+  if (!docType || docType === 'other') return null;
+  if (!DOCUMENT_TYPE_CODES.includes(docType as (typeof DOCUMENT_TYPE_CODES)[number])) return null;
+  const already = await one<{ id: string }>(
+    'SELECT id FROM customer_documents WHERE file_id = ? AND customer_id = ?',
+    [input.fileId, input.customerId],
+  );
+  if (already) return already.id;
+  try {
+    const created = await addCustomerDocument({
+      customerId: input.customerId,
+      fileId: input.fileId,
+      docType,
+      title: input.title?.trim() || documentTypeLabel(docType),
+    }, input.actor);
+    return String((created as any)?.id ?? '') || null;
+  } catch {
+    // A duplicate, an unsupported file or a missing one must not fail the
+    // request submission that triggered this. The request keeps its document
+    // either way; only the archive mirror is skipped.
+    return null;
+  }
 }
 
 export async function addCustomerDocument(input: AddDocumentInput, actor: { id: string; name: string; ip?: string }) {
@@ -301,8 +389,7 @@ export async function reuseDocumentInRequest(input: {
   title?: string;
   actor: { id: string; name: string };
 }): Promise<ReuseResult> {
-  const config = await loadMediaConfig();
-  if (config.requireReuseConfirmation && !input.confirm) {
+  if (!input.confirm) {
     throw badRequest('برای استفاده دوباره از مدرک، تأیید صریح مشتری لازم است.');
   }
 
@@ -316,7 +403,7 @@ export async function reuseDocumentInRequest(input: {
     if (doc.customer_id !== input.customerId) throw forbidden('این مدرک به حساب شما تعلق ندارد.');
     if (doc.status === 'rejected') throw conflict('این مدرک رد شده است و باید مدرک جدید بارگذاری شود.');
     if (doc.status !== 'approved') throw conflict('این مدرک هنوز تأیید نشده است و نمی‌توان آن را در پرونده استفاده کرد.');
-    if (validityState(doc.expires_at) === 'expired') {
+    if (doc.expires_at && (Number.isNaN(Date.parse(doc.expires_at)) || validityState(doc.expires_at) === 'expired')) {
       throw conflict('اعتبار این مدرک به پایان رسیده است؛ لطفاً مدرک تازه بارگذاری کنید.');
     }
 
@@ -340,6 +427,13 @@ export async function reuseDocumentInRequest(input: {
     if (input.requirementKey && !validRequirementKeys.has(input.requirementKey)) throw badRequest('شناسه مدرک با فرم زمان ثبت درخواست سازگار نیست.');
     const selectedRequirement = serviceDocuments.find((document: any, index: number) => String(document?.key || `document_${index + 1}`) === input.requirementKey);
     const selectedFileField = fileFields.find((field: any) => `field:${String(field.key)}` === input.requirementKey);
+    if (!selectedRequirement?.documentType || selectedRequirement.documentType !== doc.doc_type || doc.doc_type === 'other') {
+      throw badRequest('نوع این مدرک پروفایل برای نیازمندی انتخاب‌شده توسط مدیر تعریف نشده یا سازگار نیست.');
+    }
+    const file = await getFile(doc.file_id);
+    if (!file || file.owner_id !== input.customerId || file.is_public || (!file.mime.startsWith('image/') && file.mime !== 'application/pdf')) {
+      throw conflict('فایل مدرک پروفایل معتبر یا در دسترس نیست.');
+    }
     const title = selectedRequirement?.title ?? selectedFileField?.label ?? (input.title?.trim() || doc.title || documentTypeLabel(doc.doc_type));
 
     const duplicate = await db.one<any>(
@@ -361,10 +455,9 @@ export async function reuseDocumentInRequest(input: {
 
     const requestDocumentId = id('doc');
     const now = nowIso();
-    const nextStatus = 'under_review';
     await db.run(
       `INSERT INTO request_documents (id, request_id, file_id, title, kind, status, created_at, customer_document_id, document_type, expires_at, requirement_key, replaces_document_id)
-       VALUES (?, ?, ?, ?, 'customer', 'pending', ?, ?, ?, ?, ?, ?)`,
+       VALUES (?, ?, ?, ?, 'customer', 'approved', ?, ?, ?, ?, ?, ?)`,
       [requestDocumentId, input.requestId, doc.file_id, title, now, doc.id, doc.doc_type, doc.expires_at, input.requirementKey ?? null, replacesDocumentId],
     );
     await db.run(
@@ -374,14 +467,10 @@ export async function reuseDocumentInRequest(input: {
         `مدرک «${title}» از مدارک پروفایل با تأیید مشتری به پرونده پیوست شد.`,
         JSON.stringify({ fileId: doc.file_id, customerDocumentId: doc.id, requirementKey: input.requirementKey ?? null, replacesDocumentId }), now],
     );
-    await db.run('UPDATE requests SET status = ?, updated_at = ? WHERE id = ?', [nextStatus, now, input.requestId]);
-    if (nextStatus !== currentRequest.status) {
-      await db.run(
-        `INSERT INTO request_events (id, request_id, actor_id, actor_name, type, message, from_status, to_status, visible_to_customer, created_at)
-         VALUES (?, ?, ?, ?, 'status', ?, ?, ?, 1, ?)`,
-        [id('evt'), input.requestId, input.actor.id, input.actor.name, 'مدرک جدید برای بررسی ارسال شد؛ پرونده دوباره در صف بازبینی قرار گرفت.', currentRequest.status, nextStatus, now],
-      );
-    }
+    // Reconcile only an already waiting/reviewing case; never send an approved
+    // archive document back for review or reset an unrelated workflow stage.
+    const { reconcileAfterDocumentReview } = await import('../requests/service.js');
+    await reconcileAfterDocumentReview(input.requestId, input.actor);
     await db.run('UPDATE customer_documents SET request_id = COALESCE(request_id, ?), updated_at = ? WHERE id = ?', [input.requestId, now, doc.id]);
     await writeAudit({
       actorId: input.actor.id, actorName: input.actor.name, action: 'customer_document.reuse',

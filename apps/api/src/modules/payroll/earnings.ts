@@ -18,8 +18,8 @@ import { logEvent } from '../logging/service.js';
 import { notifyUser } from '../notifications/service.js';
 import { getBool, getNumber } from '../settings/service.js';
 import {
-  activeContract, commissionAmount, cooperationType, officeRevenueOf, settlementPolicy,
-  settlementWindow, startOfMonthIso, startOfWeekIso, todayIso,
+  activeContract, commissionAmount, commissionPercentFor, cooperationType, officeRevenueOf, settlementPolicy,
+  settlementWindow, startOfMonthIso, startOfWeekIso, todayIso, earningsByRequest,
 } from './compensation.js';
 import { contractHistory } from './service.js';
 
@@ -123,6 +123,8 @@ export async function performanceSummary(userId: string) {
   const monthStart = startOfMonthIso();
   const counts = await q<any>('SELECT status, COUNT(*) AS c FROM requests WHERE assigned_to=? GROUP BY status', [userId]);
   const map = new Map(counts.map((row) => [row.status, Number(row.c)]));
+  const bucketCounts = await q<any>('SELECT work_bucket, COUNT(*) AS c FROM requests WHERE assigned_to=? GROUP BY work_bucket', [userId]);
+  const buckets = new Map(bucketCounts.map((row) => [row.work_bucket, Number(row.c)]));
   const completed = await one<any>(
     `SELECT
        COALESCE(SUM(CASE WHEN completed_at >= ? THEN 1 ELSE 0 END),0) AS today,
@@ -158,9 +160,10 @@ export async function performanceSummary(userId: string) {
     inProgress,
     // Statuses are the source of truth; the mapping is documented rather than
     // invented so the counter can always be traced back to a filter.
-    awaitingOrganization: (map.get('under_review') ?? 0),
-    awaitingCustomer: (map.get('waiting_documents') ?? 0) + (map.get('waiting_customer') ?? 0),
-    needsAction: (map.get('ready') ?? 0) + (map.get('assigned') ?? 0),
+    awaitingOrganization: buckets.get('waiting_organization') ?? (map.get('under_review') ?? 0),
+    awaitingCustomer: buckets.get('waiting_customer') ?? ((map.get('waiting_documents') ?? 0) + (map.get('waiting_customer') ?? 0)),
+    needsAction: buckets.get('action') ?? ((map.get('ready') ?? 0) + (map.get('assigned') ?? 0)),
+    needsFollowup: buckets.get('followup') ?? 0,
     unclaimed: map.get('new') ?? 0,
     averageCompletionMinutes,
     avgMinutesSample: durationMinutes.length,
@@ -221,21 +224,31 @@ export async function incomeEntries(userId: string, opts: { from?: string; to?: 
 
 /** Estimate for open, assigned requests. Explicitly an estimate, never booked. */
 export async function pendingEstimate(userId: string) {
-  const percent = await activeContract(userId);
-  if (!percent || percent.kind !== 'commission') return { percent: 0, items: [], total: 0 };
+  const contract = await activeContract(userId);
+  if (!contract || contract.kind !== 'commission') return { percent: 0, items: [], total: 0 };
   const rows = await q<any>(
-    `SELECT r.id, r.tracking_code, r.total, r.status, s.title AS service_title,
-            (SELECT COALESCE(SUM(i.total - i.tax),0) FROM invoices i WHERE i.request_id=r.id) AS net_total
+    `SELECT r.id, r.tracking_code, r.total, r.status, r.service_id, r.assigned_to, s.title AS service_title,
+            (SELECT COALESCE(SUM(i.total - i.tax),0) FROM invoices i WHERE i.request_id=r.id AND i.purpose='service') AS net_total
      FROM requests r JOIN services s ON s.id=r.service_id
      WHERE r.assigned_to=? AND r.status IN (${OPEN.map(() => '?').join(',')})`,
     [userId, ...OPEN],
   );
-  const items = rows.map((row) => ({
-    requestId: row.id, trackingCode: row.tracking_code, serviceTitle: row.service_title,
-    status: row.status, officeRevenue: Math.round(Number(row.net_total ?? 0) || Number(row.total ?? 0)),
-    estimate: commissionAmount(Math.round(Number(row.net_total ?? 0) || Number(row.total ?? 0)), Number(percent.commission_percent)),
-  }));
-  return { percent: Number(percent.commission_percent), items, total: items.reduce((sum, item) => sum + item.estimate, 0) };
+  // Split-aware: when a manager divided this case's pool, the dashboard
+  // estimate must show only this person's slice — same rule as the cards.
+  const previews = await earningsByRequest(userId, rows).catch(() => new Map());
+  const items = [];
+  for (const row of rows) {
+    const officeRevenue = Math.round(Number(row.net_total ?? 0) || Number(row.total ?? 0));
+    const preview = previews.get(row.id);
+    const rowPercent = preview?.percent ?? await commissionPercentFor(userId, row.service_id);
+    items.push({
+      requestId: row.id, trackingCode: row.tracking_code, serviceTitle: row.service_title,
+      status: row.status, officeRevenue, percent: rowPercent,
+      splitSharePercent: preview?.splitSharePercent ?? null,
+      estimate: preview && preview.state === 'estimated' ? preview.amount : commissionAmount(officeRevenue, rowPercent),
+    });
+  }
+  return { percent: Number(contract.commission_percent), items, total: items.reduce((sum, item) => sum + item.estimate, 0) };
 }
 
 export async function incomeSummary(userId: string) {
@@ -345,6 +358,8 @@ function mapWithdrawal(row: any) {
     note: row.request_note, decisionNote: row.decision_note, reviewedAt: row.reviewed_at,
     approvedAt: row.approved_at, rejectedAt: row.rejected_at, paidAt: row.paid_at,
     paymentMethod: row.payment_method, trackingCode: row.tracking_code, accountingNote: row.accounting_note,
+    receiptFileId: row.receipt_file_id ?? null,
+    receiptUrl: row.receipt_file_id ? `/api/files/${row.receipt_file_id}?variant=original` : null,
     createdAt: row.created_at,
   };
 }
@@ -455,7 +470,7 @@ export async function advanceWithdrawal(
  */
 export async function payWithdrawal(
   withdrawalId: string,
-  input: { method: string; trackingCode: string; paidAt?: string; note?: string },
+  input: { method: string; trackingCode: string; paidAt?: string; note?: string; receiptFileId?: string | null },
   actor: { id: string; name: string },
 ) {
   return tx(async () => {
@@ -464,6 +479,10 @@ export async function payWithdrawal(
     if (row.status === 'paid') throw conflict('این درخواست قبلاً پرداخت شده است.');
     if (!['approved', 'paying'].includes(row.status)) {
       throw conflict('پرداخت فقط پس از تأیید درخواست امکان‌پذیر است.');
+    }
+    if (input.receiptFileId) {
+      const receipt = await one<any>('SELECT id FROM files WHERE id = ?', [input.receiptFileId]);
+      if (!receipt) throw badRequest('فایل رسید پرداخت یافت نشد.');
     }
     const method = String(input.method ?? '').trim();
     const trackingCode = String(input.trackingCode ?? '').trim();
@@ -504,9 +523,9 @@ export async function payWithdrawal(
 
     const changed = await run(
       `UPDATE staff_withdrawals
-       SET status='paid', paid_at=?, payment_method=?, tracking_code=?, accounting_note=?, updated_at=?
+       SET status='paid', paid_at=?, payment_method=?, tracking_code=?, accounting_note=?, receipt_file_id=COALESCE(?, receipt_file_id), updated_at=?
        WHERE id=? AND status IN ('approved','paying')`,
-      [paidAt, method, trackingCode, input.note ?? null, now, withdrawalId],
+      [paidAt, method, trackingCode, input.note ?? null, input.receiptFileId ?? null, now, withdrawalId],
     );
     if (!changed.changes) throw conflict('وضعیت درخواست هم‌زمان تغییر کرده است.');
     await addWithdrawalEvent({
@@ -515,7 +534,8 @@ export async function payWithdrawal(
     });
     await writeAudit({
       actorId: actor.id, actorName: actor.name, action: 'payroll.withdrawal.pay', entityType: 'staff_withdrawal',
-      entityId: withdrawalId, before: { status: row.status }, after: { status: 'paid', amount, method, trackingCode },
+      entityId: withdrawalId, before: { status: row.status },
+      after: { status: 'paid', amount, method, trackingCode, receiptFileId: input.receiptFileId ?? null },
     });
     await logEvent({
       level: 'INFO', category: 'staff', action: 'payroll.withdrawal.pay', result: 'success',
@@ -622,15 +642,58 @@ export async function salaryHistory(userId: string) {
 
 /* ---------------------------------- dashboards ---------------------------- */
 
+/** Public staff-profile bits the workbench info card shows (never money). */
+async function staffProfileOf(userId: string) {
+  const row = await one<any>('SELECT employee_code, position, hired_at FROM staff_profiles WHERE user_id=?', [userId]);
+  return row ? { employeeCode: row.employee_code, position: row.position, hiredAt: row.hired_at } : null;
+}
+
+/** Rank of a percentage employee inside the active percentage cohort, by this
+ * month's definite commission income. Position is null with no income yet. */
+async function commissionRank(userId: string) {
+  const actives = await q<any>(
+    `SELECT DISTINCT user_id FROM compensation_contracts
+     WHERE kind='commission' AND is_active=1 AND starts_on<=? AND (ends_on IS NULL OR ends_on>=?)`,
+    [todayIso(), todayIso()],
+  );
+  const activeIds = new Set(actives.map((r: any) => r.user_id));
+  if (!activeIds.has(userId)) return { position: null, total: activeIds.size };
+  const totals = await q<any>(
+    `SELECT user_id, COALESCE(SUM(amount),0) AS s FROM compensation_entries
+     WHERE kind IN ('commission','reversal','adjustment') AND created_at >= ?
+     GROUP BY user_id ORDER BY s DESC`,
+    [startOfMonthIso()],
+  );
+  const ranked = totals.filter((r: any) => activeIds.has(r.user_id));
+  const index = ranked.findIndex((r: any) => r.user_id === userId);
+  return { position: index >= 0 ? index + 1 : null, total: activeIds.size };
+}
+
 export async function staffDashboard(userId: string) {
   const type = await cooperationType(userId);
   const performance = await performanceSummary(userId);
   if (type === 'commission') {
+    const income = await incomeSummary(userId);
+    const contract = await activeContract(userId);
+    const target = contract?.monthly_target ? Number(contract.monthly_target) : null;
     return {
       cooperationType: type,
       cooperationLabel: 'درصدی',
       performance,
-      income: await incomeSummary(userId),
+      profile: await staffProfileOf(userId),
+      contract: contract ? {
+        commissionPercent: Number(contract.commission_percent),
+        monthlyTarget: target,
+        startsOn: contract.starts_on,
+        endsOn: contract.ends_on,
+      } : null,
+      goal: target ? {
+        target,
+        achieved: income.month,
+        percent: Math.max(0, Math.min(100, Math.round((income.month / target) * 100))),
+      } : null,
+      rank: await commissionRank(userId),
+      income,
       balance: await withdrawableBalance(userId),
       withdrawals: (await listWithdrawals({ userId, pageSize: 10 })).items,
       openWithdrawal: await one<any>(
@@ -644,6 +707,10 @@ export async function staffDashboard(userId: string) {
     cooperationType: type,
     cooperationLabel: type === 'monthly' ? 'حقوق ثابت' : 'بدون قرارداد',
     performance,
+    profile: await staffProfileOf(userId),
+    contract: null,
+    goal: null,
+    rank: null,
     salary,
     // Fixed employees never receive a percentage/withdrawal panel.
     income: null,
@@ -782,10 +849,45 @@ export async function payrollReports(opts: { from?: string; to?: string } = {}) 
             COALESCE(SUM(i.total),0) AS gross,
             COALESCE(SUM(i.paid_amount),0) AS collected
      FROM invoices i
-     WHERE i.created_at BETWEEN ? AND ? AND i.status <> 'void'`, [from, to],
+     WHERE i.created_at BETWEEN ? AND ? AND i.status <> 'void' AND i.purpose = 'service'`, [from, to],
   );
+  const rangeRequests = await q<any>(
+    `SELECT r.assigned_to, u.full_name, COUNT(*) AS received,
+            COALESCE(SUM(CASE WHEN r.status='completed' AND r.completed_at BETWEEN ? AND ? THEN 1 ELSE 0 END),0) AS completed
+     FROM requests r JOIN users u ON u.id = r.assigned_to
+     WHERE r.assigned_to IS NOT NULL AND r.created_at <= ?
+     GROUP BY r.assigned_to, u.full_name`,
+    [from, to, to],
+  );
+  // Average completion time in JS from raw timestamps (dialect-neutral SQL).
+  const completedRows = await q<any>(
+    `SELECT assigned_to, assigned_at, completed_at FROM requests
+     WHERE assigned_to IS NOT NULL AND status='completed' AND assigned_at IS NOT NULL
+       AND completed_at BETWEEN ? AND ?
+     ORDER BY completed_at DESC LIMIT 2000`,
+    [from, to],
+  );
+  const durations = new Map<string, number[]>();
+  for (const row of completedRows) {
+    const minutes = (Date.parse(row.completed_at) - Date.parse(row.assigned_at)) / 60_000;
+    if (!Number.isFinite(minutes) || minutes < 0) continue;
+    const list = durations.get(row.assigned_to) ?? [];
+    list.push(minutes);
+    durations.set(row.assigned_to, list);
+  }
+  const nameById = new Map(perStaff.map((row) => [row.user_id, row.full_name]));
   return {
     from, to,
+    performance: rangeRequests.map((row) => {
+      const list = durations.get(row.assigned_to) ?? [];
+      return {
+        userId: row.assigned_to,
+        fullName: row.full_name ?? nameById.get(row.assigned_to) ?? null,
+        received: Number(row.received),
+        completed: Number(row.completed),
+        averageCompletionMinutes: list.length ? Math.round(list.reduce((a, b) => a + b, 0) / list.length) : 0,
+      };
+    }),
     staff: perStaff.map((row) => ({
       userId: row.user_id, fullName: row.full_name, cooperationType: row.kind ?? 'none',
       income: Number(row.income), basis: Number(row.basis), services: Number(row.services),

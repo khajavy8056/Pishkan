@@ -29,14 +29,16 @@ describe('customer document centre', () => {
     });
   });
 
-  it('lists profile documents with optimisation details and validity state', async () => {
+  it('lists profile documents with validity state but no technical processing details', async () => {
     renderDocuments();
     await waitFor(() => expect(screen.getAllByText('مدارک من').length).toBeGreaterThan(0));
     await waitFor(() => expect(screen.getAllByText('کارت ملی').length).toBeGreaterThan(0));
-    expect(screen.getByText('بهینه‌سازی شد')).toBeTruthy();
-    expect(screen.getByText(/کمتر/)).toBeTruthy();
     expect(screen.getByText('بدون تاریخ انقضا')).toBeTruthy();
-    expect(screen.getByText(/Lossless WebP/)).toBeTruthy();
+    // Customers must never see compression/optimisation chatter.
+    expect(screen.queryByText('بهینه‌سازی شد')).toBeNull();
+    expect(screen.queryByText(/کاهش حجم/)).toBeNull();
+    expect(screen.queryByText(/WebP/)).toBeNull();
+    expect(screen.queryByText(/فشرده/)).toBeNull();
   });
 
   it('offers upload and reuse actions', async () => {

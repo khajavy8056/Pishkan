@@ -117,6 +117,26 @@ export function upsertEnvFile(file, values, options = {}) {
   return { file, created: !exists, text };
 }
 
+/**
+ * Build the environment for a child process from the *current* contents of the
+ * env file.
+ *
+ * Why this is a named function and not two spreads inline: the API loads its
+ * config with dotenv **without** `override`, so anything already present in the
+ * child's environment wins over the file. A long-lived process that caches the
+ * file at startup and then passes that cache to `spawn` therefore relaunches
+ * the server with the old values — the edit appears to do nothing. That is
+ * exactly the failure mode of "enable the public tunnel, restart, log in":
+ * the tunnel origin never reaches CORS_ORIGINS and every POST is answered 403.
+ *
+ * Reading at call time makes "change the file, then start" always mean what it
+ * says. Precedence, lowest to highest: inherited environment, file, explicit
+ * overrides.
+ */
+export function buildChildEnv(file, overrides = {}, baseEnv = process.env, read = readEnvFile) {
+  return { ...baseEnv, ...read(file), ...overrides };
+}
+
 /** Restore the most recent backup created by upsertEnvFile. */
 export function restoreEnvFile(file) {
   const dir = path.dirname(file);

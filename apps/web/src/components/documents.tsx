@@ -54,20 +54,22 @@ export function ProcessingBadge({ processing }: { processing?: MediaFile['proces
   return <Badge tone={tone}>{label}</Badge>;
 }
 
-export function FileSummary({ file }: { file: MediaFile }) {
+export function FileSummary({ file, technical = false }: { file: MediaFile; technical?: boolean }) {
   const saved = file.originalSize && file.size ? Math.round((1 - file.size / file.originalSize) * 1000) / 10 : 0;
   return (
     <p className="mt-0.5 flex flex-wrap items-center gap-x-2 text-[10px] text-navy-500">
       <span>{file.mime === 'application/pdf' ? 'PDF' : (file.width && file.height ? `${faNum(file.width)}×${faNum(file.height)}` : 'تصویر')}</span>
       <span>•</span>
       <span>{bytes(file.size)}</span>
-      {saved > 0 && (
+      {/* Compression/processing details are an internal concern; customers only
+          ever see them when a staff surface explicitly opts in. */}
+      {technical && saved > 0 && (
         <>
           <span>•</span>
           <span className="text-emerald-700">از {bytes(file.originalSize)} ({faNum(saved)}٪ کمتر)</span>
         </>
       )}
-      {file.processing?.mode && file.processing.status === 'ready' && (
+      {technical && file.processing?.mode && file.processing.status === 'ready' && (
         <>
           <span>•</span>
           <span>{MODE_LABELS[file.processing.mode] ?? file.processing.mode}</span>
@@ -108,8 +110,8 @@ export function FileThumbnail({ file, onOpen, className }: { file: MediaFile; on
 }
 
 export function DocumentViewer({
-  file, title, open, onClose,
-}: { file: MediaFile | null; title: string; open: boolean; onClose: () => void }) {
+  file, title, open, onClose, technical = false,
+}: { file: MediaFile | null; title: string; open: boolean; onClose: () => void; technical?: boolean }) {
   const [zoomed, setZoomed] = useState(false);
   if (!file) return null;
   const isImage = file.mime?.startsWith('image/');
@@ -128,7 +130,7 @@ export function DocumentViewer({
             )}
             {file.displayUrl && (
               <a href={file.displayUrl} target="_blank" rel="noreferrer" className="btn-ghost btn-sm">
-                <ExternalLink className="size-3.5" /> بازکردن نسخه نمایشی
+                <ExternalLink className="size-3.5" /> بازکردن فایل
               </a>
             )}
             {file.originalUrl && (
@@ -154,16 +156,20 @@ export function DocumentViewer({
           <div className="flex items-center justify-center p-8"><Spinner /></div>
         )}
       </div>
-      <dl className="mt-4 grid grid-cols-2 gap-3 text-xs">
-        <div><dt className="text-navy-500">حجم نسخه نمایشی</dt><dd className="font-medium text-navy-900">{bytes(file.size)}</dd></div>
-        <div><dt className="text-navy-500">حجم نسخه اصلی</dt><dd className="font-medium text-navy-900">{bytes(file.originalSize ?? file.size)}</dd></div>
-        <div><dt className="text-navy-500">ابعاد</dt><dd className="font-medium text-navy-900">{file.width && file.height ? `${faNum(file.width)}×${faNum(file.height)}` : '—'}</dd></div>
-        <div><dt className="text-navy-500">وضعیت پردازش</dt><dd className="mt-1"><ProcessingBadge processing={file.processing} /></dd></div>
-      </dl>
-      {file.processing?.error && (
-        <p className="mt-3 rounded-xl bg-amber-50 p-3 text-[11px] leading-6 text-amber-900">
-          پردازش خودکار انجام نشد: {file.processing.error} — نسخه اصلی سالم نگه داشته شده است.
-        </p>
+      {technical && (
+        <>
+          <dl className="mt-4 grid grid-cols-2 gap-3 text-xs">
+            <div><dt className="text-navy-500">حجم نسخه نمایشی</dt><dd className="font-medium text-navy-900">{bytes(file.size)}</dd></div>
+            <div><dt className="text-navy-500">حجم نسخه اصلی</dt><dd className="font-medium text-navy-900">{bytes(file.originalSize ?? file.size)}</dd></div>
+            <div><dt className="text-navy-500">ابعاد</dt><dd className="font-medium text-navy-900">{file.width && file.height ? `${faNum(file.width)}×${faNum(file.height)}` : '—'}</dd></div>
+            <div><dt className="text-navy-500">وضعیت پردازش</dt><dd className="mt-1"><ProcessingBadge processing={file.processing} /></dd></div>
+          </dl>
+          {file.processing?.error && (
+            <p className="mt-3 rounded-xl bg-amber-50 p-3 text-[11px] leading-6 text-amber-900">
+              پردازش خودکار انجام نشد: {file.processing.error} — نسخه اصلی سالم نگه داشته شده است.
+            </p>
+          )}
+        </>
       )}
     </Modal>
   );
