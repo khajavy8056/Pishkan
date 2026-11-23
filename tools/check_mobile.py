@@ -59,6 +59,11 @@ STEPS: list[tuple[str, list[str]]] = [
     # cross-module symbols, so it only needs the Dart sources.
     ('symbol imports', ['tools/checks/dart_symbol_imports.py', *DART_FILES]),
     ('scope shadowing', ['tools/checks/dart_scope.py', 'apps/mobile/lib']),
+    # The assistant is the only feature rendered by two clients in two
+    # languages. This keeps the Flutter side on the same draft endpoints, card
+    # types and confirmation stage as the API — a silent drift would show up as
+    # a draft that never leaves «collecting» on the phone.
+    ('assistant contract parity', ['tools/checks/dart_assistant_contract.py']),
 ]
 
 # The deployment checks are a bash script, not a dart-tooling step, but they
