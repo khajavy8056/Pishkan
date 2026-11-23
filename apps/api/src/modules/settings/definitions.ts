@@ -271,6 +271,11 @@ export const SETTINGS: SettingDef[] = [
   { key: 'assistant.llm_api_key', group: 'assistant', type: 'password', secret: true, label: 'کلید API مدل', default: '' },
   { key: 'assistant.llm_model', group: 'assistant', type: 'text', label: 'نام مدل', default: 'gpt-4o-mini' },
   { key: 'assistant.disclaimer', group: 'assistant', type: 'textarea', label: 'سلب مسئولیت', default: 'پاسخ‌های دستیار راهنمای اولیه است و جایگزین نظر کارشناس رسمی نیست.', public: true },
+  { key: 'assistant.account_access', group: 'assistant', type: 'boolean', label: 'دسترسی دستیار به حساب مشتری', hint: 'وقتی روشن باشد، دستیارِ یک مشتری لاگین‌شده فقط وضعیت پرونده‌ها، فاکتورها، کیف پول، پروفایل و تیکت‌های خودِ او را می‌بیند. اطلاعات هیچ مشتری دیگری هرگز در دسترس نیست.', default: bool(true) },
+  { key: 'assistant.request_submission', group: 'assistant', type: 'boolean', label: 'ثبت درخواست از طریق دستیار (با تأیید صریح)', hint: 'دستیار می‌تواند فرم خدمت را گام‌به‌گام پر کند و پیش‌نمایش نشان دهد؛ درخواست واقعی فقط پس از تأیید صریح مشتری و از مسیر اعتبارسنجی اصلی ثبت می‌شود.', default: bool(true) },
+  { key: 'assistant.profile_autofill', group: 'assistant', type: 'boolean', label: 'پیشنهاد اطلاعات پروفایل در فرم دستیار', hint: 'فقط با رضایت مشتری، مقادیر پروفایل او (نام، کد ملی، شبا و…) به‌عنوان پیشنهاد در فرم پر می‌شود. مشتری می‌تواند آن‌ها را ویرایش یا رد کند.', default: bool(true) },
+  { key: 'assistant.max_tool_steps', group: 'assistant', type: 'number', label: 'حداکثر گام‌های ابزار مدل زبانی', hint: 'در حالت استفاده از مدل خارجی، بیشینهٔ فراخوانی ابزار در هر پاسخ. عدد بالاتر دقیق‌تر و کندتر است.', default: 5, min: 1, max: 8 },
+  { key: 'assistant.show_quick_actions', group: 'assistant', type: 'boolean', label: 'نمایش دکمه‌های اقدام سریع در گفت‌وگو', default: bool(true), public: true },
 
   /* ---------------------------------- files -------------------------------- */
   { key: 'files.max_size_mb', group: 'files', type: 'number', label: 'حداکثر حجم هر فایل (مگابایت)', default: 10, min: 1, max: 100 },

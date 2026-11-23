@@ -191,11 +191,77 @@ Future<Map<String, dynamic>> fetchAssistantInfo() async {
 
 /// Ask the assistant. The server decides what a customer may know: answers come
 /// from the catalogue and from this customer's own cases, never from others.
-Future<Map<String, dynamic>> askAssistant(String message, {List<Map<String, dynamic>> history = const []}) async {
+///
+/// `action` is normally `'message'`; the draft lifecycle can also be driven
+/// through the same endpoint (`'preview'`, `'confirm'`, `'cancel'`), which the
+/// dedicated helpers below use so both clients share one contract.
+Future<Map<String, dynamic>> askAssistant(
+  String message, {
+  List<Map<String, dynamic>> history = const [],
+  String action = 'message',
+  String draftId = '',
+}) async {
   final data = await api.postData('/api/assistant/chat', body: {
     'message': message,
     'history': history.take(8).toList(),
+    'action': action,
+    if (draftId.isNotEmpty) 'draftId': draftId,
   });
+  return asMap(data);
+}
+
+/* ---------------------------- assistant draft ----------------------------- */
+/* Every call below is customer-only on the server. A guest who taps «شروع
+   درخواست» is routed to login first, exactly like the website. */
+
+Future<Map<String, dynamic>?> fetchAssistantDraft() async {
+  final data = await api.getData('/api/assistant/draft');
+  final map = asMap(data);
+  return map['draft'] is Map ? asMap(map['draft']) : null;
+}
+
+/// Begin a guided request for one published service. This creates a *draft*,
+/// never a request: the real submission happens only in `confirmAssistantDraft`.
+Future<Map<String, dynamic>> startAssistantDraft(String serviceSlug, {bool useProfile = false}) async {
+  final data = await api.postData('/api/assistant/draft', body: {'serviceSlug': serviceSlug, 'useProfile': useProfile});
+  return asMap(data);
+}
+
+Future<Map<String, dynamic>> updateAssistantDraftField(String key, String value) async {
+  final data = await api.patchData('/api/assistant/draft', body: {'key': key, 'value': value});
+  return asMap(data);
+}
+
+Future<Map<String, dynamic>> attachAssistantDraftFile(String requirementKey, String fileId) async {
+  final data = await api.postData('/api/assistant/draft/documents', body: {'requirementKey': requirementKey, 'fileId': fileId});
+  return asMap(data);
+}
+
+Future<Map<String, dynamic>> attachAssistantDraftProfileDocument(String requirementKey, String customerDocumentId) async {
+  final data = await api.postData('/api/assistant/draft/documents', body: {
+    'requirementKey': requirementKey,
+    'customerDocumentId': customerDocumentId,
+  });
+  return asMap(data);
+}
+
+/// Refresh the preview. The server moves the draft to `awaiting_confirmation`
+/// only when every required field and document is satisfied; otherwise it
+/// reports exactly what is still missing.
+Future<Map<String, dynamic>> previewAssistantDraft() async {
+  final data = await api.postData('/api/assistant/draft/preview', body: const <String, dynamic>{});
+  return asMap(data);
+}
+
+/// The only path that creates a real request. `confirm: true` is required by
+/// the server *in addition to* the stored `awaiting_confirmation` stage.
+Future<Map<String, dynamic>> confirmAssistantDraft() async {
+  final data = await api.postData('/api/assistant/draft/confirm', body: {'confirm': true});
+  return asMap(data);
+}
+
+Future<Map<String, dynamic>> cancelAssistantDraft() async {
+  final data = await api.postData('/api/assistant/draft/cancel', body: const <String, dynamic>{});
   return asMap(data);
 }
 

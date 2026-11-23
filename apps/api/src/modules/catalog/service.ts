@@ -309,6 +309,40 @@ export async function searchServices(query: string, options: { limit?: number; c
     .slice(0, limit);
 }
 
+/**
+ * Every service a customer may see, in one query.
+ *
+ * The assistant must reason over the *whole* live catalogue: a service the
+ * office publishes a minute ago has to be discoverable immediately, and a
+ * paginated list would silently hide everything past page one. This is the
+ * same visibility rule as `searchServices` (published, not archived, own
+ * custom services, coverage matches the customer's city), without a limit.
+ */
+export async function publishedCatalogue(options: { customerId?: string } = {}): Promise<ServiceDTO[]> {
+  const rows = await q<ServiceRow & { category_title: string | null; category_slug: string | null }>(
+    `${SELECT_WITH_CATEGORY}
+     WHERE s.is_published = 1 AND s.archived_at IS NULL
+       AND (s.is_custom = 0 OR s.owner_customer_id = ?)
+       AND (s.coverage='nationwide' OR EXISTS(SELECT 1 FROM service_cities sc JOIN customer_profiles cp ON cp.city_id=sc.city_id WHERE sc.service_id=s.id AND cp.user_id=?))
+     ORDER BY s.sort_order ASC, s.title ASC`,
+    [options.customerId ?? '__none__', options.customerId ?? '__none__'],
+  );
+  const items = rows.map(mapService);
+  if (!items.length) return items;
+  const cityRows = await q<{ service_id: string; city_id: string }>(
+    `SELECT service_id, city_id FROM service_cities WHERE service_id IN (${items.map(() => '?').join(',')})`,
+    items.map((item) => item.id),
+  );
+  const cities = new Map<string, string[]>();
+  for (const row of cityRows) {
+    const list = cities.get(row.service_id) ?? [];
+    list.push(row.city_id);
+    cities.set(row.service_id, list);
+  }
+  for (const item of items) item.cityIds = cities.get(item.id) ?? [];
+  return items;
+}
+
 /* ------------------------------- categories ------------------------------- */
 
 export async function listCategories(options: { includeInactive?: boolean } = {}) {

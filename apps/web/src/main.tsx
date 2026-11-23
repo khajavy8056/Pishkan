@@ -11,8 +11,9 @@ import type { ReactNode } from 'react';
 import { HomePage } from './pages/public/Home';
 import { ServiceDetailPage, ServicesPage } from './pages/public/Services';
 import {
-  AssistantPage, LegalPage, LoginPage, NotFoundPage, RegisterPage, ResetPasswordPage, StaffLoginPage, StatusPage,
+  LegalPage, LoginPage, NotFoundPage, RegisterPage, ResetPasswordPage, StaffLoginPage, StatusPage,
 } from './pages/public/Auth';
+import { AssistantPage } from './pages/public/Assistant';
 import { BlogHome, BlogPostPage } from './pages/public/Blog';
 
 

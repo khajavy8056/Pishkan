@@ -275,10 +275,63 @@ Cookie: pishkan_session=…
 
 ## دستیار — `/api/assistant`
 
+دستیار یک قرارداد ساختاریافته و **افزایشی** دارد: کلاینت قدیمی همچنان `reply`،
+`suggestions` و `followUpQuestions` را می‌خواند و بقیهٔ فیلدها را نادیده می‌گیرد.
+همهٔ پاسخ‌ها از کاتالوگ زندهٔ خدمات و — فقط برای مشتری لاگین‌شده — از حساب خودِ او
+می‌آیند؛ دسترسی به حساب همیشه سمت سرور با `customerId` همان نشست محدود می‌شود.
+
 | متد | مسیر | توضیح |
 | --- | --- | --- |
-| POST | `/chat` | `{message, sessionId?}` → پاسخ مبتنی بر کاتالوگ با منابع |
-| GET | `/info` | نام، وضعیت فعال بودن، سلب مسئولیت |
+| POST | `/chat` | `{message, history[], action?: message\|confirm\|cancel\|preview, draftId?}` → `AssistantReply` |
+| GET | `/info` | `AssistantInfo`: نام، پیام شروع، سلب مسئولیت، قابلیت‌ها و پیش‌نویس باز |
+| GET | `/catalog` | کاتالوگ کامل دستیار: `?q=&category=&limit=` — بدون کش، شامل خدمت‌های تازه |
+| GET | `/draft` | پیش‌نویس باز مشتری (فقط مشتری) |
+| POST | `/draft` | شروع پیش‌نویس `{serviceSlug, useProfile?}` — **هیچ درخواستی ثبت نمی‌شود** |
+| PATCH | `/draft` | ذخیرهٔ یک فیلد `{key, value}` با اعتبارسنجی همان خدمت |
+| POST | `/draft/documents` | پیوست مدرک `{requirementKey, fileId}` یا `{requirementKey, customerDocumentId}` |
+| POST | `/draft/preview` | تازه‌سازی پیش‌نمایش؛ فقط در صورت کامل بودن، مرحله به `awaiting_confirmation` می‌رود |
+| POST | `/draft/confirm` | تنها مسیر ثبت واقعی؛ بدنه باید `{confirm: true}` باشد و مرحلهٔ ذخیره‌شده `awaiting_confirmation` |
+| POST | `/draft/cancel` | لغو پیش‌نویس بدون ساخت هیچ رکوردی |
+| GET | `/capabilities` | خلاصهٔ قابلیت‌ها برای کلاینت (مشتری/مهمان) |
+
+### شکل پاسخ (`AssistantReply`)
+
+```ts
+{
+  reply: string;
+  suggestions: AssistantServiceCard[];   // خدمت‌های مرتبط با کارت کامل
+  followUpQuestions: string[];           // سؤال‌های شفاف‌سازی
+  actions: AssistantAction[];            // link | login | register | send | confirm | cancel | edit | upload
+  cards: AssistantCard[];                // service | case | invoice | wallet | profile | ticket | catalog
+  draft: AssistantDraft | null;          // پیش‌نویس راهنمای ثبت درخواست
+  intent: string;                        // find_service, status, payment, handoff, …
+  sources: string[];                     // فقط عنوان/اسلاگ منابع، نه دادهٔ شخصی
+  provider: 'builtin' | 'llm';
+  handoffSuggested: boolean;             // موضوع خارج از کاتالوگ → کارشناس
+  disclaimer: string;
+  authenticated: boolean;
+  usedPersonalContext: boolean;          // آیا دادهٔ شخصی همین مشتری خوانده شد؟
+  toolsUsed: string[];                   // فقط نام ابزارها
+  at: string;
+}
+```
+
+### چرخهٔ ثبت درخواست (با تأیید صریح)
+
+۱. «شروع درخواست» روی کارت خدمت → `POST /draft` (فقط پیش‌نویس).
+۲. فیلدها با `PATCH /draft` و مدارک با `POST /draft/documents` کامل می‌شوند؛
+   پیشنهاد ارزش‌های پروفایل فقط با رضایت مشتری (`useProfile`).
+۳. `POST /draft/preview` پیش‌نمایش کامل (عنوان، فیلدها، هزینه، زمان، مدارک) را می‌سازد.
+۴. `POST /draft/confirm` با `{confirm: true}` — تنها نقطه‌ای که `createRequest` اجرا می‌شود،
+   با همان اعتبارسنجی، قواعد پذیرش خدمت، کد تخفیف و منطق فاکتور.
+۵. پاسخ، پیش‌نویس با `stage: 'submitted'` به‌همراه `requestId` و `trackingCode` را برمی‌گرداند.
+
+### تنظیمات مرتبط
+
+`assistant.account_access`، `assistant.request_submission`، `assistant.profile_autofill`،
+`assistant.max_tool_steps`، `assistant.show_quick_actions` (عمومی)، به‌علاوهٔ
+`assistant.llm_provider` / `llm_api_key` / `llm_base_url` / `llm_model` برای موتور
+سازگار با OpenAI. اگر کلید یا مدل تنظیم نباشد، دستیار بدون خطا به موتور داخلی برمی‌گردد.
 
 ## داشبورد — `/api/dashboard`
 

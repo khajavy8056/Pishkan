@@ -451,7 +451,7 @@ function canonicalJson(value: unknown): string {
   return JSON.stringify(value) ?? 'null';
 }
 
-type RequestDocumentAttachment = { fileId?: string; customerDocumentId?: string; confirmReuse?: boolean; title: string; requirementKey: string | null };
+export type RequestDocumentAttachment = { fileId?: string; customerDocumentId?: string; confirmReuse?: boolean; title: string; requirementKey: string | null };
 
 /**
  * The archive type a requirement should be filed under.
@@ -540,6 +540,51 @@ async function assertCustomerDocumentFiles(attachments: RequestDocumentAttachmen
       throw badRequest('مدارک درخواست باید تصویر یا PDF باشند.', [{ field, message: 'قالب فایل پشتیبانی نمی‌شود.' }]);
     }
   }
+}
+
+export interface RequestSubmissionPreview {
+  formData: Record<string, unknown>;
+  attachments: RequestDocumentAttachment[];
+  errors: { field: string; message: string }[];
+}
+
+/**
+ * Validate a request submission exactly the way `createRequest` will, without
+ * creating anything.
+ *
+ * The assistant needs to answer "is this draft complete?" and to tell the
+ * customer precisely which field or document is still missing. Reusing the
+ * real validators here is what guarantees the assistant can never submit
+ * something the request endpoint would reject: there is one source of truth
+ * for form rules and document requirements.
+ */
+export async function previewRequestSubmission(
+  service: ServiceDTO,
+  rawFormData: Record<string, unknown>,
+  documentIds: CreateRequestInput['documentIds'],
+  customerId: string,
+): Promise<RequestSubmissionPreview> {
+  const errors: { field: string; message: string }[] = [];
+  let formData: Record<string, unknown> = {};
+  let attachments: RequestDocumentAttachment[] = [];
+  try {
+    formData = validateFormData(service, rawFormData ?? {});
+  } catch (error: any) {
+    errors.push(...(Array.isArray(error?.details) ? error.details : [{ field: 'form', message: error?.message ?? 'اطلاعات فرم معتبر نیست.' }]));
+  }
+  try {
+    attachments = documentAttachmentsForSubmission(service, formData, documentIds);
+  } catch (error: any) {
+    errors.push(...(Array.isArray(error?.details) ? error.details : [{ field: 'documents', message: error?.message ?? 'مدارک معتبر نیستند.' }]));
+  }
+  if (!errors.length) {
+    try {
+      await assertCustomerDocumentFiles(attachments, customerId);
+    } catch (error: any) {
+      errors.push(...(Array.isArray(error?.details) ? error.details : [{ field: 'documents', message: error?.message ?? 'مدارک معتبر نیستند.' }]));
+    }
+  }
+  return { formData, attachments, errors };
 }
 
 export async function createRequest(input: CreateRequestInput, actor?: { id: string; name: string; ip?: string }) {

@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from 'react';
 import {
   Save, RotateCcw, TestTube2, ShieldAlert, CheckCircle2, XCircle, AlertTriangle, KeyRound,
   MessageSquare, Globe, Loader2, Info, Eye, EyeOff, Search, BellRing,
+  Bot, ShieldCheck, ClipboardCheck, UserCheck, LockKeyhole, Sparkles,
 } from 'lucide-react';
 import clsx from 'clsx';
 import { AppShell, PageHeader } from '../../components/shell';
@@ -11,6 +12,7 @@ import {
 } from '../../components/ui';
 import { api, ApiFailure } from '../../lib/api';
 import { faDateTime, faNum } from '../../lib/format';
+import { Link } from 'react-router-dom';
 
 interface SettingItem {
   key: string; group: string; type: string; label: string; hint?: string;
@@ -258,6 +260,13 @@ export function SettingsCenter() {
               {groupSettings.length === 0 && <EmptyState title="گزینه‌ای در این بخش نیست" />}
             </div>
           </Card>
+
+          {activeGroup === 'assistant' && (
+            <AssistantPolicyPanel
+              values={draft}
+              settings={settings as SettingItem[]}
+            />
+          )}
 
           {activeGroup === 'sms' && <SmsTemplatesPanel notify={notify} />}
 
@@ -511,6 +520,109 @@ function SmsTemplatesPanel({ notify }: { notify: (message: string, type: 'succes
           {templates.length === 0 && <EmptyState title="رویدادی برای پیکربندی موجود نیست" />}
         </div>
       )}
+    </Card>
+  );
+}
+
+/**
+ * The assistant's capabilities in one place. The switches above are plain
+ * settings, but their consequences are not obvious: this panel shows what the
+ * assistant can see and do *right now*, and restates the two guarantees the
+ * rest of the system enforces (account scoping and confirmation-gated
+ * submission), so an operator does not have to read the source to trust them.
+ */
+function AssistantPolicyPanel({ values, settings }: { values: Record<string, any>; settings: SettingItem[] }) {
+  const on = (key: string) => values[key] !== false && values[key] !== 'false';
+  const provider = String(values['assistant.llm_provider'] ?? 'builtin');
+  const model = String(values['assistant.llm_model'] ?? '').trim();
+  const keyConfigured = Boolean(settings.find((item) => item.key === 'assistant.llm_api_key')?.hasValue);
+  const providerLabel = provider === 'openai'
+    ? `مدل زبانی خارجی${model ? ` (${model})` : ''}`
+    : 'موتور داخلی جست‌وجوی معنایی (بدون سرویس خارجی)';
+  const providerReady = provider !== 'openai' || keyConfigured;
+
+  const capabilities = [
+    {
+      key: 'account_access', title: 'دسترسی به حساب مشتری', icon: <ShieldCheck className="size-4" />,
+      enabled: on('assistant.account_access'),
+      detail: 'فقط پرونده‌ها، فاکتورها، کیف پول، پروفایل و تیکت‌های خودِ مشتری لاگین‌شده — هرگز مشتری دیگر.',
+    },
+    {
+      key: 'request_submission', title: 'ثبت درخواست از دستیار', icon: <ClipboardCheck className="size-4" />,
+      enabled: on('assistant.request_submission'),
+      detail: 'پیش‌نویس و پیش‌نمایش بدون ثبت؛ درخواست واقعی فقط با تأیید صریح و از مسیر اعتبارسنجی اصلی.',
+    },
+    {
+      key: 'profile_autofill', title: 'پیشنهاد اطلاعات پروفایل', icon: <UserCheck className="size-4" />,
+      enabled: on('assistant.profile_autofill'),
+      detail: 'فقط با رضایت مشتری و به‌عنوان پیشنهاد قابل ویرایش؛ هرگز بدون اطلاع او.',
+    },
+    {
+      key: 'show_quick_actions', title: 'دکمه‌های اقدام سریع', icon: <Sparkles className="size-4" />,
+      enabled: on('assistant.show_quick_actions'),
+      detail: 'دسترسی سریع به ثبت درخواست، وضعیت پرونده، فاکتور و کیف پول در ابتدای گفت‌وگو.',
+    },
+  ];
+
+  return (
+    <Card>
+      <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+        <h2 className="flex items-center gap-2 font-bold text-navy-900">
+          <Bot className="size-4 text-accent" /> وضعیت دستیار هوشمند
+        </h2>
+        <Badge tone={providerReady ? 'success' : 'warning'}>
+          موتور: {providerLabel}
+        </Badge>
+      </div>
+
+      <div className="grid gap-2 sm:grid-cols-2">
+        {capabilities.map((capability) => (
+          <div key={capability.key} className="rounded-xl border border-line bg-surface-2 p-3">
+            <div className="flex items-center justify-between gap-2">
+              <span className="flex items-center gap-1.5 text-xs font-semibold text-navy-900">
+                {capability.icon} {capability.title}
+              </span>
+              <Badge tone={capability.enabled ? 'success' : 'default'}>
+                {capability.enabled ? 'فعال' : 'غیرفعال'}
+              </Badge>
+            </div>
+            <p className="mt-1 text-[10px] leading-4 text-navy-500">{capability.detail}</p>
+          </div>
+        ))}
+      </div>
+
+      {!providerReady && (
+        <div className="mt-3 rounded-xl bg-amber-50 p-2 text-[11px] leading-5 text-amber-900 ring-1 ring-amber-200 dark:bg-amber-500/10 dark:text-amber-200 dark:ring-amber-500/30">
+          موتور پاسخ‌گویی روی سرویس خارجی تنظیم شده اما کلید API ثبت نشده است. در این حالت دستیار به‌صورت خودکار به موتور داخلی برمی‌گردد و به مشتری خطا نشان نمی‌دهد.
+        </div>
+      )}
+
+      <div className="mt-3 space-y-1.5 rounded-xl border border-line bg-surface-2 p-3 text-[10px] leading-5 text-navy-600 dark:text-navy-300">
+        <p className="flex items-start gap-1.5">
+          <LockKeyhole className="mt-0.5 size-3.5 shrink-0 text-accent" />
+          <span>
+            دستیار همهٔ دسته‌ها و خدمات منتشرشده را زنده می‌بیند؛ خدمتی که همین حالا اضافه یا ویرایش کنید بدون هیچ کشی در پاسخ‌ها ظاهر می‌شود.
+            نرخ یا شرطی که در سامانه ثبت نشده باشد هرگز حدس زده نمی‌شود.
+          </span>
+        </p>
+        <p className="flex items-start gap-1.5">
+          <ShieldCheck className="mt-0.5 size-3.5 shrink-0 text-accent" />
+          <span>
+            دسترسی به حساب همیشه سمت سرور و فقط با شناسهٔ مشتریِ همان نشست محدود می‌شود؛ کارکنان و مدیران برای دستیار «مهمان» محسوب می‌شوند.
+          </span>
+        </p>
+        <p className="flex items-start gap-1.5">
+          <CheckCircle2 className="mt-0.5 size-3.5 shrink-0 text-accent" />
+          <span>
+            ثبت درخواست دو مرحله دارد: پیش‌نمایش کامل، سپس تأیید صریح مشتری. تا تأیید، هیچ رکوردی در پرونده‌ها ساخته نمی‌شود.
+          </span>
+        </p>
+      </div>
+
+      <div className="mt-3 flex flex-wrap gap-2">
+        <a href="/assistant" target="_blank" rel="noreferrer" className="btn-soft btn-sm">بازکردن دستیار برای آزمایش</a>
+        <Link to="/app/services" className="btn-ghost btn-sm">مدیریت خدمات</Link>
+      </div>
     </Card>
   );
 }

@@ -1,234 +1,270 @@
-import { searchServices, listCategories, type ServiceDTO } from '../catalog/service.js';
-import { getBool, getNumber, getSecret, getString } from '../settings/service.js';
-import { normalizePersian } from '../../lib/text.js';
+/**
+ * Assistant orchestration.
+ *
+ * One entry point for both clients. The order of authority is deliberate:
+ *   1. Session → the only source of a `customerId` (staff sessions are guests
+ *      here, so an employee token can never read a customer's account).
+ *   2. Action → an explicit confirm/cancel is handled before any model runs,
+ *      because a language model must not be able to accept a confirmation.
+ *   3. Live catalogue + scoped account tools → the only facts.
+ *   4. Language model (optional) with tool calling → falls back to the
+ *      built-in engine on any failure.
+ */
+import type { AuthContext } from '../auth/types.js';
+import { getBool, getNumber, getString } from '../settings/service.js';
+import { loadAssistantCatalog } from './catalog.js';
+import { loadCustomerSnapshot } from './customer.js';
+import { draftService, loadDraftState, publicDraft, refresh, saveDraftState, type DraftState } from './drafts.js';
+import { builtinConfirm, builtinRespond, isConfirmation } from './builtin.js';
+import { llmRespond } from './llm.js';
+import { cancelDraftTool, type AssistantContext } from './tools.js';
+import { toServiceCard } from './catalog.js';
+import { emptyReply, type AssistantDraft, type AssistantInfo, type AssistantReply } from './types.js';
+import type { ServiceDTO } from '../catalog/service.js';
 
-export interface AssistantReply {
-  reply: string;
-  suggestions: {
-    id: string; slug: string; title: string; summary: string; categoryTitle?: string | null;
-    fee: number; estimatedMinutes: number; estimatedDays: number; needsReview: boolean;
-  }[];
-  followUpQuestions: string[];
-  intent: 'greeting' | 'find_service' | 'fee' | 'status' | 'documents' | 'handoff' | 'smalltalk' | 'unknown';
-  sources: string[];
-  provider: 'builtin' | 'llm';
-  handoffSuggested: boolean;
-  disclaimer: string;
+export type AssistantAction = 'message' | 'confirm' | 'cancel' | 'preview';
+
+export interface AssistantRequest {
+  message?: string;
+  history?: { role: 'user' | 'assistant'; content: string }[];
+  action?: AssistantAction;
+  draftId?: string;
+  auth?: AuthContext;
+  ip?: string;
 }
 
-const GREETINGS = ['سلام', 'درود', 'وقت بخیر', 'hi', 'hello', 'صبح بخیر', 'شب بخیر'];
-const STATUS_WORDS = ['وضعیت', 'پیگیری', 'کد رهگیری', 'پرونده من', 'کجاست', 'چقدر مانده'];
-const FEE_WORDS = ['هزینه', 'قیمت', 'تعرفه', 'چقدر', 'مبلغ', 'پرداخت'];
-const DOC_WORDS = ['مدرک', 'مدارک', 'چه چیز لازم', 'چه مدارکی', 'نیاز دارم'];
-const HUMAN_WORDS = ['کارشناس', 'اپراتور', 'انسانی', 'پشتیبان', 'تماس بگیر', 'شکایت'];
-
-function formatServiceDuration(minutes: number): string {
-  const total = Math.max(0, Math.trunc(Number(minutes) || 0));
-  const formatNumber = (value: number) => value.toLocaleString('fa-IR');
-  if (total < 1) return '—';
-  if (total % 1440 === 0) return `${formatNumber(total / 1440)} روز`;
-  if (total % 60 === 0) return `${formatNumber(total / 60)} ساعت`;
-  return `${formatNumber(total)} دقیقه`;
-}
-
-function toSuggestion(service: ServiceDTO) {
+async function buildContext(
+  customerId: string | undefined,
+  accountAccess: boolean,
+  requestSubmission: boolean,
+  existingDraft?: DraftState | null,
+): Promise<{ ctx: AssistantContext; draftService: ServiceDTO | null }> {
+  const catalog = await loadAssistantCatalog(customerId);
+  let draftState = existingDraft ?? null;
+  if (customerId && !draftState) draftState = await loadDraftState(customerId).catch(() => null);
+  let service: ServiceDTO | null = null;
+  if (draftState) service = await draftService(draftState).catch(() => null);
   return {
-    id: service.id,
-    slug: service.slug,
-    title: service.title,
-    summary: service.summary,
-    categoryTitle: service.categoryTitle,
-    fee: service.finalFee,
-    estimatedMinutes: service.estimatedMinutes,
-    estimatedDays: service.estimatedDays,
-    needsReview: service.needsReview,
+    ctx: {
+      customerId,
+      customerName: undefined,
+      catalog,
+      snapshot: null,
+      draftState,
+      draftService: service,
+      accountAccess,
+      requestSubmission,
+      toolsUsed: [],
+      cards: [],
+    },
+    draftService: service,
   };
 }
 
-function followUpsFor(service: ServiceDTO | undefined): string[] {
-  if (!service) return [];
-  const required = service.form.filter((f) => f.required && ['text', 'select', 'national_id', 'tel'].includes(f.type)).slice(0, 3);
-  return required.map((f) => `${f.label} شما چیست؟`);
+function withDefaults(reply: AssistantReply, options: { authenticated: boolean; disclaimer: string }): AssistantReply {
+  return { ...reply, authenticated: options.authenticated, disclaimer: options.disclaimer };
 }
 
-/**
- * Built-in assistant: grounded in the service catalogue only.
- * It never invents official conditions; when confidence is low it hands off to a human.
- */
-async function builtinReply(message: string, options: { customerId?: string }): Promise<AssistantReply> {
-  const normalized = normalizePersian(message);
+export async function assistantRespond(input: AssistantRequest): Promise<AssistantReply> {
   const disclaimer = await getString('assistant.disclaimer');
-  const maxSuggestions = await getNumber('assistant.max_suggestions');
+  const customerId = input.auth?.user.kind === 'customer' ? input.auth.user.id : undefined;
+  const authenticated = Boolean(customerId);
 
-  const isGreeting = GREETINGS.some((g) => normalized.startsWith(normalizePersian(g))) && normalized.length < 30;
-  if (isGreeting) {
-    const categories = await listCategories();
-    return {
-      reply: `سلام 👋 من دستیار هوشمند دفتر هستم. می‌توانم خدمت مناسب را پیدا کنم، مدارک لازم را بگویم و شما را به ثبت درخواست هدایت کنم.\n\nدسته‌های اصلی:\n${categories.map((c) => `• ${c.title}`).join('\n')}`,
-      suggestions: [],
-      followUpQuestions: ['چه خدمتی نیاز دارید؟', 'درخواست قبلی دارید که بخواهید پیگیری کنید؟'],
-      intent: 'greeting',
-      sources: [],
-      provider: 'builtin',
-      handoffSuggested: false,
-      disclaimer,
-    };
-  }
-
-  if (HUMAN_WORDS.some((w) => normalized.includes(normalizePersian(w)))) {
-    return {
-      reply: 'می‌توانم گفت‌وگوی شما را به کارشناس دفتر ارجاع دهم. از بخش «پیام‌ها» یک گفت‌وگوی جدید با دفتر ایجاد کنید تا همکاران ما پاسخ دهند. اگر پرونده فعال دارید، همان صفحه پرونده را برای پیام مرتبط استفاده کنید.',
-      suggestions: [],
-      followUpQuestions: ['آیا درخواست فعالی دارید که بخواهید در همان پرونده پیام بدهید؟'],
-      intent: 'handoff',
-      sources: [],
-      provider: 'builtin',
-      handoffSuggested: true,
-      disclaimer,
-    };
-  }
-
-  if (STATUS_WORDS.some((w) => normalized.includes(normalizePersian(w)))) {
-    return {
-      reply: 'وضعیت پرونده‌های شما در بخش «درخواست‌های من» با شماره پیگیری و تاریخچه کامل نمایش داده می‌شود. برای امنیت، دستیار به اطلاعات شخصی پرونده‌ها دسترسی مستقیم ندارد و وضعیت را حدس نمی‌زند.',
-      suggestions: [],
-      followUpQuestions: ['شماره پیگیری پرونده را دارید؟'],
-      intent: 'status',
-      sources: [],
-      provider: 'builtin',
-      handoffSuggested: false,
-      disclaimer,
-    };
-  }
-
-  const results = await searchServices(message, { limit: maxSuggestions + 2, customerId: options.customerId });
-  const top = results.slice(0, maxSuggestions);
-
-  if (top.length === 0) {
-    return {
-      reply: 'خدمت مرتبطی در کاتالوگ پیدا نکردم. اگر عنوان رسمی خدمت را نمی‌دانید، موضوع را با کارشناس دفتر در میان بگذارید تا راهنمایی دقیق بگیرید. من از ارائه اطلاعات تأییدنشده خودداری می‌کنم.',
-      suggestions: [],
-      followUpQuestions: ['موضوع درخواست شما مربوط به بیمه، شرکت یا یارانه است؟'],
+  if (!(await getBool('assistant.enabled'))) {
+    return emptyReply({
+      reply: 'دستیار هوشمند در حال حاضر غیرفعال است. می‌توانید از جست‌وجوی خدمات یا ارسال پیام به دفتر استفاده کنید.',
       intent: 'unknown',
-      sources: [],
-      provider: 'builtin',
       handoffSuggested: true,
       disclaimer,
-    };
+      authenticated,
+      actions: [{ id: 'open-support', label: 'گفت‌وگو با دفتر', kind: 'link', route: '/app/support' }],
+    });
   }
 
-  const primary = top[0];
-  const wantsFee = FEE_WORDS.some((w) => normalized.includes(normalizePersian(w)));
-  const wantsDocs = DOC_WORDS.some((w) => normalized.includes(normalizePersian(w)));
+  const accountAccess = authenticated ? await getBool('assistant.account_access') : false;
+  const requestSubmission = authenticated ? await getBool('assistant.request_submission') : false;
+  const { ctx, draftService: currentDraftService } = await buildContext(customerId, accountAccess, requestSubmission);
 
-  let reply = '';
-  if (wantsDocs) {
-    const docs = primary.documents.length
-      ? primary.documents.map((d) => `• ${d.title}${d.required ? ' (الزامی)' : ''}`).join('\n')
-      : 'برای این خدمت مدارک اختصاصی ثبت نشده است.';
-    reply = `مدارک خدمت «${primary.title}»:\n${docs}`;
-  } else if (wantsFee) {
-    reply = `هزینه نمایش‌داده‌شده برای «${primary.title}» حدود ${primary.finalFee.toLocaleString('fa-IR')} ریال و زمان تخمینی ${formatServiceDuration(primary.estimatedMinutes)} است. این مقدار نمونه است و هزینه نهایی پس از بررسی مدارک توسط دفتر اعلام می‌شود.`;
-  } else {
-    reply = `بر اساس درخواست شما، این خدمات را پیشنهاد می‌کنم:\n${top.map((s, i) => `${i + 1}. ${s.title} — ${s.summary} (زمان تخمینی ${formatServiceDuration(s.estimatedMinutes)})`).join('\n')}\n\nبرای ثبت درخواست، روی خدمت مورد نظر بزنید؛ فرم اختصاصی همان خدمت باز می‌شود.`;
+  /* ------------------------- explicit lifecycle actions --------------------- */
+  if (input.action === 'cancel') {
+    if (!authenticated) {
+      return emptyReply({
+        reply: 'برای لغو یک پیش‌نویس باید وارد حساب خود شوید.',
+        intent: 'collect_field', handoffSuggested: false, disclaimer, authenticated,
+      });
+    }
+    const cancelled = await cancelDraftTool(ctx);
+    return emptyReply({
+      reply: cancelled?.cancelled
+        ? 'پیش‌نویس درخواست لغو شد و هیچ چیزی ثبت نشد.'
+        : 'پیش‌نویس فعالی برای لغو وجود نداشت.',
+      intent: 'collect_field',
+      handoffSuggested: false,
+      disclaimer,
+      authenticated,
+      actions: [{ id: 'open-services', label: 'مشاهده خدمات', kind: 'link', route: '/app/services' }],
+      draft: ctx.draftState && currentDraftService ? publicDraft(ctx.draftState, currentDraftService) : null,
+    });
   }
 
-  return {
-    reply,
-    suggestions: top.map(toSuggestion),
-    followUpQuestions: followUpsFor(primary),
-    intent: wantsDocs ? 'documents' : wantsFee ? 'fee' : 'find_service',
-    sources: top.map((s) => s.title),
-    provider: 'builtin',
-    handoffSuggested: false,
+  if (input.action === 'confirm') {
+    if (!authenticated) {
+      return emptyReply({
+        reply: 'برای ثبت درخواست باید وارد حساب خود شوید.',
+        intent: 'preview_request', handoffSuggested: false, disclaimer, authenticated,
+        actions: [{ id: 'login', label: 'ورود / ثبت‌نام', kind: 'login', route: '/login' }],
+      });
+    }
+    if (!ctx.draftState) {
+      return emptyReply({
+        reply: 'پیش‌نویس فعالی برای تأیید وجود ندارد. ابتدا خدمت را انتخاب کنید و پیش‌نمایش را ببینید.',
+        intent: 'preview_request', handoffSuggested: false, disclaimer, authenticated,
+        actions: [{ id: 'open-services', label: 'انتخاب خدمت', kind: 'link', route: '/app/services' }],
+      });
+    }
+    const service = await draftService(ctx.draftState);
+    if (!service) {
+      return emptyReply({
+        reply: 'خدمت این پیش‌نویس دیگر در دسترس نیست. از کاتالوگ، خدمت را دوباره انتخاب کنید.',
+        intent: 'preview_request', handoffSuggested: false, disclaimer, authenticated,
+      });
+    }
+    const result = await builtinConfirm({
+      message: input.message ?? '',
+      history: input.history ?? [],
+      customerId,
+      catalog: ctx.catalog,
+      draftState: ctx.draftState,
+      draftService: service,
+      accountAccess,
+      requestSubmission,
+    }, { id: input.auth!.user.id, name: input.auth!.user.fullName, ip: input.ip });
+    return withDefaults(result.reply, { authenticated, disclaimer });
+  }
+
+  if (input.action === 'preview') {
+    if (!authenticated || !ctx.draftState) {
+      return emptyReply({
+        reply: 'پیش‌نویس فعالی وجود ندارد. ابتدا یک خدمت را انتخاب کنید.',
+        intent: 'preview_request', handoffSuggested: false, disclaimer, authenticated,
+        actions: [{ id: 'open-services', label: 'انتخاب خدمت', kind: 'link', route: '/app/services' }],
+      });
+    }
+    const service = await draftService(ctx.draftState);
+    if (!service) {
+      return emptyReply({
+        reply: 'خدمت این پیش‌نویس دیگر در دسترس نیست. از کاتالوگ دوباره انتخاب کنید.',
+        intent: 'preview_request', handoffSuggested: false, disclaimer, authenticated,
+      });
+    }
+    ctx.draftState = await refresh(customerId!, ctx.draftState, service);
+    await saveDraftState(customerId!, ctx.draftState);
+    const draft = publicDraft(ctx.draftState, service);
+    return emptyReply({
+      reply: draft.missingFields.length || draft.missingDocuments.length
+        ? 'این موارد هنوز کامل نیست:\n'
+          + [...draft.missingFields.map((label) => `• ${label}`), ...draft.missingDocuments.map((label) => `• بارگذاری «${label}»`)].join('\n')
+        : 'پیش‌نمایش کامل است. در صورت تأیید، دکمهٔ «تأیید و ثبت درخواست» را بزنید.',
+      intent: 'preview_request',
+      disclaimer,
+      authenticated,
+      draft,
+      actions: draft.actions,
+      cards: [{ type: 'service', service: toServiceCard(service) }],
+    });
+  }
+
+  const message = String(input.message ?? '').trim();
+  if (!message) {
+    return emptyReply({
+      reply: 'چطور می‌توانم کمک کنم؟ می‌توانم خدمت مناسب را پیدا کنم، هزینه و مدارک را بگویم یا وضعیت پرونده‌تان را بررسی کنم.',
+      intent: 'greeting', disclaimer, authenticated,
+      followUpQuestions: ['چه خدماتی دارید؟', 'وضعیت پرونده‌های من را بگو'],
+    });
+  }
+
+  /* ------------------------- typed confirmation phrase --------------------- */
+  // A typed confirmation is only honoured when the server already has a draft
+  // in `awaiting_confirmation`; the preview must have been produced first.
+  if (authenticated && ctx.draftState && isConfirmation(message)) {
+    const service = await draftService(ctx.draftState);
+    if (service && ctx.draftState.draft.stage === 'awaiting_confirmation') {
+      const result = await builtinConfirm({
+        message, history: input.history ?? [], customerId, catalog: ctx.catalog,
+        draftState: ctx.draftState, draftService: service, accountAccess, requestSubmission,
+      }, { id: input.auth!.user.id, name: input.auth!.user.fullName, ip: input.ip });
+      return withDefaults(result.reply, { authenticated, disclaimer });
+    }
+    if (service && ctx.draftState.draft.stage !== 'submitted') {
+      return emptyReply({
+        reply: 'هنوز پیش‌نمایش کامل نشده است، پس چیزی ثبت نمی‌کنم. ابتدا اطلاعات و مدارک ناقص را کامل کنید؛ بعد تأیید کنید.',
+        intent: 'preview_request', disclaimer, authenticated,
+        draft: publicDraft(ctx.draftState, service),
+        actions: [{ id: 'edit-draft', label: 'تکمیل اطلاعات', kind: 'edit', draftId: ctx.draftState.draft.id }],
+      });
+    }
+  }
+
+  /* ------------------------------- model first ----------------------------- */
+  const llm = await llmRespond({
+    message,
+    history: input.history ?? [],
+    ctx,
+    customerName: input.auth?.user.fullName,
     disclaimer,
+  }).catch(() => null);
+  if (llm) return withDefaults(llm, { authenticated, disclaimer });
+
+  /* ------------------------------- fallback ------------------------------- */
+  const builtin = await builtinRespond({
+    message,
+    history: input.history ?? [],
+    customerId,
+    customerName: input.auth?.user.fullName,
+    catalog: ctx.catalog,
+    draftState: ctx.draftState,
+    draftService: currentDraftService,
+    accountAccess,
+    requestSubmission,
+  });
+  return withDefaults(builtin.reply, { authenticated, disclaimer });
+}
+
+/** Everything the client needs before the first message. */
+export async function assistantInfo(auth?: AuthContext): Promise<AssistantInfo> {
+  const customerId = auth?.user.kind === 'customer' ? auth.user.id : undefined;
+  const [enabled, name, welcome, disclaimer, catalogOnly, accountAccess, requestSubmission, profileAutofill] = await Promise.all([
+    getBool('assistant.enabled'),
+    getString('assistant.name'),
+    getString('assistant.welcome'),
+    getString('assistant.disclaimer'),
+    getBool('assistant.catalog_only'),
+    customerId ? getBool('assistant.account_access') : Promise.resolve(false),
+    customerId ? getBool('assistant.request_submission') : Promise.resolve(false),
+    customerId ? getBool('assistant.profile_autofill') : Promise.resolve(false),
+  ]);
+  let draft: AssistantDraft | null = null;
+  if (customerId) {
+    const state = await loadDraftState(customerId).catch(() => null);
+    if (state) {
+      const service = await draftService(state).catch(() => null);
+      if (service) draft = publicDraft(state, service);
+    }
+  }
+  return {
+    enabled,
+    name,
+    welcome,
+    disclaimer,
+    catalogOnly,
+    capabilities: {
+      accountAccess,
+      requestSubmission,
+      profileAutofill,
+      tools: true,
+    },
+    authenticated: Boolean(customerId),
+    draft,
   };
 }
 
-/**
- * Optional LLM layer (OpenAI-compatible). It only receives the approved
- * catalogue as context and is instructed not to invent official rules.
- * Any failure falls back to the built-in engine.
- */
-async function llmReply(message: string, history: { role: 'user' | 'assistant'; content: string }[], customerId?: string): Promise<AssistantReply | null> {
-  const provider = await getString('assistant.llm_provider');
-  if (provider !== 'openai') return null;
-  const apiKey = await getSecret('assistant.llm_api_key');
-  if (!apiKey) return null;
-
-  const baseUrl = (await getString('assistant.llm_base_url')) || 'https://api.openai.com/v1';
-  const model = await getString('assistant.llm_model');
-  const catalogOnly = await getBool('assistant.catalog_only');
-
-  const matches = await searchServices(message, { limit: 6, customerId });
-  const context = matches.map((s) => ({
-    title: s.title, summary: s.summary, fee_sample: s.finalFee,
-    estimated_minutes: s.estimatedMinutes, estimated_days: s.estimatedDays,
-    documents: s.documents.map((d) => d.title), required_fields: s.form.filter((f) => f.required).map((f) => f.label),
-  }));
-
-  const systemPrompt = [
-    'You are the Persian-language assistant of a Iranian government service office (دفتر پیشخوان دولت).',
-    'Answer ONLY from the provided catalogue context. Never invent official fees, rules, deadlines or legal conditions.',
-    'If the catalogue does not contain the answer, say you do not know and suggest contacting a human expert.',
-    'Reply in Persian, concise (max 120 words), and guide the user to submit a request when relevant.',
-    catalogOnly ? 'Strict catalogue mode is ON.' : '',
-    `Catalogue context: ${JSON.stringify(context)}`,
-  ].filter(Boolean).join('\n');
-
-  try {
-    const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), 15_000);
-    const res = await fetch(`${baseUrl.replace(/\/+$/, '')}/chat/completions`, {
-      method: 'POST',
-      headers: { 'content-type': 'application/json', authorization: `Bearer ${apiKey}` },
-      body: JSON.stringify({
-        model,
-        temperature: 0.2,
-        max_tokens: 400,
-        messages: [
-          { role: 'system', content: systemPrompt },
-          ...history.slice(-6),
-          { role: 'user', content: message },
-        ],
-      }),
-      signal: controller.signal,
-    });
-    clearTimeout(timer);
-    if (!res.ok) return null;
-    const json: any = await res.json();
-    const text = json?.choices?.[0]?.message?.content;
-    if (!text || typeof text !== 'string') return null;
-
-    const top = matches.slice(0, await getNumber('assistant.max_suggestions'));
-    return {
-      reply: text.trim(),
-      suggestions: top.map(toSuggestion),
-      followUpQuestions: followUpsFor(top[0]),
-      intent: 'find_service',
-      sources: top.map((s) => s.title),
-      provider: 'llm',
-      handoffSuggested: false,
-      disclaimer: await getString('assistant.disclaimer'),
-    };
-  } catch {
-    return null;
-  }
-}
-
-export async function assistantRespond(
-  message: string,
-  history: { role: 'user' | 'assistant'; content: string }[] = [],
-  options: { customerId?: string } = {},
-): Promise<AssistantReply> {
-  if (!(await getBool('assistant.enabled'))) {
-    return {
-      reply: 'دستیار هوشمند در حال حاضر غیرفعال است. می‌توانید از جست‌وجوی خدمات یا ارسال پیام به دفتر استفاده کنید.',
-      suggestions: [], followUpQuestions: [], intent: 'unknown', sources: [],
-      provider: 'builtin', handoffSuggested: true, disclaimer: '',
-    };
-  }
-  const llm = await llmReply(message, history, options.customerId);
-  if (llm) return llm;
-  return builtinReply(message, options);
-}
