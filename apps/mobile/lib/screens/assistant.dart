@@ -1,5 +1,3 @@
-import 'dart:async';
-
 import 'package:flutter/material.dart';
 
 import '../core/api.dart';
@@ -205,10 +203,12 @@ class _AssistantScreenState extends State<AssistantScreen> {
         return _send(action.message.isNotEmpty ? action.message : action.label);
       case 'login':
       case 'register':
-        return _openLogin();
+        _openLogin();
+        return;
       case 'link':
       case 'upload':
-        return _openRoute(action.target);
+        _openRoute(action.target);
+        return;
       case 'confirm':
         return _previewDraft();
       case 'cancel':
