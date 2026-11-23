@@ -15,6 +15,11 @@ import 'notification_route.dart';
 import 'notifications.dart';
 import 'service_detail.dart';
 
+/// Set when a guest asks to start a request. Consumed after sign-in so the
+/// assistant resumes the same service instead of dropping the path — the
+/// Android equivalent of the `?service=` query the website keeps in the URL.
+String? _pendingAssistantServiceSlug;
+
 /// The office's assistant, on the same backend and the same structured
 /// contract as the website (`/api/assistant/*`).
 ///
@@ -109,6 +114,14 @@ class _AssistantScreenState extends State<AssistantScreen> {
         final welcome = asStr(info['welcome']);
         if (welcome.isNotEmpty) _messages.add(_AssistantMessage(role: 'assistant', text: welcome));
       });
+      final pending = _pendingAssistantServiceSlug;
+      if (pending != null && session.user != null) {
+        _pendingAssistantServiceSlug = null;
+        // Wait for the frame so the composer and the draft panel mount first.
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          if (mounted) _startService({'slug': pending});
+        });
+      }
     } catch (_) {
       if (mounted) setState(() => _loadingInfo = false);
     }
@@ -247,6 +260,8 @@ class _AssistantScreenState extends State<AssistantScreen> {
   /// a draft (never a request) they can fill in with the assistant.
   Future<void> _startService(Map<String, dynamic> service) async {
     if (_isGuest) {
+      // Remember the service so sign-in leads straight back to this draft.
+      _pendingAssistantServiceSlug = asStr(service['slug']);
       _openLogin();
       return;
     }

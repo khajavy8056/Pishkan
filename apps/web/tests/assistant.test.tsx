@@ -127,12 +127,12 @@ function reply(overrides: Record<string, unknown> = {}) {
 /*                                  helpers                                   */
 /* -------------------------------------------------------------------------- */
 
-function renderAssistant() {
+function renderAssistant(path = '/assistant') {
   return render(
     <AuthProvider>
       <SiteProvider>
         <ToastProvider>
-          <MemoryRouter initialEntries={['/assistant']}>
+          <MemoryRouter initialEntries={[path]}>
             <Routes>
               <Route path="/assistant" element={<AssistantPage />} />
               <Route path="/login" element={<p>صفحه ورود آزمون</p>} />
@@ -349,6 +349,32 @@ describe('assistant page — structured reply contract', () => {
     await waitFor(() => expect(screen.queryByText('پیش‌نویس درخواست')).toBeNull());
     expect(postsTo('/api/assistant/draft/cancel')).toHaveLength(1);
     expect(postsTo('/api/assistant/draft/confirm')).toHaveLength(0);
+  });
+
+  it('resumes the chosen service after login when the return URL carries it', async () => {
+    setAuthUser({ id: 'usr_1', kind: 'customer', roleCode: 'customer', fullName: 'مشتری', permissions: [] });
+    stub({
+      '/api/assistant/info': () => ok(info({ authenticated: true })),
+      '/api/assistant/draft': () => ok({ draft: collectingDraft }),
+    });
+    record();
+    renderAssistant('/assistant?service=insurance-history');
+    expect(await screen.findByText('پیش‌نویس درخواست')).toBeTruthy();
+    expect(postsTo('/api/assistant/draft')).toHaveLength(1);
+    expect(bodies('/api/assistant/draft')[0]).toMatchObject({ serviceSlug: 'insurance-history' });
+  });
+
+  it('never auto-starts a draft for a guest arriving with a service in the URL', async () => {
+    setAuthUser(null);
+    stub({
+      '/api/assistant/info': () => ok(info({ authenticated: false })),
+      '/api/assistant/draft': () => ok({ draft: collectingDraft }),
+    });
+    record();
+    renderAssistant('/assistant?service=insurance-history');
+    await screen.findByLabelText('پیام');
+    expect(postsTo('/api/assistant/draft')).toHaveLength(0);
+    expect(screen.queryByText('پیش‌نویس درخواست')).toBeNull();
   });
 
   it('saves an edited field through the draft PATCH endpoint', async () => {

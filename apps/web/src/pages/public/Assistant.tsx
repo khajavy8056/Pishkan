@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Link, useNavigate } from 'react-router-dom';
+import { Link, useNavigate, useSearchParams } from 'react-router-dom';
 import {
   ArrowRight, Bot, Check, CheckCircle2, CircleDollarSign, Clock3, FileText, Loader2, LockKeyhole, ShieldCheck,
   Sparkles, UploadCloud, UserRound, XCircle,
@@ -556,6 +556,7 @@ export function AssistantPage() {
   const { site, setting } = useSite();
   const { user } = useAuth();
   const navigate = useNavigate();
+  const [params, setParams] = useSearchParams();
   const { notify } = useToast();
 
   const [info, setInfo] = useState<AssistantInfo | null>(null);
@@ -567,6 +568,7 @@ export function AssistantPage() {
   const [restored, setRestored] = useState(false);
   const scrollRef = useRef<HTMLDivElement>(null);
   const idRef = useRef(0);
+  const resumedRef = useRef(false);
 
   const nextId = useCallback(() => `m${++idRef.current}`, []);
   const enabled = info ? info.enabled : (site?.assistant.enabled ?? true);
@@ -607,6 +609,25 @@ export function AssistantPage() {
     const node = scrollRef.current;
     if (node) node.scrollTop = node.scrollHeight;
   }, [messages, draft]);
+
+  // A guest who tapped «شروع درخواست» is sent to login with the service kept
+  // in the URL. On the way back, resume exactly that draft instead of making
+  // them find the service again.
+  useEffect(() => {
+    const slug = params.get('service');
+    if (!slug || resumedRef.current || !info || draft) return;
+    if (!user || user.kind !== 'customer' || !info.capabilities.requestSubmission) return;
+    resumedRef.current = true;
+    setParams({}, { replace: true });
+    void startService({
+      id: '', slug, title: '', summary: '', categoryTitle: null, categorySlug: null,
+      baseFee: 0, finalFee: 0, estimatedMinutes: 0, estimatedDays: 0, urgentEnabled: false,
+      urgentPercent: 0, urgentMinutes: 0, urgentDays: 0, acceptingRequests: true,
+      needsReview: false, hasExternalCosts: false, requiresManagerApproval: false,
+      requiredFields: [], documents: [], paymentMethods: [], tags: [], contactNotice: null,
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [params, info, user, draft]);
 
   const send = useCallback(async (text: string) => {
     const content = text.trim();
@@ -714,8 +735,9 @@ export function AssistantPage() {
 
   const startService = useCallback(async (service: AssistantServiceCard) => {
     if (!user || user.kind !== 'customer') {
-      navigate(`/login?next=${encodeURIComponent('/assistant')}`);
-      notify('برای ثبت درخواست ابتدا وارد شوید', 'info');
+      // Keep the chosen service in the return path so login does not lose it.
+      navigate(`/login?next=${encodeURIComponent(`/assistant?service=${service.slug}`)}`);
+      notify('برای ثبت درخواست ابتدا وارد شوید؛ بعد از ورود، همان خدمت را ادامه می‌دهیم.', 'info');
       return;
     }
     setBusy(true);
