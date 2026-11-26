@@ -40,6 +40,12 @@ STEPS: list[tuple[str, list[str]]] = [
     # import brings in. This is the one that found the missing
     # `models/models.dart` in service_art_overlay.dart.
     ('class imports', ['tools/checks/dart_class_imports.py', 'apps/mobile/lib']),
+    # The same failure one level up: `material.dart` re-exports a *curated* `show`
+    # list from the rendering library, so `RenderProxyBox` and `PipelineOwner` need an
+    # explicit import while `RenderBox` does not. The row above can only reason about
+    # classes that live in `lib/`. This gate reproduces the exact `extends_non_class`
+    # / `argument_type_not_assignable` pair that turned `android-v1.21.5` red.
+    ('flutter framework imports', ['tools/checks/dart_framework_imports.py', 'apps/mobile/lib']),
     # `BoxDecoration` asserts if a colour and a gradient are both set, and the
     # release build silently drops the colour instead of failing. This caught
     # exactly that in `GlassCard`, which would have thrown on first build.

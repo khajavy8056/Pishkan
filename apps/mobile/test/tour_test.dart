@@ -127,8 +127,11 @@ void main() {
     });
 
     test('a narrow tip is never wider than the screen', () {
-      final width = 368.0 < 330.0 ? 368.0 : 330.0;
-      final rect = cardRectFor(target: const Rect.fromLTWH(0, 100, 60, 30), card: Size(width, 116), screen: screen);
+      // The phone picks min(screen - 32, 330) for a tip; on this screen that is
+      // the cap, and the point of the assertion is that the card is never wider
+      // than the space the screen allows.
+      const width = 330.0;
+      final rect = cardRectFor(target: const Rect.fromLTWH(0, 100, 60, 30), card: const Size(width, 116), screen: screen);
       expect(rect.left, greaterThanOrEqualTo(12));
       expect(rect.right, lessThanOrEqualTo(400 - 12));
     });

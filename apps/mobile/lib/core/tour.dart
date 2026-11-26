@@ -1,6 +1,11 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
+// `RenderProxyBox` and `PipelineOwner` are not part of what `material.dart`
+// re-exports (it forwards a curated list — `RenderBox`, `PaintingContext` and
+// friends — which is why the anchor compiles for the box but not for the
+// proxy). They come from the library that owns them.
+import 'package:flutter/rendering.dart' show PipelineOwner, RenderProxyBox;
 
 import '../models/models.dart' show asMap;
 import '../services/services.dart';
@@ -381,14 +386,14 @@ class TourController extends ChangeNotifier {
 
   /* ------------------------------- registry ------------------------------- */
 
-  void register(String name, _RenderAnchorBox box) {
+  void _register(String name, _RenderAnchorBox box) {
     final list = _registry[name] ??= <_RenderAnchorBox>[];
     // A render object can be detached and re-attached (a subtree moved, not
     // rebuilt); the anchor is the same one, so it must not occupy two places.
     if (!list.any((item) => identical(item, box))) list.add(box);
   }
 
-  void unregister(String name, _RenderAnchorBox box) {
+  void _unregister(String name, _RenderAnchorBox box) {
     final list = _registry[name];
     if (list == null) return;
     list.removeWhere((item) => identical(item, box));
@@ -401,7 +406,7 @@ class TourController extends ChangeNotifier {
   /// The overlay above it is told to re-measure only when something actually
   /// moved, so a tour that is open on a still screen costs nothing per frame,
   /// and a screen that scrolls carries the spotlight with it.
-  void reportPainted(_RenderAnchorBox box, Rect rect) {
+  void _reportPainted(_RenderAnchorBox box, Rect rect) {
     final previous = _frames[box];
     _frames[box] = rect;
     if (previous != null && !_moved(previous, rect)) return;
@@ -428,10 +433,6 @@ class TourController extends ChangeNotifier {
     }
     return null;
   }
-
-  /// Anchors whose target is on this screen — the eligibility question a tour
-  /// asks before it offers itself at all.
-  bool hasAnyAnchor(List<String> names) => rectFor(names) != null;
 
   List<String> get anchorNames => _registry.keys.toList();
 }
@@ -511,12 +512,12 @@ class _RenderAnchorBox extends RenderProxyBox {
   @override
   void attach(PipelineOwner owner) {
     super.attach(owner);
-    TourController.instance.register(name, this);
+    TourController.instance._register(name, this);
   }
 
   @override
   void detach() {
-    TourController.instance.unregister(name, this);
+    TourController.instance._unregister(name, this);
     super.detach();
   }
 
@@ -537,7 +538,7 @@ class _RenderAnchorBox extends RenderProxyBox {
     if (size.isEmpty) return;
     // Reported from inside paint, which is the one moment the ancestor
     // transforms of this frame are all in place.
-    TourController.instance.reportPainted(this, localToGlobal(Offset.zero) & size);
+    TourController.instance._reportPainted(this, localToGlobal(Offset.zero) & size);
   }
 }
 
@@ -579,10 +580,10 @@ class _TourOverlayState extends State<TourOverlay> {
     final target = controller.rectFor(step?.targets ?? tip!.targets);
     final reduceMotion = MediaQuery.of(context).disableAnimations;
     final bottomInset = MediaQuery.of(context).viewInsets.bottom;
-    return TweenAnimationBuilder<Rect>(
+    return TweenAnimationBuilder<Rect?>(
       duration: reduceMotion ? Duration.zero : const Duration(milliseconds: 220),
       curve: Curves.easeOutCubic,
-      tween: RectTween(begin: target ?? Rect.zero, end: target ?? Rect.zero),
+      tween: RectTween(begin: target, end: target),
       builder: (context, hole, __) => Stack(children: [
         Positioned.fill(
           child: _Spotlight(
@@ -599,7 +600,7 @@ class _TourOverlayState extends State<TourOverlay> {
         if (step != null)
           _TourCard(key: ValueKey('tour-${step.id}'), step: step, target: target, controller: controller, bottomInset: bottomInset)
         else
-          _TourTipCard(key: ValueKey('tip-${tip.key}'), tip: tip!, target: target, controller: controller, bottomInset: bottomInset),
+          _TourTipCard(key: ValueKey('tip-${tip!.key}'), tip: tip!, target: target, controller: controller, bottomInset: bottomInset),
       ]),
     );
   }
@@ -676,7 +677,7 @@ class _ScrimPainter extends CustomPainter {
 Rect cardRectFor({required Rect? target, required Size card, required Size screen, double bottomInset = 0}) {
   const gap = 12.0;
   const margin = 12.0;
-  final bandTop = margin;
+  const bandTop = margin;
   final wantedBottom = screen.height - bottomInset - margin;
   final bandBottom = wantedBottom > bandTop + 48 ? wantedBottom : bandTop + 48;
   final maxWidth = screen.width - 2 * margin;

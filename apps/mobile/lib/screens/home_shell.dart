@@ -4,8 +4,6 @@ import 'package:flutter/material.dart';
 
 import '../core/home_navigation.dart';
 import '../core/motion.dart';
-import '../core/sizes.dart';
-import '../core/theme.dart';
 import '../core/tour.dart';
 import '../services/notifier.dart';
 import '../services/push.dart';
