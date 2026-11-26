@@ -1,5 +1,5 @@
 import fs from 'node:fs/promises';
-import { one } from '../src/db/index.js';
+import { one, run } from '../src/db/index.js';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
@@ -123,6 +123,8 @@ describe('the self-test endpoint', () => {
   it('proves a send through the real path, and lets a device confirm it', async () => {
     const server = await app();
     const admin = await adminSession();
+    const adminId = await userIdOf(ADMIN.username);
+    await clearTestNotices(adminId);
 
     const res = await request(server).post('/api/notifications/test').set('cookie', admin.cookie).expect(200);
     expect(res.body.data.attempted).toBe(true);
@@ -151,6 +153,7 @@ describe('the self-test endpoint', () => {
     const server = await app();
     const admin = await adminSession();
     const adminId = await userIdOf(ADMIN.username);
+    await clearTestNotices(adminId);
     const otherId = await one<{ id: string }>(
       "SELECT id FROM users WHERE id <> ? AND kind = 'customer' LIMIT 1", [adminId],
     ).then((row) => row?.id ?? null);
@@ -171,6 +174,12 @@ describe('the self-test endpoint', () => {
       expect(Number(leaked?.n ?? 0)).toBe(0);
     }
 
+    // Two presses in the same second would otherwise mint two notices and, with
+    // FCM on, two batches of device messages — the endpoint says no instead.
+    const throttled = await request(server).post('/api/notifications/test').set('cookie', admin.cookie);
+    expect(throttled.status).toBe(429);
+    expect(throttled.body.error.message).toContain('ده ثانیه');
+
     // Unauthenticated callers get nothing at all.
     expect((await request(server).post('/api/notifications/test')).status).toBe(401);
   });
@@ -187,4 +196,18 @@ async function countFor(userId: string): Promise<number> {
     "SELECT COUNT(*) AS n FROM notifications WHERE user_id = ? AND event_type = 'notification.test'", [userId],
   );
   return Number(row?.n ?? 0);
+}
+
+/**
+ * The endpoint is throttled per user to one call per ten seconds (see below), so
+ * each test starts from a clean slate instead of depending on when the previous
+ * one ran. Acks go first — they reference the notice.
+ */
+async function clearTestNotices(userId: string): Promise<void> {
+  await run(
+    `DELETE FROM notification_acks WHERE notification_id IN
+       (SELECT id FROM notifications WHERE user_id = ? AND event_type = 'notification.test')`,
+    [userId],
+  );
+  await run("DELETE FROM notifications WHERE user_id = ? AND event_type = 'notification.test'", [userId]);
 }

@@ -21,7 +21,7 @@
 import { Router } from 'express';
 import { z } from 'zod';
 import { asyncRoute, requireAuth } from '../http/middleware.js';
-import { unavailable } from '../http/errors.js';
+import { tooMany, unavailable } from '../http/errors.js';
 import { ok } from '../http/respond.js';
 import { nowIso, one } from '../db/index.js';
 import { getBool } from '../modules/settings/service.js';
@@ -136,6 +136,18 @@ notificationsRouter.post('/test', asyncRoute(async (req, res) => {
   // (the dedupe index would otherwise swallow the second one in the same second)
   // while still going through the same insert path a real event uses.
   const key = `notification.test:${userId}:${stamp}`;
+  // A test that really sends is a test that really costs: an FCM message goes out
+  // per device, and an escalation SMS is billed. So the button cannot be mashed —
+  // ten seconds is long enough to read the answer and short enough not to feel like
+  // a lockout.
+  const recent = await one<{ created_at: string }>(
+    `SELECT created_at FROM notifications
+     WHERE user_id = ? AND event_type = 'notification.test' ORDER BY created_at DESC LIMIT 1`,
+    [userId],
+  );
+  if (recent?.created_at && Date.now() - new Date(recent.created_at).getTime() < 10_000) {
+    throw tooMany('ده ثانیه پیش آزمونی ارسال شده است؛ نتیجهٔ همان را ببینید یا کمی صبر کنید.');
+  }
   // Not a stub: this is the very function the business flows call, so what the
   // reply says about it applies to a real notice.
   await notifyUser(userId, {
