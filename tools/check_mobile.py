@@ -39,7 +39,7 @@ STEPS: list[tuple[str, list[str]]] = [
     # hard failures but nothing here could see: a class used in a file that no
     # import brings in. This is the one that found the missing
     # `models/models.dart` in service_art_overlay.dart.
-    ('class imports', ['tools/checks/dart_class_imports.py']),
+    ('class imports', ['tools/checks/dart_class_imports.py', 'apps/mobile/lib']),
     # `BoxDecoration` asserts if a colour and a gradient are both set, and the
     # release build silently drops the colour instead of failing. This caught
     # exactly that in `GlassCard`, which would have thrown on first build.

@@ -236,8 +236,11 @@ class TourController extends ChangeNotifier {
       // tours out of the payload; this guard covers the payload that arrived
       // from the cache of the very same session.
       if (_progress[tour.code]?['completed'] == true) continue;
-      _tryStart(tour.code, anchorNames);
-      return;
+      // Not `return` after the attempt: this person may be standing on the
+      // profile page while the first tour in the catalogue belongs to the
+      // request wizard. The tour to offer is the first one with something
+      // visible to point at, not the first one listed.
+      if (_tryStart(tour.code, anchorNames)) return;
     }
   }
 
@@ -485,7 +488,7 @@ class _TourAnchorState extends State<TourAnchor> {
 /// [RenderProxyBox] takes the size and position of its child exactly, so adding
 /// an anchor around a control cannot change how the screen is laid out.
 class _AnchorBox extends SingleChildRenderObjectWidget {
-  const _AnchorBox({required this.name, required super.child});
+  const _AnchorBox({super.key, required this.name, required super.child});
 
   final String name;
 
@@ -741,8 +744,13 @@ class _TourCardState extends State<_TourCard> {
     final stepIndex = widget.controller.stepIndex;
     final last = tour == null || stepIndex >= tour.steps.length - 1;
     final sizes = context.sizes;
-    return Positioned.fromRect(
-      rect: rect,
+    // Width and corner from the geometry pass, height from the content: a card
+    // measured at an assumed 150 must not clip a longer Persian sentence, and a
+    // clipped instruction is worse than a slightly misplaced one.
+    return Positioned(
+      left: rect.left,
+      top: rect.top,
+      width: rect.width,
       child: Material(
         key: _cardKey,
         color: Colors.transparent,
@@ -829,8 +837,10 @@ class _TourTipCard extends StatelessWidget {
     final width = screen.width - 32;
     final card = Size(width < 330.0 ? width : 330.0, 116);
     final rect = cardRectFor(target: target, card: card, screen: screen, bottomInset: bottomInset);
-    return Positioned.fromRect(
-      rect: rect,
+    return Positioned(
+      left: rect.left,
+      top: rect.top,
+      width: rect.width,
       child: Material(
         color: Colors.transparent,
         child: Container(

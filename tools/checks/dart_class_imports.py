@@ -22,7 +22,7 @@ import re
 import sys
 from pathlib import Path
 
-ROOT = Path(__file__).resolve().parent.parent
+ROOT = Path(__file__).resolve().parents[2]
 
 # Names that belong to another package or to the SDK. A file using one of these
 # without a matching import is a real error too, but resolving it needs the
@@ -40,6 +40,66 @@ def resolve(from_file: Path, spec: str, lib: Path) -> Path | None:
     if spec.startswith(('dart:', 'package:')):
         return None
     return (from_file.parent / spec).resolve()
+
+
+def strip_comments(src: str) -> str:
+    """Blank out comments and string literals, keeping every line where it was.
+
+    A doc comment that says «see [WaveNavBar.height]» is not a use of that class,
+    and neither is a word inside a Persian label. Without this the check cries
+    wolf on prose — and a check that cries wolf is a check that gets switched
+    off, which is how a missing import reached a release build once already.
+    """
+    out: list[str] = []
+    i, n = 0, len(src)
+    block = 0
+    while i < n:
+        c = src[i]
+        nxt = src[i + 1] if i + 1 < n else ''
+        if block:
+            if c == '/' and nxt == '*':
+                block += 1
+                out.append('  ')
+                i += 2
+                continue
+            if c == '*' and nxt == '/':
+                block -= 1
+                out.append('  ')
+                i += 2
+                continue
+            out.append('\n' if c == '\n' else ' ')
+            i += 1
+            continue
+        if c == '/' and nxt == '/':
+            while i < n and src[i] != '\n':
+                out.append(' ')
+                i += 1
+            continue
+        if c == '/' and nxt == '*':
+            block += 1
+            out.append('  ')
+            i += 2
+            continue
+        if c in ('"', "'"):
+            quote = c
+            out.append(' ')
+            i += 1
+            while i < n:
+                ch = src[i]
+                if ch == '\\':
+                    out.append('  ')
+                    i += 2
+                    continue
+                if ch == '\n':  # a string never spans lines here; stop and re-sync
+                    break
+                out.append(' ')
+                i += 1
+                if ch == quote:
+                    break
+            continue
+        out.append(c)
+        i += 1
+    return ''.join(out)
 
 
 def declared_in(path: Path) -> set[str]:
@@ -67,13 +127,15 @@ def main(argv: list[str]) -> int:
 
     problems: list[str] = []
     for path in files:
-        src = path.read_text(encoding='utf-8')
+        raw = path.read_text(encoding='utf-8')
+        # Imports are read from the raw text; *uses* from the comment-free text.
+        src = strip_comments(raw)
         own = declared_in(path)
 
         # A non-existent import is a hard error in `flutter analyze` and the
         # single most likely thing to rot: delete a screen, forget a test.
         # This is what the deleted story viewer left behind in the widget test.
-        for spec in IMPORT.findall(src):
+        for spec in IMPORT.findall(raw):
             if spec.startswith('dart:'):
                 continue
             if spec.startswith('package:') and not spec.startswith('package:pishkan_app/'):
@@ -87,7 +149,7 @@ def main(argv: list[str]) -> int:
         # Everything this file can name: direct imports, plus one level of
         # re-export, which is how a barrel file legitimately exposes a class.
         reachable: set[str] = set(own)
-        for spec in IMPORT.findall(src):
+        for spec in IMPORT.findall(raw):
             target = resolve(path, spec, lib)
             if target is None or not target.exists():
                 continue
