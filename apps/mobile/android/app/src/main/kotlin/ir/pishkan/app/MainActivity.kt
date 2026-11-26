@@ -10,6 +10,8 @@ import io.flutter.embedding.android.FlutterFragmentActivity
 import io.flutter.embedding.engine.FlutterEngine
 import io.flutter.plugin.common.MethodChannel
 import ir.pishkan.app.push.FirebaseBootstrap
+import ir.pishkan.app.push.KeepAliveService
+import ir.pishkan.app.push.KeepAliveState
 import ir.pishkan.app.push.MainActivityClass
 import ir.pishkan.app.push.PushBridge
 import ir.pishkan.app.push.PushRenderer
@@ -102,6 +104,49 @@ class MainActivity : FlutterFragmentActivity() {
                     }
                     result.success(exempt)
                 } else result.notImplemented()
+            }
+
+        // The keep-alive connection: Dart owns the credentials and the decision,
+        // the service owns the socket. Three methods and no return values worth
+        // failing on — if the service cannot start, the app is not worse off than
+        // it was before this feature, and the settings sheet says so plainly.
+        MethodChannel(flutterEngine.dartExecutor.binaryMessenger, "ir.pishkan.app/keepalive")
+            .setMethodCallHandler { call, result ->
+                when (call.method) {
+                    "start" -> {
+                        val base = call.argument<String>("baseUrl").orEmpty()
+                        val token = call.argument<String>("token").orEmpty()
+                        if (base.isEmpty() || token.isEmpty()) {
+                            KeepAliveService.stop(this)
+                        } else {
+                            KeepAliveService.start(this, base, token)
+                        }
+                        result.success(null)
+                    }
+                    "stop" -> {
+                        KeepAliveService.stop(this)
+                        result.success(null)
+                    }
+                    "setQuiet" -> {
+                        // Foreground → the in-app banners announce notices, so the
+                        // service stops posting; background → reopen the socket and
+                        // let the server replay whatever is still unconfirmed.
+                        val quiet = call.argument<Boolean>("quiet") ?: false
+                        KeepAliveState.quietWhileForeground = quiet
+                        // Coming back from the foreground is the moment to reconnect:
+                        // the server replays everything still unconfirmed, which is
+                        // what covers the frames ignored while the UI was up. Only
+                        // with credentials in hand — an empty re-arm would tear down
+                        // a connection that is working fine.
+                        val base = call.argument<String>("baseUrl").orEmpty()
+                        val live = call.argument<String>("token").orEmpty()
+                        if (!quiet && base.isNotEmpty() && live.isNotEmpty()) {
+                            KeepAliveService.start(this, base, live)
+                        }
+                        result.success(null)
+                    }
+                    else -> result.notImplemented()
+                }
             }
     }
 

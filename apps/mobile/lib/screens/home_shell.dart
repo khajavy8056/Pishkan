@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 import '../core/home_navigation.dart';
 import '../core/motion.dart';
 import '../core/tour.dart';
+import '../services/keepalive.dart';
 import '../services/notifier.dart';
 import '../services/push.dart';
 import '../services/services.dart';
@@ -65,6 +66,9 @@ class _HomeShellState extends State<HomeShell> with WidgetsBindingObserver {
     // Bind this phone to the signed-in account (safe to repeat: the server keys
     // the row by token and reassigns the owner).
     unawaited(PushService.registerWithServer());
+    // Same moment, different mechanism: if the office turned on the live
+    // connection, this is where it gets its credentials for this session.
+    unawaited(KeepAliveLink.sync());
     // Ask for the notification permission once the customer is inside the
     // app (never on the splash, where it could stall first paint).
     unawaited(_askNotificationsPermission());
@@ -100,8 +104,20 @@ class _HomeShellState extends State<HomeShell> with WidgetsBindingObserver {
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
     if (state == AppLifecycleState.resumed) {
+      // The UI is the one that announces notices now, so the tray stays quiet
+      // while this screen is up (see `KeepAliveLink.setQuiet`).
+      unawaited(KeepAliveLink.setQuiet(true));
       _poll();
       _refreshUnread();
+      return;
+    }
+    if (state == AppLifecycleState.paused || state == AppLifecycleState.hidden) {
+      // Pocket or home screen: hand the announcing back to the tray and let the
+      // socket reconnect, which replays anything that arrived unconfirmed.
+      // `inactive` is deliberately not a trigger — it also fires for a
+      // permission dialog or the shade pulled down over the app, and flipping
+      // there would move the announcement out from under the customer's eyes.
+      unawaited(KeepAliveLink.setQuiet(false));
     }
   }
 

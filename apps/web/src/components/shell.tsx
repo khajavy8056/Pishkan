@@ -656,7 +656,7 @@ export function AppShell({ children, variant }: { children: ReactNode; variant: 
         </nav>
 
         <footer className="border-t border-line px-6 pt-4 pb-24 text-center text-xs text-navy-400 lg:pb-4">
-          {brand.name} — نسخه {import.meta.env.VITE_APP_VERSION ?? '1.0.1217'}
+          {brand.name} — نسخه {import.meta.env.VITE_APP_VERSION ?? '1.0.1218'}
         </footer>
 
         <NotificationGate kind={variant} />

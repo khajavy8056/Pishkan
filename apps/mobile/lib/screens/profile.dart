@@ -10,6 +10,7 @@ import '../core/sizes.dart';
 import '../core/theme.dart';
 import '../core/theme_mode.dart';
 import '../models/models.dart';
+import '../services/keepalive.dart';
 import '../services/notifier.dart';
 import '../services/push.dart';
 import '../services/services.dart';
@@ -43,6 +44,10 @@ class ProfileTab extends StatefulWidget {
 class _ProfileTabState extends State<ProfileTab> {
   String _version = '';
   bool _notificationsOn = true;
+  bool _keepAliveOn = false;
+  /// The office has no working instant push, so the live connection is not a
+  /// luxury there. Drives one sentence of advice, never an automatic change.
+  bool _keepAliveSuggested = false;
   bool _soundsOn = true;
   bool _uiSoundsOn = false;
   /// Whether Android itself allows this app to post (null = not asked yet).
@@ -66,6 +71,8 @@ class _ProfileTabState extends State<ProfileTab> {
     final uiSounds = await AppPrefs.uiSoundsEnabled();
     final biometric = await AppPrefs.biometricEnabled();
     final available = await BiometricAuth.isAvailable();
+    final keepAlive = await AppPrefs.keepAliveEnabled();
+    final suggested = keepAlive || await KeepAliveLink.serverHasNoInstantPush();
     if (!mounted) return;
     setState(() {
       _notificationsOn = notifications;
@@ -73,6 +80,8 @@ class _ProfileTabState extends State<ProfileTab> {
       _uiSoundsOn = uiSounds;
       _biometricOn = biometric;
       _biometricAvailable = available;
+      _keepAliveOn = keepAlive;
+      _keepAliveSuggested = suggested;
     });
   }
 
@@ -142,6 +151,29 @@ class _ProfileTabState extends State<ProfileTab> {
                   await AppPrefs.setNotificationsEnabled(value);
                   setSheet(() => _notificationsOn = value);
                   if (mounted) setState(() => _notificationsOn = value);
+                },
+              ),
+              SwitchListTile(
+                contentPadding: EdgeInsets.zero,
+                secondary: const Icon(Icons.wifi_tethering_rounded, color: PishkanColors.primary),
+                title: const Text('اتصال زندهٔ بدون فایربیس', style: TextStyle(fontWeight: FontWeight.w700, fontSize: 13)),
+                subtitle: Text(
+                  'برنامه یک ارتباط مستقیم با سرور دفتر باز نگه می‌دارد، تا اعلان همان لحظهٔ ثبت به نوار اعلان برسد '
+                  'بدون وابستگی به سرویس‌های گوگل — مثلاً روی شبکهٔ داخلی دفتر یا گوشی‌های بدون Play. '
+                  'تا این روشن است یک اعلان بی‌صدا و همیشگی در نوار می‌ماند که می‌گوید اتصال برقرار است. '
+                  'اگر گوشی برنامه را محدود کند، دکمهٔ «بدون محدودیت» پایین همین صفحه لازم است.'
+                  '${_keepAliveSuggested && !_keepAliveOn ? ' سرور دفتر اعلان لحظه‌ای (فایربیس) ندارد؛ این راه جای همان را می‌گیرد.' : ''}',
+                  style: const TextStyle(fontSize: 11, height: 1.6),
+                ),
+                value: _keepAliveOn,
+                onChanged: (value) async {
+                  await AppPrefs.setKeepAliveEnabled(value);
+                  setSheet(() => _keepAliveOn = value);
+                  if (mounted) setState(() => _keepAliveOn = value);
+                  // Apply it now, not at the next start: the customer just asked
+                  // for (or against) a live connection and is looking at the
+                  // screen that says so.
+                  await KeepAliveLink.sync();
                 },
               ),
               SwitchListTile(

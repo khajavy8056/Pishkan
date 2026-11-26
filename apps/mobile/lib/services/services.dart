@@ -10,6 +10,7 @@ import '../core/cache.dart';
 import '../core/referral.dart';
 import '../core/session.dart';
 import '../models/models.dart';
+import 'keepalive.dart';
 import 'push.dart';
 
 final api = ApiClient.instance;
@@ -312,6 +313,12 @@ Future<void> logoutServer() async {
   try {
     await PushService.unregisterFromServer();
   } catch (_) {}
+  // The live connection is this customer's, with this customer's token: leaving
+  // the service running would let the next person on a shared phone inherit a
+  // socket that announces somebody else's cases.
+  try {
+    await KeepAliveLink.stop();
+  } catch (_) {}
   try {
     await api.postData('/api/auth/logout');
   } catch (_) {}
@@ -583,6 +590,16 @@ Future<Map<String, dynamic>> fetchPushStatus() async {
 }
 
 /// Send a test push to my own devices.
+/// Which delivery channels the server has switched on for this account, and how
+/// many of this person's devices it can reach — `GET /api/notifications/status`.
+/// The app's own «وضعیت اعلان‌ها» read; nothing here decides anything, it only
+/// reports, so a phone can tell the difference between "push is off in the
+/// office" and "this phone was never registered".
+Future<Map<String, dynamic>> fetchDeliveryStatus() async {
+  final envelope = await api.getEnvelope('/api/notifications/status');
+  return asMap(envelope['data']);
+}
+
 Future<Map<String, dynamic>> sendTestPush({String? title, String? body}) async {
   final data = await api.postData('/api/push/test', body: {
     if (title != null) 'title': title,

@@ -257,3 +257,30 @@ describe('/api/notifications', () => {
     expect(policy.liveClients).toBeGreaterThanOrEqual(0);
   });
 });
+
+describe('the collapse tag', () => {
+  it('is the sender’s idempotency key, so several channels make one tray row', async () => {
+    // A phone with the live connection open can render a notice at the same
+    // second as FCM does. Android collapses by (tag, id), so the live event has
+    // to carry the very tag `notifyUser` gave the FCM payload — the notice's
+    // idempotency key. Drift here is invisible in the ledger and loud on the
+    // customer's screen: every case update twice.
+    const id = await notice(adminId, 'برچسب تاشو');
+    const row = await one<{ dedupe_key: string }>('SELECT dedupe_key FROM notifications WHERE id = ?', [id]);
+    const event = (await pendingUndelivered(adminId, { limit: 100 })).find((item) => item.id === id);
+    expect(event, 'the notice must be replayable').toBeTruthy();
+    expect(event!.tag).toBe(row?.dedupe_key);
+
+    // A keyless notice falls back to its id rather than an empty tag: an empty
+    // tag means "do not collapse", which stacks a column of one event.
+    const orphan = `ntf-tag-${Math.random().toString(36).slice(2)}`;
+    await run(
+      'INSERT INTO notifications (id, user_id, title, created_at) VALUES (?, ?, ?, ?)',
+      [orphan, adminId, 'بی‌کلید', new Date().toISOString()],
+    );
+    const bare = await one<any>('SELECT * FROM notifications WHERE id = ?', [orphan]);
+    expect(toLiveEvent(bare).tag).toBe(orphan);
+    // Bounded, because the tag is also an OS field some vendors dislike long.
+    expect(toLiveEvent({ ...bare, dedupe_key: 'x'.repeat(400) }).tag.length).toBeLessThanOrEqual(120);
+  });
+});
