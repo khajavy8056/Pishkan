@@ -185,6 +185,22 @@ export const SETTINGS: SettingDef[] = [
   { key: 'push.fcm_service_account', group: 'sms', type: 'textarea', secret: true, label: 'کلید حساب سرویس Firebase (فایل JSON)', hint: 'محتوای کامل فایل JSON حساب سرویس را اینجا بچسبانید. رمزنگاری‌شده ذخیره می‌شود و هرگز به گوشی یا مرورگر فرستاده نمی‌شود. در Firebase Console ← Project settings ← Service accounts ← Generate new private key. برای احراز هویت باید در پروژه‌ای باشد که اپ اندروید در آن ثبت شده است.', default: '' },
   { key: 'push.fcm_endpoint', group: 'sms', type: 'url', label: 'نشانی سرویس ارسال (فقط برای آزمایش)', hint: 'خالی بگذارید تا از سرویس رسمی گوگل استفاده شود. فقط برای آزمون با سرور تقلبی یا واسط داخلی.', default: '' },
 
+  /* --------------------- چندمسیره بودن ارسال (resilience) --------------------- */
+  // One channel is never enough here: FCM is geo-restricted for some devices,
+  // vendor ROMs kill background work, and a LAN-only office has no outbound
+  // internet at all. Each switch below is one independent path from the server to
+  // the same person; the device decides which one it answers on, and the first
+  // answer is the only one that shows (see notification_acks).
+  { key: 'push.live_enabled', group: 'sms', type: 'boolean', label: 'اتصال زنده به سرور (جایگزین داخلی فایربیس)', hint: 'اپ و پنل‌ها یک اتصال باز به همین سرور نگه می‌دارند و اعلان را بلافاصله از آن می‌گیرند — بدون گوگل، بدون فیلترشکن و بدون سرویس سوم. وقتی برنامه مینیمایز باشد هم کار می‌کند؛ اگر برنامه کاملاً بسته شود، فایربیس و بررسی دوره‌ای جایش را می‌گیرند.', default: bool(true), public: true },
+  { key: 'push.retry_enabled', group: 'sms', type: 'boolean', label: 'تلاش دوباره تا رسیدن اعلان', hint: 'اگر هیچ دستگاهی رسیدن اعلان را تأیید نکرد، سرور چند بار دیگر (با فاصلهٔ فزاینده) تلاش می‌کند. وقتی دستگاهی تأیید بفرستد، تلاش‌های بقیهٔ مسیرها متوقف می‌شود تا اعلان تکراری ساخته نشود.', default: bool(true) },
+  { key: 'push.sms_fallback_enabled', group: 'sms', type: 'boolean', label: 'پیامک پشتیبان وقتی اعلان نرسید', hint: 'برای اعلان‌های مهم و فوری؛ تنها وقتی پیامک می‌رود که هیچ‌یک از مسیرهای اعلان تا مهلت تعیین‌شده تأیید نگرفته باشند. هزینهٔ پیامک را در نظر بگیرید.', default: bool(false) },
+  { key: 'push.sms_fallback_after_min', group: 'sms', type: 'number', label: 'مهلت پیامک پشتیبان (دقیقه)', hint: 'چند دقیقه پس از ارسال اعلان، اگر تأییدی به دست سرور نرسیده بود، پیامک می‌رود.', default: 45, min: 5, max: 720 },
+  { key: 'push.sms_fallback_template_id', group: 'sms', type: 'text', label: 'کد الگوی پیامک پشتیبان', hint: 'الگویی در kavenegar/ارائه‌دهنده که فقط یک متغیر دارد و همان متن اعلان است. خالی بگذارید تا پیامک پشتیبان روشن نشود — الگوی «کد ورود» برای این کار مناسب نیست.', default: '' },
+  { key: 'push.sms_fallback_kinds', group: 'sms', type: 'text', label: 'نوع اعلان‌هایی که پیامک پشتیبان دارند', hint: 'فقط فهرست‌شده‌ها. پیش‌فرض خطا و هشدار؛ چون پیامک هزینه دارد، اعلان معمولی هرگز پیامک نمی‌شود.', default: 'error,warning' },
+  { key: 'push.relay_enabled', group: 'sms', type: 'boolean', label: 'ارسال هم‌زمان به درگاه اعلان دیگری (وب‌هوک)', hint: 'برای دفتری که سرویس اعلان ایرانی (پوشه، نجوا، چشمک) یا سرور نوتیفیکیشن خودش را خریده است: هر اعلان، یک‌بار، با یک POST به نشانی زیر هم به آن سرویس داده می‌شود تا آن سرویس به همان دستگاه برساند. SDK سمت گوشی را همان سرویس می‌دهد؛ سمت ما آماده است.', default: bool(false) },
+  { key: 'push.relay_url', group: 'sms', type: 'url', label: 'نشانی وب‌هوک سرویس اعلان', hint: 'مثال https://push.office.example/pishkan — سرور شما باید {"title","body","link","userIds"} را بپذیرد. توضیح کامل در docs/PUSH-NOTIFICATIONS-FA.md', default: '' },
+  { key: 'push.relay_key', group: 'sms', type: 'textarea', secret: true, label: 'کلید وب‌هوک (Bearer)', hint: 'اگر سرویس اعلان شما کلید می‌خواهد. رمزنگاری‌شده ذخیره می‌شود و به هیچ کلاینتی فرستاده نمی‌شود.', default: '' },
+
   /* --------------------------------- email -------------------------------- */
   { key: 'email.enabled', group: 'email', type: 'boolean', label: 'ارسال ایمیل فعال باشد', default: bool(false) },
   { key: 'email.host', group: 'email', type: 'text', label: 'هاست SMTP', default: '' },
@@ -366,7 +382,7 @@ export const SETTINGS: SettingDef[] = [
   { key: 'multibranch.allow_cross_branch_reports', group: 'multibranch', type: 'boolean', label: 'گزارش تلفیقی بین دفاتر', default: bool(false) },
 
   /* --------------------------- Android customer app --------------------------- */
-  { key: 'app.latest_version', group: 'android_app', type: 'text', label: 'آخرین نسخه منتشرشده اپ', hint: 'آخرین نسخه‌ای که منتشر کرده‌اید. اپ اگر قدیمی‌تر باشد پیام به‌روزرسانی نشان می‌دهد؛ پس این مقدار باید با نسخه‌ای که واقعاً منتشر شده برابر باشد، وگرنه همهٔ کاربران پیام «نسخهٔ تازه موجود است» می‌بینند.', default: '1.21.6', public: true },
+  { key: 'app.latest_version', group: 'android_app', type: 'text', label: 'آخرین نسخه منتشرشده اپ', hint: 'آخرین نسخه‌ای که منتشر کرده‌اید. اپ اگر قدیمی‌تر باشد پیام به‌روزرسانی نشان می‌دهد؛ پس این مقدار باید با نسخه‌ای که واقعاً منتشر شده برابر باشد، وگرنه همهٔ کاربران پیام «نسخهٔ تازه موجود است» می‌بینند.', default: '1.21.7', public: true },
   { key: 'app.min_version', group: 'android_app', type: 'text', label: 'حداقل نسخه مجاز', hint: 'نسخه‌های قدیمی‌تر از این نمی‌توانند ادامه دهند و باید به‌روزرسانی شوند. پایین نگه داشتنش یعنی هیچ کاربری به‌خاطر نسخه از اپ بیرون نمی‌ماند.', default: '1.0.0', public: true },
   { key: 'app.update_url', group: 'android_app', type: 'url', label: 'پیوند دریافت نسخه تازه', hint: 'لینک مستقیم APK یا صفحه فروشگاه؛ خالی یعنی از «پیوند دانلود اپلیکیشن اندروید» صفحه فرود استفاده شود.', default: '', public: true },
   { key: 'app.force_update', group: 'android_app', type: 'boolean', label: 'به‌روزرسانی اجباری', hint: 'وقتی روشن است، کاربر قدیمی بدون به‌روزرسانی نمی‌تواند وارد اپ شود.', default: bool(false), public: true },

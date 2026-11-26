@@ -35,6 +35,7 @@ import { discountsRouter } from '../routes/discounts.js';
 import { referralsRouter } from '../routes/referrals.js';
 import { supportRouter } from '../routes/support.js';
 import { pushRouter } from '../routes/push.js';
+import { notificationsRouter } from '../routes/notifications.js';
 import { mobileRouter } from '../routes/mobile.js';
 import { blogRouter, blogSeoRouter, publicBlogRouter } from '../routes/blog.js';
 import { recordRequest } from '../modules/monitoring/metrics.js';
@@ -148,8 +149,11 @@ export async function createApp(): Promise<Express> {
     const started = Date.now();
     res.on('finish', () => {
       const durationMs = Date.now() - started;
-      recordRequest({ durationMs, status: res.statusCode, path: req.path });
-      if (req.path.startsWith('/api/health')) return;
+      // The live stream is an open connection, not a slow endpoint: recording its
+      // minutes as request latency would poison every duration metric in the
+      // monitoring panel while telling nobody anything true about the API.
+      if (!req.path.startsWith('/api/notifications/stream')) recordRequest({ durationMs, status: res.statusCode, path: req.path });
+      if (req.path.startsWith('/api/health') || req.path.startsWith('/api/notifications/stream')) return;
       if (res.statusCode >= 500) return; // errorHandler records the details
       const isDenied = res.statusCode === 401 || res.statusCode === 403;
       void logEvent({
@@ -224,6 +228,7 @@ export async function createApp(): Promise<Express> {
   app.use(['/api/referrals','/api/v1/referrals'],referralsRouter);
   app.use(['/api/support','/api/v1/support'],supportRouter);
   app.use(['/api/push','/api/v1/push'],pushRouter);
+  app.use(['/api/notifications','/api/v1/notifications'],notificationsRouter);
   app.use(['/api/app','/api/v1/app'],mobileRouter);
   app.use(['/api/blog','/api/v1/blog'],blogRouter);
   app.use(['/api/public/blog','/api/v1/public/blog'],publicBlogRouter);

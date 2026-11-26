@@ -1,6 +1,7 @@
 import { q, run, one, tx, nowIso } from '../../db/index.js';
 import { id } from '../../lib/crypto.js';
 import { getBool } from '../settings/service.js';
+import { markDelivered } from './delivery.js';
 import { sendEventNotificationSms } from '../sms/provider.js';
 import type { SmsEvent } from '../sms/templates.js';
 
@@ -30,6 +31,28 @@ export interface NotifyInput {
   stageLabel?: string;
 }
 
+/**
+ * Hand the notice to whoever is connected to the live stream right now.
+ *
+ * Read back from the row instead of being built from the caller's input, so the
+ * event a browser or phone receives is exactly what the bell will show later —
+ * the two views of the same notice must never be able to disagree about the
+ * text, the link or the revision.
+ *
+ * Never throws: this is a delivery channel, and a closed socket must not fail the
+ * business flow that created the notice.
+ */
+export async function publishLive(userId: string, notificationId: string): Promise<number> {
+  try {
+    const { liveHub, toLiveEvent } = await import('./delivery.js');
+    const row = await one<any>('SELECT * FROM notifications WHERE id = ? AND user_id = ?', [notificationId, userId]);
+    if (!row) return 0;
+    return liveHub.publish(userId, toLiveEvent(row));
+  } catch {
+    return 0;
+  }
+}
+
 /** Persist the in-app notice first; an SMS failure never drops the notice. */
 export async function notifyUser(userId: string, input: NotifyInput): Promise<void> {
   const notificationId = id('ntf');
@@ -44,6 +67,12 @@ export async function notifyUser(userId: string, input: NotifyInput): Promise<vo
        VALUES (?, ?, ?, ?, ?, ?, ?, NULL, ?)`, [...params.slice(0, 7), input.eventType ?? null],
     );
   if (!inserted.changes) return;
+
+  // First, the channel that costs nothing and needs no third party: anything
+  // connected to the live stream (an open browser tab, a minimised app whose
+  // process is still alive) sees it this second. The tray/web-push channels run
+  // below for everyone who is not connected.
+  await publishLive(userId, notificationId);
 
   if (input.sms && (await getBool('sms.notify_enabled'))) {
     const user = await one<{ mobile: string | null }>('SELECT mobile FROM users WHERE id = ?', [userId]);
@@ -77,6 +106,21 @@ export async function notifyUser(userId: string, input: NotifyInput): Promise<vo
     });
   } catch {
     // Never surfaced: push is a delivery channel, not part of the write.
+  }
+
+  // The office's own push gateway, when it has one (پوشه، نجوا، چشمک, an ntfy
+  // box, a corporate bridge). Same notice, one POST, best-effort: a provider that
+  // is down must not delay the case that was just moved.
+  {
+    const { relayToUsers } = await import('./relay.js');
+    await relayToUsers([userId], {
+      title: input.title,
+      body: (input.body ?? '').slice(0, 500),
+      link: input.link ?? '',
+      notificationId,
+      tag: (input.idempotencyKey ?? notificationId).slice(0, 120),
+      kind: input.kind ?? 'info',
+    }).catch(() => undefined);
   }
 
   // Web Push (the office's browser, the customer's PWA) is attempted for every
@@ -183,6 +227,10 @@ export async function notifyDocumentApproval(userId: string, requestId: string, 
         revision = notifications.revision + 1, created_at = excluded.created_at, read_at = NULL`,
     [id('ntf'), userId, 'مدارک پرونده تأیید شد', `۱ مدرک از پرونده ${trackingCode} تأیید شد.`, `/app/requests/${requestId}`, now, key, trackingCode]);
   });
+  // The aggregate rewrites one row instead of inserting a new one, so the live
+  // publish has to look the row up by its dedupe key.
+  const row = await one<{ id: string }>('SELECT id FROM notifications WHERE dedupe_key = ?', [key]);
+  if (row) await publishLive(userId, row.id);
 }
 
 /**
@@ -222,6 +270,10 @@ export async function listNotifications(userId: string, options: { unreadOnly?: 
     items: rows.map((r) => ({
       id: r.id, title: r.title, body: r.body, kind: r.kind, link: r.link,
       readAt: r.read_at, createdAt: r.created_at, eventType: r.event_type ?? null, revision: Number(r.revision ?? 1),
+      // A device that already confirmed this notice on another channel (a push it
+      // rendered, a browser tab that showed it) needs to be able to tell, or its
+      // own poll will raise a second copy of the same event. `readAt` is the wrong
+      // signal: it means a person opened it, not that it ever arrived.
     })),
   };
 }
@@ -232,4 +284,15 @@ export async function markRead(userId: string, notificationId?: string): Promise
   } else {
     await run('UPDATE notifications SET read_at = ? WHERE user_id = ? AND read_at IS NULL', [nowIso(), userId]);
   }
+  // Opening the bell is proof the person saw it, and is recorded as a delivery
+  // ack: without this, a notice read in-app stays "undelivered" forever and the
+  // retry sweeper keeps pushing it, which is how an app ends up buzzing about
+  // something the user already read.
+  await markDelivered(userId, notificationId ? [notificationId] : await unreadIds(userId), 'poll');
+}
+
+/** Ids still unread for this person — the batch form of a "seen" report. */
+async function unreadIds(userId: string): Promise<string[]> {
+  const rows = await q<{ id: string }>('SELECT id FROM notifications WHERE user_id = ? AND delivered_at IS NULL', [userId]);
+  return rows.map((r) => r.id);
 }

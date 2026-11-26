@@ -279,7 +279,13 @@ class NotifierService {
       final revision = asNum(n['revision']).toInt();
       return seen.contains(notificationRevisionKey(n)) || (revision <= 1 && seen.contains(id));
     }
-    final fresh = items.where((n) => !alreadySeen(n) && asStr(n['readAt']).isEmpty).toList();
+    // `deliveredAt` is the dedupe: the server stamps it the first time *any*
+    // channel confirms the notice (a tray push it rendered, a browser tab that
+    // showed it), so an event never arrives twice because the app also happens to
+    // be polling. Acks from the same installation are idempotent, so this cannot
+    // lose a notice — worst case a notice the person has already seen on another
+    // screen is not repeated here, which is the whole request.
+    final fresh = items.where((n) => !alreadySeen(n) && asStr(n['readAt']).isEmpty && asStr(n['deliveredAt']).isEmpty).toList();
     if (fresh.isEmpty) {
       await _remember(prefs, items, seenKey);
       return const [];

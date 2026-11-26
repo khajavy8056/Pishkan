@@ -18,6 +18,7 @@ import { api, ApiFailure } from '../../lib/api';
 import { faDate, faDateTime, faNum, relative, rial, STATUS_LABELS } from '../../lib/format';
 import { useAuth } from '../../lib/auth';
 import { formatDuration, STEP_KIND_LABELS, useSite } from '../../lib/site';
+import { JalaliDateField } from '../../components/JalaliDateField';
 
 const BUCKET_LABELS: Record<string, string> = {
   action: 'نیازمند اقدام', in_progress: 'در حال انجام', waiting_customer: 'منتظر مشتری',
@@ -1455,7 +1456,7 @@ export function StaffShifts() {
               options={shifts.filter((s) => s.status === 'scheduled').map((s) => ({ value: s.id, label: `${faDate(s.date)} ${s.startTime}–${s.endTime}` }))} />
           </Field>}
           {kind !== 'leave' && <Field label={kind === 'swap' ? 'تاریخ جایگزین' : 'تاریخ شیفت جدید'} required>
-            <Input type="date" value={requestedDate} min={new Date().toISOString().slice(0, 10)} onChange={(e) => setRequestedDate(e.target.value)} />
+            <JalaliDateField value={requestedDate} onChange={(e) => setRequestedDate(e)} min={new Date().toISOString().slice(0, 10)} />
           </Field>}
           {kind === 'add' && <div className="grid grid-cols-2 gap-3">
             <Field label="شروع" required><Input type="time" value={requestedStart} onChange={(e) => setRequestedStart(e.target.value)} /></Field>

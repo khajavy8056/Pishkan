@@ -13,6 +13,7 @@ import {
 import { api, ApiFailure } from '../../lib/api';
 import { useAuth } from '../../lib/auth';
 import { faDate, faDateTime, faNum, relative, rial } from '../../lib/format';
+import { JalaliDateField } from '../../components/JalaliDateField';
 
 /* --------------------------------- shifts --------------------------------- */
 
@@ -207,7 +208,7 @@ export function AdminShifts() {
             <Select value={form.userId} onChange={(e) => setForm({ ...form, userId: e.target.value })} placeholder="انتخاب کارمند"
               options={staff.map((s) => ({ value: s.id, label: `${s.fullName} (${s.roleName ?? s.roleCode})` }))} />
           </Field>
-          <Field label="تاریخ" required><Input type="date" value={form.date} onChange={(e) => setForm({ ...form, date: e.target.value })} dir="ltr" /></Field>
+          <Field label="تاریخ" required><JalaliDateField value={form.date} onChange={(e) => setForm({ ...form, date: e })} /></Field>
           <div className="grid gap-3 sm:grid-cols-2">
             <Field label="ساعت شروع"><Input type="time" value={form.startTime} onChange={(e) => setForm({ ...form, startTime: e.target.value })} dir="ltr" /></Field>
             <Field label="ساعت پایان"><Input type="time" value={form.endTime} onChange={(e) => setForm({ ...form, endTime: e.target.value })} dir="ltr" /></Field>

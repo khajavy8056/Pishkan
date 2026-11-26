@@ -13,6 +13,7 @@ import {
 import { api, ApiFailure } from '../../lib/api';
 import { useAuth } from '../../lib/auth';
 import { faDate, faDateTime, faNum, rial, STATUS_LABELS } from '../../lib/format';
+import { JalaliDateField } from '../../components/JalaliDateField';
 
 /* --------------------------------- finance -------------------------------- */
 
@@ -337,7 +338,7 @@ export function AdminFinance() {
               <Select value={expenseForm.categoryId} onChange={(e) => setExpenseForm({ ...expenseForm, categoryId: e.target.value })} placeholder="بدون دسته"
                 options={expenseCategories.map((c) => ({ value: c.id, label: c.title }))} />
             </Field>
-            <Field label="تاریخ"><Input type="date" value={expenseForm.spentOn} onChange={(e) => setExpenseForm({ ...expenseForm, spentOn: e.target.value })} dir="ltr" /></Field>
+            <Field label="تاریخ"><JalaliDateField value={expenseForm.spentOn} onChange={(e) => setExpenseForm({ ...expenseForm, spentOn: e })} /></Field>
             <Field label="روش پرداخت">
               <Select value={expenseForm.method} onChange={(e) => setExpenseForm({ ...expenseForm, method: e.target.value })}
                 options={[{ value: 'cash', label: 'نقدی' }, { value: 'pos', label: 'کارت‌خوان' }, { value: 'transfer', label: 'کارت به کارت' }]} />
@@ -385,8 +386,8 @@ export function AdminReports() {
         } />
 
       <div className="card mb-4 flex flex-col gap-2 p-3 sm:flex-row sm:items-end">
-        <Field label="از تاریخ" className="flex-1"><Input type="date" value={from} onChange={(e) => setFrom(e.target.value)} dir="ltr" /></Field>
-        <Field label="تا تاریخ" className="flex-1"><Input type="date" value={to} onChange={(e) => setTo(e.target.value)} dir="ltr" /></Field>
+        <Field label="از تاریخ" className="flex-1"><JalaliDateField value={from} onChange={(e) => setFrom(e)} /></Field>
+        <Field label="تا تاریخ" className="flex-1"><JalaliDateField value={to} onChange={(e) => setTo(e)} /></Field>
         <Button size="sm" variant="ghost" onClick={() => { setFrom(''); setTo(''); }}>حذف فیلتر</Button>
       </div>
 

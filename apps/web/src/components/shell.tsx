@@ -8,6 +8,7 @@ import {
 } from 'lucide-react';
 import clsx from 'clsx';
 import { useAuth, homeFor } from '../lib/auth';
+import { connectLiveBell, raiseSystemNotice, type LiveNotice } from '../lib/liveBell';
 import { api } from '../lib/api';
 import { relative, faNum } from '../lib/format';
 import { ThemeToggle, ThemeSegmented, useTheme } from '../lib/theme';
@@ -154,6 +155,8 @@ export function AppShell({ children, variant }: { children: ReactNode; variant: 
   // shell's own navigation and lets auto-start decide before the first paint.
   useEffect(() => { void loadTours(); }, []);
   const knownNotificationIds = useRef<Set<string> | null>(null);
+  /** The first load seeds the set instead of announcing — history is not news. */
+  const bellSeeded = useRef(false);
 
   const nav = useMemo(() => {
     const list = navFor(user?.kind === 'admin' ? 'admin' : variant === 'customer' ? 'customer' : 'staff');
@@ -186,24 +189,23 @@ export function AppShell({ children, variant }: { children: ReactNode; variant: 
     let active = true;
     const load = async () => {
       try {
-        const res = await api.list<any>('/api/customers/me/notifications?limit=30');
+        // Read the envelope directly rather than through `api.list`: the unread
+        // count rides in `meta`, which `api.list` throws away — and a bell whose
+        // badge never moves is indistinguishable from "no notifications arrived".
+        const res = await api.get<{ data: any[]; meta?: { unread?: number } }>(
+          '/api/customers/me/notifications?limit=30',
+        );
         if (!active) return;
-        setNotifications(res.data);
-        setUnread(Number((res as any).meta?.unread ?? 0));
+        const rows = res.data ?? [];
+        setNotifications(rows);
+        setUnread(Number(res.meta?.unread ?? 0));
         // Toast anything that arrived since the last poll so the user hears
         // about it even without opening the bell. First load only seeds.
-        const known = knownNotificationIds.current;
-        const fresh = res.data.filter((n: any) => !n.readAt && (!known || !known.has(n.id)));
-        if (known && fresh.length > 0 && !document.hidden) {
-          const latest = fresh[0];
-          notify(
-            fresh.length > 1
-              ? `${faNum(fresh.length)} اعلان تازه: ${latest.title}`
-              : `${latest.title}${latest.body ? ` — ${latest.body}` : ''}`.slice(0, 140),
-            latest.kind === 'error' ? 'error' : latest.kind === 'success' ? 'success' : 'info',
-          );
-        }
-        knownNotificationIds.current = new Set(res.data.map((n: any) => n.id));
+        const known = knownSet();
+        const fresh = bellSeeded.current ? rows.filter((n: any) => !n.readAt && !known.has(n.id)) : [];
+        for (const item of fresh) announce(item);
+        rows.forEach((n: any) => known.add(n.id));
+        bellSeeded.current = true;
       } catch {
         /* notifications are non-critical */
       }
@@ -212,6 +214,56 @@ export function AppShell({ children, variant }: { children: ReactNode; variant: 
     const timer = setInterval(load, 25_000);
     return () => { active = false; clearInterval(timer); };
   }, [location.pathname, notify]);
+
+  /**
+   * One announcement per notice, whichever path it came in on.
+   *
+   * The poll and the live stream both call this, and the shared `known` set is
+   * what makes "delivered twice, shown once" impossible: the first caller adds
+   * the id, the second finds it there and stays quiet.
+   */
+  const knownSet = () => (knownNotificationIds.current ??= new Set<string>());
+
+  const announce = (item: any) => {
+    const id = String(item.id ?? '');
+    if (!id) return;
+    knownSet().add(id);
+    const text = `${item.title ?? ''}${item.body ? ` — ${item.body}` : ''}`.slice(0, 140);
+    const kind = item.kind === 'error' ? 'error' : item.kind === 'success' ? 'success' : 'info';
+    if (document.hidden) {
+      // The tab is in the background: a toast nobody will read is worse than a
+      // tray notification, and the tray is exactly where this notice belongs.
+      void raiseSystemNotice(item as LiveNotice, { tag: id });
+    } else {
+      notify(text, kind);
+    }
+    // "Seen by this browser" is an answer the server needs: it is what stops the
+    // retries and keeps the other channels from also buzzing.
+    void api.post('/api/notifications/ack', { ids: [id], channel: 'web' }).catch(() => undefined);
+  };
+
+  // The live channel: instant delivery while the tab is open at all, and it
+  // works on http, without VAPID keys, without a push service — which is what
+  // makes it usable on the office LAN install, and unfilterable in Iran.
+  useEffect(() => {
+    const close = connectLiveBell({
+      seen: knownSet,
+      onNotice: (notice) => {
+        // A replay after a reconnect can carry notices that are already in the
+        // open bell; before the first poll has seeded, they are recorded, not
+        // announced. An unread stack of toasts on page load is not "instant".
+        if (!bellSeeded.current) {
+          knownSet().add(notice.id);
+          return;
+        }
+        setNotifications((prev) => (prev.some((n) => n.id === notice.id) ? prev : [notice as any, ...prev]));
+        setUnread((value) => value + 1);
+        announce(notice as any);
+      },
+    });
+    return close;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   /** Clicking a notice marks exactly that one read (badge follows at once)
       and routes chat pointers into the floating chat instead of a page. */

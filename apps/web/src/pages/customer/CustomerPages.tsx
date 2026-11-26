@@ -21,6 +21,7 @@ import { CategoryArt, CategoryIcon, PhoneMockup, ShieldArt, Tilt } from '../../c
 import { availableRequestDocumentRequirements, defaultRequestDocumentRequirementKey, requestDocumentRequirements } from '../../lib/request-documents';
 import { ThemeSegmented } from '../../lib/theme';
 import { DynamicField } from '../public/Services';
+import { JalaliDateField } from '../../components/JalaliDateField';
 
 /* ------------------------------- dashboard -------------------------------- */
 
@@ -1589,7 +1590,7 @@ export function CustomerProfile() {
             <Field label="نام پدر"><Input value={form.fatherName} onChange={(e) => setForm({ ...form, fatherName: e.target.value })} /></Field>
             <Field label="شماره شناسنامه"><Input value={form.birthCertificateNo} onChange={(e) => setForm({ ...form, birthCertificateNo: e.target.value })} dir="ltr" className="text-left" /></Field>
             <Field label="محل تولد"><Input value={form.birthPlace} onChange={(e) => setForm({ ...form, birthPlace: e.target.value })} /></Field>
-            <Field label="تاریخ تولد"><Input type="date" value={form.birthDate} onChange={(e) => setForm({ ...form, birthDate: e.target.value })} dir="ltr" className="text-left" /></Field>
+            <Field label="تاریخ تولد"><JalaliDateField value={form.birthDate} onChange={(e) => setForm({ ...form, birthDate: e })} /></Field>
             <Field label="تلفن ثابت"><Input value={form.landline} onChange={(e) => setForm({ ...form, landline: e.target.value })} dir="ltr" className="text-left" placeholder="۰۲۱…" /></Field>
             <Field label="شغل"><Input value={form.jobTitle} onChange={(e) => setForm({ ...form, jobTitle: e.target.value })} /></Field>
             <Field label="شماره شبا" hint="برای وام و یارانه استفاده می‌شود."><Input value={form.iban} onChange={(e) => setForm({ ...form, iban: e.target.value })} dir="ltr" className="text-left" placeholder="IR…" maxLength={26} /></Field>

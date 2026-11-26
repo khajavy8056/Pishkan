@@ -15,6 +15,7 @@ import { useAuth, homeFor } from '../../lib/auth';
 import { api, ApiFailure } from '../../lib/api';
 import { faNum, rial, STATUS_LABELS } from '../../lib/format';
 import { Button, EmptyState, ErrorState, Field, Input, Loading, Modal, Select, Textarea, useToast } from '../../components/ui';
+import { JalaliDateField } from '../../components/JalaliDateField';
 
 /* ------------------------------- service list ----------------------------- */
 
@@ -899,7 +900,7 @@ export function DynamicField({ field, value, onChange, fileName, uploading, onFi
     case 'number':
       return <Input type="number" inputMode="numeric" value={value ?? ''} placeholder={field.placeholder} onChange={(e) => onChange(e.target.value)} />;
     case 'date':
-      return <Input type="date" value={value ?? ''} onChange={(e) => onChange(e.target.value)} />;
+      return <JalaliDateField value={value ?? ''} onChange={(e) => onChange(e)} />;
     default:
       return (
         <Input

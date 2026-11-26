@@ -70,6 +70,12 @@ STEPS: list[tuple[str, list[str]]] = [
     # types and confirmation stage as the API — a silent drift would show up as
     # a draft that never leaves «collecting» on the phone.
     ('assistant contract parity', ['tools/checks/dart_assistant_contract.py']),
+    # google-services.json and res/values/firebase.xml are two copies of one
+    # project id, and the app reads only the second. When they disagree, or when a
+    # service-account file is committed by mistake, FirebaseApp is not initialised
+    # and push while the app is closed does nothing — silently, with no error
+    # anywhere. This is the check that makes that configuration impossible to ship.
+    ('firebase config sync', ['tools/checks/firebase_config_sync.py']),
 ]
 
 # The deployment checks are a bash script, not a dart-tooling step, but they

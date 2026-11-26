@@ -22,6 +22,45 @@ function pathOf(url) {
   return text.split('?')[0].replace(/\/+$/, '') || '/';
 }
 
+/*
+ * Show one notice and report that it was shown.
+ *
+ * Two callers: the `push` event (a notice that arrived while no tab was open)
+ * and the `pishkan:notify` message (the live stream in a background tab, which
+ * is the only path available on a LAN install without a push service). Both end
+ * here, so the tray never looks different depending on how the notice travelled,
+ * and so the *ack* is never forgotten — an ack is what tells the server to stop
+ * pushing this same notice over the other channels.
+ */
+function deliver(data) {
+  const title = String(data.title || 'پیشخوان');
+  const shown = self.registration.showNotification(title, {
+    body: String(data.body || ''),
+    tag: data.tag || (data.notificationId ? `pishkan:${data.notificationId}` : undefined),
+    dir: 'rtl',
+    lang: 'fa-IR',
+    icon: '/icons/icon-192.png',
+    badge: '/icons/icon-192.png',
+    data: { url: data.url || '/staff/queue', notificationId: data.notificationId || null },
+  });
+  return Promise.resolve(shown).then(() => ack(data.notificationId));
+}
+
+/*
+ * The session cookie rides along (same origin), and the write is deliberately
+ * fire-and-forget: a browser cannot fail a notification because the server was
+ * unreachable a moment ago.
+ */
+function ack(notificationId) {
+  if (!notificationId) return undefined;
+  return fetch('/api/notifications/ack', {
+    method: 'POST',
+    credentials: 'same-origin',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ ids: [notificationId], channel: 'web' }),
+  }).catch(() => undefined);
+}
+
 self.addEventListener('push', (event) => {
   let data = { title: 'پیشخوان', body: '', url: '/staff/queue', tag: undefined };
   try {
@@ -29,17 +68,18 @@ self.addEventListener('push', (event) => {
   } catch {
     /* keep defaults */
   }
-  event.waitUntil(
-    self.registration.showNotification(data.title, {
-      body: data.body,
-      tag: data.tag,
-      dir: 'rtl',
-      lang: 'fa-IR',
-      icon: '/icons/icon-192.png',
-      badge: '/icons/icon-192.png',
-      data: { url: data.url || '/staff/queue' },
-    }),
-  );
+  event.waitUntil(deliver(data));
+});
+
+/*
+ * The page forwards a notice it received on the live stream but cannot show
+ * itself, because the tab is in the background. `tag` is the notification id, so
+ * a notice that also came over Web Push is replaced rather than duplicated.
+ */
+self.addEventListener('message', (event) => {
+  const data = event.data || {};
+  if (data.type !== 'pishkan:notify') return;
+  event.waitUntil(deliver(data));
 });
 
 self.addEventListener('notificationclick', (event) => {

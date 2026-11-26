@@ -7,6 +7,7 @@ import {
 } from '../../components/ui';
 import { api, ApiFailure } from '../../lib/api';
 import { faDate, faDateTime, faNum, rial } from '../../lib/format';
+import { JalaliDateField } from '../../components/JalaliDateField';
 
 type CodeForm = {
   code: string; title: string; type: 'percent' | 'fixed';
@@ -288,10 +289,10 @@ export function AdminDiscountsPage({ variant = 'admin' }: { variant?: 'admin' | 
               options={[{ value: '', label: 'همه دسته‌ها' }, ...categories.map((c) => ({ value: c.id, label: c.title }))]} />
           </Field>
           <Field label="از تاریخ">
-            <Input type="date" value={form.startsAt} onChange={(e) => setForm({ ...form, startsAt: e.target.value })} dir="ltr" className="text-left" />
+            <JalaliDateField value={form.startsAt} onChange={(e) => setForm({ ...form, startsAt: e })} />
           </Field>
           <Field label="تا تاریخ">
-            <Input type="date" value={form.expiresAt} onChange={(e) => setForm({ ...form, expiresAt: e.target.value })} dir="ltr" className="text-left" />
+            <JalaliDateField value={form.expiresAt} onChange={(e) => setForm({ ...form, expiresAt: e })} />
           </Field>
           <Switch checked={form.isActive} onChange={(checked) => setForm({ ...form, isActive: checked })} label="کد فعال باشد" />
         </form>

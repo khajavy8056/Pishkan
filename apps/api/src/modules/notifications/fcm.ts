@@ -385,7 +385,7 @@ export async function deviceCount(userId: string): Promise<number> {
 
 const tail = (token: string) => (token.length > 6 ? token.slice(-6) : token);
 
-async function logDelivery(entry: {
+export async function logDelivery(entry: {
   userId: string;
   notificationId?: string;
   token?: string;
@@ -487,6 +487,15 @@ export async function pushToUsers(
         errorText: result.errorText,
       });
     }
+  }
+  // One attempt per *notice*, not per device, and only when the notice is a
+  // stored row: the counter is what the retry sweeper reads to decide whether
+  // this notification has already been chased three times. An accepted send is
+  // not a delivery — the ack from the device is — so a row that nobody confirms
+  // keeps its attempts and comes back for another try.
+  if (payload.notificationId) {
+    const { noteAttempt } = await import('./delivery.js');
+    await noteAttempt([payload.notificationId]).catch(() => undefined);
   }
   return { sent, failed, withoutDevice, skipped: '' };
 }
