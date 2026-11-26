@@ -14,6 +14,10 @@
          for them; without WAKE_LOCK the scheduled pass can be cut short. -->
     <uses-permission android:name="android.permission.WAKE_LOCK"/>
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE"/>
+    <!-- Android 14+ needs the type spelled out too: the keep-alive service below
+         is `specialUse`, not `dataSync`, because a data-sync service is capped at
+         a few hours a day and its whole purpose is to stay open all day. -->
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_SPECIAL_USE"/>
     <!-- Remind the customer if the OS has put the app to sleep. Requesting the
          exemption is opt-in and only ever triggered from a button the user
          presses; the app never asks for it on its own. -->
@@ -84,6 +88,20 @@
         <!-- The registration token is reposted by the service itself, so no
              default-notification metadata is needed: nothing is rendered by the
              system for a data-only message. -->
+        <!-- The fourth path to the notification shade: this service keeps the
+             server's live stream open, so a case update lands in the second it is
+             saved even with Google's push unavailable (no Play Services, a LAN
+             install, a Firebase key that was never entered). It is opt-in from the
+             app's notification settings and shows one ongoing, silent line while
+             it runs. exported=false: nothing outside this package may start it. -->
+        <service
+            android:name=".push.KeepAliveService"
+            android:exported="false"
+            android:foregroundServiceType="specialUse">
+            <property
+                android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
+                android:value="Live connection to the office server so case notifications arrive without a third-party push provider" />
+        </service>
         <meta-data
             android:name="flutterEmbedding"
             android:value="2" />

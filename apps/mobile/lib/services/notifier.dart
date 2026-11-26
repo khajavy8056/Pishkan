@@ -57,6 +57,18 @@ class AppPrefs {
 
   static Future<void> setAutofillHintSeen() async => (await SharedPreferences.getInstance()).setBool(_autofillHintKey, true);
 
+  /// The app's own always-on connection (`KeepAlive`), off until asked for.
+  ///
+  /// Default false is a decision, not an omission: switching it on puts a
+  /// permanent line in the shade for as long as the app runs, and nobody should
+  /// get that for not reading a settings screen. The profile sheet offers it
+  /// when the server has no working instant push.
+  static const _keepAliveKey = 'pishkan.pref.keepAlive';
+
+  static Future<bool> keepAliveEnabled() async => (await SharedPreferences.getInstance()).getBool(_keepAliveKey) ?? false;
+
+  static Future<void> setKeepAliveEnabled(bool value) async { await (await SharedPreferences.getInstance()).setBool(_keepAliveKey, value); }
+
   static Future<bool> biometricEnabled() async {
     final prefs = await SharedPreferences.getInstance();
     return prefs.getBool(_biometricKey) ?? false;

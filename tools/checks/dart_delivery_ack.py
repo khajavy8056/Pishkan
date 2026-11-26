@@ -34,6 +34,13 @@ PUSH_KT = MOBILE / 'android' / 'app' / 'src' / 'main' / 'kotlin' / 'ir' / 'pishk
 RENDER_KT = MOBILE / 'android' / 'app' / 'src' / 'main' / 'kotlin' / 'ir' / 'pishkan' / 'app' / 'push' / 'PushRenderer.kt'
 ROUTES = API / 'src' / 'routes' / 'notifications.ts'
 DELIVERY = API / 'src' / 'modules' / 'notifications' / 'delivery.ts'
+MANIFEST = MOBILE / 'android' / 'app' / 'src' / 'main' / 'AndroidManifest.xml'
+SERVICE_KT = MOBILE / 'android' / 'app' / 'src' / 'main' / 'kotlin' / 'ir' / 'pishkan' / 'app' / 'push' / 'KeepAliveService.kt'
+KEEPALIVE_DART = MOBILE / 'lib' / 'services' / 'keepalive.dart'
+SHELL = MOBILE / 'lib' / 'screens' / 'home_shell.dart'
+LOGOUT = MOBILE / 'lib' / 'services' / 'services.dart'
+SETTINGS = MOBILE / 'lib' / 'screens' / 'profile.dart'
+LIVE_EVENT = DELIVERY
 
 # (file, required substrings, what the customer loses if any is gone)
 CHAIN: list[tuple[Path, tuple[str, ...], str]] = [
@@ -71,9 +78,78 @@ CHAIN: list[tuple[Path, tuple[str, ...], str]] = [
 ]
 
 
+# -------------------------------------------------------------------------- */
+#  The fourth path: the app's own live connection (foreground service).
+#
+#  It is the only instant channel that needs neither Google nor a purchased push
+#  provider, and it is made of five pieces in three languages: the manifest
+#  declaration, the service, the bridge that arms it, the setting that turns it on,
+#  and the sign-out that tears it down. Any one of them disappearing does not break
+#  the build — it silently reduces the app to "poll every three minutes", which is
+#  exactly the kind of regression nobody notices until a customer complains.  */
+# --------------------------------------------------------------------------
+KEEP_ALIVE: list[tuple[Path, tuple[str, ...], str]] = [
+    (
+        MANIFEST,
+        (
+            'android:name=".push.KeepAliveService"',
+            'android:foregroundServiceType="specialUse"',
+            'android.permission.FOREGROUND_SERVICE_SPECIAL_USE',
+        ),
+        'سرویس اتصال زنده در مانیفست نیست؛ اندروید آن را هرگز اجرا نمی‌کند و '
+        '«اتصال زندهٔ بدون فایربیس» در تنظیمات فقط یک سوئیچ توخالی می‌ماند',
+    ),
+    (
+        SERVICE_KT,
+        (
+            '/api/notifications/stream',
+            '"channel", "live"',
+            'PushRenderer.show(',
+            'quietWhileForeground',
+        ),
+        'سرویس یا سوکت را باز می‌کند یا تحویل را گزارش؛ هر دو با هم لازم‌اند، '
+        'وگرنه یا اعلانی نیست یا دفتری پر از «نرسیده» می‌ماند',
+    ),
+    (
+        KEEPALIVE_DART,
+        (
+            "'ir.pishkan.app/keepalive'",
+            "invokeMethod<void>('start'",
+            "invokeMethod<void>('stop'",
+            'AppPrefs.keepAliveEnabled()',
+        ),
+        'پل دارت قطع است: تنظیم روشن می‌ماند ولی هیچ‌کس سرویس را بیدار نمی‌کند',
+    ),
+    (
+        SHELL,
+        ('unawaited(KeepAlive.sync())', 'KeepAlive.setQuiet(true)', 'KeepAlive.setQuiet(false)'),
+        'اپ وقتی پیش‌زمینه است اعلان تکراری در نوار می‌گذارد، یا وقتی به پس‌زمینه '
+        'می‌رود چیزی را بازپخش نمی‌کند — همان «اعلان دیر رسید»',
+    ),
+    (
+        LOGOUT,
+        ('await KeepAlive.stop();',),
+        'اتصال با توکن مشتری قبلی روی گوشی اشتراکی زنده می‌ماند؛ نشتی اطلاعات، '
+        'نه فقط یک اعلان اضافه',
+    ),
+    (
+        SETTINGS,
+        ('اعلان آزمایشی', "'اتصال زندهٔ بدون فایربیس'"),
+        'راه چهارم هیچ جایی برای روشن/خاموش شدن ندارد؛ یعنی همان اعلان همیشگی '
+        'که مشتری نمی‌خواهد، بدون رضایت او می‌آید',
+    ),
+    (
+        LIVE_EVENT,
+        ('tag: string;', 'row.dedupe_key'),
+        'چارچوب زنده برچسب تاشدن را ندارد؛ پس یک پرونده هم‌زمان دو ردیف در نوار '
+        'اعلان گوشی می‌سازد (یکی از فایربیس، یکی از اتصال خودمان)',
+    ),
+]
+
+
 def main() -> int:
     failures: list[str] = []
-    for path, needles, why in CHAIN:
+    for path, needles, why in CHAIN + KEEP_ALIVE:
         try:
             text = path.read_text(encoding='utf-8')
         except OSError as exc:  # a moved file is also a broken chain
@@ -99,7 +175,7 @@ def main() -> int:
         for failure in failures:
             print(f'  ✗ {failure}')
         return 1
-    checked = sum(len(needles) for _, needles, _ in CHAIN) + 1
+    checked = sum(len(needles) for _, needles, _ in CHAIN + KEEP_ALIVE) + 1
     print(f'delivery ack chain: ok ({checked} invariant(s) checked)')
     return 0
 

@@ -51,6 +51,16 @@ export interface LiveEvent {
   eventType: string | null;
   revision: number;
   createdAt: string;
+  /**
+   * The operating system's collapse key: every channel that renders this notice
+   * must hand Android the same `tag`, or the same event shows up as two rows in
+   * the shade — one posted by FCM, one by the phone's own live connection.
+   *
+   * It is the row's `dedupe_key` (what the sender used as its idempotency key),
+   * which is exactly the value `notifyUser` passes as `tag` to FCM and the relay,
+   * so all three agree by construction instead of by remembering to.
+   */
+  tag: string;
 }
 
 /* -------------------------------------------------------------------------- */
@@ -133,6 +143,7 @@ export function toLiveEvent(row: any): LiveEvent {
     eventType: row.event_type ?? null,
     revision: Number(row.revision ?? 1),
     createdAt: row.created_at,
+    tag: String(row.dedupe_key ?? row.id).slice(0, 120),
   };
 }
 
