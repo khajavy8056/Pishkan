@@ -84,10 +84,10 @@ export function LandingHero() {
     <section
       ref={heroRef}
       id="top"
-      className="relative px-4 pb-16 pt-24 sm:px-6 lg:pb-24 lg:pt-28"
+      className="relative pb-16 pt-24 lg:pb-24 lg:pt-28"
       aria-label="معرفی سامانه"
     >
-      <div className="mx-auto grid max-w-7xl items-center gap-10 lg:grid-cols-[minmax(0,1.08fr)_minmax(0,0.92fr)] lg:gap-12">
+      <div className="lp-container grid items-center gap-10 lg:grid-cols-[minmax(0,1.08fr)_minmax(0,0.92fr)] lg:gap-12 2xl:gap-20">
         {/* ---------- text column ---------- */}
         <div className="hero-piece-text min-w-0">
           <span className="hero-kicker">
@@ -97,10 +97,10 @@ export function LandingHero() {
 
           <h1 className="hero-title mt-5">{titleText}</h1>
 
-          <p className="mt-5 max-w-xl text-base leading-8 text-muted sm:text-[1.06rem]">{leadText}</p>
+          <p className="mt-5 w-full max-w-xl text-base leading-8 text-muted sm:text-[1.06rem] min-[1800px]:max-w-2xl">{leadText}</p>
 
           {/* live search */}
-          <div ref={searchWrapRef} className="relative mt-7 max-w-xl">
+          <div ref={searchWrapRef} className="relative mt-7 w-full max-w-xl min-[1800px]:max-w-2xl">
             <div className="glass flex items-center gap-2 rounded-2xl border border-line-strong px-3.5 py-2 shadow-xl shadow-slate-950/10 focus-within:border-cyan-400/70">
               <Search className="size-4.5 shrink-0 text-brand-text" />
               <input

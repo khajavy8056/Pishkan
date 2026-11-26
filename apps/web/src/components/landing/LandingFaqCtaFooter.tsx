@@ -54,13 +54,13 @@ export function LandingFeaturesSection() {
   const title = setting('landing.features_title') || `چرا ${brand.name}؟`;
 
   return (
-    <section ref={revealRef} className="mx-auto max-w-7xl px-4 py-12 sm:px-6 lg:py-16">
+    <section ref={revealRef} className="lp-container py-12 lg:py-16">
       <div className="mb-8 text-center" data-reveal>
         <span className="text-xs font-extrabold tracking-widest text-emerald-400">مزیت‌های سامانه</span>
         <h2 className="mt-1.5 text-2xl font-black text-text sm:text-3xl">{title}</h2>
       </div>
 
-      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3 min-[1800px]:grid-cols-4">
         {features.map((item, idx) => (
           <div key={`${item.title}-${idx}`} data-reveal="zoom" className="cat-card flex items-start gap-3.5 p-5">
             <span className="grid size-10 shrink-0 place-items-center rounded-xl bg-cyan-400/12 text-brand-text ring-1 ring-cyan-400/25">
@@ -85,7 +85,8 @@ export function LandingFaqSection() {
   if (!faqs.length) return null;
 
   return (
-    <section ref={revealRef} id="faq" className="mx-auto max-w-4xl px-4 py-12 sm:px-6 lg:py-16">
+    <section ref={revealRef} id="faq" className="lp-container py-12 lg:py-16">
+      <div className="lp-measure">
       <div className="mb-8 text-center" data-reveal>
         <span className="inline-flex items-center gap-1.5 text-xs font-extrabold tracking-widest text-cyan-400">
           <HelpCircle className="size-4" />
@@ -110,6 +111,7 @@ export function LandingFaqSection() {
           </details>
         ))}
       </div>
+      </div>
     </section>
   );
 }
@@ -132,7 +134,7 @@ export function LandingCtaSection() {
           : primaryLink;
 
   return (
-    <section ref={revealRef} className="mx-auto max-w-7xl px-4 py-12 sm:px-6 lg:py-16">
+    <section ref={revealRef} className="lp-container py-12 lg:py-16">
       <div
         data-reveal="zoom"
         className="cta-panel px-6 py-12 text-center shadow-2xl sm:px-12 sm:py-16"
@@ -199,7 +201,7 @@ export function LandingFooter() {
 
   return (
     <footer className="footer-shell mt-12">
-      <div className="mx-auto max-w-7xl px-4 pb-24 pt-12 sm:px-6 lg:py-16">
+      <div className="lp-container pb-24 pt-12 lg:py-16">
         <div className="grid gap-10 lg:grid-cols-12">
           <div className="space-y-4 lg:col-span-5">
             <Link to="/" className="inline-flex items-center gap-3 text-inherit no-underline">
