@@ -105,7 +105,6 @@ class MainActivity : FlutterFragmentActivity() {
                     result.success(exempt)
                 } else result.notImplemented()
             }
-    }
 
         // The keep-alive connection: Dart owns the credentials and the decision,
         // the service owns the socket. Three methods and no return values worth
@@ -149,6 +148,7 @@ class MainActivity : FlutterFragmentActivity() {
                     else -> result.notImplemented()
                 }
             }
+    }
 
     override fun onDestroy() {
         sounds?.release()

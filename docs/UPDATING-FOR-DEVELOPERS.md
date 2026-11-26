@@ -102,7 +102,8 @@ DROP COLUMN old_field;
 
 ```bash
 bash tools/check_deploy.sh     # منطق استقرار، مهاجرت‌ها، رندر nginx
-python3 tools/check_mobile.py  # نحو و ایمپورت‌های Dart
+python3 tools/check_mobile.py  # حدود ۲۰ دروازه: نحوِ Dart، شکلِ فایل‌های Kotlin،
+                             # زنجیرهٔ تأیید تحویل، آیکون‌ها، نسخه‌ها
 cd apps/api && npx vitest run  # تست‌های API
 cd apps/web && npx tsc --noEmit
 ```
@@ -116,6 +117,9 @@ cd apps/web && npx tsc --noEmit
 - [ ] اگر این آپدیت وسط کار شکست بخورد، `rollback` واقعاً کار می‌کند؟
 - [ ] نام دامنه جایی hard-code نشده؟
 - [ ] قالب nginx رندر می‌شود؟ (`check_deploy.sh`)
+- [ ] اگر `apps/mobile` دست‌خورده: `flutter analyze` و `compileReleaseKotlin` در **هیچ**
+      محیطی جز GitHub Actions اجرا نمی‌شوند (اینجا `dart`/`flutter`/SDK نصب نیست). پس
+      `check_mobile.py` را گرفته باشید و بدانید قرمز شدنش یعنی تگ بعدی می‌سوزد.
 
 ---
 
