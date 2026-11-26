@@ -230,6 +230,42 @@ psql -U pishkan -d pishkan -c "SELECT count(*) FROM requests"
    حالا خودکار با سوییچ به‌روز می‌شود؛ قبلاً فقط در نصب اولیه نوشته می‌شد و تا
    ابد همان نصب اول را گزارش می‌کرد.)
 
+### اگر گام «Analyze» در CIِ اندروید قرمز شد
+
+`flutter analyze` تنها جایی است که دارتِ این مخزن واقعاً سنجیده می‌شود: در محیط
+توسعهٔ این ریپو نه `dart` هست نه `flutter`، و `tools/check_mobile.py` متنِ فایل‌ها
+را می‌خواند نه معناشان. یعنی یک خطای دارت (نام حل‌نشده، import مبهم، امضای غلط)
+هیچ علامتی در محلی ندارد و اولین بار همان‌جا می‌ترکد. دو درس از همین گرفته شده:
+
+- **نام‌های هم‌نام با فلاتر نسازید.** `KeepAlive` یک ویجتِ خودِ
+  `package:flutter/widgets` است (که `material.dart` هم صادرش می‌کند)؛ کلاسِ پلِ
+  اتصال زندهٔ اپ برای همین `KeepAliveLink` نام دارد. هر فایلِ `screens/` که هم
+  `material.dart` را import کند و هم یک کلاسِ هم‌نام با فلاتر را، روی هر استفاده
+  خطای `ambiguous_import` می‌گیرد. نگهبانش بند آخر
+  `tools/checks/dart_delivery_ack.py` است.
+- **لاگ را از API هم می‌شود خواند** (برای ابزارک‌ها/ربات‌هایی که صفحهٔ Actions را
+  باز نمی‌کنند): شمارهٔ گام‌ها و idِ لاگ از `actions/runs/<run>/jobs`، و آدرسِ
+  خامِ لاگ در سَرِ redirectِ `gh api -i repos/<owner>/<repo>/actions/jobs/<job>/logs`
+  است. متن خطا با الگوی `error •` جدا می‌شود.
+
+فایل `.github/workflows/android.yml` را از همین محیط **نمی‌شود** عوض کرد: پوش با
+این خطا رد می‌شود — `refusing to allow a GitHub App to create or update workflow
+… without workflows permission` — و `gh workflow run` هم ۴۰۳ می‌دهد. پس اگر
+خواستید گزارشِ analyze مثل بقیهٔ تست‌ها در خلاصهٔ همان check بخوانده شود
+(نه فقط در صفحهٔ لاگ)، این گام را خودتان جایگزین `Analyze` کنید و `exit`ِ آخرش
+همان کدِ خروجِ `flutter analyze` را نگه می‌دارد:
+
+```bash
+set +o pipefail
+flutter analyze --no-fatal-infos --no-fatal-warnings 2>&1 | tee "$RUNNER_TEMP/analyze.txt"
+code=${PIPESTATUS[0]}
+{ echo '#### `flutter analyze`'; echo; echo '```'; tail -n 200 "$RUNNER_TEMP/analyze.txt"; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
+exit "$code"
+```
+
+و همان‌جا `branches:` را از نامِ یک شاخهٔ کاریِ قدیمی به `arena/**` عوض کنید تا
+دارتِ هر شاخهٔ کاری همان‌روز سنجیده شود، نه وقتی که دیر شده و تگ زده‌اید.
+
 ### چرا در پنل، نشانی مخزن یا SHA پرسیده نمی‌شود
 
 `REPO_URL`/`REPO_BRANCH` در `deploy.conf` و اعتبارنامه در git config است؛

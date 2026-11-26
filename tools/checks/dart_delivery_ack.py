@@ -117,18 +117,19 @@ KEEP_ALIVE: list[tuple[Path, tuple[str, ...], str]] = [
             "invokeMethod<void>('start'",
             "invokeMethod<void>('stop'",
             'AppPrefs.keepAliveEnabled()',
+            'class KeepAliveLink {',
         ),
         'پل دارت قطع است: تنظیم روشن می‌ماند ولی هیچ‌کس سرویس را بیدار نمی‌کند',
     ),
     (
         SHELL,
-        ('unawaited(KeepAlive.sync())', 'KeepAlive.setQuiet(true)', 'KeepAlive.setQuiet(false)'),
+        ('unawaited(KeepAliveLink.sync())', 'KeepAliveLink.setQuiet(true)', 'KeepAliveLink.setQuiet(false)'),
         'اپ وقتی پیش‌زمینه است اعلان تکراری در نوار می‌گذارد، یا وقتی به پس‌زمینه '
         'می‌رود چیزی را بازپخش نمی‌کند — همان «اعلان دیر رسید»',
     ),
     (
         LOGOUT,
-        ('await KeepAlive.stop();',),
+        ('await KeepAliveLink.stop();',),
         'اتصال با توکن مشتری قبلی روی گوشی اشتراکی زنده می‌ماند؛ نشتی اطلاعات، '
         'نه فقط یک اعلان اضافه',
     ),
@@ -170,12 +171,27 @@ def main() -> int:
             'این رکوردی در جدول ندارد و گزارش تحویل را پر از خطای الکی می‌کند',
         )
 
+    # `KeepAlive` is a widget class of Flutter's own (package:flutter/widgets,
+    # re-exported by material.dart). A screen importing both it and keepalive.dart
+    # resolves `KeepAlive.foo` to neither and the analyzer calls that an error — in
+    # a repo where nothing but CI can see it.
+    for path in (KEEPALIVE_DART, SHELL, SETTINGS, LOGOUT):
+        # Comments are exempt: a sentence about the old name is not a compile
+        # error, and forcing prose to dodge it would only make the docs worse.
+        code = '\n'.join(line.split('//')[0] for line in path.read_text(encoding='utf-8').splitlines())
+        if 'KeepAlive.' in code:
+            failures.append(
+                f'{path.relative_to(ROOT)}: هنوز «KeepAlive.» نوشته می‌شود — نامِ خود فلاتر '
+                '(یک ویجت در package:flutter/widgets)؛ با material.dart در یک فایل '
+                'ambiguous_import می‌دهد و فقط در CI لو می‌رود. نام دارت «KeepAliveLink» است'
+            )
+
     if failures:
         print(f'delivery ack chain: {len(failures)} problem(s)')
         for failure in failures:
             print(f'  ✗ {failure}')
         return 1
-    checked = sum(len(needles) for _, needles, _ in CHAIN + KEEP_ALIVE) + 1
+    checked = sum(len(needles) for _, needles, _ in CHAIN + KEEP_ALIVE) + 2
     print(f'delivery ack chain: ok ({checked} invariant(s) checked)')
     return 0
 

@@ -12,6 +12,12 @@ import 'services.dart';
 /// foreground service, that puts notices in the notification shade without
 /// Google, without a purchased push provider, and without waiting for a poll.
 ///
+/// The name is deliberately not just `KeepAlive`: Flutter exports its own widget
+/// class called `KeepAlive` (from `package:flutter/widgets.dart`, re-exported by
+/// `material.dart`), so any screen that imports both libraries gets an
+/// `ambiguous_import` error on every bare use of that name — which is invisible
+/// here (no Dart toolchain) and only fails in CI's Analyze step.
+///
 /// ## Where it sits among the other paths
 ///
 /// FCM is still the only thing that wakes a phone whose app process was killed,
@@ -38,7 +44,7 @@ import 'services.dart';
 /// hands the platform side a copy for the lifetime of the process only; the
 /// service re-arms at the next app start, which is also the only moment a fresh
 /// token is guaranteed.
-class KeepAlive {
+class KeepAliveLink {
   static const _channel = MethodChannel('ir.pishkan.app/keepalive');
 
   static bool _supportsPlatform = Platform.isAndroid;

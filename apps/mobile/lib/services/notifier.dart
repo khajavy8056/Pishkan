@@ -57,7 +57,7 @@ class AppPrefs {
 
   static Future<void> setAutofillHintSeen() async => (await SharedPreferences.getInstance()).setBool(_autofillHintKey, true);
 
-  /// The app's own always-on connection (`KeepAlive`), off until asked for.
+  /// The app's own always-on connection (`KeepAliveLink`), off until asked for.
   ///
   /// Default false is a decision, not an omission: switching it on puts a
   /// permanent line in the shade for as long as the app runs, and nobody should

@@ -68,7 +68,7 @@ class _HomeShellState extends State<HomeShell> with WidgetsBindingObserver {
     unawaited(PushService.registerWithServer());
     // Same moment, different mechanism: if the office turned on the live
     // connection, this is where it gets its credentials for this session.
-    unawaited(KeepAlive.sync());
+    unawaited(KeepAliveLink.sync());
     // Ask for the notification permission once the customer is inside the
     // app (never on the splash, where it could stall first paint).
     unawaited(_askNotificationsPermission());
@@ -105,8 +105,8 @@ class _HomeShellState extends State<HomeShell> with WidgetsBindingObserver {
   void didChangeAppLifecycleState(AppLifecycleState state) {
     if (state == AppLifecycleState.resumed) {
       // The UI is the one that announces notices now, so the tray stays quiet
-      // while this screen is up (see `KeepAlive.setQuiet`).
-      unawaited(KeepAlive.setQuiet(true));
+      // while this screen is up (see `KeepAliveLink.setQuiet`).
+      unawaited(KeepAliveLink.setQuiet(true));
       _poll();
       _refreshUnread();
       return;
@@ -117,7 +117,7 @@ class _HomeShellState extends State<HomeShell> with WidgetsBindingObserver {
       // `inactive` is deliberately not a trigger — it also fires for a
       // permission dialog or the shade pulled down over the app, and flipping
       // there would move the announcement out from under the customer's eyes.
-      unawaited(KeepAlive.setQuiet(false));
+      unawaited(KeepAliveLink.setQuiet(false));
     }
   }
 

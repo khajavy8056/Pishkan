@@ -72,7 +72,7 @@ class _ProfileTabState extends State<ProfileTab> {
     final biometric = await AppPrefs.biometricEnabled();
     final available = await BiometricAuth.isAvailable();
     final keepAlive = await AppPrefs.keepAliveEnabled();
-    final suggested = keepAlive || await KeepAlive.serverHasNoInstantPush();
+    final suggested = keepAlive || await KeepAliveLink.serverHasNoInstantPush();
     if (!mounted) return;
     setState(() {
       _notificationsOn = notifications;
@@ -173,7 +173,7 @@ class _ProfileTabState extends State<ProfileTab> {
                   // Apply it now, not at the next start: the customer just asked
                   // for (or against) a live connection and is looking at the
                   // screen that says so.
-                  await KeepAlive.sync();
+                  await KeepAliveLink.sync();
                 },
               ),
               SwitchListTile(

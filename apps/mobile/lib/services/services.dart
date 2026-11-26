@@ -317,7 +317,7 @@ Future<void> logoutServer() async {
   // the service running would let the next person on a shared phone inherit a
   // socket that announces somebody else's cases.
   try {
-    await KeepAlive.stop();
+    await KeepAliveLink.stop();
   } catch (_) {}
   try {
     await api.postData('/api/auth/logout');
