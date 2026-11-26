@@ -458,11 +458,25 @@ export async function sendEventNotificationSms(mobile: string, event: SmsEvent, 
   return { ...result, error: safeError };
 }
 
-export async function sendNotificationSms(mobile: string, params: string[], purpose = 'notification'): Promise<SmsResult> {
+/**
+ * Send one notification SMS from a pattern.
+ *
+ * `templateIdOverride` lets a *different* pattern carry a different kind of
+ * message. The push-fallback escalation uses it: the notice is arbitrary office
+ * text, so it needs a pattern with exactly one variable, which is almost never
+ * the pattern configured for "your PIN is {code}" — reusing that one would send
+ * a customer's case update through a login template and fail at the provider.
+ */
+export async function sendNotificationSms(
+  mobile: string,
+  params: string[],
+  purpose = 'notification',
+  templateIdOverride = '',
+): Promise<SmsResult> {
   if (!(await getBool('sms.enabled')) || !(await getBool('sms.notify_enabled'))) {
     return { ok: false, error: 'پیامک اعلان غیرفعال است.', errorCode: 'disabled', provider: 'none' };
   }
-  const templateId = await getString('sms.notify_template_id');
+  const templateId = templateIdOverride.trim() || await getString('sms.notify_template_id');
   if (!templateId) {
     return { ok: false, error: 'الگوی اعلان در تنظیمات تعریف نشده است.', errorCode: 'no_template_pin', provider: 'none' };
   }

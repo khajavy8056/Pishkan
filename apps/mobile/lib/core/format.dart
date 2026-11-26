@@ -1,7 +1,15 @@
 import 'package:shamsi_date/shamsi_date.dart';
 
 const _faDigits = ['۰', '۱', '۲', '۳', '۴', '۵', '۶', '۷', '۸', '۹'];
-const _jalaliMonths = ['فروردین', 'اردیبهشت', 'خرداد', 'تیر', 'مرداد', 'شهریور', 'مهر', 'آبان', 'آذر', 'دی', 'بهمن', 'اسفند'];
+/// The twelve month names, in the order the calendar numbers them.
+///
+/// Public because the *picker* renders the same strings: a grid headed «آذر» and
+/// a label reading «دی» underneath it is the exact complaint this whole change is
+/// answering, so they share one list rather than two that look identical today.
+const jalaliMonthNames = ['فروردین', 'اردیبهشت', 'خرداد', 'تیر', 'مرداد', 'شهریور', 'مهر', 'آبان', 'آذر', 'دی', 'بهمن', 'اسفند'];
+
+/// One-letter weekday names, Saturday first — the first day of the Iranian week.
+const jalaliWeekdayShort = ['ش', 'ی', 'د', 'س', 'چ', 'پ', 'ج'];
 
 String faDigits(Object? value) {
   final text = '${value ?? ''}';
@@ -73,7 +81,7 @@ String faDate(Object? value, {bool withTime = false}) {
   final date = value is DateTime ? value : parseServerDate(value);
   if (date == null) return '—';
   final jalali = Jalali.fromDateTime(date);
-  final base = '${jalali.day} ${_jalaliMonths[jalali.month - 1]} ${jalali.year}';
+  final base = '${jalali.day} ${jalaliMonthNames[jalali.month - 1]} ${jalali.year}';
   if (!withTime) return faDigits(base);
   final hh = date.hour.toString().padLeft(2, '0');
   final mm = date.minute.toString().padLeft(2, '0');

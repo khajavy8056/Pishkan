@@ -32,7 +32,7 @@ export interface SettingDef {
 export type SettingGroupCode =
   | 'general' | 'landing' | 'domain' | 'auth' | 'sms' | 'email' | 'security' | 'services'
   | 'accounting' | 'wallet' | 'workforce' | 'payroll' | 'assistant' | 'files' | 'backup'
-  | 'maintenance' | 'monitoring' | 'multibranch' | 'support' | 'android_app';
+  | 'maintenance' | 'monitoring' | 'multibranch' | 'support' | 'android_app' | 'tours';
 
 export const SETTING_GROUPS: {
   code: SettingGroupCode;
@@ -61,9 +61,16 @@ export const SETTING_GROUPS: {
   { code: 'multibranch', title: 'چنددفتره', description: 'آماده‌سازی برای مدیریت چند دفتر مستقل (آزمایشی)', icon: 'building', order: 16 },
   { code: 'support', title: 'پشتیبانی و تیکت‌ها', description: 'فعال‌سازی میز پشتیبانی مشتریان و متن راهنمای آن', icon: 'life-buoy', order: 18 },
   { code: 'android_app', title: 'اپ اندروید مشتریان', description: 'نسخه‌بندی و سیاست به‌روزرسانی اپ، نوار اطلاعیه و روشن/خاموش بودن بنرها — مدیریت کامل بنرها در بخش «اپ اندروید» پنل مدیر کل است', icon: 'smartphone', order: 19 },
+  { code: 'tours', title: 'راهنمای تصویری سامانه', description: 'گام‌به‌گام آموزش پنل مشتری و کارکنان، و راهنمای‌های کوتاهِ موقعیتی که پس از تکرار یک اشتباه نشان داده می‌شوند', icon: 'compass', order: 20 },
 ];
 
 const bool = (v: boolean) => v;
+
+/** Reused by the `email.*` entries below, so the panel cannot imply a channel this
+ *  build does not have. `tests/notification-channels.test.ts` keeps the marker and the
+ *  absence of a transport tied together (`tests/notification-egress.test.ts`). */
+const EMAIL_UNWIRED = 'این تنظیم ذخیره می‌شود ولی فعلاً هیچ ایمیلی ارسال نمی‌شود (سامانه فرستندهٔ SMTP ندارد). '
+  + 'راه‌های واقعیِ رساندن اعلان: اتصال زنده، فایربیس، Web Push، وب‌هوک اعلان، و پیامک پشتیبان.';
 
 export const SETTINGS: SettingDef[] = [
   /* ------------------------------- general -------------------------------- */
@@ -184,18 +191,46 @@ export const SETTINGS: SettingDef[] = [
   { key: 'push.fcm_service_account', group: 'sms', type: 'textarea', secret: true, label: 'کلید حساب سرویس Firebase (فایل JSON)', hint: 'محتوای کامل فایل JSON حساب سرویس را اینجا بچسبانید. رمزنگاری‌شده ذخیره می‌شود و هرگز به گوشی یا مرورگر فرستاده نمی‌شود. در Firebase Console ← Project settings ← Service accounts ← Generate new private key. برای احراز هویت باید در پروژه‌ای باشد که اپ اندروید در آن ثبت شده است.', default: '' },
   { key: 'push.fcm_endpoint', group: 'sms', type: 'url', label: 'نشانی سرویس ارسال (فقط برای آزمایش)', hint: 'خالی بگذارید تا از سرویس رسمی گوگل استفاده شود. فقط برای آزمون با سرور تقلبی یا واسط داخلی.', default: '' },
 
-  /* --------------------------------- email -------------------------------- */
-  { key: 'email.enabled', group: 'email', type: 'boolean', label: 'ارسال ایمیل فعال باشد', default: bool(false) },
-  { key: 'email.host', group: 'email', type: 'text', label: 'هاست SMTP', default: '' },
-  { key: 'email.port', group: 'email', type: 'number', label: 'پورت SMTP', default: 587, min: 1, max: 65535 },
-  { key: 'email.secure', group: 'email', type: 'boolean', label: 'اتصال امن (TLS)', default: bool(true) },
-  { key: 'email.user', group: 'email', type: 'text', label: 'نام کاربری SMTP', default: '' },
-  { key: 'email.password', group: 'email', type: 'password', secret: true, label: 'رمز عبور SMTP', default: '' },
-  { key: 'email.from_name', group: 'email', type: 'text', label: 'نام فرستنده', default: 'دفتر پیشخوان' },
-  { key: 'email.from_address', group: 'email', type: 'email', label: 'ایمیل فرستنده', default: '' },
-  { key: 'email.notify_new_request', group: 'email', type: 'boolean', label: 'ایمیل هنگام ثبت درخواست جدید', default: bool(true) },
-  { key: 'email.notify_status_change', group: 'email', type: 'boolean', label: 'ایمیل هنگام تغییر وضعیت پرونده', default: bool(true) },
-  { key: 'email.notify_payment', group: 'email', type: 'boolean', label: 'ایمیل هنگام پرداخت', default: bool(true) },
+  /* --------------------- چندمسیره بودن ارسال (resilience) --------------------- */
+  // One channel is never enough here: FCM is geo-restricted for some devices,
+  // vendor ROMs kill background work, and a LAN-only office has no outbound
+  // internet at all. Each switch below is one independent path from the server to
+  // the same person; the device decides which one it answers on, and the first
+  // answer is the only one that shows (see notification_acks).
+  { key: 'push.live_enabled', group: 'sms', type: 'boolean', label: 'اتصال زنده به سرور (جایگزین داخلی فایربیس)', hint: 'اپ و پنل‌ها یک اتصال باز به همین سرور نگه می‌دارند و اعلان را بلافاصله از آن می‌گیرند — بدون گوگل، بدون فیلترشکن و بدون سرویس سوم. وقتی برنامه مینیمایز باشد هم کار می‌کند؛ اگر برنامه کاملاً بسته شود، فایربیس و بررسی دوره‌ای جایش را می‌گیرند.', default: bool(true), public: true },
+  { key: 'push.retry_enabled', group: 'sms', type: 'boolean', label: 'تلاش دوباره تا رسیدن اعلان', hint: 'اگر هیچ دستگاهی رسیدن اعلان را تأیید نکرد، سرور چند بار دیگر (با فاصلهٔ فزاینده) تلاش می‌کند. وقتی دستگاهی تأیید بفرستد، تلاش‌های بقیهٔ مسیرها متوقف می‌شود تا اعلان تکراری ساخته نشود.', default: bool(true) },
+  { key: 'push.sms_fallback_enabled', group: 'sms', type: 'boolean', label: 'پیامک پشتیبان وقتی اعلان نرسید', hint: 'برای اعلان‌های مهم و فوری؛ تنها وقتی پیامک می‌رود که هیچ‌یک از مسیرهای اعلان تا مهلت تعیین‌شده تأیید نگرفته باشند. هزینهٔ پیامک را در نظر بگیرید.', default: bool(false) },
+  { key: 'push.sms_fallback_after_min', group: 'sms', type: 'number', label: 'مهلت پیامک پشتیبان (دقیقه)', hint: 'چند دقیقه پس از ارسال اعلان، اگر تأییدی به دست سرور نرسیده بود، پیامک می‌رود.', default: 45, min: 5, max: 720 },
+  { key: 'push.sms_fallback_template_id', group: 'sms', type: 'text', label: 'کد الگوی پیامک پشتیبان', hint: 'الگویی در kavenegar/ارائه‌دهنده که فقط یک متغیر دارد و همان متن اعلان است. خالی بگذارید تا پیامک پشتیبان روشن نشود — الگوی «کد ورود» برای این کار مناسب نیست.', default: '' },
+  { key: 'push.sms_fallback_kinds', group: 'sms', type: 'text', label: 'نوع اعلان‌هایی که پیامک پشتیبان دارند', hint: 'فقط فهرست‌شده‌ها. پیش‌فرض خطا و هشدار؛ چون پیامک هزینه دارد، اعلان معمولی هرگز پیامک نمی‌شود.', default: 'error,warning' },
+  { key: 'push.relay_enabled', group: 'sms', type: 'boolean', label: 'ارسال هم‌زمان به درگاه اعلان دیگری (وب‌هوک)', hint: 'برای دفتری که سرویس اعلان ایرانی (پوشه، نجوا، چشمک) یا سرور نوتیفیکیشن خودش را خریده است: هر اعلان، یک‌بار، با یک POST به نشانی زیر هم به آن سرویس داده می‌شود تا آن سرویس به همان دستگاه برساند. SDK سمت گوشی را همان سرویس می‌دهد؛ سمت ما آماده است.', default: bool(false) },
+  { key: 'push.relay_url', group: 'sms', type: 'url', label: 'نشانی وب‌هوک سرویس اعلان', hint: 'مثال https://push.office.example/pishkan — سرور شما باید {"title","body","link","userIds"} را بپذیرد. توضیح کامل در docs/PUSH-NOTIFICATIONS-FA.md', default: '' },
+  { key: 'push.relay_key', group: 'sms', type: 'textarea', secret: true, label: 'کلید وب‌هوک (Bearer)', hint: 'اگر سرویس اعلان شما کلید می‌خواهد. رمزنگاری‌شده ذخیره می‌شود و به هیچ کلاینتی فرستاده نمی‌شود.', default: '' },
+
+  /* --------------------------------- email --------------------------------
+   * Stored, not wired. There is no SMTP transport anywhere in this codebase, so
+   * nothing in this group sends anything today. The keys stay (an office that has
+   * already typed a host and a password should not lose them on the day mail is
+   * implemented) but the panel says what is true, because a switch reading «روشن»
+   * while no mail ever leaves the server is the kind of silence that costs someone
+   * a deadline. The channels that really do deliver live in
+   * `modules/notifications/delivery.ts` (`CHANNELS`).
+   *
+   * `tests/notification-egress.test.ts` fails if one of these keys is read by
+   * code *and* still carries the marker, or is unread and has lost the marker —
+   * so the wording can only be dropped together with a real implementation.
+   */
+  { key: 'email.enabled', group: 'email', type: 'boolean', label: 'ارسال ایمیل (فرستندهٔ SMTP وصل نیست)', hint: EMAIL_UNWIRED, default: bool(false) },
+  { key: 'email.host', group: 'email', type: 'text', label: 'هاست SMTP', hint: 'برای روزی که فرستندهٔ ایمیل به سامانه وصل شود؛ اکنون هیچ ایمیلی از این تنظیمات خارج نمی‌شود.', default: '' },
+  { key: 'email.port', group: 'email', type: 'number', label: 'پورت SMTP', hint: 'برای روزی که فرستندهٔ ایمیل وصل شود؛ اکنون استفاده نمی‌شود.', default: 587, min: 1, max: 65535 },
+  { key: 'email.secure', group: 'email', type: 'boolean', label: 'اتصال امن (TLS)', hint: 'برای روزی که فرستندهٔ ایمیل وصل شود؛ اکنون استفاده نمی‌شود.', default: bool(true) },
+  { key: 'email.user', group: 'email', type: 'text', label: 'نام کاربری SMTP', hint: 'برای روزی که فرستندهٔ ایمیل وصل شود؛ اکنون استفاده نمی‌شود.', default: '' },
+  { key: 'email.password', group: 'email', type: 'password', secret: true, label: 'رمز عبور SMTP', hint: 'برای روزی که فرستندهٔ ایمیل وصل شود؛ اکنون استفاده نمی‌شود و به هیچ سرویسی فرستاده نمی‌شود.', default: '' },
+  { key: 'email.from_name', group: 'email', type: 'text', label: 'نام فرستنده', hint: 'برای روزی که فرستندهٔ ایمیل وصل شود؛ اکنون استفاده نمی‌شود.', default: 'دفتر پیشخوان' },
+  { key: 'email.from_address', group: 'email', type: 'email', label: 'ایمیل فرستنده', hint: 'برای روزی که فرستندهٔ ایمیل وصل شود؛ اکنون استفاده نمی‌شود.', default: '' },
+  { key: 'email.notify_new_request', group: 'email', type: 'boolean', label: 'ایمیل هنگام ثبت درخواست جدید', hint: EMAIL_UNWIRED, default: bool(true) },
+  { key: 'email.notify_status_change', group: 'email', type: 'boolean', label: 'ایمیل هنگام تغییر وضعیت پرونده', hint: EMAIL_UNWIRED, default: bool(true) },
+  { key: 'email.notify_payment', group: 'email', type: 'boolean', label: 'ایمیل هنگام پرداخت', hint: EMAIL_UNWIRED, default: bool(true) },
 
   /* -------------------------------- security ------------------------------- */
   { key: 'security.force_https', group: 'security', type: 'boolean', label: 'اجبار HTTPS', hint: 'درخواست‌های HTTP به HTTPS هدایت می‌شوند.', default: bool(true) },
@@ -260,6 +295,15 @@ export const SETTINGS: SettingDef[] = [
   { key: 'workforce.followup_after_hours', group: 'workforce', type: 'number', label: 'آستانهٔ یادآوری پیگیری (ساعت بدون تغییر)', default: 24, min: 1, max: 720 },
   { key: 'workforce.auto_assign_on_shift', group: 'workforce', type: 'boolean', label: 'فقط کارشناسان حاضر در شیفت ارجاع بگیرند', hint: 'برای دفتر تازه‌راه‌اندازی‌شده خاموش است؛ پس از تعریف شیفت‌ها و حضور کارکنان می‌توانید آن را فعال کنید.', default: bool(false) },
 
+  /* --------------------------------- tours --------------------------------- */
+  { key: 'tours.enabled', group: 'tours', type: 'boolean', label: 'راهنمای تصویری فعال', hint: 'با خاموش‌کردن آن، نه راهنمای گام‌به‌گام شروع می‌شود و نه راهنمای موقعیتی؛ داده‌های «چه کسی تا کجا دیده» پاک نمی‌شود.', default: bool(true), public: true },
+  { key: 'tours.auto_start', group: 'tours', type: 'boolean', label: 'اجرای خودکار راهنما در نخستین ورود', hint: 'روشن: برای کسی که هنوز راهنما را ندیده، یک‌بار خودش باز می‌شود. خاموش: راهنما فقط با دکمهٔ «راهنما» باز می‌شود و هیچ‌کس میان کارش قطع نمی‌شود.', default: bool(true) },
+  { key: 'tours.dismiss_retry_days', group: 'tours', type: 'number', label: 'فاصله تا پیشنهاد دوباره پس از «رد کردن» (روز)', hint: 'اگر کاربری راهنما را رد کرد، پس از این مدت و فقط اگر دوباره سر همان صفحه بود، یک بار دیگر پیشنهاد می‌شود. صفر یعنی هرگز.', default: 30, min: 0, max: 365 },
+  { key: 'tours.hints_enabled', group: 'tours', type: 'boolean', label: 'راهنمای‌های موقعیتی (پس از تکرار اشتباه) فعال', hint: 'این‌ها راهنمای کوتاه و یک‌خطی‌اند که فقط وقتی نشان داده می‌شوند کاربر چند بار پشت سر هم همان کار نادرست را انجام داده باشد؛ جایگزین بازشدن دوبارهٔ کل راهنما نمی‌شوند.', default: bool(true) },
+  { key: 'tours.hint_repeat_after', group: 'tours', type: 'number', label: 'تکرار یک کار تا نمایش راهنمای موقعیتی', hint: 'مثلاً ۲ یعنی بار دوم که کاربر همان اشتباه را انجام داد راهنمای کوتاه می‌آید. عدد بالاتر مداخله‌گر کمتر.', default: 2, min: 1, max: 10 },
+  { key: 'tours.hint_max_per_day', group: 'tours', type: 'number', label: 'سقف راهنمای موقعیتی برای هر کاربر در روز', hint: 'پس از این تعداد، تا فردا هیچ راهنمای کوتاه تازه‌ای نشان داده نمی‌شود.', default: 3, min: 0, max: 20 },
+  { key: 'tours.copy_override', group: 'tours', type: 'json', label: 'متن‌های جایگزین راهنما', hint: 'برای تغییر یک جمله بدون انتشار نسخهٔ جدید. نمونه: {"tours":{"customer-request":{"documents":{"body":"…"}}},"hints":{"document-from-profile":{"title":"…"}}}. کلیدهای ناشناخته نادیده گرفته می‌شوند.', default: '{}' },
+
   /* -------------------------------- assistant ------------------------------ */
   { key: 'assistant.enabled', group: 'assistant', type: 'boolean', label: 'دستیار هوشمند فعال', default: bool(true), public: true },
   { key: 'assistant.name', group: 'assistant', type: 'text', label: 'نام دستیار', default: 'دستیار هوشمند پیشخوان', public: true },
@@ -271,6 +315,11 @@ export const SETTINGS: SettingDef[] = [
   { key: 'assistant.llm_api_key', group: 'assistant', type: 'password', secret: true, label: 'کلید API مدل', default: '' },
   { key: 'assistant.llm_model', group: 'assistant', type: 'text', label: 'نام مدل', default: 'gpt-4o-mini' },
   { key: 'assistant.disclaimer', group: 'assistant', type: 'textarea', label: 'سلب مسئولیت', default: 'پاسخ‌های دستیار راهنمای اولیه است و جایگزین نظر کارشناس رسمی نیست.', public: true },
+  { key: 'assistant.account_access', group: 'assistant', type: 'boolean', label: 'دسترسی دستیار به حساب مشتری', hint: 'وقتی روشن باشد، دستیارِ یک مشتری لاگین‌شده فقط وضعیت پرونده‌ها، فاکتورها، کیف پول، پروفایل و تیکت‌های خودِ او را می‌بیند. اطلاعات هیچ مشتری دیگری هرگز در دسترس نیست.', default: bool(true) },
+  { key: 'assistant.request_submission', group: 'assistant', type: 'boolean', label: 'ثبت درخواست از طریق دستیار (با تأیید صریح)', hint: 'دستیار می‌تواند فرم خدمت را گام‌به‌گام پر کند و پیش‌نمایش نشان دهد؛ درخواست واقعی فقط پس از تأیید صریح مشتری و از مسیر اعتبارسنجی اصلی ثبت می‌شود.', default: bool(true) },
+  { key: 'assistant.profile_autofill', group: 'assistant', type: 'boolean', label: 'پیشنهاد اطلاعات پروفایل در فرم دستیار', hint: 'فقط با رضایت مشتری، مقادیر پروفایل او (نام، کد ملی، شبا و…) به‌عنوان پیشنهاد در فرم پر می‌شود. مشتری می‌تواند آن‌ها را ویرایش یا رد کند.', default: bool(true) },
+  { key: 'assistant.max_tool_steps', group: 'assistant', type: 'number', label: 'حداکثر گام‌های ابزار مدل زبانی', hint: 'در حالت استفاده از مدل خارجی، بیشینهٔ فراخوانی ابزار در هر پاسخ. عدد بالاتر دقیق‌تر و کندتر است.', default: 5, min: 1, max: 8 },
+  { key: 'assistant.show_quick_actions', group: 'assistant', type: 'boolean', label: 'نمایش دکمه‌های اقدام سریع در گفت‌وگو', default: bool(true), public: true },
 
   /* ---------------------------------- files -------------------------------- */
   { key: 'files.max_size_mb', group: 'files', type: 'number', label: 'حداکثر حجم هر فایل (مگابایت)', default: 10, min: 1, max: 100 },
@@ -351,7 +400,7 @@ export const SETTINGS: SettingDef[] = [
   { key: 'multibranch.allow_cross_branch_reports', group: 'multibranch', type: 'boolean', label: 'گزارش تلفیقی بین دفاتر', default: bool(false) },
 
   /* --------------------------- Android customer app --------------------------- */
-  { key: 'app.latest_version', group: 'android_app', type: 'text', label: 'آخرین نسخه منتشرشده اپ', hint: 'آخرین نسخه‌ای که منتشر کرده‌اید. اپ اگر قدیمی‌تر باشد پیام به‌روزرسانی نشان می‌دهد؛ پس این مقدار باید با نسخه‌ای که واقعاً منتشر شده برابر باشد، وگرنه همهٔ کاربران پیام «نسخهٔ تازه موجود است» می‌بینند.', default: '1.15.0', public: true },
+  { key: 'app.latest_version', group: 'android_app', type: 'text', label: 'آخرین نسخه منتشرشده اپ', hint: 'آخرین نسخه‌ای که منتشر کرده‌اید. اپ اگر قدیمی‌تر باشد پیام به‌روزرسانی نشان می‌دهد؛ پس این مقدار باید با نسخه‌ای که واقعاً منتشر شده برابر باشد، وگرنه همهٔ کاربران پیام «نسخهٔ تازه موجود است» می‌بینند. قاعدهٔ شماره‌گذاری سامانه ۱.۰.x است که x همان شمارهٔ ساخت است و با هر انتشار یکی اضافه می‌شود (docs/UPDATING-FOR-DEVELOPERS.md); ابزار tools/checks/version_consistency.py بررسی می‌کند این مقدار با نسخهٔ واقعی اپ یکی باشد.', default: '1.0.1217', public: true },
   { key: 'app.min_version', group: 'android_app', type: 'text', label: 'حداقل نسخه مجاز', hint: 'نسخه‌های قدیمی‌تر از این نمی‌توانند ادامه دهند و باید به‌روزرسانی شوند. پایین نگه داشتنش یعنی هیچ کاربری به‌خاطر نسخه از اپ بیرون نمی‌ماند.', default: '1.0.0', public: true },
   { key: 'app.update_url', group: 'android_app', type: 'url', label: 'پیوند دریافت نسخه تازه', hint: 'لینک مستقیم APK یا صفحه فروشگاه؛ خالی یعنی از «پیوند دانلود اپلیکیشن اندروید» صفحه فرود استفاده شود.', default: '', public: true },
   { key: 'app.force_update', group: 'android_app', type: 'boolean', label: 'به‌روزرسانی اجباری', hint: 'وقتی روشن است، کاربر قدیمی بدون به‌روزرسانی نمی‌تواند وارد اپ شود.', default: bool(false), public: true },

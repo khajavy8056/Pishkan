@@ -451,7 +451,7 @@ function canonicalJson(value: unknown): string {
   return JSON.stringify(value) ?? 'null';
 }
 
-type RequestDocumentAttachment = { fileId?: string; customerDocumentId?: string; confirmReuse?: boolean; title: string; requirementKey: string | null };
+export type RequestDocumentAttachment = { fileId?: string; customerDocumentId?: string; confirmReuse?: boolean; title: string; requirementKey: string | null };
 
 /**
  * The archive type a requirement should be filed under.
@@ -540,6 +540,51 @@ async function assertCustomerDocumentFiles(attachments: RequestDocumentAttachmen
       throw badRequest('مدارک درخواست باید تصویر یا PDF باشند.', [{ field, message: 'قالب فایل پشتیبانی نمی‌شود.' }]);
     }
   }
+}
+
+export interface RequestSubmissionPreview {
+  formData: Record<string, unknown>;
+  attachments: RequestDocumentAttachment[];
+  errors: { field: string; message: string }[];
+}
+
+/**
+ * Validate a request submission exactly the way `createRequest` will, without
+ * creating anything.
+ *
+ * The assistant needs to answer "is this draft complete?" and to tell the
+ * customer precisely which field or document is still missing. Reusing the
+ * real validators here is what guarantees the assistant can never submit
+ * something the request endpoint would reject: there is one source of truth
+ * for form rules and document requirements.
+ */
+export async function previewRequestSubmission(
+  service: ServiceDTO,
+  rawFormData: Record<string, unknown>,
+  documentIds: CreateRequestInput['documentIds'],
+  customerId: string,
+): Promise<RequestSubmissionPreview> {
+  const errors: { field: string; message: string }[] = [];
+  let formData: Record<string, unknown> = {};
+  let attachments: RequestDocumentAttachment[] = [];
+  try {
+    formData = validateFormData(service, rawFormData ?? {});
+  } catch (error: any) {
+    errors.push(...(Array.isArray(error?.details) ? error.details : [{ field: 'form', message: error?.message ?? 'اطلاعات فرم معتبر نیست.' }]));
+  }
+  try {
+    attachments = documentAttachmentsForSubmission(service, formData, documentIds);
+  } catch (error: any) {
+    errors.push(...(Array.isArray(error?.details) ? error.details : [{ field: 'documents', message: error?.message ?? 'مدارک معتبر نیستند.' }]));
+  }
+  if (!errors.length) {
+    try {
+      await assertCustomerDocumentFiles(attachments, customerId);
+    } catch (error: any) {
+      errors.push(...(Array.isArray(error?.details) ? error.details : [{ field: 'documents', message: error?.message ?? 'مدارک معتبر نیستند.' }]));
+    }
+  }
+  return { formData, attachments, errors };
 }
 
 export async function createRequest(input: CreateRequestInput, actor?: { id: string; name: string; ip?: string }) {
@@ -1062,6 +1107,27 @@ export async function listRequests(opts: ListRequestsOptions = {}) {
 
 /* --------------------------------- update ---------------------------------- */
 
+/**
+ * Which office roles a status makes responsible, and what they are told.
+ *
+ * A table rather than inline branches so the set of "staff should hear about
+ * this" transitions is one list a reviewer can check against the workflow, and
+ * so adding a status later cannot silently forget the notice.
+ */
+const STAFF_STATUS_NOTICE: Record<string, { roles: string[]; title: string; kind: 'info' | 'warning' }> = {
+  ready: { roles: ['super_admin', 'manager'], title: 'پرونده برای تأیید نهایی آماده است', kind: 'info' },
+  waiting_documents: { roles: ['document_reviewer', 'manager'], title: 'مدارک تازه برای بررسی لازم است', kind: 'info' },
+  waiting_organization: { roles: ['manager', 'accountant'], title: 'پرونده منتظر پاسخ سازمان است', kind: 'warning' },
+  rejected: { roles: ['super_admin', 'manager'], title: 'پرونده‌ای رد شد؛ اقدام مشتری لازم است', kind: 'warning' },
+};
+
+/** The service title from the submit-time snapshot, never the live row. */
+function serviceTitleOf(request: RequestRow & { service_title?: string }): string {
+  const live = String((request as any).service_title ?? '');
+  if (live) return live;
+  return String(jsonParse<any>(request.snapshot, {})?.service?.title ?? 'پرونده');
+}
+
 export async function changeStatus(
   requestId: string,
   toStatus: RequestStatus,
@@ -1116,6 +1182,38 @@ export async function changeStatus(
     entityId: requestId, before: { status: from }, after: { status: toStatus, note }, ip: actor.ip,
   });
   await refreshWorkBucket(requestId);
+
+  // Statuses that hand the case to somebody else have to say so out loud. The
+  // HTTP layer notifies the customer about every transition; nothing told the
+  // office that a case had just become its problem — «پرونده‌ای که منتظر تأیید
+  // است به من اطلاع داده نمی‌شود» — and the actor is excluded, because nobody
+  // needs to be notified of what they just did.
+  const body = `${serviceTitleOf(request)} (کد پیگیری ${toPersianDigits(request.tracking_code)})`;
+  const notified: (string | null)[] = [actor.id];
+  // The person who holds the case learns about a move they did not make: the
+  // workbench is theirs, but they are not looking at it.
+  if (request.assigned_to && request.assigned_to !== actor.id) {
+    notified.push(request.assigned_to);
+    await notifyUser(request.assigned_to, {
+      title: 'وضعیت پروندهٔ شما تغییر کرد',
+      body: `${body} — ${STATUS_LABELS[toStatus]}`,
+      kind: toStatus === 'rejected' ? 'warning' : 'info',
+      link: `/staff/requests/${requestId}`,
+      eventType: 'request',
+      idempotencyKey: `request-status-assignee:${requestId}:${toStatus}`,
+    }).catch(() => undefined);
+  }
+  const staffNotice = STAFF_STATUS_NOTICE[toStatus];
+  if (staffNotice) {
+    await notifyRole(staffNotice.roles, {
+      title: staffNotice.title,
+      body: `${body} — ${STATUS_LABELS[toStatus]}`,
+      kind: staffNotice.kind,
+      link: `/staff/requests/${requestId}`,
+      eventType: 'request',
+      idempotencyKey: `request-status:${requestId}:${toStatus}`,
+    }, { exceptUserIds: notified }).catch(() => undefined);
+  }
   return getRequest(requestId);
   });
 }
@@ -1227,6 +1325,56 @@ export async function setRequestDeadline(requestId: string, deadlineAt: string |
   });
 }
 
+/**
+ * Announce a case that has just become claimable.
+ *
+ * `createRequest` rings the free pool once, when a case is submitted without an
+ * owner. Nothing did the same when a case *returned* to the pool — a manager
+ * releasing an assignment, a case sent back to `new` — so it sat in
+ * «صف آزاد» with nobody told, which is the other half of «ما از پرونده‌های
+ * در انتظار تخصیص باخبر نمی‌شویم». Idempotency is per case per day: an
+ * employee who ignores a case today is asked again tomorrow, not thirty times
+ * an hour.
+ */
+export async function announceOpenCase(requestId: string, reason: 'released' | 'created' = 'released'): Promise<number> {
+  const row = await one<any>(
+    `SELECT r.tracking_code, r.customer_id, s.title AS service_title, s.id AS service_id
+     FROM requests r JOIN services s ON s.id = r.service_id
+     WHERE r.id = ? AND r.assigned_to IS NULL AND r.status IN ('new','under_review')`,
+    [requestId],
+  );
+  if (!row) return 0;
+  const service = await getServiceById(row.service_id);
+  if (!service) return 0;
+  const day = tehranNow().date;
+  const candidates = await candidatesForService(service).catch(() => []);
+  let told = 0;
+  for (const candidate of candidates) {
+    await notifyUser(candidate.id, {
+      title: reason === 'created' ? 'پروندهٔ تازه در صف آزاد' : 'پرونده‌ای دوباره در صف آزاد است',
+      body: `«${row.service_title}» — کد پیگیری ${toPersianDigits(row.tracking_code)}`,
+      kind: 'info',
+      link: '/staff/queue',
+      eventType: 'assignment',
+      idempotencyKey: `queue:${reason}:${requestId}:${candidate.id}:${day}`,
+    }).catch(() => undefined);
+    told += 1;
+  }
+  if (!candidates.length) {
+    // Nobody can take it: the office roles have to hear that, or the case is
+    // simply invisible until a customer complains.
+    await notifyRole(['super_admin', 'manager'], {
+      title: 'پرونده‌ای بدون مسئول مانده است',
+      body: `«${row.service_title}» (کد پیگیری ${toPersianDigits(row.tracking_code)}) کارشناس واجد شرایطی برای پذیرش ندارد.`,
+      kind: 'warning',
+      link: '/admin/requests',
+      eventType: 'assignment',
+      idempotencyKey: `queue:${reason}:${requestId}:office:${day}`,
+    }).catch(() => undefined);
+  }
+  return told;
+}
+
 export async function assignRequest(requestId: string, staffId: string | null, actor: { id: string; name: string; ip?: string }) {
   const result = await tx(async () => {
     await run('UPDATE requests SET updated_at=updated_at WHERE id=?', [requestId]);
@@ -1256,6 +1404,10 @@ export async function assignRequest(requestId: string, staffId: string | null, a
     await refreshWorkBucket(requestId);
     return getRequest(requestId);
   });
+  // Released back to the pool means somebody has to pick it up again; the
+  // notice is raised outside the transaction so a slow fan-out cannot hold the
+  // write, and a failure here must not undo the release.
+  if (!staffId) await announceOpenCase(requestId, 'released').catch(() => undefined);
   // A case can already hold confirmed payments (the customer paid before an
   // executor took it, or the previous executor was fixed-salary): sweep them
   // now so a percentage executor's income appears the moment they take over.
@@ -1364,6 +1516,41 @@ export async function attachDocument(
         message: 'مدارک جدید برای بررسی ارسال شد؛ پرونده دوباره در صف بازبینی قرار گرفت.' });
     }
     await refreshWorkBucket(requestId);
+
+    // Whoever has to look at the new document has to hear about it. Customers
+    // used to upload straight into `waiting_documents` cases and sit there
+    // while the assignee waited for something else entirely — nothing in this
+    // file notified them, because attachDocument was written before the
+    // notification helper existed.
+    if (kind === 'customer') {
+      const caseRow = await one<any>(
+        `SELECT r.assigned_to, r.tracking_code, c.full_name AS customer_name
+         FROM requests r LEFT JOIN users c ON c.id = r.customer_id WHERE r.id = ?`,
+        [requestId],
+      );
+      const notice = {
+        title: 'مدرک تازهٔ مشتری برای بررسی',
+        body: `${caseRow?.customer_name ?? 'مشتری'} مدرک «${title}» را به پرونده ${toPersianDigits(caseRow?.tracking_code ?? '')} افزود.`,
+        kind: 'info' as const,
+        eventType: 'document_submitted',
+      };
+      if (caseRow?.assigned_to) {
+        await notifyUser(caseRow.assigned_to, {
+          ...notice,
+          link: `/staff/requests/${requestId}`,
+          idempotencyKey: `document-submitted:${requestId}:${fileId}`,
+        }).catch(() => undefined);
+      } else {
+        // Nobody owns the case yet, so the notice goes to the roles that can
+        // claim it — otherwise a document uploaded to an unclaimed case is
+        // visible only to whoever happens to open the queue.
+        await notifyRole(['manager'], {
+          ...notice,
+          link: `/admin/requests/${requestId}`,
+          idempotencyKey: `document-submitted:${requestId}:${fileId}`,
+        }).catch(() => undefined);
+      }
+    }
   });
 }
 

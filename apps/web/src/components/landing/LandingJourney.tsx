@@ -273,7 +273,7 @@ export function LandingJourney() {
       className="journey-track relative border-y border-line/40 bg-canvas-2/60"
       aria-label="مسیر ثبت یک درخواست"
     >
-      <div className="journey-sticky mx-auto w-full max-w-7xl px-4 sm:px-6">
+      <div className="journey-sticky lp-container">
         <header className="max-w-2xl">
           <span className="journey-eyebrow">
             <Sparkles className="size-3.5 text-[#d97706] dark:text-gold" />

@@ -11,6 +11,7 @@ import {
 import { api, ApiFailure } from '../../lib/api';
 import { useAuth } from '../../lib/auth';
 import { faDate, faDateTime, faNum, rial } from '../../lib/format';
+import { JalaliDateField } from '../../components/JalaliDateField';
 
 interface Overview {
   commissionStaff: { id: string; fullName: string; percent: number }[];
@@ -747,7 +748,7 @@ export function AdminPayroll() {
           )}
           <div className="grid gap-3 sm:grid-cols-2">
             <Field label="شروع همکاری" required>
-              <Input type="date" value={contractForm.startsOn} onChange={(e) => setContractForm({ ...contractForm, startsOn: e.target.value })} />
+              <JalaliDateField value={contractForm.startsOn} onChange={(e) => setContractForm({ ...contractForm, startsOn: e })} />
             </Field>
             <Field label="دوره تسویه این کارمند">
               <Select

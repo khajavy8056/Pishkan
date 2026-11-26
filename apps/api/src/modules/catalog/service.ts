@@ -5,6 +5,7 @@ import { badRequest, conflict, notFound } from '../../http/errors.js';
 import { getBool, getString } from '../settings/service.js';
 import { writeAudit } from '../audit/service.js';
 import { resolveServiceArtwork } from './default-artwork.js';
+import { registerFieldsFromService } from './presets.js';
 import { DOCUMENT_TYPES, inferDocumentType } from '../documents/service.js';
 import type { FormField, WorkflowStep } from './seed-data.js';
 
@@ -309,6 +310,40 @@ export async function searchServices(query: string, options: { limit?: number; c
     .slice(0, limit);
 }
 
+/**
+ * Every service a customer may see, in one query.
+ *
+ * The assistant must reason over the *whole* live catalogue: a service the
+ * office publishes a minute ago has to be discoverable immediately, and a
+ * paginated list would silently hide everything past page one. This is the
+ * same visibility rule as `searchServices` (published, not archived, own
+ * custom services, coverage matches the customer's city), without a limit.
+ */
+export async function publishedCatalogue(options: { customerId?: string } = {}): Promise<ServiceDTO[]> {
+  const rows = await q<ServiceRow & { category_title: string | null; category_slug: string | null }>(
+    `${SELECT_WITH_CATEGORY}
+     WHERE s.is_published = 1 AND s.archived_at IS NULL
+       AND (s.is_custom = 0 OR s.owner_customer_id = ?)
+       AND (s.coverage='nationwide' OR EXISTS(SELECT 1 FROM service_cities sc JOIN customer_profiles cp ON cp.city_id=sc.city_id WHERE sc.service_id=s.id AND cp.user_id=?))
+     ORDER BY s.sort_order ASC, s.title ASC`,
+    [options.customerId ?? '__none__', options.customerId ?? '__none__'],
+  );
+  const items = rows.map(mapService);
+  if (!items.length) return items;
+  const cityRows = await q<{ service_id: string; city_id: string }>(
+    `SELECT service_id, city_id FROM service_cities WHERE service_id IN (${items.map(() => '?').join(',')})`,
+    items.map((item) => item.id),
+  );
+  const cities = new Map<string, string[]>();
+  for (const row of cityRows) {
+    const list = cities.get(row.service_id) ?? [];
+    list.push(row.city_id);
+    cities.set(row.service_id, list);
+  }
+  for (const item of items) item.cityIds = cities.get(item.id) ?? [];
+  return items;
+}
+
 /* ------------------------------- categories ------------------------------- */
 
 export async function listCategories(options: { includeInactive?: boolean } = {}) {
@@ -399,6 +434,8 @@ export function validateFormSchema(form: unknown): FormField[] {
     if ((field.type === 'select' || field.type === 'radio') && (!Array.isArray(field.options) || field.options.length === 0)) {
       throw badRequest(`فیلد «${field.label}» از نوع انتخابی باید حداقل یک گزینه داشته باشد.`);
     }
+    const maxLength = Number(field.maxLength ?? 0);
+    if (maxLength < 0 || maxLength > 500) throw badRequest(`حداکثر طول فیلد «${key}» باید عددی بین ۱ تا ۵۰۰ باشد.`);
     return {
       key,
       label: String(field.label).trim(),
@@ -407,6 +444,11 @@ export function validateFormSchema(form: unknown): FormField[] {
       options: field.options,
       placeholder: field.placeholder,
       help: field.help,
+      // The app has enforced this since the first release and the API dropped it,
+      // so nothing could ever set it: a preset without a length cap is advice, not
+      // a standard. Kept as `undefined` rather than 0 so an unchanged field stores
+      // the same JSON it used to.
+      ...(Number.isFinite(maxLength) && maxLength > 0 ? { maxLength } : {}),
     };
   });
 }
@@ -542,6 +584,9 @@ export async function createService(input: ServiceInput, actor: { id: string; na
   ).catch(() => undefined);
 
   await updateServicePolicy(serviceId, input);
+  // Every field this service defines becomes reusable from the next service on —
+  // the catalogue is the list, so nothing has to be maintained twice.
+  await registerFieldsFromService(jsonParse<unknown[]>(jsonStringify(input.form ?? []), []), actor);
   await writeAudit({ actorId: actor.id, actorName: actor.name, action: 'service.create', entityType: 'service', entityId: serviceId, after: { title, slug }, ip: actor.ip });
   return (await getServiceById(serviceId))!;
  });
@@ -600,6 +645,10 @@ export async function updateService(serviceId: string, input: ServiceInput, acto
   );
 
   await updateServicePolicy(serviceId, input);
+  await registerFieldsFromService(
+    input.form !== undefined ? validateFormSchema(input.form) : existing.form,
+    actor,
+  );
   await writeAudit({
     actorId: actor.id, actorName: actor.name, action: 'service.update', entityType: 'service', entityId: serviceId,
     before: { title: existing.title, baseFee: existing.baseFee, isPublished: existing.isPublished },

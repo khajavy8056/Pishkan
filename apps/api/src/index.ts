@@ -14,6 +14,7 @@ import { evaluateAlerts } from './modules/monitoring/alerts.js';
 import { startAlertScheduler, stopAlertScheduler } from './modules/monitoring/scheduler.js';
 import { startAssignmentScheduler, stopAssignmentScheduler } from './modules/requests/scheduler.js';
 import { startBackupScheduler, stopBackupScheduler } from './modules/system/scheduler.js';
+import { startDeliverySweeper, stopDeliverySweeper } from './modules/notifications/sweeper.js';
 import { setMinimumLevel } from './modules/logging/service.js';
 import { getString } from './modules/settings/service.js';
 
@@ -59,6 +60,15 @@ async function bootstrap() {
   // nothing and every new request asks for the same national card again. This
   // files the types the titles already imply. Idempotent; it never overwrites a
   // type the office set by hand.
+  // Customers who signed up before the «نام و نام خانوادگی» field was split into
+  // the profile's two name columns were asked for their family name again on
+  // their first visit to the profile. Fill the columns once, at boot, so the
+  // stored record matches what they already told us.
+  const { backfillProfileNames } = await import('./modules/profiles/service.js');
+  await backfillProfileNames((m) => console.log(`[boot] ${m}`)).catch((error) => {
+    console.warn('[boot] profile name backfill skipped:', safeErrorText(error));
+  });
+
   const { backfillServiceDocumentTypes } = await import('./modules/catalog/service.js');
   await backfillServiceDocumentTypes((m) => console.log(`[boot] ${m}`)).catch((error) => {
     console.error(`[boot] document type backfill failed: ${safeErrorText(error)}`);
@@ -110,6 +120,9 @@ async function bootstrap() {
   startAlertScheduler();
   startAssignmentScheduler();
   startBackupScheduler();
+  // Re-sends notices that never reached a device, and escalates the urgent ones to
+  // SMS. Safe to leave running: with nothing unconfirmed it is one indexed query a minute.
+  startDeliverySweeper();
   await evaluateAlerts({ notify: true }).catch((error) => {
     console.error(`[boot] alert evaluation failed: ${safeErrorText(error)}`);
   });
@@ -134,6 +147,11 @@ async function bootstrap() {
     stopAlertScheduler();
     stopAssignmentScheduler();
     stopBackupScheduler();
+    stopDeliverySweeper();
+    // Open notification streams would otherwise hold `server.close()` open until the
+    // forced-exit timer; ending them lets a restart finish in milliseconds and
+    // tells each client to reconnect to the new process.
+    void import('./modules/notifications/delivery.js').then(({ liveHub }) => liveHub.closeAll()).catch(() => undefined);
     console.log(`[shutdown] received ${signal}`);
     server.close(() => {
       void closeDb().catch(() => undefined).finally(() => process.exit(exitCode));

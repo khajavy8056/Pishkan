@@ -10,6 +10,7 @@ import { DocumentViewer, FileSummary, FileThumbnail, bytes, type MediaFile } fro
 import { api, ApiFailure } from '../../lib/api';
 import { faDate, faNum } from '../../lib/format';
 import { availableRequestDocumentRequirements, requestDocumentRequirements } from '../../lib/request-documents';
+import { JalaliDateField } from '../../components/JalaliDateField';
 
 interface CustomerDocument {
   id: string;
@@ -190,7 +191,10 @@ export function CustomerDocuments() {
         title="مدارک من"
         description="کارت ملی، شناسنامه و سایر مدارک را یک‌بار خوانا و بدون برش بارگذاری کنید تا در پرونده‌ها قابل استفاده باشند."
         actions={(
-          <div className="flex gap-2">
+          // The second step of the profile tour frames this block: the promise
+          // («send it once, reuse it forever») belongs to the place the archive
+          // lives, not to the request that happens to be asking for it now.
+          <div className="flex gap-2" data-tour="profile-documents">
             <Button size="sm" variant="ghost" onClick={() => load()}><RefreshCw className="size-4" /> بازبینی</Button>
             <Button size="sm" onClick={() => openUpload()}><Plus className="size-4" /> افزودن مدرک</Button>
           </div>
@@ -338,10 +342,10 @@ export function CustomerDocuments() {
           </Field>
           <div className="grid gap-3 sm:grid-cols-2">
             <Field label="تاریخ صدور (اختیاری)">
-              <Input type="date" value={form.issuedAt} onChange={(event) => setForm({ ...form, issuedAt: event.target.value })} dir="ltr" />
+              <JalaliDateField value={form.issuedAt} onChange={(event) => setForm({ ...form, issuedAt: event })} />
             </Field>
             <Field label="تاریخ انقضا (اختیاری)" hint="اگر خالی باشد، اعتبار بر اساس نوع مدرک محاسبه می‌شود.">
-              <Input type="date" value={form.expiresAt} onChange={(event) => setForm({ ...form, expiresAt: event.target.value })} dir="ltr" />
+              <JalaliDateField value={form.expiresAt} onChange={(event) => setForm({ ...form, expiresAt: event })} />
             </Field>
           </div>
           <p className="flex items-start gap-1.5 rounded-xl bg-amber-50 p-3 text-[11px] leading-6 text-amber-900">

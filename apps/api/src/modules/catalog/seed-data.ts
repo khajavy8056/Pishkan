@@ -14,6 +14,13 @@ export interface FormField {
   options?: string[];
   placeholder?: string;
   help?: string;
+  /**
+   * Character cap the client enforces. The app's `FormFieldDef` has read this
+   * since the beginning and the API schema allowed it nowhere, so a preset could
+   * never carry one — a «کد ملی» field that accepts 40 digits is the difference
+   * between a standard and a suggestion.
+   */
+  maxLength?: number;
 }
 
 /**
@@ -176,9 +183,18 @@ export const SEED_CATEGORIES = [
 
 /* ---------------------------- reusable form parts --------------------------- */
 
-const f = {
-  mobile: { key: 'mobile', label: 'شماره موبایل', type: 'tel', required: true, placeholder: '09123456789' } as FormField,
-  nationalId: { key: 'national_id', label: 'کد ملی', type: 'national_id', required: true, placeholder: '۱۰ رقم' } as FormField,
+/**
+ * The reusable field shapes the seeded catalogue is built from.
+ *
+ * Exported on purpose: the admin panel's «فیلدهای آماده» palette
+ * (`modules/catalog/presets.ts`) inserts *these objects*, so a field added from
+ * the palette is byte-for-byte the field every seeded service already uses. A
+ * copied list would be a second standard to keep in sync — and the day it stops
+ * being in sync is the day two services disagree about what `national_id` means.
+ */
+export const f = {
+  mobile: { key: 'mobile', label: 'شماره موبایل', type: 'tel', required: true, placeholder: '09123456789', maxLength: 11 } as FormField,
+  nationalId: { key: 'national_id', label: 'کد ملی', type: 'national_id', required: true, placeholder: '۱۰ رقم', maxLength: 10 } as FormField,
   fullName: { key: 'full_name', label: 'نام و نام خانوادگی', type: 'text', required: true } as FormField,
   birthDate: { key: 'birth_date', label: 'تاریخ تولد', type: 'date', required: false } as FormField,
   insuranceNumber: { key: 'insurance_number', label: 'شماره بیمه / سوابق', type: 'text', required: true, help: 'شماره بیمه‌ای خود را از آخرین فیش یا سابقه بیمه بردارید.' } as FormField,
@@ -190,12 +206,12 @@ const f = {
   registrationNumber: { key: 'registration_number', label: 'شماره ثبت فعلی', type: 'text', required: false } as FormField,
   capital: { key: 'capital', label: 'سرمایه شرکت (ریال)', type: 'money', required: false } as FormField,
   address: { key: 'address', label: 'نشانی کامل', type: 'textarea', required: true } as FormField,
-  postalCode: { key: 'postal_code', label: 'کد پستی', type: 'postal_code', required: true } as FormField,
-  iban: { key: 'iban', label: 'شماره شبا', type: 'iban', required: true, placeholder: 'IR...' } as FormField,
+  postalCode: { key: 'postal_code', label: 'کد پستی', type: 'postal_code', required: true, maxLength: 10 } as FormField,
+  iban: { key: 'iban', label: 'شماره شبا', type: 'iban', required: true, placeholder: 'IR...', maxLength: 26 } as FormField,
   bankName: { key: 'bank_name', label: 'نام بانک', type: 'text', required: true } as FormField,
   householdHead: { key: 'household_head', label: 'نام سرپرست خانوار', type: 'text', required: true } as FormField,
   fatherName: { key: 'father_name', label: 'نام پدر', type: 'text', required: true } as FormField,
-  birthCertificateNo: { key: 'birth_certificate_no', label: 'شماره شناسنامه', type: 'text', required: true } as FormField,
+  birthCertificateNo: { key: 'birth_certificate_no', label: 'شماره شناسنامه', type: 'text', required: true, maxLength: 20 } as FormField,
   email: { key: 'email', label: 'ایمیل', type: 'text', required: false, placeholder: 'name@example.com' } as FormField,
   plateNumber: { key: 'plate_number', label: 'شماره پلاک خودرو', type: 'text', required: true, placeholder: 'مثلاً ۱۲ ب ۳۴۵ ایران ۶۷', help: 'شماره پلاک را کامل و با حرف وسط وارد کنید.' } as FormField,
   vin: { key: 'vin', label: 'شماره VIN (شاسی)', type: 'text', required: false, help: 'روی کارت خودرو و برگ سبز درج شده است.' } as FormField,

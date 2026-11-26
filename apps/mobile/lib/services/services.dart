@@ -191,11 +191,77 @@ Future<Map<String, dynamic>> fetchAssistantInfo() async {
 
 /// Ask the assistant. The server decides what a customer may know: answers come
 /// from the catalogue and from this customer's own cases, never from others.
-Future<Map<String, dynamic>> askAssistant(String message, {List<Map<String, dynamic>> history = const []}) async {
+///
+/// `action` is normally `'message'`; the draft lifecycle can also be driven
+/// through the same endpoint (`'preview'`, `'confirm'`, `'cancel'`), which the
+/// dedicated helpers below use so both clients share one contract.
+Future<Map<String, dynamic>> askAssistant(
+  String message, {
+  List<Map<String, dynamic>> history = const [],
+  String action = 'message',
+  String draftId = '',
+}) async {
   final data = await api.postData('/api/assistant/chat', body: {
     'message': message,
     'history': history.take(8).toList(),
+    'action': action,
+    if (draftId.isNotEmpty) 'draftId': draftId,
   });
+  return asMap(data);
+}
+
+/* ---------------------------- assistant draft ----------------------------- */
+/* Every call below is customer-only on the server. A guest who taps «شروع
+   درخواست» is routed to login first, exactly like the website. */
+
+Future<Map<String, dynamic>?> fetchAssistantDraft() async {
+  final data = await api.getData('/api/assistant/draft');
+  final map = asMap(data);
+  return map['draft'] is Map ? asMap(map['draft']) : null;
+}
+
+/// Begin a guided request for one published service. This creates a *draft*,
+/// never a request: the real submission happens only in `confirmAssistantDraft`.
+Future<Map<String, dynamic>> startAssistantDraft(String serviceSlug, {bool useProfile = false}) async {
+  final data = await api.postData('/api/assistant/draft', body: {'serviceSlug': serviceSlug, 'useProfile': useProfile});
+  return asMap(data);
+}
+
+Future<Map<String, dynamic>> updateAssistantDraftField(String key, String value) async {
+  final data = await api.patchData('/api/assistant/draft', body: {'key': key, 'value': value});
+  return asMap(data);
+}
+
+Future<Map<String, dynamic>> attachAssistantDraftFile(String requirementKey, String fileId) async {
+  final data = await api.postData('/api/assistant/draft/documents', body: {'requirementKey': requirementKey, 'fileId': fileId});
+  return asMap(data);
+}
+
+Future<Map<String, dynamic>> attachAssistantDraftProfileDocument(String requirementKey, String customerDocumentId) async {
+  final data = await api.postData('/api/assistant/draft/documents', body: {
+    'requirementKey': requirementKey,
+    'customerDocumentId': customerDocumentId,
+  });
+  return asMap(data);
+}
+
+/// Refresh the preview. The server moves the draft to `awaiting_confirmation`
+/// only when every required field and document is satisfied; otherwise it
+/// reports exactly what is still missing.
+Future<Map<String, dynamic>> previewAssistantDraft() async {
+  final data = await api.postData('/api/assistant/draft/preview', body: const <String, dynamic>{});
+  return asMap(data);
+}
+
+/// The only path that creates a real request. `confirm: true` is required by
+/// the server *in addition to* the stored `awaiting_confirmation` stage.
+Future<Map<String, dynamic>> confirmAssistantDraft() async {
+  final data = await api.postData('/api/assistant/draft/confirm', body: {'confirm': true});
+  return asMap(data);
+}
+
+Future<Map<String, dynamic>> cancelAssistantDraft() async {
+  final data = await api.postData('/api/assistant/draft/cancel', body: const <String, dynamic>{});
   return asMap(data);
 }
 
@@ -595,6 +661,39 @@ Future<void> sendChatMessage(String threadId, {String body = '', String fileId =
   });
 }
 
+/// ---------- Guided tour ----------
+
+/// The tour catalogue for this person, with their place in it.
+///
+/// One call per sign-in rather than one per screen: a tour that has to be
+/// fetched when the wizard opens is a tour that appears a beat late, and the
+/// server already filtered out the ones this person finished or skipped.
+Future<Map<String, dynamic>> fetchTours() async {
+  return asMap(await api.getData('/api/tours'));
+}
+
+/// Progress, dismissal, completion, replay — best-effort by design.
+Future<void> recordTourProgress(String code, String action, {int step = 0}) async {
+  try {
+    await api.postData('/api/tours/$code', body: {'action': action, 'step': step});
+  } catch (_) {
+    // The tour must never fail a screen it is only decorating.
+  }
+}
+
+/// Reports a recognised wrong action and returns whether a tip may be shown.
+///
+/// The answer is the server's: the count lives with the account, so the same
+/// pattern on the web and on the phone is one pattern, and the office's caps
+/// apply to both clients at once.
+Future<Map<String, dynamic>> postTourHint(String key) async {
+  try {
+    return asMap(await api.postData('/api/tours/hint', body: {'key': key}));
+  } catch (_) {
+    return const {'show': false};
+  }
+}
+
 /// ---------- Profile documents ----------
 
 Future<Map<String, dynamic>> fetchMyDocuments() async {
@@ -607,6 +706,8 @@ Future<Map<String, dynamic>> fetchMyDocuments() async {
 
 /// ---------- Version helpers ----------
 
+/// Version order, segment by segment. General purpose, and deliberately *not*
+/// what the update banner uses — see [compareAppVersions] for why.
 int compareVersions(String a, String b) {
   List<int> parts(String v) => v.split('.').map((p) => int.tryParse(p.replaceAll(RegExp(r'[^0-9]'), '')) ?? 0).toList();
   final pa = parts(a);
@@ -617,6 +718,31 @@ int compareVersions(String a, String b) {
     if (x != y) return x.compareTo(y);
   }
   return 0;
+}
+
+/// The last number of a release string — the build, under the `1.0.x` scheme.
+int _buildOf(String version) {
+  final parts = version.split('.').map((p) => int.tryParse(p.replaceAll(RegExp(r'[^0-9]'), '')) ?? 0).toList();
+  return parts.isEmpty ? 0 : parts.last;
+}
+
+/// Whether an installed app is older than the published one, in the office's
+/// numbering (docs/UPDATING-FOR-DEVELOPERS.md): `1.0.<build>`, where **only** the
+/// build moves and every older release was folded into it (`1.21.7` → `1.0.1217`).
+///
+/// The plain segment compare cannot answer this question during the transition, and
+/// the failure is silent in the worst direction: an install on `1.21.7` reads
+/// `21 > 0`, decides it is *newer* than `1.0.1217`, and never shows the update
+/// banner — the one group of users who must be told. So the build decides here,
+/// with [compareVersions] only breaking ties.
+///
+/// Two pre-scheme releases compared to each other is not a question the app asks;
+/// if it ever becomes one, use [compareVersions] instead and say why.
+int compareAppVersions(String installed, String published) {
+  final a = _buildOf(installed);
+  final b = _buildOf(published);
+  if (a != b) return a.compareTo(b);
+  return compareVersions(installed, published);
 }
 
 Future<String> currentAppVersion() async {

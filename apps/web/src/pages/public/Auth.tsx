@@ -3,7 +3,7 @@ import { Link, useNavigate, useSearchParams } from 'react-router-dom';
 import { Smartphone, KeyRound, ArrowRight, ShieldCheck, Eye, EyeOff, RefreshCw, Info, LogOut, Headset, Zap, LockKeyhole } from 'lucide-react';
 import clsx from 'clsx';
 import { PublicLayout } from '../../components/public-layout';
-import { formatDuration, useSite } from '../../lib/site';
+import { useSite } from '../../lib/site';
 import { useAuth, homeFor, safeNextPath, type CurrentUser } from '../../lib/auth';
 import { useBrand, BrandLockup, BrandMark } from '../../lib/brand';
 import { api, ApiFailure } from '../../lib/api';
@@ -470,108 +470,13 @@ export function RegisterPage() {
 
 /* -------------------------------- assistant ------------------------------- */
 
-export function AssistantPage() {
-  const { site } = useSite();
-  const [messages, setMessages] = useState<{ role: 'user' | 'assistant'; content: string; suggestions?: any[]; questions?: string[] }[]>([]);
-  const [input, setInput] = useState('');
-  const [loading, setLoading] = useState(false);
-  const [handoff, setHandoff] = useState(false);
-
-  useEffect(() => {
-    if (site?.assistant.welcome && messages.length === 0) {
-      setMessages([{ role: 'assistant', content: site.assistant.welcome }]);
-    }
-  }, [site, messages.length]);
-
-  const send = async (text?: string) => {
-    const content = (text ?? input).trim();
-    if (!content || loading) return;
-    setMessages((prev) => [...prev, { role: 'user', content }]);
-    setInput('');
-    setLoading(true);
-    try {
-      const res = await api.post<{ data: any }>('/api/assistant/chat', {
-        message: content,
-        history: messages.slice(-8).map((m) => ({ role: m.role, content: m.content })),
-      });
-      const reply = res.data;
-      setMessages((prev) => [...prev, {
-        role: 'assistant', content: reply.reply, suggestions: reply.suggestions, questions: reply.followUpQuestions,
-      }]);
-      setHandoff(Boolean(reply.handoffSuggested));
-    } catch (err) {
-      setMessages((prev) => [...prev, { role: 'assistant', content: err instanceof ApiFailure ? err.message : 'خطا در ارتباط با دستیار' }]);
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  return (
-    <PublicLayout>
-      <div className="mx-auto max-w-3xl px-4 py-8 sm:px-6">
-        <div className="mb-4">
-          <h1 className="text-xl font-bold text-navy-900">{site?.assistant.name ?? 'دستیار هوشمند'}</h1>
-          <p className="mt-1 text-xs text-navy-500">{site?.assistant.disclaimer}</p>
-        </div>
-
-        <div className="card flex h-[65vh] flex-col">
-          <div className="flex-1 space-y-4 overflow-y-auto p-5 scrollbar-thin">
-            {messages.map((message, index) => (
-              <div key={index} className={clsx('flex', message.role === 'user' ? 'justify-start' : 'justify-end')}>
-                <div className={clsx('max-w-[85%] rounded-2xl px-4 py-3 text-sm leading-7',
-                  message.role === 'user' ? 'bg-brand-700 text-white' : 'bg-surface-3 text-navy-800')}>
-                  <p className="whitespace-pre-wrap">{message.content}</p>
-                  {message.questions && message.questions.length > 0 && (
-                    <div className="mt-2 space-y-1 border-t border-line pt-2 text-xs text-navy-600">
-                      {message.questions.map((q) => <p key={q}>• {q}</p>)}
-                    </div>
-                  )}
-                  {message.suggestions && message.suggestions.length > 0 && (
-                    <div className="mt-3 space-y-2">
-                      {message.suggestions.map((s: any) => (
-                        <Link key={s.id} to={`/services/${s.slug}`} className="block rounded-xl bg-surface p-3 ring-1 ring-line hover:bg-brand-50">
-                          <span className="block text-xs font-semibold text-navy-900">{s.title}</span>
-                          <span className="mt-0.5 block text-[11px] text-navy-500">{s.summary}</span>
-                          <span className="mt-1 block text-[10px] font-medium text-accent">زمان تخمینی: {formatDuration(s.estimatedMinutes, s.estimatedDays)}</span>
-                        </Link>
-                      ))}
-                    </div>
-                  )}
-                </div>
-              </div>
-            ))}
-            {loading && <p className="text-center text-xs text-navy-400">دستیار در حال نوشتن پاسخ است…</p>}
-          </div>
-
-          {handoff && (
-            <div className="border-t border-line bg-amber-50 px-4 py-2 text-xs text-amber-900">
-              اگر پاسخ کافی نبود، می‌توانید <Link to="/app/messages" className="underline">به کارشناس پیام بدهید</Link>.
-            </div>
-          )}
-
-          <div className="border-t border-line p-3">
-            <div className="flex gap-2">
-              <input
-                value={input}
-                onChange={(e) => setInput(e.target.value)}
-                onKeyDown={(e) => e.key === 'Enter' && send()}
-                placeholder="سؤال خود را بنویسید…"
-                className="input"
-                aria-label="پیام"
-              />
-              <Button onClick={() => send()} loading={loading} icon={<ArrowRight className="size-4 rotate-180" />}>ارسال</Button>
-            </div>
-            <div className="mt-2 flex flex-wrap gap-1.5">
-              {['می‌خواهم سابقه بیمه بگیرم', 'چه مدارکی برای ثبت شرکت لازم است؟', 'وضعیت یارانه من چیست؟'].map((q) => (
-                <button key={q} onClick={() => send(q)} className="rounded-full bg-surface-3 px-3 py-1 text-[11px] text-navy-600 hover:bg-brand-50">{q}</button>
-              ))}
-            </div>
-          </div>
-        </div>
-      </div>
-    </PublicLayout>
-  );
-}
+/**
+ * The assistant now lives in its own module (`./Assistant`) because it renders
+ * the full structured reply contract — service, case, invoice and wallet cards,
+ * quick actions and the guided request draft. Re-exported here so existing
+ * imports keep working.
+ */
+export { AssistantPage } from './Assistant';
 
 /* --------------------------------- legal ---------------------------------- */
 

@@ -6,6 +6,7 @@ import '../core/format.dart';
 import '../core/theme.dart';
 import '../models/models.dart';
 import '../services/services.dart';
+import 'jalali_date_picker.dart';
 import 'widgets.dart';
 
 /// Renders a service's backend-defined form exactly like the web checkout:
@@ -219,15 +220,11 @@ class DynamicFormState extends State<DynamicForm> {
           InkWell(
             borderRadius: BorderRadius.circular(18),
             onTap: () async {
-              final picked = await showDatePicker(
-                context: context,
-                initialDate: parsed ?? DateTime.now(),
-                firstDate: DateTime(1300),
-                lastDate: DateTime(2100),
-                locale: const Locale('fa', 'IR'),
-              );
+              // A Jalali grid, not a Gregorian one dressed in Persian digits —
+              // see jalali_date_picker.dart for why this file exists.
+              final picked = await showJalaliDatePicker(context, initialIso: raw.isEmpty ? null : raw, clearable: !field.required);
               if (picked != null) {
-                setState(() => widget.values[field.key] = '${picked.year.toString().padLeft(4, '0')}-${picked.month.toString().padLeft(2, '0')}-${picked.day.toString().padLeft(2, '0')}');
+                setState(() => widget.values[field.key] = picked);
               }
             },
             child: InputDecorator(

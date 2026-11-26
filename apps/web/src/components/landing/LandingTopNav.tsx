@@ -95,7 +95,7 @@ export function LandingTopNav({
           </div>
         ) : null}
 
-        <header className="glass pointer-events-auto mx-3 mt-3 rounded-2xl lg:mx-auto lg:mt-4 lg:max-w-7xl">
+        <header className="glass lp-nav pointer-events-auto mt-3 rounded-2xl lg:mt-4">
           <div className="flex h-[58px] items-center gap-2.5 px-3.5 sm:gap-3 sm:px-4">
             <Link to="/" className="flex min-w-0 shrink-0 items-center gap-2.5 rounded-xl no-underline" aria-label="صفحه فرود">
               {brand.logoUrl ? (

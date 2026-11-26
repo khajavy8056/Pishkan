@@ -44,6 +44,19 @@ class AppPrefs {
     await prefs.setBool(_notificationsKey, value);
   }
 
+  /// Whether the «از پروفایل پر کن» tip has already been shown.
+  ///
+  /// One look is the whole design. The purpose is discovery — a customer who was
+  /// never told the shortcut exists — and a tip that comes back on every form is
+  /// precisely the thing people train themselves to swipe away without reading.
+  /// The flag is per device, never per account: nothing about the customer leaves
+  /// the phone for it.
+  static const _autofillHintKey = 'pishkan.pref.autofillHint';
+
+  static Future<bool> autofillHintSeen() async => (await SharedPreferences.getInstance()).getBool(_autofillHintKey) ?? false;
+
+  static Future<void> setAutofillHintSeen() async => (await SharedPreferences.getInstance()).setBool(_autofillHintKey, true);
+
   static Future<bool> biometricEnabled() async {
     final prefs = await SharedPreferences.getInstance();
     return prefs.getBool(_biometricKey) ?? false;
@@ -279,7 +292,13 @@ class NotifierService {
       final revision = asNum(n['revision']).toInt();
       return seen.contains(notificationRevisionKey(n)) || (revision <= 1 && seen.contains(id));
     }
-    final fresh = items.where((n) => !alreadySeen(n) && asStr(n['readAt']).isEmpty).toList();
+    // `deliveredAt` is the dedupe: the server stamps it the first time *any*
+    // channel confirms the notice (a tray push it rendered, a browser tab that
+    // showed it), so an event never arrives twice because the app also happens to
+    // be polling. Acks from the same installation are idempotent, so this cannot
+    // lose a notice — worst case a notice the person has already seen on another
+    // screen is not repeated here, which is the whole request.
+    final fresh = items.where((n) => !alreadySeen(n) && asStr(n['readAt']).isEmpty && asStr(n['deliveredAt']).isEmpty).toList();
     if (fresh.isEmpty) {
       await _remember(prefs, items, seenKey);
       return const [];
@@ -329,9 +348,35 @@ class NotifierService {
       for (final event in events) {
         await _showSystem(event);
       }
+      // A notice this phone just put in the notification shade has been
+      // delivered, and only an ack says so: `delivered_at` is what ends the
+      // retry chain and cancels the SMS escalation. Without it, every customer
+      // who reads their notices in the tray — which is most of them — keeps a
+      // row stuck at "undelivered" forever, and the office sees a backlog that
+      // does not exist.
+      await ackShown(events.map((event) => event.id), channel: 'poll');
     }
     await _remember(prefs, items, seenKey);
     return events;
+  }
+
+  /// Tell the server that this device showed these notices, on [channel].
+  ///
+  /// `POST /api/notifications/ack` is the same endpoint the browser and the push
+  /// handler answer with, and it is idempotent per (notice, channel, device), so
+  /// the poll, the tap and a push render can all report the same notice without
+  /// coordinating. Unknown or foreign ids are skipped by the server's ownership
+  /// guard, which is why the local test notification can be passed through here
+  /// harmlessly.
+  ///
+  /// Deliberately best-effort: a failed ack costs one more retry, while an ack
+  /// that could throw here would cost the customer the notification itself.
+  static Future<void> ackShown(Iterable<String> ids, {required String channel}) async {
+    final list = ids.where((id) => id.trim().isNotEmpty).toList();
+    if (list.isEmpty) return;
+    try {
+      await api.postData('/api/notifications/ack', body: {'ids': list, 'channel': channel});
+    } catch (_) {}
   }
 
   static Future<void> _remember(SharedPreferences prefs, List<Map<String, dynamic>> items, String seenKey) async {

@@ -9,6 +9,7 @@ import {
 } from 'lucide-react';
 import clsx from 'clsx';
 import { AppShell, PageHeader } from '../../components/shell';
+import { fireTourHint } from '../../lib/tours';
 import { Badge, Button, Card, EmptyState, ErrorState, Field, Input, Loading, Modal, Select, StatCard, StatusBadge, Textarea, WelcomePanel, useToast } from '../../components/ui';
 import { DocumentViewer, FileSummary, FileThumbnail } from '../../components/documents';
 import { api, ApiFailure } from '../../lib/api';
@@ -20,6 +21,7 @@ import { CategoryArt, CategoryIcon, PhoneMockup, ShieldArt, Tilt } from '../../c
 import { availableRequestDocumentRequirements, defaultRequestDocumentRequirementKey, requestDocumentRequirements } from '../../lib/request-documents';
 import { ThemeSegmented } from '../../lib/theme';
 import { DynamicField } from '../public/Services';
+import { JalaliDateField } from '../../components/JalaliDateField';
 
 /* ------------------------------- dashboard -------------------------------- */
 
@@ -772,10 +774,19 @@ export function CustomerRequestDetail() {
             />
             <Button variant="ghost" className="mt-3 w-full" loading={uploading}
               disabled={documentRequirements.length > 0 && !availableDocumentRequirements.some((item) => item.key === requirementKey)}
-              onClick={() => fileInput.current?.click()}>
+              onClick={() => {
+                // Re-uploading something the profile already holds is the mistake
+                // this whole flow is meant to prevent — a fresh photo of an old
+                // card is worse quality and needs a second review. The tip is
+                // asked for here and granted by the server, so it appears on the
+                // second or third time, never on the first.
+                const reusedBefore = profileDocs.length > 0 || (request.documents ?? []).some((doc: any) => doc.customerDocumentId);
+                if (reusedBefore) void fireTourHint('document-from-profile');
+                fileInput.current?.click();
+              }}>
               <UploadCloud className="size-4" /> بارگذاری مدرک
             </Button>
-            <Button variant="ghost" className="mt-2 w-full" onClick={openReuse}
+            <Button variant="ghost" className="mt-2 w-full" data-tour="profile-document-picker" onClick={openReuse}
               disabled={documentRequirements.length > 0 && availableDocumentRequirements.length === 0}>
               <FileText className="size-4" /> افزودن از مدارک من
             </Button>
@@ -1253,6 +1264,10 @@ export function CustomerOffers() {
 
 export function CustomerMessages() {
   const [params] = useSearchParams();
+  // `/app/messages/:threadId` is what a message notification points at; the
+  // conversation named in the link must be the one that opens.
+  const { threadId: threadParam } = useParams();
+  const navigate = useNavigate();
   const requestId = params.get('request');
   const { notify } = useToast();
   const [threads, setThreads] = useState<any[]>([]);
@@ -1279,6 +1294,12 @@ export function CustomerMessages() {
     (async () => {
       try {
         let list = await loadThreads();
+        if (threadParam) {
+          const thread = list.find((t: any) => t.id === threadParam);
+          if (thread) await openThread(thread);
+          else navigate('/app/messages', { replace: true });
+          return;
+        }
         if (requestId) {
           const created = await api.post<{ data: any }>('/api/messages/threads', { requestId });
           list = await loadThreads();
@@ -1287,11 +1308,13 @@ export function CustomerMessages() {
         } else if (list[0]) {
           await openThread(list[0]);
         }
+      } catch (err) {
+        notify(err instanceof ApiFailure ? err.message : 'گفت‌وگو باز نشد.', 'error');
       } finally {
         setLoading(false);
       }
     })();
-  }, [requestId]);
+  }, [requestId, threadParam, navigate, notify]);
 
   const send = async () => {
     if (!text.trim() || !active) return;
@@ -1338,7 +1361,15 @@ export function CustomerMessages() {
                   className={clsx('flex w-full items-start justify-between gap-2 border-b border-navy-900/5 px-4 py-3 text-right transition hover:bg-surface-3',
                     active?.id === thread.id && 'bg-brand-50/60')}>
                   <span className="min-w-0">
-                    <span className="block truncate text-sm font-medium text-navy-900">{thread.subject}</span>
+                    <span className="flex items-center gap-1.5">
+                      {thread.request && (
+                        <span className="inline-flex shrink-0 items-center gap-1 rounded-md bg-brand-50 px-1.5 py-0.5 text-[10px] font-bold text-brand-700">
+                          <FileText className="size-3" />
+                          {faNum(thread.request.trackingCode)}
+                        </span>
+                      )}
+                      <span className="block truncate text-sm font-medium text-navy-900">{thread.subject}</span>
+                    </span>
                     <span className="mt-0.5 block truncate text-[11px] text-navy-500">{thread.lastMessage ?? ''}</span>
                   </span>
                   {thread.unread > 0 && <span className="badge bg-rose-600 text-white">{faNum(thread.unread)}</span>}
@@ -1354,9 +1385,18 @@ export function CustomerMessages() {
               <>
                 <div className="border-b border-line px-4 py-3">
                   <p className="text-sm font-semibold text-navy-900">{active.subject}</p>
-                  <p className="text-[11px] text-navy-500">
-                    {active.scope === 'request' ? 'مرتبط با پرونده' : 'گفت‌وگوی عمومی'} • وضعیت: {STATUS_LABELS[active.status] ?? active.status}
-                  </p>
+                  {active.request ? (
+                    <Link to={`/app/requests/${active.request.id}`}
+                      className="mt-1 inline-flex max-w-full items-center gap-1.5 rounded-md bg-brand-50 px-1.5 py-0.5 text-[11px] font-bold text-brand-700 transition hover:bg-brand-100">
+                      <FileText className="size-3.5 shrink-0" />
+                      <span className="truncate">پرونده {faNum(active.request.trackingCode)} — {active.request.title}</span>
+                      <span className="shrink-0 text-navy-500">وضعیت: {STATUS_LABELS[active.request.status] ?? active.request.status}</span>
+                    </Link>
+                  ) : (
+                    <p className="text-[11px] text-navy-500">
+                      گفت‌وگوی عمومی • وضعیت: {STATUS_LABELS[active.status] ?? active.status}
+                    </p>
+                  )}
                 </div>
                 <div className="flex-1 space-y-3 overflow-y-auto p-4 scrollbar-thin">
                   {messages.map((message) => (
@@ -1421,6 +1461,10 @@ export function CustomerProfile() {
       await api.patch('/api/auth/profile', form);
       await refresh();
       notify('پروفایل ذخیره شد.', 'success');
+      // Saving again with the required fields still empty is the pattern the
+      // hint exists for — the count and the caps are the server's, so a person
+      // who fills half the form on the web and half in the app is one person.
+      if (user?.profileState?.complete === false) void fireTourHint('profile-incomplete');
     } catch (err) {
       notify(err instanceof ApiFailure ? err.message : 'خطا', 'error');
     } finally {
@@ -1472,7 +1516,7 @@ export function CustomerProfile() {
               <Field label="شهر محل سکونت" required hint="ابتدا استان را انتخاب کنید؛ در صورت نبود شهر با دفتر تماس بگیرید."><Select value={form.cityId} onChange={e=>{const city=cities.find(c=>c.id===e.target.value);setForm({...form,cityId:e.target.value,city:city?.name ?? ''})}} options={[{value:'',label:form.province?'انتخاب شهر':'ابتدا استان را انتخاب کنید'},...cities.filter(c=>c.province===form.province).map(c=>({value:c.id,label:c.name}))]} disabled={!form.province} /></Field>
               <Field label="کد پستی"><Input value={form.postalCode} onChange={(e) => setForm({ ...form, postalCode: e.target.value })} dir="ltr" className="text-left" maxLength={10} /></Field>
             </div>
-            <Button loading={saving} onClick={save}>ذخیره پروفایل</Button>
+            <Button loading={saving} data-tour="profile-form" onClick={save}>ذخیره پروفایل</Button>
           </div>
         </Card>
 
@@ -1546,7 +1590,7 @@ export function CustomerProfile() {
             <Field label="نام پدر"><Input value={form.fatherName} onChange={(e) => setForm({ ...form, fatherName: e.target.value })} /></Field>
             <Field label="شماره شناسنامه"><Input value={form.birthCertificateNo} onChange={(e) => setForm({ ...form, birthCertificateNo: e.target.value })} dir="ltr" className="text-left" /></Field>
             <Field label="محل تولد"><Input value={form.birthPlace} onChange={(e) => setForm({ ...form, birthPlace: e.target.value })} /></Field>
-            <Field label="تاریخ تولد"><Input type="date" value={form.birthDate} onChange={(e) => setForm({ ...form, birthDate: e.target.value })} dir="ltr" className="text-left" /></Field>
+            <Field label="تاریخ تولد"><JalaliDateField value={form.birthDate} onChange={(e) => setForm({ ...form, birthDate: e })} /></Field>
             <Field label="تلفن ثابت"><Input value={form.landline} onChange={(e) => setForm({ ...form, landline: e.target.value })} dir="ltr" className="text-left" placeholder="۰۲۱…" /></Field>
             <Field label="شغل"><Input value={form.jobTitle} onChange={(e) => setForm({ ...form, jobTitle: e.target.value })} /></Field>
             <Field label="شماره شبا" hint="برای وام و یارانه استفاده می‌شود."><Input value={form.iban} onChange={(e) => setForm({ ...form, iban: e.target.value })} dir="ltr" className="text-left" placeholder="IR…" maxLength={26} /></Field>

@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "507049814300",
+    "project_id": "pishkhan-72e28",
+    "storage_bucket": "pishkhan-72e28.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:507049814300:android:4aeea6e70ba686692af2d9",
+        "android_client_info": {
+          "package_name": "ir.pishkan.app"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyCluplg0dFhQpGsMBcAJQqPrSy9enb46sk"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

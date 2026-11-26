@@ -68,7 +68,7 @@ export function LandingStatsBand() {
   const workingHours = setting('office.working_hours') || 'در تمام روزهای کاری';
 
   return (
-    <section ref={revealRef} className="mx-auto max-w-7xl px-4 py-10 sm:px-6 lg:py-14">
+    <section ref={revealRef} className="lp-container py-10 lg:py-14">
       <div className="stat-grid">
         <div data-reveal="zoom" className="stat-tile">
           <Layers className="mx-auto mb-2 size-6 text-cyan-400" />

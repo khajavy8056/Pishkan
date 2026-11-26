@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
 
 import 'core/referral.dart';
+import 'core/tour.dart';
 import 'core/theme.dart';
 import 'core/theme_mode.dart';
 import 'screens/splash.dart';
@@ -75,6 +76,16 @@ class _PishkanAppState extends State<PishkanApp> {
         GlobalWidgetsLocalizations.delegate,
         GlobalCupertinoLocalizations.delegate,
       ],
+      // The tour sits above the navigator, not inside a route: it spans the
+      // service page and the request wizard, so it has to survive the very
+      // push that it is describing. Inactive, it is an empty box that takes no
+      // pointer; active, it owns the screen for exactly as long as one card.
+      builder: (context, child) => Stack(
+        children: [
+          if (child != null) Positioned.fill(child: child),
+          const Positioned.fill(child: TourOverlay()),
+        ],
+      ),
       home: const SplashScreen(),
       ),
     );

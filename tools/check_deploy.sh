@@ -44,6 +44,8 @@ mkdir -p "$CONFIG_DIR"
 . "$REPO_ROOT/scripts/lib/common.sh"
 # shellcheck source=../scripts/lib/config.sh
 . "$REPO_ROOT/scripts/lib/config.sh"
+# shellcheck source=../scripts/lib/update-sudoers.sh
+. "$REPO_ROOT/scripts/lib/update-sudoers.sh"
 # shellcheck source=../scripts/lib/net.sh
 . "$REPO_ROOT/scripts/lib/net.sh"
 
@@ -634,6 +636,120 @@ for ph in $TEMPLATE_PLACEHOLDERS; do
     fail "template placeholder ${ph} is substituted"
   fi
 done
+
+# ---------------------------------------------------------------------------
+# The update path: what the admin panel is allowed to do, and no more.
+#
+# These are the properties that make "press a button in a browser and root swaps
+# the running code" an acceptable thing to ship. They are checked here because
+# nothing else can: a sudoers file that is one wildcard too wide still works
+# perfectly — it just also lets the web process do anything.
+# ---------------------------------------------------------------------------
+section "UPDATE  —  the panel's privilege and the CLI it drives"
+
+update_grant() { update_sudoers_content pishkan | grep -v '^#'; }
+
+# The whole rule, compared as a string — the same literal the API's advice prints
+# (apps/api/tests/system-update.test.ts pins it from the other side).
+grant_is_the_two_allowed_commands() {
+  [ "$(update_grant)" = "pishkan ALL=(root) NOPASSWD: /usr/local/bin/pishkan check-update --json, /usr/local/bin/pishkan update --json" ]
+}
+check "sudoers grant is exactly the two allowed commands" grant_is_the_two_allowed_commands
+
+grant_is_one_rule() { [ "$(update_grant | grep -c .)" -eq 1 ]; }
+check "sudoers grant is exactly one rule" grant_is_one_rule
+
+grant_stays_narrow() {
+  local args
+  args="$(update_grant | sed 's/.*NOPASSWD: //')"
+  # Exactly two command specs, and neither of the two flags the CLI does support
+  # but that must stay unreachable from a browser. `/bin/` inside the *path* is
+  # fine — that is the binary being granted — so the patterns read arguments.
+  [ "$(tr ',' '\n' <<<"$args" | grep -c .)" -eq 2 ] && ! grep -qE '\*|--no-backup|--ref' <<<"$args"
+}
+check "sudoers grant forbids --ref, --no-backup and wildcards" grant_stays_narrow
+
+# visudo, when the box has it, is the real judge of the file's syntax.
+if command -v visudo >/dev/null 2>&1; then
+  grant_parses_with_visudo() {
+    local tmp; tmp="$(mktemp)"
+    update_sudoers_content pishkan >"$tmp"
+    visudo -cf "$tmp" >/dev/null 2>&1; local rc=$?
+    rm -f "$tmp"; return $rc
+  }
+  check "generated sudoers file parses with visudo" grant_parses_with_visudo
+else
+  pass "generated sudoers file parses with visudo (visudo absent here, skipped)"
+fi
+
+# The state reporter must call anything looser than the generator's own line
+# "wider" — that is the difference between a warning and a silent hole.
+state_reports_wider() {
+  local dir; dir="$(mktemp -d)"
+  printf 'pishkan ALL=(root) NOPASSWD: ALL\n' >"$dir/pishkan-update"
+  UPDATE_SUDOERS_PATH="$dir/pishkan-update" update_sudoers_state pishkan /usr/local/bin/pishkan | grep -q '^wider$'
+}
+check "a NOPASSWD: ALL grant is reported as wider, not accepted" state_reports_wider
+
+state_reports_exact() {
+  local dir; dir="$(mktemp -d)"
+  update_sudoers_content pishkan >"$dir/pishkan-update"
+  UPDATE_SUDOERS_PATH="$dir/pishkan-update" update_sudoers_state pishkan /usr/local/bin/pishkan | grep -q '^exact$'
+}
+check "the generator's own file is reported as exact" state_reports_exact
+
+state_reports_missing() {
+  UPDATE_SUDOERS_PATH="$(mktemp -d)/absent" update_sudoers_state pishkan /usr/local/bin/pishkan | grep -q '^missing$'
+}
+check "an absent grant is reported as missing" state_reports_missing
+
+pishkan_cli_parses() { bash -n "$REPO_ROOT/scripts/pishkan"; }
+check "scripts/pishkan parses" pishkan_cli_parses
+
+pishkan_knows_check_update() { grep -q 'check-update) cmd_check_update' "$REPO_ROOT/scripts/pishkan"; }
+check "pishkan dispatches check-update" pishkan_knows_check_update
+
+pishkan_update_accepts_json_flag() {
+  awk '/^cmd_update\(\)/,/^}/' "$REPO_ROOT/scripts/pishkan" | grep -q -- '--json) json_out=1'
+}
+check "pishkan update accepts the panel's --json flag" pishkan_update_accepts_json_flag
+
+# The panel shows this JSON verbatim, so its shape is part of the contract: either
+# a refusal that explains itself, or a payload with all three sections filled.
+check_update_json_is_parseable() {
+  local out
+  out="$(bash "$REPO_ROOT/scripts/pishkan" check-update --json 2>/dev/null)"
+  node -e '
+    const j = JSON.parse(process.argv[1]);
+    if (j.ok === false && typeof j.error === "string") process.exit(0);
+    if (j.ok === true && typeof j.available === "boolean" && j.installed && j.target && j.safety) process.exit(0);
+    process.exit(1);
+  ' "$out"
+}
+check "check-update answers with parseable JSON on any box" check_update_json_is_parseable
+
+check_update_needs_no_root() {
+  ! awk '/^cmd_check_update\(\)/,/^}$/' "$REPO_ROOT/scripts/pishkan" | grep -q 'require_root'
+}
+check "check-update runs unprivileged" check_update_needs_no_root
+
+installer_grants_update() { grep -q 'install_update_sudoers' "$REPO_ROOT/scripts/install.sh"; }
+check "install.sh installs the update grant" installer_grants_update
+
+provision_refreshes_grant() { grep -q 'install_update_sudoers' "$REPO_ROOT/scripts/pishkan"; }
+check "pishkan provision refreshes the grant for older installs" provision_refreshes_grant
+
+# After a swap, APP_VERSION must follow the live release, or `pishkan version` and
+# the panel keep reporting whichever number the box was installed with.
+update_refreshes_reported_version() {
+  awk '/^cmd_update\(\)/,/^}/' "$REPO_ROOT/scripts/pishkan" | grep -q 'set_env_value APP_VERSION'
+}
+check "update refreshes APP_VERSION of the live release" update_refreshes_reported_version
+
+# One version for the whole system is what the update UI compares; the tool that
+# enforces it is part of the deploy contract, not an optional extra.
+version_scheme_agrees() { python3 "$REPO_ROOT/tools/checks/version_consistency.py" >/dev/null; }
+check "one 1.0.x version across system, app and windows" version_scheme_agrees
 
 # ---------------------------------------------------------------------------
 printf '\n----------------------------------------------------------------\n'

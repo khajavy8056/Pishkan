@@ -27,6 +27,8 @@ if [ -f "${SCRIPT_DIR}/lib/common.sh" ]; then
   . "${SCRIPT_DIR}/lib/config.sh"
   # shellcheck source=lib/net.sh
   . "${SCRIPT_DIR}/lib/net.sh"
+  # shellcheck source=lib/update-sudoers.sh
+  . "${SCRIPT_DIR}/lib/update-sudoers.sh"
 else
   # shellcheck source=/dev/null
   . /opt/pishkan/current/scripts/lib/common.sh
@@ -34,6 +36,8 @@ else
   . /opt/pishkan/current/scripts/lib/config.sh
   # shellcheck source=/dev/null
   . /opt/pishkan/current/scripts/lib/net.sh
+  # shellcheck source=/dev/null
+  . /opt/pishkan/current/scripts/lib/update-sudoers.sh
 fi
 
 BACKUP_KEEP_DAYS="${BACKUP_KEEP_DAYS:-14}"
@@ -50,6 +54,7 @@ usage() {
   pishkan update [--ref SHA]     به‌روزرسانی از commit کامل تأییدشده؛ در خطا بازمی‌گردد
   pishkan provision [--tls]      اعمال دوبارهٔ deploy.conf روی nginx، TLS و تنظیمات
   pishkan rollback [--to ID]     بازگشت به نسخه قبلی
+  pishkan check-update [--json]  بررسی وجود نسخه تازه در مخزن (بدون تغییر، بدون root)
   pishkan backup [--dest DIR]    پشتیبان‌گیری از پایگاه داده و مدارک
   pishkan restore FILE [--yes]   بازیابی (نیازمند تأیید صریح)
   pishkan migrate                اجرای مهاجرت‌های نسخه‌بندی‌شده
@@ -410,10 +415,16 @@ prune_releases() {
 
 cmd_update() {
   require_root
-  local ref="" no_backup=0 dry_run=0
+  local ref="" no_backup=0 dry_run=0 json_out=0
   while [ $# -gt 0 ]; do
     case "$1" in
       --ref) shift; ref="${1:-}" ;;
+      # The admin panel calls `pishkan update --json` (see the sudoers grant in
+      # scripts/lib/update-sudoers.sh, which only ever allows these exact
+      # arguments). It is a *reporting* flag, not a safety one: the transcript is
+      # already what the panel shows, and this adds one machine-readable summary
+      # line at the end. Backup, health check and rollback happen either way.
+      --json) json_out=1 ;;
       --no-backup) no_backup=1 ;;
       --dry-run) dry_run=1 ;;
       *) die "پارامتر ناشناخته برای update: $1" ;;
@@ -502,7 +513,20 @@ cmd_update() {
 
   if wait_for_health 90; then
     set_env_value PISHKAN_RELEASE_REF "$commit"
+    # APP_VERSION is written once, by install.sh, and nothing refreshed it after
+    # that — so `pishkan version`, the backup manifest and the admin panel went on
+    # reporting the version the server was *installed* with, however many updates
+    # it took. Read it from the release that is now live, exactly as the installer
+    # does, so the number the update UI shows is the number actually serving.
+    local new_version
+    new_version="$(node -p "require('${CURRENT_LINK}/apps/api/package.json').version" 2>/dev/null || echo '')"
+    if [ -n "$new_version" ]; then
+      set_env_value APP_VERSION "$new_version"
+      log "نسخهٔ فعال: ${new_version}"
+    fi
     ok "به‌روزرسانی انجام شد (commit تأییدشده ${commit})."
+    [ "$json_out" = "1" ] && printf '{"ok":true,"updated":true,"commit":"%s","version":"%s","release":"%s"}\n' \
+      "$commit" "${new_version:-}" "$(basename "$new_dir")"
     install -m 0755 "${CURRENT_LINK}/scripts/pishkan" /usr/local/bin/pishkan
     install -m 0644 "${CURRENT_LINK}/deploy/systemd/pishkan-backup.service" /etc/systemd/system/ 2>/dev/null || true
 
@@ -523,6 +547,7 @@ cmd_update() {
     # Old releases are what fill the disk and, eventually, break an update.
     prune_releases "$(config_get KEEP_RELEASES 5)"
   else
+    [ "$json_out" = "1" ] && printf '{"ok":false,"updated":false,"error":"unhealthy_rolled_back","commit":"%s"}\n' "$commit"
     err "سرویس جدید سالم نبود؛ بازگشت به نسخه قبلی…"
     ln -sfn "$old_release" "$CURRENT_LINK"
     systemctl restart "$SERVICE_NAME"
@@ -565,6 +590,76 @@ cmd_rollback() {
 # ---------------------------------------------------------------------------
 # maintenance helpers
 # ---------------------------------------------------------------------------
+
+# ---------------------------------------------------------------------------
+# check-update — the read-only half of `update`, for the admin panel
+# ---------------------------------------------------------------------------
+#
+# Written as a subcommand of `pishkan` rather than as git calls from Node on
+# purpose: the answers live in deploy.conf and in the release env file, and the
+# moment the panel re-implements them the two drift. This is also the command the
+# sudoers grant lets the service user run without a password — note what it is
+# NOT: it never writes, never restarts, and never takes a `--ref` argument, so a
+# compromised web process can read the repo but cannot point the server at a
+# commit of its choosing. The version *number* is not guessed: it comes from a
+# release tag, and when the office has not tagged one, `latestVersion` stays
+# empty and the panel says «بر اساس commit» instead of inventing a figure.
+cmd_check_update() {
+  local as_json=0
+  while [ $# -gt 0 ]; do
+    case "$1" in
+      --json) as_json=1 ;;
+      *) die "پارامتر ناشناخته برای check-update: $1" ;;
+    esac
+    shift
+  done
+
+  if ! is_installed; then
+    if [ "$as_json" = "1" ]; then printf '{"ok":false,"error":"not_installed"}\n'; return 0; fi
+    die "Pishkan روی این سرور نصب نشده است."
+  fi
+
+  local release version commit remote pinned free_mb backup keep latest_tag tag_version available
+  release="$(current_release)"
+  version="$(read_env_value APP_VERSION)"
+  commit="$(cat "${release}/.release-commit" 2>/dev/null || git -C "$release" rev-parse HEAD 2>/dev/null || echo '')"
+  remote="$(resolve_remote_branch_commit "$REPO_BRANCH" || true)"
+  pinned="$(read_env_value PISHKAN_COMMIT)"
+  free_mb="$(df -Pm "$APP_ROOT" 2>/dev/null | awk 'NR==2{print $4}')"
+  backup="$(config_get BACKUP_ENABLED true)"
+  keep="$(config_get KEEP_RELEASES 5)"
+  latest_tag="$(git ls-remote --tags "$REPO_URL" 2>/dev/null \
+    | grep -oE 'refs/tags/(android-)?v?1\.0\.[0-9]+$' | grep -oE '[0-9]+$' | sort -n | tail -1 || true)"
+  tag_version=""
+  [ -n "$latest_tag" ] && tag_version="1.0.${latest_tag}"
+
+  available="false"
+  if is_full_commit "$remote" && [ "${remote,,}" != "${commit,,}" ]; then
+    available="true"
+  fi
+
+  if [ "$as_json" = "1" ]; then
+    printf '{"ok":true,"installed":{"version":"%s","release":"%s","commit":"%s"},"target":{"repo":"%s","branch":"%s","commit":"%s","pinnedCommit":"%s"},"available":%s,"latestVersion":"%s","safety":{"backupEnabled":%s,"keepReleases":%s,"freeMb":%s,"rootRequired":true}}\n' \
+      "${version:-}" "$(basename "$release")" "$commit" "$REPO_URL" "$REPO_BRANCH" "$remote" "$pinned" \
+      "$available" "$tag_version" "$( [ "$backup" = "false" ] && echo false || echo true )" "$keep" "${free_mb:-0}"
+    return 0
+  fi
+
+  heading "بررسی به‌روزرسانی"
+  echo "  نسخه نصب‌شده:  ${version:-?}"
+  echo  "  commit:        ${commit:0:12}"
+  echo "  شاخه:          ${REPO_BRANCH}"
+  echo "  تازه‌ترین:      ${remote:0:12}"
+  echo "  بکاپ خودکار:   $( [ "$backup" = "false" ] && echo 'خاموش' || echo 'روشن' ) — پیش از هر به‌روزرسانی یک‌بار گرفته می‌شود"
+  echo "  فضای آزاد:     ${free_mb:-?} مگابایت"
+  if [ "$available" = "true" ]; then
+    echo
+    log "نسخهٔ تازه در مخزن هست: sudo pishkan update"
+  else
+    echo
+    ok "همین نسخه، تازه‌ترین commit شاخهٔ ${REPO_BRANCH} است."
+  fi
+}
 
 cmd_migrate() {
   require_root
@@ -622,6 +717,16 @@ cmd_doctor() {
 
   if nginx -t >/dev/null 2>&1; then ok "پیکربندی Nginx معتبر است."; else warn "پیکربندی Nginx ایراد دارد."; fi
   if systemctl is-active --quiet pishkan-backup.timer; then ok "پشتیبان‌گیری خودکار فعال است."; else warn "پشتیبان‌گیری خودکار غیرفعال است."; fi
+
+  # The panel's update button is a convenience, so a missing grant is a warning,
+  # not a failed doctor run. A *wider* one is the case worth shouting about.
+  if command -v update_sudoers_state >/dev/null 2>&1; then
+    case "$(update_sudoers_state "${APP_USER:-pishkan}" /usr/local/bin/pishkan)" in
+      exact) ok "مجوز به‌روزرسانی از پنل نصب است (فقط check-update و update)." ;;
+      wider) err "فایل ${UPDATE_SUDOERS_PATH} مجوزی بیش از دو دستور مورد نیاز می‌دهد؛ همان دو خط را نگه دارید."; problems=$((problems + 1)) ;;
+      *) warn "مجوز به‌روزرسانی از پنل نصب نشده؛ «sudo pishkan provision» آن را اضافه می‌کند." ;;
+    esac
+  fi
 
   # Deployment: the domain file, what it resolves to, and the hop a browser
   # actually takes. These are the failures that look like "the site is down"
@@ -872,6 +977,14 @@ cmd_provision() {
     install -m 0640 "$deploy_file" "${CONFIG_DIR}/deploy.conf"
   fi
 
+  # --- 4b. the update privilege, refreshed from the release now active --------
+  # An install from before this feature gets it here rather than needing a
+  # reinstall; and because the file is generated from the release, a change to the
+  # grant ships with an update instead of drifting behind it.
+  if command -v install_update_sudoers >/dev/null 2>&1; then
+    install_update_sudoers "${APP_USER:-pishkan}" /usr/local/bin/pishkan || warn "مجوز به‌روزرسانی از پنل اعمال نشد."
+  fi
+
   # --- 5. verify the path a browser actually takes ---------------------------
   if [ -n "$domain" ]; then
     echo
@@ -907,6 +1020,7 @@ case "$CMD" in
   logs)     require_root; cmd_logs "$@" ;;
   restart)  cmd_restart ;;
   update)   cmd_update "$@" ;;
+  check-update) cmd_check_update "$@" ;;
   upgrade)  cmd_update "$@" ;;
   rollback) cmd_rollback "$@" ;;
   backup)   require_root; cmd_backup "$@" ;;

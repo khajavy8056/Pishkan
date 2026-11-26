@@ -3,11 +3,13 @@ import { Link, NavLink, useLocation, useNavigate } from 'react-router-dom';
 import {
   LayoutDashboard, ClipboardList, Wallet, MessageSquare, User, Bell, LogOut, Menu, X, Search, Activity,
   Building2, Users, CalendarClock, FileText, Receipt, BarChart3, Settings, Database, ShieldCheck,
-  LifeBuoy, Shapes, Sparkles, ChevronDown, Plus, BadgeCheck, ServerCog, ClipboardCheck, ArrowLeft, Smartphone,
+  LifeBuoy, Shapes, Sparkles, Compass, ChevronDown, Plus, BadgeCheck, ServerCog, ClipboardCheck, ArrowLeft, Smartphone,
   Moon, Sun, Monitor, Headset, TicketPercent, ListChecks, BotMessageSquare, CirclePlus, Clock3, CalendarDays, Newspaper,
+  RefreshCw,
 } from 'lucide-react';
 import clsx from 'clsx';
 import { useAuth, homeFor } from '../lib/auth';
+import { connectLiveBell, raiseSystemNotice, type LiveNotice } from '../lib/liveBell';
 import { api } from '../lib/api';
 import { relative, faNum } from '../lib/format';
 import { ThemeToggle, ThemeSegmented, useTheme } from '../lib/theme';
@@ -16,6 +18,8 @@ import { useSite } from '../lib/site';
 import { Button, Spinner, useToast } from './ui';
 import { ChatWidget } from './ChatWidget';
 import { NotificationGate } from './NotificationGate';
+import { SmartTour } from './tour/SmartTour';
+import { loadTours, replayTour, tourSnapshot } from '../lib/tours';
 
 export interface NavItem {
   to: string;
@@ -92,6 +96,7 @@ const adminNav: NavItem[] = [
   { to: '/admin/referrals', label: 'کمپین‌های دعوت', icon: <Users className="size-5" />, permission: 'discounts.view', section: SECTION_SYSTEM },
   { to: '/admin/discounts', label: 'کدهای تخفیف', short: 'تخفیف', icon: <TicketPercent className="size-5" />, permission: 'discounts.view', section: SECTION_SYSTEM },
   { to: '/admin/monitoring', label: 'مرکز پایش', short: 'پایش', icon: <Activity className="size-5" />, permission: 'monitoring.view', section: SECTION_SYSTEM },
+  { to: '/admin/update', label: 'به‌روزرسانی سامانه', short: 'به‌روزرسانی', icon: <RefreshCw className="size-5" />, permission: 'system.view', section: SECTION_SYSTEM },
   { to: '/admin/payroll', label: 'حقوق و تسویه کارکنان', short: 'حقوق', icon: <Users className="size-5" />, permission: 'payroll.view', section: SECTION_SYSTEM },
   { to: '/admin/reports', label: 'گزارش‌ها', icon: <BarChart3 className="size-5" />, permission: 'reports.view', section: SECTION_SYSTEM },
   { to: '/admin/android-app', label: 'اپ اندروید', short: 'اپ', icon: <Smartphone className="size-5" />, permission: 'app.manage', section: SECTION_SYSTEM },
@@ -147,7 +152,13 @@ export function AppShell({ children, variant }: { children: ReactNode; variant: 
   const [searchOpen, setSearchOpen] = useState(false);
   const [notifications, setNotifications] = useState<any[]>([]);
   const [unread, setUnread] = useState(0);
+  // The tour catalogue is per person and tiny; loading it with the shell (rather
+  // than on the first page that wants it) is what lets a step point at the
+  // shell's own navigation and lets auto-start decide before the first paint.
+  useEffect(() => { void loadTours(); }, []);
   const knownNotificationIds = useRef<Set<string> | null>(null);
+  /** The first load seeds the set instead of announcing — history is not news. */
+  const bellSeeded = useRef(false);
 
   const nav = useMemo(() => {
     const list = navFor(user?.kind === 'admin' ? 'admin' : variant === 'customer' ? 'customer' : 'staff');
@@ -180,24 +191,23 @@ export function AppShell({ children, variant }: { children: ReactNode; variant: 
     let active = true;
     const load = async () => {
       try {
-        const res = await api.list<any>('/api/customers/me/notifications?limit=30');
+        // Read the envelope directly rather than through `api.list`: the unread
+        // count rides in `meta`, which `api.list` throws away — and a bell whose
+        // badge never moves is indistinguishable from "no notifications arrived".
+        const res = await api.get<{ data: any[]; meta?: { unread?: number } }>(
+          '/api/customers/me/notifications?limit=30',
+        );
         if (!active) return;
-        setNotifications(res.data);
-        setUnread(Number((res as any).meta?.unread ?? 0));
+        const rows = res.data ?? [];
+        setNotifications(rows);
+        setUnread(Number(res.meta?.unread ?? 0));
         // Toast anything that arrived since the last poll so the user hears
         // about it even without opening the bell. First load only seeds.
-        const known = knownNotificationIds.current;
-        const fresh = res.data.filter((n: any) => !n.readAt && (!known || !known.has(n.id)));
-        if (known && fresh.length > 0 && !document.hidden) {
-          const latest = fresh[0];
-          notify(
-            fresh.length > 1
-              ? `${faNum(fresh.length)} اعلان تازه: ${latest.title}`
-              : `${latest.title}${latest.body ? ` — ${latest.body}` : ''}`.slice(0, 140),
-            latest.kind === 'error' ? 'error' : latest.kind === 'success' ? 'success' : 'info',
-          );
-        }
-        knownNotificationIds.current = new Set(res.data.map((n: any) => n.id));
+        const known = knownSet();
+        const fresh = bellSeeded.current ? rows.filter((n: any) => !n.readAt && !known.has(n.id)) : [];
+        for (const item of fresh) announce(item);
+        rows.forEach((n: any) => known.add(n.id));
+        bellSeeded.current = true;
       } catch {
         /* notifications are non-critical */
       }
@@ -206,6 +216,56 @@ export function AppShell({ children, variant }: { children: ReactNode; variant: 
     const timer = setInterval(load, 25_000);
     return () => { active = false; clearInterval(timer); };
   }, [location.pathname, notify]);
+
+  /**
+   * One announcement per notice, whichever path it came in on.
+   *
+   * The poll and the live stream both call this, and the shared `known` set is
+   * what makes "delivered twice, shown once" impossible: the first caller adds
+   * the id, the second finds it there and stays quiet.
+   */
+  const knownSet = () => (knownNotificationIds.current ??= new Set<string>());
+
+  const announce = (item: any) => {
+    const id = String(item.id ?? '');
+    if (!id) return;
+    knownSet().add(id);
+    const text = `${item.title ?? ''}${item.body ? ` — ${item.body}` : ''}`.slice(0, 140);
+    const kind = item.kind === 'error' ? 'error' : item.kind === 'success' ? 'success' : 'info';
+    if (document.hidden) {
+      // The tab is in the background: a toast nobody will read is worse than a
+      // tray notification, and the tray is exactly where this notice belongs.
+      void raiseSystemNotice(item as LiveNotice, { tag: id });
+    } else {
+      notify(text, kind);
+    }
+    // "Seen by this browser" is an answer the server needs: it is what stops the
+    // retries and keeps the other channels from also buzzing.
+    void api.post('/api/notifications/ack', { ids: [id], channel: 'web' }).catch(() => undefined);
+  };
+
+  // The live channel: instant delivery while the tab is open at all, and it
+  // works on http, without VAPID keys, without a push service — which is what
+  // makes it usable on the office LAN install, and unfilterable in Iran.
+  useEffect(() => {
+    const close = connectLiveBell({
+      seen: knownSet,
+      onNotice: (notice) => {
+        // A replay after a reconnect can carry notices that are already in the
+        // open bell; before the first poll has seeded, they are recorded, not
+        // announced. An unread stack of toasts on page load is not "instant".
+        if (!bellSeeded.current) {
+          knownSet().add(notice.id);
+          return;
+        }
+        setNotifications((prev) => (prev.some((n) => n.id === notice.id) ? prev : [notice as any, ...prev]));
+        setUnread((value) => value + 1);
+        announce(notice as any);
+      },
+    });
+    return close;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   /** Clicking a notice marks exactly that one read (badge follows at once)
       and routes chat pointers into the floating chat instead of a page. */
@@ -527,6 +587,7 @@ export function AppShell({ children, variant }: { children: ReactNode; variant: 
                     <Link to={variant === 'customer' ? '/app/profile' : '/staff/shifts'} className="block rounded-lg px-3 py-2 text-sm text-navy-700 hover:bg-surface-3">
                       حساب کاربری
                     </Link>
+                    <TourMenuItem variant={variant} />
                     <button
                       type="button"
                       onClick={async () => { await logout(); navigate('/'); }}
@@ -595,13 +656,39 @@ export function AppShell({ children, variant }: { children: ReactNode; variant: 
         </nav>
 
         <footer className="border-t border-line px-6 pt-4 pb-24 text-center text-xs text-navy-400 lg:pb-4">
-          {brand.name} — نسخه {import.meta.env.VITE_APP_VERSION ?? '1.4.0'}
+          {brand.name} — نسخه {import.meta.env.VITE_APP_VERSION ?? '1.0.1217'}
         </footer>
 
         <NotificationGate kind={variant} />
         <ChatWidget />
+        {/* Guided tour: mounted once for every signed-in screen so a step can
+            point at anything on the page, including the shell's own navigation. */}
+        <SmartTour />
       </div>
     </div>
+  );
+}
+
+/**
+ * «راهنمای این صفحه» in the account menu.
+ *
+ * The tour must be restartable by design, not by clearing storage: someone who
+ * skipped it once and later got lost needs the same door back that they walked
+ * out of. It is hidden when there is nothing left to show on this screen, so a
+ * dead entry never appears.
+ */
+export function TourMenuItem({ variant }: { variant: 'customer' | 'staff' | 'admin' }) {
+  const state = tourSnapshot();
+  const { pathname } = useLocation();
+  const audience = variant === 'customer' ? 'customer' : 'office';
+  const tour = state.tours.find((item) => item.audience === audience
+    && item.steps.some((step) => !step.route || pathname.startsWith(step.route)));
+  if (!state.enabled || !tour) return null;
+  return (
+    <button type="button" onClick={() => { void replayTour(tour.code); }}
+      className="mt-0.5 flex w-full items-center gap-2 rounded-lg px-3 py-2 text-sm text-navy-700 hover:bg-surface-3">
+      <Compass className="size-4" /> راهنمای {tour.label}
+    </button>
   );
 }
 

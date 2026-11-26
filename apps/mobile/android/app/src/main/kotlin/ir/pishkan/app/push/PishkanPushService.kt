@@ -42,16 +42,21 @@ class PishkanPushService : FirebaseMessagingService() {
             message.notification?.body?.let { if (!containsKey("body")) put("body", it) }
         }
         val icon = PushRenderer.fetchLargeIcon(merged["image"])
-        PushRenderer.show(this, merged, soundsEnabled = PushPreferences.soundsEnabled(this), largeIcon = icon)
+        val shown = PushRenderer.show(this, merged, soundsEnabled = PushPreferences.soundsEnabled(this), largeIcon = icon)
         // Keep the in-app feed's local cache in step with what the tray just
-        // showed, so opening the app does not re-announce the same event.
+        // showed, so opening the app does not re-announce the same event. The
+        // argument is the notice that was actually posted ('' when the tray was
+        // closed to us), and Dart turns it into the delivery report the server
+        // waits for — this process has no HTTP stack of its own to file it with.
         HeadlessPush.ensureRunning(this)
         PushBridge.currentEngine()?.let { engine ->
             try {
                 io.flutter.plugin.common.MethodChannel(engine.dartExecutor.binaryMessenger, "ir.pishkan.app/push")
-                    .invokeMethod("synchronise", null)
+                    .invokeMethod("synchronise", shown)
             } catch (_: Exception) {
-                // Best effort: the app reconciles the feed when it opens.
+                // Best effort: the app reconciles the feed when it opens. The
+                // notice stays unconfirmed, so the server keeps retrying it —
+                // which is the correct outcome when nothing could be reported.
             }
         }
     }

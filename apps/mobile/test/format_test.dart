@@ -1,7 +1,7 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:pishkan_app/core/env.dart';
 import 'package:pishkan_app/core/format.dart';
-import 'package:pishkan_app/services/services.dart' show compareVersions;
+import 'package:pishkan_app/services/services.dart' show compareAppVersions, compareVersions;
 
 void main() {
   group('digits', () {
@@ -68,6 +68,20 @@ void main() {
       expect(compareVersions('1.2.0', '1.0.9'), greaterThan(0));
       expect(compareVersions('0.9.9', '1.0.0'), lessThan(0));
       expect(compareVersions('2', '1.9.9'), greaterThan(0));
+    });
+
+    // The update banner's own rule: the build number (the last one) decides, so a
+    // phone still on the pre-scheme `1.21.7` is correctly told that `1.0.1217` —
+    // the release that folded it — is newer. A left-to-right compare says the
+    // opposite (21 > 0) and the banner stays hidden for exactly the people who need
+    // it, which is the silent failure these four lines exist to catch.
+    test('the 1.0.x scheme compares by build', () {
+      expect(compareAppVersions('1.0.1217', '1.0.1218'), lessThan(0));
+      expect(compareAppVersions('1.0.1218', '1.0.1217'), greaterThan(0));
+      expect(compareAppVersions('1.0.1217', '1.0.1217'), 0);
+      expect(compareAppVersions('1.21.7', '1.0.1217'), lessThan(0));
+      // A min_version of 1.0.0 must never lock anybody out — build 0 is the floor.
+      expect(compareAppVersions('1.0.1217', '1.0.0'), greaterThan(0));
     });
   });
 }

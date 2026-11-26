@@ -467,3 +467,178 @@ List<String> asTextList(dynamic value) {
   if (value is! List) return const [];
   return [for (final item in value) if (_str(item).isNotEmpty) _str(item)];
 }
+
+/* ------------------------------- assistant -------------------------------- */
+
+/// A server-suggested action. `kind` decides what the app does with it:
+/// `link` opens an in-app route, `send` asks a follow-up question,
+/// `confirm`/`cancel` drive the guided request draft, and `login`/`register`
+/// take a guest to the right door and back to the assistant afterwards.
+class AssistantAction {
+  AssistantAction.fromJson(Map<String, dynamic> json)
+      : id = _str(json['id']),
+        kind = _str(json['kind']),
+        label = _str(json['label']),
+        route = _str(json['route']),
+        href = _str(json['href']),
+        message = _str(json['message']),
+        draftId = _str(json['draftId']),
+        requirementKey = _str(json['requirementKey']);
+
+  final String id;
+  final String kind;
+  final String label;
+  final String route;
+  final String href;
+  final String message;
+  final String draftId;
+  final String requirementKey;
+
+  bool get isLink => kind == 'link' || kind == 'login' || kind == 'register' || kind == 'upload';
+  String get target => route.isNotEmpty ? route : href;
+}
+
+/// One form field of the guided request draft.
+class AssistantDraftField {
+  AssistantDraftField.fromJson(Map<String, dynamic> json)
+      : key = _str(json['key']),
+        label = _str(json['label']),
+        type = _str(json['type']),
+        value = _str(json['value']),
+        required = _bool(json['required']),
+        fromProfile = _bool(json['fromProfile']),
+        error = _str(json['error']),
+        help = _str(json['help']),
+        placeholder = _str(json['placeholder']),
+        options = asTextList(json['options']);
+
+  final String key;
+  final String label;
+  final String type;
+  final String value;
+  final bool required;
+  final bool fromProfile;
+  final String error;
+  final String help;
+  final String placeholder;
+  final List<String> options;
+}
+
+/// One required document of the guided request draft, with whatever the
+/// customer has already attached (an uploaded file or a profile document).
+class AssistantDraftDocument {
+  AssistantDraftDocument.fromJson(Map<String, dynamic> json)
+      : key = _str(json['key']),
+        title = _str(json['title']),
+        required = _bool(json['required']),
+        note = _str(json['note']),
+        error = _str(json['error']),
+        attachmentName = _str(_map(json['attachment'])['name']),
+        attachmentKind = _str(_map(json['attachment'])['kind']),
+        suggestedProfileDocumentId = _str(json['suggestedProfileDocumentId']),
+        suggestedProfileDocumentName = _str(json['suggestedProfileDocumentName']);
+
+  final String key;
+  final String title;
+  final bool required;
+  final String note;
+  final String error;
+  final String attachmentName;
+  final String attachmentKind;
+  final String suggestedProfileDocumentId;
+  final String suggestedProfileDocumentName;
+
+  bool get attached => attachmentName.isNotEmpty;
+}
+
+/// The guided request draft. The server owns the stage: nothing is created
+/// until `confirmAssistantDraft()` succeeds, which requires the stored stage
+/// to already be `awaiting_confirmation`.
+class AssistantDraft {
+  AssistantDraft.fromJson(Map<String, dynamic> json)
+      : id = _str(json['id']),
+        serviceId = _str(json['serviceId']),
+        serviceSlug = _str(json['serviceSlug']),
+        serviceTitle = _str(json['serviceTitle']),
+        categoryTitle = _str(json['categoryTitle']),
+        stage = _str(json['stage']),
+        fields = _list(json['fields']).map(AssistantDraftField.fromJson).toList(),
+        missingFields = asTextList(json['missingFields']),
+        documents = _list(json['documents']).map(AssistantDraftDocument.fromJson).toList(),
+        missingDocuments = asTextList(json['missingDocuments']),
+        estimatedMinutes = _num(json['estimatedMinutes']).toDouble(),
+        estimatedDays = _num(json['estimatedDays']).toDouble(),
+        pricingTotal = _num(_map(json['pricing'])['total']).toDouble(),
+        paymentMethod = _str(json['paymentMethod']),
+        priority = _str(json['priority']),
+        useProfile = _bool(json['useProfile']),
+        requestId = _str(json['requestId']),
+        trackingCode = _str(json['trackingCode']),
+        submissionError = _str(json['submissionError']),
+        actions = _list(json['actions']).map(AssistantAction.fromJson).toList();
+
+  final String id;
+  final String serviceId;
+  final String serviceSlug;
+  final String serviceTitle;
+  final String categoryTitle;
+  final String stage;
+  final List<AssistantDraftField> fields;
+  final List<String> missingFields;
+  final List<AssistantDraftDocument> documents;
+  final List<String> missingDocuments;
+  final double estimatedMinutes;
+  final double estimatedDays;
+  final double pricingTotal;
+  final String paymentMethod;
+  final String priority;
+  final bool useProfile;
+  final String requestId;
+  final String trackingCode;
+  final String submissionError;
+  final List<AssistantAction> actions;
+
+  bool get submitted => stage == 'submitted';
+  bool get awaitingConfirmation => stage == 'awaiting_confirmation';
+  bool get active => !submitted && stage != 'cancelled';
+
+  String get stageLabel => switch (stage) {
+        'collecting' => 'در حال تکمیل اطلاعات',
+        'awaiting_confirmation' => 'آمادهٔ تأیید نهایی',
+        'submitted' => 'ثبت‌شده',
+        'cancelled' => 'لغوشده',
+        _ => stage,
+      };
+}
+
+/// One structured card in a reply. The payload stays a map because the seven
+/// card types have almost no fields in common; typed accessors would only
+/// duplicate the server contract in a language that cannot share it.
+class AssistantCard {
+  AssistantCard.fromJson(Map<String, dynamic> json)
+      : type = _str(json['type']),
+        service = _map(json['service']),
+        caseData = _map(json['case']),
+        invoice = _map(json['invoice']),
+        wallet = _map(json['wallet']),
+        profile = _map(json['profile']),
+        ticket = _map(json['ticket']),
+        catalog = _map(json['catalog']);
+
+  final String type;
+  final Map<String, dynamic> service;
+  final Map<String, dynamic> caseData;
+  final Map<String, dynamic> invoice;
+  final Map<String, dynamic> wallet;
+  final Map<String, dynamic> profile;
+  final Map<String, dynamic> ticket;
+  final Map<String, dynamic> catalog;
+
+  bool get isService => type == 'service' && service.isNotEmpty;
+  bool get isCase => type == 'case' && caseData.isNotEmpty;
+  bool get isInvoice => type == 'invoice' && invoice.isNotEmpty;
+  bool get isWallet => type == 'wallet' && wallet.isNotEmpty;
+  bool get isProfile => type == 'profile' && profile.isNotEmpty;
+  bool get isTicket => type == 'ticket' && ticket.isNotEmpty;
+  bool get isCatalog => type == 'catalog' && catalog.isNotEmpty;
+}

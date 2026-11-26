@@ -1,4 +1,4 @@
-import { useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { ArrowLeft, ChevronLeft, ChevronRight, Clock, Sparkles, TrendingUp } from 'lucide-react';
 import { formatDuration, useSite, type Category, type Service } from '../../lib/site';
@@ -25,32 +25,64 @@ function resolveServiceImage(service: Service, category?: Category): string {
 
 /* ---------------------------------- ticker -------------------------------- */
 
+/**
+ * How many copies of the category list the marquee needs.
+ *
+ * Two identical halves is the minimum for a seamless `-50%` loop, and the
+ * count must stay even for the seam to stay invisible. A 34-inch monitor with
+ * four categories would otherwise show the band running out halfway across, so
+ * wide viewports get more copies. ~216px is the per-chip estimate (icon +
+ * label + padding + gap), rounded up with a small margin.
+ */
+function useTickerCopies(itemCount: number): number {
+  const [copies, setCopies] = useState(2);
+  useEffect(() => {
+    if (typeof window === 'undefined' || itemCount === 0) return;
+    const measure = () => {
+      const needed = Math.ceil((window.innerWidth * 2) / (itemCount * 216));
+      const even = needed + (needed % 2);
+      setCopies(Math.max(2, Math.min(8, even)));
+    };
+    measure();
+    window.addEventListener('resize', measure);
+    return () => window.removeEventListener('resize', measure);
+  }, [itemCount]);
+  return copies;
+}
+
 export function LandingTicker() {
   const { site } = useSite();
   const categories = site?.categories ?? [];
+  const copies = useTickerCopies(categories.length);
   if (categories.length === 0) return null;
 
-  const loop = [...categories, ...categories];
+  // The loop has to be two identical halves for the -50% translate to be
+  // seamless, and it has to be wide enough to cover the viewport twice over —
+  // on a 4K monitor three short category names would otherwise leave the far
+  // end of the band empty. Copies come in pairs so the seam stays invisible.
+  const loop = Array.from({ length: copies }, () => categories).flat();
 
   return (
-    <div className="border-y border-line/60 bg-surface-2/65 py-3 backdrop-blur-md" aria-label="دسته‌های خدمات">
-      <div className="ticker-wrap">
-        <div className="ticker-track">
-          {loop.map((cat, idx) => (
-            <Link
-              key={`${cat.id}-${idx}`}
-              to={`/services?category=${encodeURIComponent(cat.slug)}`}
-              className="ticker-item"
-            >
-              <img
-                src={resolveCategoryImage(cat)}
-                alt=""
-                loading="lazy"
-                className="size-5 shrink-0 rounded-md object-cover"
-              />
-              <span>{cat.title}</span>
-            </Link>
-          ))}
+    <div className="lp-band border-y border-line/60 bg-surface-2/65 py-3 backdrop-blur-md" aria-label="دسته‌های خدمات">
+      <div className="lp-container">
+        <div className="ticker-wrap">
+          <div className="ticker-track">
+            {loop.map((cat, idx) => (
+              <Link
+                key={`${cat.id}-${idx}`}
+                to={`/services?category=${encodeURIComponent(cat.slug)}`}
+                className="ticker-item"
+              >
+                <img
+                  src={resolveCategoryImage(cat)}
+                  alt=""
+                  loading="lazy"
+                  className="size-5 shrink-0 rounded-md object-cover"
+                />
+                <span>{cat.title}</span>
+              </Link>
+            ))}
+          </div>
         </div>
       </div>
     </div>
@@ -77,7 +109,7 @@ export function LandingCategoryRail() {
   return (
     <section ref={revealRef} className={site && categories.length === 0 ? 'hidden' : 'py-14 sm:py-16'} aria-label="دسته‌بندی خدمات">
       {!site || categories.length > 0 ? (
-        <div className="mx-auto max-w-7xl px-4 sm:px-6">
+        <div className="lp-container">
           <div className="mb-7 flex flex-wrap items-end justify-between gap-4" data-reveal="">
             <div>
               <span className="inline-flex items-center gap-1.5 text-xs font-extrabold text-brand-text">
@@ -228,11 +260,49 @@ function ServiceCard({
 }
 
 /* ----------------------------- services section ----------------------------- */
+/* ------------------------------ grid columns ------------------------------ */
+
+/**
+ * How many service cards fit in the shared container at a given viewport.
+ *
+ * The old `lg:grid-cols-3` was the last column count the page ever used, so on
+ * a 1920px+ monitor three oversized cards sat in the middle of the screen with
+ * empty background on both sides. Deriving the count from the same widths the
+ * container uses keeps the grid honest — and the section then shows exactly two
+ * full rows, so there is never a ragged orphan row to explain.
+ */
+const GRID_STEPS: { min: number; cols: number }[] = [
+  { min: 1920, cols: 5 },
+  { min: 1536, cols: 4 },
+  { min: 1024, cols: 3 },
+  { min: 640, cols: 2 },
+  { min: 0, cols: 1 },
+];
+
+function columnsForWidth(width: number): number {
+  return (GRID_STEPS.find((step) => width >= step.min) ?? GRID_STEPS[GRID_STEPS.length - 1]).cols;
+}
+
+function useServiceColumns(): number {
+  const [cols, setCols] = useState(() =>
+    typeof window === 'undefined' || typeof window.innerWidth !== 'number' ? 3 : columnsForWidth(window.innerWidth),
+  );
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    const measure = () => setCols(columnsForWidth(window.innerWidth));
+    measure();
+    window.addEventListener('resize', measure);
+    return () => window.removeEventListener('resize', measure);
+  }, []);
+  return cols;
+}
+
 
 export function LandingServicesSection() {
   const { site, setting } = useSite();
   const revealRef = useReveal<HTMLElement>();
   const [tab, setTab] = useState<'popular' | 'newest'>('popular');
+  const gridCols = useServiceColumns();
 
   const categoriesById = new Map((site?.categories ?? []).map((c) => [c.id, c]));
   const popular = site?.popularServices ?? [];
@@ -245,7 +315,7 @@ export function LandingServicesSection() {
 
   return (
     <section ref={revealRef} id="services" className="scroll-mt-24 py-12 sm:py-16" aria-label="خدمات پرکاربرد">
-      <div className="mx-auto max-w-7xl px-4 sm:px-6">
+      <div className="lp-container">
         <div className="mb-8 flex flex-wrap items-end justify-between gap-4" data-reveal="">
           <div>
             <span className="inline-flex items-center gap-1.5 text-xs font-extrabold text-brand-text">
@@ -296,8 +366,11 @@ export function LandingServicesSection() {
             </Link>
           </div>
         ) : (
-          <div className="grid gap-5 sm:grid-cols-2 lg:grid-cols-3">
-            {activeList.slice(0, 6).map((svc, idx) => (
+          <div
+            className="grid gap-5"
+            style={{ gridTemplateColumns: `repeat(${Math.max(1, Math.min(gridCols, activeList.length))}, minmax(0, 1fr))` }}
+          >
+            {activeList.slice(0, gridCols * 2).map((svc, idx) => (
               <ServiceCard
                 key={svc.id}
                 service={svc}

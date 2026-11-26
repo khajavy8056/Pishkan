@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:io';
 
 import 'package:file_picker/file_picker.dart';
@@ -14,6 +15,7 @@ import '../models/models.dart';
 import '../services/services.dart';
 import '../widgets/widgets.dart';
 import 'chat.dart';
+import '../core/tour.dart';
 
 /// The customer's case room: live status/step, timeline, documents (upload
 /// replacements or reuse a verified profile document), invoices with both
@@ -92,11 +94,34 @@ class _RequestDetailScreenState extends State<RequestDetailScreen> with WidgetsB
   Future<void> _uploadForRequirement(DocumentRequirement requirement) async {
     final file = await pickDocumentFile(context);
     if (file == null) return;
+    unawaited(_noteFreshUpload(requirement));
     await _guard(() async {
       final fileId = await uploadOne(file, documentQuality: shouldScreenDocumentPhoto(requirement.title, type: requirement.documentType));
       await addRequestDocument(widget.requestId, fileId: fileId, title: requirement.title, requirementKey: requirement.key);
       if (mounted) await saveMappedProfileDocument(context, fileId, requirement.title, requirement.documentType);
     }, success: 'مدرک ارسال شد.');
+  }
+
+  /// Reports «a new photo instead of the profile picker» to the tour engine.
+  ///
+  /// Counted only when an approved, unexpired document of that very type really
+  /// is in the profile — otherwise uploading a fresh file is the correct action
+  /// and a tip about a picker with nothing in it would be a lie. The server
+  /// decides whether the count has become a pattern; this only says it happened.
+  Future<void> _noteFreshUpload(DocumentRequirement requirement) async {
+    final type = requirement.documentType;
+    if (type.isEmpty || type == 'other') return;
+    try {
+      final docs = await fetchMyDocuments();
+      final items = (docs['items'] as List? ?? const []).cast<Map<String, dynamic>>();
+      final reusable = items.any((doc) {
+        final docType = asStr(doc['docType']).isEmpty ? asStr(doc['type']) : asStr(doc['docType']);
+        return docType == type && asStr(doc['status']) == 'approved' && asStr(doc['validity']) != 'expired';
+      });
+      if (reusable) await TourController.instance.fireHint('document-from-profile');
+    } catch (_) {
+      // A tour hint never gets to break a document upload.
+    }
   }
 
   Future<void> _reuseForRequirement(DocumentRequirement requirement) async {
@@ -364,7 +389,10 @@ class _RequestDetailScreenState extends State<RequestDetailScreen> with WidgetsB
     return Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
       const SectionTitle(title: 'مدارک پرونده'),
       SoftCard(
-        child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+        // Same anchor name as the wizard's document block: one catalogue entry
+        // («مدرک را اینجا بگذارید») has to point here as well as there, or the
+        // tip fires on the screen where the mistake happened and says nothing.
+        child: TourAnchor(name: 'request-documents', child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
           if (requirements.isEmpty && detail.documents.isEmpty)
             Text('برای این خدمت مدرکی تعریف نشده است.', style: TextStyle(fontSize: 12.5, color: context.inkMuted)),
           for (var i = 0; i < requirements.length; i++) ...[
@@ -375,7 +403,7 @@ class _RequestDetailScreenState extends State<RequestDetailScreen> with WidgetsB
             if (requirements.isNotEmpty) const Divider(height: 24),
             for (final doc in byKey['']!) _documentRow(doc),
           ],
-        ]),
+        ])),
       ),
     ]);
   }
@@ -407,10 +435,13 @@ class _RequestDetailScreenState extends State<RequestDetailScreen> with WidgetsB
           ),
           const SizedBox(width: 8),
           Expanded(
-            child: OutlinedButton.icon(
-              onPressed: _busy ? null : () => _reuseForRequirement(requirement),
-              icon: const Icon(Icons.folder_shared_outlined),
-              label: const Text('از مدارک پروفایل'),
+            child: TourAnchor(
+              name: 'profile-document-picker',
+              child: OutlinedButton.icon(
+                onPressed: _busy ? null : () => _reuseForRequirement(requirement),
+                icon: const Icon(Icons.folder_shared_outlined),
+                label: const Text('از مدارک پروفایل'),
+              ),
             ),
           ),
         ]),

@@ -108,8 +108,8 @@ class _SplashScreenState extends State<SplashScreen> {
     if (cfg != null && cfg.minVersion.isNotEmpty) {
       _status('بررسی نسخهٔ نصب‌شده…');
       final current = await currentAppVersion();
-      final outdated = compareVersions(current, cfg.minVersion) < 0;
-      final newerExists = cfg.latestVersion.isNotEmpty && compareVersions(current, cfg.latestVersion) < 0;
+      final outdated = compareAppVersions(current, cfg.minVersion) < 0;
+      final newerExists = cfg.latestVersion.isNotEmpty && compareAppVersions(current, cfg.latestVersion) < 0;
       if (outdated || (newerExists && cfg.forceUpdate)) {
         final hardBlock = outdated && cfg.forceUpdate;
         await _showUpdateDialog(cfg.updateUrl, forced: hardBlock);

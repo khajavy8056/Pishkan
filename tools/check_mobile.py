@@ -39,7 +39,13 @@ STEPS: list[tuple[str, list[str]]] = [
     # hard failures but nothing here could see: a class used in a file that no
     # import brings in. This is the one that found the missing
     # `models/models.dart` in service_art_overlay.dart.
-    ('class imports', ['tools/checks/dart_class_imports.py']),
+    ('class imports', ['tools/checks/dart_class_imports.py', 'apps/mobile/lib']),
+    # The same failure one level up: `material.dart` re-exports a *curated* `show`
+    # list from the rendering library, so `RenderProxyBox` and `PipelineOwner` need an
+    # explicit import while `RenderBox` does not. The row above can only reason about
+    # classes that live in `lib/`. This gate reproduces the exact `extends_non_class`
+    # / `argument_type_not_assignable` pair that turned `android-v1.21.5` red.
+    ('flutter framework imports', ['tools/checks/dart_framework_imports.py', 'apps/mobile/lib']),
     # `BoxDecoration` asserts if a colour and a gradient are both set, and the
     # release build silently drops the colour instead of failing. This caught
     # exactly that in `GlassCard`, which would have thrown on first build.
@@ -59,6 +65,23 @@ STEPS: list[tuple[str, list[str]]] = [
     # cross-module symbols, so it only needs the Dart sources.
     ('symbol imports', ['tools/checks/dart_symbol_imports.py', *DART_FILES]),
     ('scope shadowing', ['tools/checks/dart_scope.py', 'apps/mobile/lib']),
+    # The assistant is the only feature rendered by two clients in two
+    # languages. This keeps the Flutter side on the same draft endpoints, card
+    # types and confirmation stage as the API — a silent drift would show up as
+    # a draft that never leaves «collecting» on the phone.
+    ('assistant contract parity', ['tools/checks/dart_assistant_contract.py']),
+    # google-services.json and res/values/firebase.xml are two copies of one
+    # project id, and the app reads only the second. When they disagree, or when a
+    # service-account file is committed by mistake, FirebaseApp is not initialised
+    # and push while the app is closed does nothing — silently, with no error
+    # anywhere. This is the check that makes that configuration impossible to ship.
+    ('firebase config sync', ['tools/checks/firebase_config_sync.py']),
+    # The phone's tray is a delivery, but only an ack says so. This ties the
+    # render in Kotlin to the ledger in Postgres — the failure it guards has no
+    # symptom anyone sees: notices that reached the shade stay "undelivered",
+    # the sweeper re-pushes them, and the SMS escalation fires for something
+    # the customer already read.
+    ('delivery ack chain', ['tools/checks/dart_delivery_ack.py']),
 ]
 
 # The deployment checks are a bash script, not a dart-tooling step, but they

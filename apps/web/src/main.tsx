@@ -11,8 +11,9 @@ import type { ReactNode } from 'react';
 import { HomePage } from './pages/public/Home';
 import { ServiceDetailPage, ServicesPage } from './pages/public/Services';
 import {
-  AssistantPage, LegalPage, LoginPage, NotFoundPage, RegisterPage, ResetPasswordPage, StaffLoginPage, StatusPage,
+  LegalPage, LoginPage, NotFoundPage, RegisterPage, ResetPasswordPage, StaffLoginPage, StatusPage,
 } from './pages/public/Auth';
+import { AssistantPage } from './pages/public/Assistant';
 import { BlogHome, BlogPostPage } from './pages/public/Blog';
 
 
@@ -80,6 +81,7 @@ const AdminMonitoring = lazyPage(() => import('./pages/admin/Monitoring'), 'Admi
 const AdminReferrals = lazyPage(() => import('./pages/admin/Referrals'), 'AdminReferrals');
 const AdminDiscountsPage = lazyPage(() => import('./pages/admin/Discounts'), 'AdminDiscountsPage');
 const AdminAndroidApp = lazyPage(() => import('./pages/admin/AndroidApp'), 'AdminAndroidApp');
+const AdminSystemUpdate = lazyPage(() => import('./pages/admin/SystemUpdate'), 'AdminSystemUpdate');
 const AdminSupportPage = lazyPage(() => import('./pages/support/Support'), 'AdminSupportPage');
 
 import './styles.css';
@@ -158,6 +160,9 @@ function App() {
               <Route path="/app/offers" element={customer(<CustomerOffers />)} />
               <Route path="/app/documents" element={customer(<CustomerDocuments />)} />
               <Route path="/app/messages" element={customer(<CustomerMessages />)} />
+              {/* A message notice links to the conversation itself, so the
+                  router has to be able to open it directly. */}
+              <Route path="/app/messages/:threadId" element={customer(<CustomerMessages />)} />
               <Route path="/app/support" element={customer(<CustomerSupportPage />)} />
               <Route path="/app/profile" element={customer(<CustomerProfile />)} />
               <Route path="/app/referrals" element={customer(<CustomerReferrals />)} />
@@ -170,6 +175,7 @@ function App() {
               <Route path="/staff/customers" element={staffOnly(<StaffCustomers />,'customers.view')} />
               <Route path="/staff/custom-services" element={staffOnly(<StaffCustomService />,'services.create')} />
               <Route path="/staff/messages" element={staffOnly(<MessageCenter variant="staff" />)} />
+              <Route path="/staff/messages/:threadId" element={staffOnly(<MessageCenter variant="staff" />)} />
               <Route path="/staff/support" element={staffOnly(<StaffSupportPage />,'support.view')} />
               <Route path="/staff/discounts" element={financial(<AdminDiscountsPage variant="staff" />,'discounts.view')} />
               <Route path="/staff/referrals" element={financial(<AdminReferrals variant="staff" />,'discounts.view')} />
@@ -199,6 +205,7 @@ function App() {
               <Route path="/admin/staff" element={adminOnly(<AdminStaff />,'staff.view')} />
               <Route path="/admin/shifts" element={adminOnly(<AdminShifts />,'shifts.view')} />
               <Route path="/admin/messages" element={adminOnly(<MessageCenter variant="admin" />)} />
+              <Route path="/admin/messages/:threadId" element={adminOnly(<MessageCenter variant="admin" />)} />
               <Route path="/admin/support" element={adminOnly(<AdminSupportPage />,'support.view')} />
               <Route path="/admin/discounts" element={adminOnly(<AdminDiscountsPage />,'discounts.view')} />
               <Route path="/admin/referrals" element={adminOnly(<AdminReferrals />,'discounts.view')} />
@@ -208,6 +215,7 @@ function App() {
               <Route path="/admin/wallet" element={adminOnly(<AdminWallet />,'wallet.view')} />
               <Route path="/admin/monitoring" element={adminOnly(<AdminMonitoring />,'monitoring.view')} />
               <Route path="/admin/android-app" element={adminOnly(<AdminAndroidApp />,'app.manage')} />
+              <Route path="/admin/update" element={adminOnly(<AdminSystemUpdate />,'system.view')} />
               <Route path="/admin/settings" element={adminOnly(<SettingsCenter />,'settings.view')} />
               <Route path="/admin/system" element={adminOnly(<AdminSystem />,'system.view')} />
               <Route path="/admin/audit" element={adminOnly(<AdminAudit />,'audit.view')} />

@@ -49,6 +49,13 @@ html {
   --phone-side: #b7c4d8;
   --home-bar: rgb(13 33 61 / 0.30);
 
+  /* Measure tokens. Every section reads its width from these, so the page
+     keeps one shared column edge on a 1366px laptop and on a 34-inch monitor
+     instead of stranding 1280px of content in the middle of a 4K screen. */
+  --lp-gutter: 1rem;
+  --lp-container: 80rem;
+  --lp-measure: 42rem;
+
   position: relative;
   min-height: 100dvh;
   isolation: isolate;
@@ -99,6 +106,78 @@ html {
   --phone-glass: none;
   --phone-side: #1d2942;
   --home-bar: rgb(255 255 255 / 0.25);
+}
+
+/* ==========================================================================
+   Measure system — one shared content column at every viewport width
+   ==========================================================================
+   The page used to hard-cap every section at `max-w-7xl` (1280px). On a 1440p
+   or 4K monitor that left the copy floating in a band of empty background,
+   while the ticker band ran edge to edge and therefore disagreed with the
+   sections above and below it. Both problems are the same problem: there was
+   no single measure. Now every section, the ticker, the nav and the footer
+   read `--lp-container`, and that token widens with the viewport, so content
+   always fills the page and every column edge still lines up.
+   -------------------------------------------------------------------------- */
+.landing-shell .lp-container {
+  width: 100%;
+  max-width: var(--lp-container);
+  margin-inline: auto;
+  padding-inline: var(--lp-gutter);
+}
+
+/* Narrow, centred reading measure (FAQ, CTA copy, section intros). */
+.landing-shell .lp-measure {
+  width: 100%;
+  max-width: var(--lp-measure);
+  margin-inline: auto;
+}
+
+/* Full-bleed coloured band whose *content* stays on the same grid. */
+.landing-shell .lp-band {
+  width: 100%;
+}
+
+/* The floating nav bar: the same measure as the sections, so its left and right
+   edges sit on the same line as the hero and the footer above and below it. */
+.landing-shell .lp-nav {
+  width: calc(100% - 1.5rem);
+  max-width: var(--lp-container);
+  margin-inline: auto;
+}
+
+@media (min-width: 1280px) {
+  .landing-shell { --lp-container: 92rem; --lp-gutter: 1.5rem; --lp-measure: 46rem; }
+}
+@media (min-width: 1536px) {
+  .landing-shell { --lp-container: 106rem; --lp-gutter: 1.75rem; --lp-measure: 50rem; }
+}
+@media (min-width: 1800px) {
+  .landing-shell { --lp-container: 126rem; --lp-gutter: 2rem; --lp-measure: 56rem; }
+}
+@media (min-width: 2200px) {
+  .landing-shell { --lp-container: 148rem; --lp-gutter: 2.75rem; --lp-measure: 62rem; }
+}
+
+/* Filling the width is only half of it: the type and the whitespace have to
+   grow with it, or a 4K screen shows a postage stamp of a landing page. */
+@media (min-width: 1800px) {
+  .landing-shell .hero-title { font-size: clamp(3rem, 3.2vw, 5.2rem); }
+  .landing-shell .hero-sub { max-width: 40rem; }
+  .landing-shell .hero-text { max-width: 40rem; }
+  .landing-shell .hero-media { max-width: 42rem; }
+  .landing-shell .ticker-item { font-size: 0.9rem; padding: 0.6rem 1.3rem; }
+  /* The marquee scrolls at a constant speed, so the same items would run out
+     halfway across a very wide screen. Slower animation + more copies of the
+     list keeps the band covered without a JavaScript layout pass. */
+  .landing-shell .ticker-track { animation-duration: 58s; }
+}
+@media (min-width: 2200px) {
+  .landing-shell .hero-title { font-size: clamp(3.4rem, 2.9vw, 6rem); }
+  .landing-shell .hero-sub,
+  .landing-shell .hero-text { max-width: 46rem; }
+  .landing-shell .hero-media { max-width: 48rem; }
+  .landing-shell .ticker-track { animation-duration: 74s; }
 }
 
 /* ==========================================================================
@@ -472,8 +551,11 @@ html {
    ========================================================================== */
 .landing-shell .ticker-wrap {
   overflow: hidden;
-  mask-image: linear-gradient(90deg, transparent, #000 8%, #000 92%, transparent);
-  -webkit-mask-image: linear-gradient(90deg, transparent, #000 8%, #000 92%, transparent);
+  /* Fixed fades instead of percentages: inside the shared container the band
+     is narrower than the viewport, and `8%` of a 2368px column hides half of
+     the first item. */
+  mask-image: linear-gradient(90deg, transparent, #000 2.5rem, #000 calc(100% - 2.5rem), transparent);
+  -webkit-mask-image: linear-gradient(90deg, transparent, #000 2.5rem, #000 calc(100% - 2.5rem), transparent);
 }
 .landing-shell .ticker-track { display: flex; width: max-content; gap: 0.9rem; animation: lpTicker 36s linear infinite; }
 .landing-shell .ticker-wrap:hover .ticker-track { animation-play-state: paused; }
@@ -606,7 +688,9 @@ html {
 }
 @media (max-width: 1023px) {
   .landing-shell .journey-track { height: auto; }
-  .landing-shell .journey-sticky { position: relative; padding: 2.8rem 1rem 3rem; display: flex; flex-direction: column; gap: 1.15rem; }
+  /* Inline padding comes from .lp-container, which also carries the shared
+     gutter; repeating it here would double the inset on phones. */
+  .landing-shell .journey-sticky { position: relative; padding: 2.8rem 0 3rem; display: flex; flex-direction: column; gap: 1.15rem; }
 }
 
 .landing-shell .journey-eyebrow { display: inline-flex; align-items: center; gap: 0.5rem; font-size: 0.72rem; font-weight: 800; color: var(--brand-text); }

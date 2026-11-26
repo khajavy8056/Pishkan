@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:io';
 
 import 'package:flutter/material.dart';
@@ -7,8 +8,10 @@ import '../core/api.dart';
 import '../core/format.dart';
 import '../core/service_icons.dart';
 import '../core/sizes.dart';
+import '../core/tour.dart';
 import '../core/theme.dart';
 import '../models/models.dart';
+import '../services/notifier.dart';
 import '../services/services.dart';
 import '../widgets/dynamic_form.dart';
 import '../widgets/widgets.dart';
@@ -163,6 +166,53 @@ class _RequestFormScreenState extends State<RequestFormScreen> {
     }
   }
 
+  /// The small card that points at the autofill shortcut, shown the first time
+  /// the customer touches the form.
+  ///
+  /// Three rules, all of them the user's: it is a hint and not a gate (nothing is
+  /// blocked, typing continues underneath); if it is not pressed it simply goes
+  /// away and does nothing; and it is asked about once per device, because a
+  /// second showing is a nag. It is also only ever *considered* when there is
+  /// actually something to fill — the fetch decides, so the promise is never made
+  /// about an empty profile.
+  bool _hintVisible = false;
+  bool _hintConsidered = false;
+
+  Future<void> _maybeShowAutofillHint() async {
+    if (_hintConsidered || _hintVisible) return;
+    _hintConsidered = true;
+    if (await AppPrefs.autofillHintSeen()) return;
+    int fillable;
+    try {
+      final values = asMap(asMap(await api.getData('/api/auth/profile/autofill'))['values']);
+      fillable = widget.service.formFields.where((field) {
+        final empty = !_values.containsKey(field.key) || asStr(_values[field.key]).trim().isEmpty;
+        return empty && asStr(values[field.key]).trim().isNotEmpty;
+      }).length;
+    } catch (_) {
+      return; // A hint must never cost a customer anything, not even a spinner.
+    }
+    if (fillable == 0 || !mounted) return;
+    await AppPrefs.setAutofillHintSeen();
+    if (mounted) setState(() => _hintVisible = true);
+  }
+
+  Widget _autofillHint() {
+    return SoftCard(
+      child: Row(children: [
+        const Icon(Icons.auto_awesome, size: 18, color: PishkanColors.primary),
+        const SizedBox(width: 8),
+        Expanded(
+          child: Text('اطلاعات این فرم را از پروفایل خودتان پر کنید.',
+              style: TextStyle(fontSize: 12, color: context.ink, height: 1.8)),
+        ),
+        TextButton(onPressed: () { setState(() => _hintVisible = false); _fillFromProfile(); },
+            child: const Text('پر کردن', style: TextStyle(fontWeight: FontWeight.w800))),
+        TextButton(onPressed: () => setState(() => _hintVisible = false), child: const Text('بعداً')),
+      ]),
+    );
+  }
+
   Future<void> _fillFromProfile() async {
     setState(() => _loadingAutofill = true);
     try {
@@ -190,6 +240,11 @@ class _RequestFormScreenState extends State<RequestFormScreen> {
       for (final requirement in widget.service.requirements) {
         if (requirement.required && !_requirementFiles.containsKey(requirement.key)) {
           showSnack(context, 'مدرک «${requirement.title}» الزامی است.', error: true);
+          // The snack says what is missing once and vanishes. If the same wall
+          // is met twice, the customer is not reading snackbars — they are
+          // looking for the control — so the tour asks the server for a short
+          // pointer at the picker they have not noticed, and nothing more.
+          unawaited(TourController.instance.fireHint('confirm-before-document'));
           return;
         }
       }
@@ -228,6 +283,13 @@ class _RequestFormScreenState extends State<RequestFormScreen> {
       );
       if (!mounted) return;
       playAppSound('success');
+      // The profile kept what it did not know. Naming it is what turns an
+      // invisible side effect into a promise the customer can see: the next
+      // service will already have these.
+      final learned = created['profileLearned'];
+      if (learned is List && learned.isNotEmpty) {
+        showSnack(context, '${faDigits(learned.length.toString())} مورد (${learned.map((item) => item.toString()).join('، ')}) در پروفایل شما هم ذخیره شد.');
+      }
       setState(() {
         _createdRequestId = asStr(created['id']);
         _createdTrackingCode = asStr(created['trackingCode']);
@@ -262,8 +324,15 @@ class _RequestFormScreenState extends State<RequestFormScreen> {
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(title: Text(widget.service.title, overflow: TextOverflow.ellipsis)),
+      // The action bar below carries the keyboard inset itself, so the scaffold
+      // must not also resize for it — that would move the bar twice and leave a
+      // gap of blank surface under it.
+      resizeToAvoidBottomInset: false,
       body: Column(children: [
-        _stepper(),
+        // `autostart: true` on the first element of a screen is what asks the
+        // tour whether it should begin — the question is asked when the thing it
+        // explains appears, not on a timer that may fire before it exists.
+        TourAnchor(name: 'request-form', autostart: true, child: _stepper()),
         Expanded(
           child: ListView(padding: const EdgeInsets.fromLTRB(16, 6, 16, 18), children: [
             switch (_step) {
@@ -275,10 +344,10 @@ class _RequestFormScreenState extends State<RequestFormScreen> {
           ]),
         ),
       ]),
-      // The bar belongs in the Scaffold's own slot: as the last child of a
-      // Column it did not move when the keyboard opened, so the "ثبت نهایی"
-      // button ended up under the keyboard on the last step -- where it is the
-      // only way forward.
+      // The bar belongs in the Scaffold's own slot (not as the last child of the
+      // Column above, which never moved when the keyboard opened) and it brings
+      // the keyboard inset with it, so "ثبت نهایی" stays reachable on the step
+      // where it is the only way forward.
       bottomNavigationBar: _actionBar(),
     );
   }
@@ -345,8 +414,16 @@ class _RequestFormScreenState extends State<RequestFormScreen> {
       if (service.formFields.isNotEmpty) Align(alignment: Alignment.centerRight, child: TextButton.icon(onPressed: _loadingAutofill ? null : _fillFromProfile, icon: Icon(Icons.person_outline_rounded), label: Text(_loadingAutofill ? 'در حال دریافت…' : 'استفاده از اطلاعات پروفایل خودم'))),
       if (service.formFields.isEmpty)
         SoftCard(child: Text('این خدمت فرم اطلاعاتی ندارد؛ مستقیم به مرحلهٔ مدارک بروید.', style: TextStyle(color: context.inkMuted, fontSize: 13, height: 1.9)))
-      else
-        SoftCard(child: DynamicForm(key: _formKey, fields: service.formFields, values: _values)),
+      else ...[
+        if (_hintVisible) _autofillHint(),
+        // A tap anywhere in the form is what "touching the first field" means
+        // here; translucent so the tap still reaches the input underneath.
+        GestureDetector(
+          behavior: HitTestBehavior.translucent,
+          onTapDown: (_) => _maybeShowAutofillHint(),
+          child: SoftCard(child: DynamicForm(key: _formKey, fields: service.formFields, values: _values)),
+        ),
+      ],
     ]);
   }
 
@@ -360,12 +437,15 @@ class _RequestFormScreenState extends State<RequestFormScreen> {
         SoftCard(child: Text('این خدمت مدرک از پیش‌تعریف‌شده‌ای ندارد. اگر بعداً مدرکی لازم شد، کارشناس در پرونده اطلاع می‌دهد و از همین اپ ارسالش می‌کنید.', style: TextStyle(color: context.inkMuted, fontSize: 13, height: 1.9)))
       else
         SoftCard(
-          child: Column(children: [
+          // The block a tour step frames: naming it here is what lets the
+          // guide point at the customer's own documents instead of describing
+          // them from memory.
+          child: TourAnchor(name: 'request-documents', child: Column(children: [
             for (var i = 0; i < service.requirements.length; i++) ...[
               _requirementRow(service.requirements[i]),
               if (i < service.requirements.length - 1) const Divider(height: 22),
             ],
-          ]),
+          ])),
         ),
       const SizedBox(height: 10),
       Text('عکس واضح و خوانا از اصل مدرک بفرستید؛ کیفیت پایین، بررسی را عقب می‌اندازد.', textAlign: TextAlign.center, style: TextStyle(fontSize: 11.5, color: context.inkMuted)),
@@ -454,12 +534,28 @@ class _RequestFormScreenState extends State<RequestFormScreen> {
           if (requirement.description.isNotEmpty) Text(requirement.description, style: TextStyle(fontSize: 11.5, color: context.inkMuted, height: 1.8)),
           if (uploaded != null) Text(uploaded.profileId.isNotEmpty ? '${uploaded.name} — تأییدشده در پروفایل' : uploaded.checked ? '${uploaded.name} — بررسی اولیه تصویر گذشت؛ در انتظار بررسی کارشناس' : '${uploaded.name} — خوانایی خودکار بررسی نشد؛ در انتظار کارشناس', style: TextStyle(fontSize: 11, color: color)),
           if (error != null) Text(error, style: const TextStyle(fontSize: 11.5, color: PishkanColors.danger, height: 1.7)),
-          if (_matchingDocs(requirement).isNotEmpty) TextButton.icon(onPressed: busy ? null : () => _chooseProfileDoc(requirement), icon: const Icon(Icons.folder_shared_outlined, size: 18), label: const Text('انتخاب مدرک تأییدشده پروفایل')),
+          if (_matchingDocs(requirement).isNotEmpty)
+            TourAnchor(
+              name: 'profile-document-picker',
+              child: TextButton.icon(onPressed: busy ? null : () => _chooseProfileDoc(requirement), icon: const Icon(Icons.folder_shared_outlined, size: 18), label: const Text('انتخاب مدرک تأییدشده پروفایل')),
+            ),
         ]),
       ),
       busy
           ? const SizedBox(width: 20, height: 20, child: CircularProgressIndicator(strokeWidth: 2))
-          : TextButton(onPressed: () => _pickRequirementFile(requirement), child: Text(uploaded == null ? 'بارگذاری' : 'جایگزین')),
+          : TextButton(
+              onPressed: () {
+                // The reported mistake exactly: a document the profile already
+                // holds is photographed again instead of picked from it. The
+                // first time is nobody's fault; the third time is a pattern, and
+                // the server is what decides which one this is.
+                if (_matchingDocs(requirement).isNotEmpty) {
+                  unawaited(TourController.instance.fireHint('document-from-profile'));
+                }
+                unawaited(_pickRequirementFile(requirement));
+              },
+              child: Text(uploaded == null ? 'بارگذاری' : 'جایگزین'),
+            ),
     ]);
   }
 
@@ -502,7 +598,7 @@ class _RequestFormScreenState extends State<RequestFormScreen> {
       ),
       const SectionTitle(title: 'پرداخت و سرعت انجام'),
       SoftCard(
-        child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+        child: TourAnchor(name: 'request-price', child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
           if (service.urgentAvailable) ...[
             const Text('سرعت انجام', style: TextStyle(fontWeight: FontWeight.w700, fontSize: 13)),
             const SizedBox(height: 8),
@@ -562,7 +658,7 @@ class _RequestFormScreenState extends State<RequestFormScreen> {
             const SizedBox(width: 6),
             Text(faMoney(_displayTotal), style: const TextStyle(fontWeight: FontWeight.w800, fontSize: 17, color: PishkanColors.primary)),
           ]),
-        ]),
+        ])),
       ),
     ]);
   }
@@ -605,43 +701,50 @@ class _RequestFormScreenState extends State<RequestFormScreen> {
   }
 
   Widget _actionBar() {
+    final sizes = context.sizes;
+    final barPadding = EdgeInsets.fromLTRB(sizes.gutter, sizes.s(10), sizes.gutter, sizes.s(12));
+    final barDecoration = BoxDecoration(
+      borderRadius: BorderRadius.vertical(top: Radius.circular(sizes.s(24))),
+      boxShadow: [BoxShadow(color: const Color(0x140B1F3A), blurRadius: sizes.s(18), offset: Offset(0, -sizes.s(5)))],
+    );
+    // `KeyboardAwareBar`, not a plain Container: the last step of this flow has
+    // fields, and the «ثبت نهایی درخواست» button used to end up under the
+    // keyboard, so the customer had to close it just to find the way forward.
     if (_step == 3) {
-      final sizes = context.sizes;
-      return Container(
-        padding: EdgeInsets.fromLTRB(sizes.gutter, sizes.s(10), sizes.gutter, sizes.s(12)),
-        decoration: BoxDecoration(color: context.surface, borderRadius: BorderRadius.vertical(top: Radius.circular(sizes.s(24))), boxShadow: [BoxShadow(color: const Color(0x140B1F3A), blurRadius: sizes.s(18), offset: Offset(0, -sizes.s(5)))]),
-        child: SafeArea(
-          top: false,
-          child: PlushButton(label: 'بازگشت به خانه', icon: Icons.home_rounded, onPressed: () => Navigator.of(context).popUntil((route) => route.isFirst)),
-        ),
+      return KeyboardAwareBar(
+        padding: barPadding,
+        decoration: barDecoration,
+        child: PlushButton(label: 'بازگشت به خانه', icon: Icons.home_rounded, onPressed: () => Navigator.of(context).popUntil((route) => route.isFirst)),
       );
     }
-    final sizes = context.sizes;
-    return Container(
-      padding: EdgeInsets.fromLTRB(sizes.gutter, sizes.s(10), sizes.gutter, sizes.s(12)),
-      decoration: BoxDecoration(color: context.surface, borderRadius: BorderRadius.vertical(top: Radius.circular(sizes.s(24))), boxShadow: [BoxShadow(color: const Color(0x140B1F3A), blurRadius: sizes.s(18), offset: Offset(0, -sizes.s(5)))]),
-      child: SafeArea(
-        top: false,
-        child: Row(children: [
-          if (_step > 0) ...[
-            Expanded(
-              flex: 3,
-              child: OutlinedButton(onPressed: _submitting ? null : () => setState(() => _step = _step - 1), child: const Text('مرحلهٔ قبل')),
-            ),
-            const SizedBox(width: 10),
-          ],
+    return KeyboardAwareBar(
+      padding: barPadding,
+      decoration: barDecoration,
+      child: Row(children: [
+        if (_step > 0) ...[
           Expanded(
-            flex: 5,
-            child: PlushButton(
-              label: _step == 2 ? 'ثبت نهایی درخواست' : 'مرحلهٔ بعد',
-              arrow: _step < 2,
-              icon: _step == 2 ? Icons.check_circle_rounded : null,
-              loading: _submitting,
-              onPressed: _step == 2 ? _submit : _next,
-            ),
+            flex: 3,
+            child: OutlinedButton(onPressed: _submitting ? null : () => setState(() => _step = _step - 1), child: const Text('مرحلهٔ قبل')),
           ),
-        ]),
-      ),
+          const SizedBox(width: 10),
+        ],
+        Expanded(
+          flex: 5,
+          // The one control every flow ends on, named so a guide can point at
+          // it — and so a tour step never has to describe a button it cannot
+          // see measured.
+          child: TourAnchor(
+            name: 'request-submit',
+            child: PlushButton(
+            label: _step == 2 ? 'ثبت نهایی درخواست' : 'مرحلهٔ بعد',
+            arrow: _step < 2,
+            icon: _step == 2 ? Icons.check_circle_rounded : null,
+            loading: _submitting,
+            onPressed: _step == 2 ? _submit : _next,
+          ),
+          ),
+        ),
+      ]),
     );
   }
 }

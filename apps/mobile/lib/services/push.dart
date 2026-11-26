@@ -83,8 +83,15 @@ class PushService {
           }
           break;
         case 'synchronise':
-          // A message arrived while the app was closed: refresh the feed so the
-          // in-app list matches the tray.
+          // A message arrived while the app was closed. Kotlin already built the
+          // tray notification, so this device can confirm it — the argument is
+          // the notice it actually showed ('' when the OS refused to show it,
+          // which must stay unconfirmed so the server keeps trying).
+          final shown = ((call.arguments as String?) ?? '').trim();
+          if (shown.isNotEmpty) {
+            await NotifierService.ackShown([shown], channel: 'fcm');
+          }
+          // Refresh the feed so the in-app list matches the tray.
           unawaited(_syncFeed());
           break;
       }

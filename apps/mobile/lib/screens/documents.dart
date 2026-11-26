@@ -8,6 +8,7 @@ import '../core/theme.dart';
 import '../models/models.dart';
 import '../services/services.dart';
 import '../widgets/widgets.dart';
+import '../core/tour.dart';
 
 /// Verified profile-document vault: keep identity documents once, reuse
 /// them across future requests without re-uploading (same as the web).
@@ -142,10 +143,17 @@ class _DocumentsScreenState extends State<DocumentsScreen> {
               : Column(children: [
                   Padding(
                     padding: const EdgeInsets.fromLTRB(16, 10, 16, 4),
-                    child: Container(
+                    // The archive explained by the second step of the profile
+                    // tour; `autostart` because this screen is where that tour
+                    // belongs, and this box is the first thing on it.
+                    child: TourAnchor(
+                      name: 'profile-documents',
+                      autostart: true,
+                      child: Container(
                       padding: const EdgeInsets.all(13),
                       decoration: BoxDecoration(color: PishkanColors.primary.withOpacity(0.07), borderRadius: BorderRadius.circular(16)),
                       child:  Text('مدرک‌های تأییدشده را یک‌بار اینجا نگه دارید؛ در درخواست‌های بعدی بدون بارگذاری دوباره با یک لمس پیوست پرونده می‌شوند.', style: TextStyle(fontSize: 12, height: 1.9, color: context.ink)),
+                    ),
                     ),
                   ),
                   Expanded(

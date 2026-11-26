@@ -9,11 +9,14 @@ import clsx from 'clsx';
 import { PublicLayout } from '../../components/public-layout';
 import { CategoryIcon } from '../../components/visual';
 import { AppShell } from '../../components/shell';
+import { fireTourHint } from '../../lib/tours';
+import { claimAutofillHint } from '../../lib/autofillHint';
 import { formatDuration, useSite, type FormField, type Service } from '../../lib/site';
 import { useAuth, homeFor } from '../../lib/auth';
 import { api, ApiFailure } from '../../lib/api';
 import { faNum, rial, STATUS_LABELS } from '../../lib/format';
 import { Button, EmptyState, ErrorState, Field, Input, Loading, Modal, Select, Textarea, useToast } from '../../components/ui';
+import { JalaliDateField } from '../../components/JalaliDateField';
 
 /* ------------------------------- service list ----------------------------- */
 
@@ -265,11 +268,44 @@ export function ServiceDetailPage({ variant = 'public' }: { variant?: 'public' |
     return matches;
   }, [service, autofill]);
 
+  /**
+   * The hint that makes the autofill button findable.
+   *
+   * The button beside the form had become furniture — people scroll past it and
+   * retype their IBAN for the fourth time. So the first time a customer actually
+   * starts typing in a service form, a small card points at the shortcut.
+   *
+   * The *policy* (once per browser, only when there is something to fill, silent
+   * when storage is broken) lives in `lib/autofillHint.ts` where it can be
+   * tested; what is here is only the presentation and the one rule that belongs
+   * to a popover rather than to a flag: clicking anywhere outside it closes it
+   * and changes nothing. No overlay, nothing to press to escape, nothing that
+   * stops a person from simply carrying on with the form.
+   */
+  const [hintOpen, setHintOpen] = useState(false);
+  const hintClaimedRef = useRef(false);
+  const showAutofillHint = () => {
+    if (hintClaimedRef.current) return;
+    hintClaimedRef.current = true; // never re-asked during the same visit
+    if (claimAutofillHint(autofillMatches.length)) setHintOpen(true);
+  };
+  useEffect(() => {
+    if (!hintOpen) return;
+    // Any interaction outside the card closes it — that is the "no nag" part: the
+    // person was doing something else, and the app must not fight them for it.
+    const onDocClick = (event: MouseEvent) => {
+      if (!(event.target instanceof Element) || !event.target.closest('[data-autofill-hint]')) setHintOpen(false);
+    };
+    window.addEventListener('mousedown', onDocClick);
+    return () => window.removeEventListener('mousedown', onDocClick);
+  }, [hintOpen]);
+
   const openAutofill = () => {
     const picked: Record<string, boolean> = {};
     for (const match of autofillMatches) picked[match.field.key] = true;
     setAutofillPicked(picked);
     setAutofillOpen(true);
+    setHintOpen(false);
   };
 
   const applyAutofill = () => {
@@ -401,12 +437,17 @@ export function ServiceDetailPage({ variant = 'public' }: { variant?: 'public' |
         message: field.type === 'checkbox' ? `«${field.label}» باید تأیید شود.` : `«${field.label}» الزامی است.`,
       })));
       setFormError('پیش از ثبت، فیلدهای الزامی مشخص‌شده را کامل کنید.');
+      // Not a validation message — a tour event. The server decides whether a
+      // person who keeps meeting this wall gets a short tip pointing at the
+      // block they are skipping, and how often.
+      void fireTourHint('confirm-before-document');
       return;
     }
     if (missingRequiredDocuments > 0) {
       const missingDocuments = documentRequirements.filter((document) => document.required && !documentUploads[document.key]);
       setFieldErrors(missingDocuments.map((document) => ({ path: `documents.${document.key}`, message: `بارگذاری مدرک «${document.title}» الزامی است.` })));
       setFormError(`برای ادامه ${faNum(missingRequiredDocuments)} مدرک الزامی را بارگذاری کنید.`);
+      void fireTourHint('confirm-before-document');
       return;
     }
     setSubmitting(true);
@@ -444,7 +485,10 @@ export function ServiceDetailPage({ variant = 'public' }: { variant?: 'public' |
         if (window.sessionStorage.getItem(storageKey) === idempotencyKey) window.sessionStorage.removeItem(storageKey);
       } catch { /* storage may be unavailable */ }
       submissionKeyRef.current = null;
-      notify(`درخواست ثبت شد. کد پیگیری: ${res.data.trackingCode}`, 'success');
+      // The other half of the promise: a value that also landed in the profile is
+      // named, so the next form prefilling itself does not look like magic.
+      const learned = (res.data as { profileLearned?: string[] }).profileLearned ?? [];
+      notify(`درخواست ثبت شد. کد پیگیری: ${res.data.trackingCode}${learned.length ? ` — ${faNum(learned.length)} مورد (${learned.join('، ')}) هم در پروفایل شما ذخیره شد.` : ''}`, 'success');
       navigate(`/app/requests/${res.data.id}`);
     } catch (err) {
       if (err instanceof ApiFailure) {
@@ -634,7 +678,7 @@ export function ServiceDetailPage({ variant = 'public' }: { variant?: 'public' |
                     <p className="mt-4 text-xs leading-6 text-navy-600">
                       فرم ثبت این خدمت در پنل مشتری شما آماده است و اطلاعات پروفایل‌تان آنجا به‌صورت خودکار در تکمیل فرم کمکتان می‌کند.
                     </p>
-                    <Link to={`/app/services/${service.slug}`} className="btn-primary btn-lg mt-4 w-full">
+                    <Link to={`/app/services/${service.slug}`} data-tour="service-start" className="btn-primary btn-lg mt-4 w-full">
                       <CheckCircle2 className="size-5" /> ثبت درخواست در پنل من
                     </Link>
                   </>
@@ -653,7 +697,7 @@ export function ServiceDetailPage({ variant = 'public' }: { variant?: 'public' |
                 </p>
               </div>
             ) : (
-            <form onSubmit={submit} className="card card-pad sticky top-24">
+            <form onSubmit={submit} data-tour="request-form" className="card card-pad sticky top-24">
               <h2 className="font-bold text-navy-900">ثبت درخواست</h2>
               <p className="mt-1 text-xs leading-6 text-navy-500">فیلدها و مدارک ستاره‌دار الزامی هستند.</p>
 
@@ -675,7 +719,26 @@ export function ServiceDetailPage({ variant = 'public' }: { variant?: 'public' |
                 </div>
               )}
 
-              <div className="mt-4 space-y-4">
+              <div className="relative mt-4 space-y-4" onFocusCapture={showAutofillHint}>
+                {hintOpen && (
+                  <div data-autofill-hint role="status"
+                    className="absolute inset-x-0 top-0 z-20 -translate-y-full pb-2">
+                    <div className="flex items-start gap-2 rounded-xl border border-brand-200 bg-surface px-3 py-2.5 shadow-lg shadow-navy-900/10">
+                      <UserRoundCheck className="mt-0.5 size-4 shrink-0 text-brand-700" />
+                      <p className="flex-1 text-xs leading-6 text-navy-700">
+                        {faNum(autofillMatches.length)} مورد از اطلاعات این فرم در پروفایل شما هست؛ لازم نیست دوباره بنویسید.
+                      </p>
+                      <button type="button" onClick={openAutofill}
+                        className="shrink-0 rounded-lg bg-brand-700 px-2.5 py-1 text-xs font-bold text-white">
+                        پر کردن از پروفایل
+                      </button>
+                      <button type="button" aria-label="باشه، بعداً" onClick={() => setHintOpen(false)}
+                        className="shrink-0 rounded-lg p-1 text-navy-400 hover:bg-surface-3">
+                        <X className="size-3.5" />
+                      </button>
+                    </div>
+                  </div>
+                )}
                 {service.form.map((field) => (
                   <Field key={field.key} label={field.label} hint={field.help} required={field.required} error={errorFor(field.key)}>
                     <DynamicField
@@ -695,7 +758,7 @@ export function ServiceDetailPage({ variant = 'public' }: { variant?: 'public' |
               </div>
 
               {documentRequirements.length > 0 && (
-                <div className="mt-5 space-y-3 rounded-xl bg-surface-3/70 p-3">
+                <div data-tour="request-documents" className="mt-5 space-y-3 rounded-xl bg-surface-3/70 p-3">
                   <h3 className="text-sm font-bold text-navy-900">بارگذاری مدارک خدمت</h3>
                   {documentRequirements.map((document) => (
                     <Field key={document.key} label={document.title} required={document.required}
@@ -711,7 +774,7 @@ export function ServiceDetailPage({ variant = 'public' }: { variant?: 'public' |
               )}
 
               {service.urgentEnabled && <label className="mt-5 flex cursor-pointer items-start gap-3 rounded-xl border border-amber-200 bg-amber-50 p-4 text-sm"><input type="checkbox" checked={priority==='high'} onChange={e=>setPriority(e.target.checked?'high':'normal')} className="mt-1 size-4 accent-amber-600" /><span><b>انجام فوری</b><small className="mt-1 block leading-6">افزایش {faNum(service.urgentPercent ?? 0)}٪ مبلغ پایه · زمان {formatDuration(service.urgentMinutes, service.urgentDays)} · ظرفیت محدود</small></span></label>}
-              {quote && <div aria-live="polite" className="mt-4 space-y-2 rounded-xl bg-surface-3 p-4 text-xs text-navy-600"><div className="flex justify-between"><span>زمان تخمینی خدمت</span><span>{formatDuration(quote.estimatedMinutes, quote.estimatedDays)}</span></div><div className="flex justify-between"><span>هزینه پایه</span><span>{rial(quote.baseFee)}</span></div><div className="flex justify-between"><span>هزینه فوری</span><span>{rial(quote.urgentFee)}</span></div><div className="flex justify-between"><span>تخفیف خدمت</span><span>{rial(quote.discount ?? 0)}</span></div>{(quote.codeDiscount ?? 0) > 0 && <div className="flex justify-between font-bold text-emerald-700"><span>تخفیف کد {appliedCode}</span><span>{rial(quote.codeDiscount)}-</span></div>}<div className="flex justify-between"><span>مالیات بر ارزش افزوده</span><span>{rial(quote.tax)}</span></div><div className="flex justify-between border-t border-navy-200 pt-3 text-sm font-bold text-navy-900"><span>جمع قابل پرداخت</span><span>{rial(quote.total)}</span></div>{priority==='high'&&!quote.urgentAvailable&&<p className="text-rose-700">ظرفیت فوری تکمیل است؛ حالت عادی را انتخاب کنید.</p>}</div>}
+              {quote && <div aria-live="polite" data-tour="request-price" className="mt-4 space-y-2 rounded-xl bg-surface-3 p-4 text-xs text-navy-600"><div className="flex justify-between"><span>زمان تخمینی خدمت</span><span>{formatDuration(quote.estimatedMinutes, quote.estimatedDays)}</span></div><div className="flex justify-between"><span>هزینه پایه</span><span>{rial(quote.baseFee)}</span></div><div className="flex justify-between"><span>هزینه فوری</span><span>{rial(quote.urgentFee)}</span></div><div className="flex justify-between"><span>تخفیف خدمت</span><span>{rial(quote.discount ?? 0)}</span></div>{(quote.codeDiscount ?? 0) > 0 && <div className="flex justify-between font-bold text-emerald-700"><span>تخفیف کد {appliedCode}</span><span>{rial(quote.codeDiscount)}-</span></div>}<div className="flex justify-between"><span>مالیات بر ارزش افزوده</span><span>{rial(quote.tax)}</span></div><div className="flex justify-between border-t border-navy-200 pt-3 text-sm font-bold text-navy-900"><span>جمع قابل پرداخت</span><span>{rial(quote.total)}</span></div>{priority==='high'&&!quote.urgentAvailable&&<p className="text-rose-700">ظرفیت فوری تکمیل است؛ حالت عادی را انتخاب کنید.</p>}</div>}
               {quoteError && <p role="alert" className="mt-4 text-sm text-rose-700">{quoteError} <Link className="underline" to="/app/profile">تکمیل پروفایل</Link></p>}
               {user?.kind === 'customer' && (
                 <div className="mt-4 rounded-xl border border-dashed border-navy-200 p-3">
@@ -776,7 +839,7 @@ export function ServiceDetailPage({ variant = 'public' }: { variant?: 'public' |
                   پذیرش این خدمت موقتاً متوقف شده است. برای اطلاع از زمان فعال‌سازی با دفتر تماس بگیرید.
                 </div>
               ) : (
-                <Button type="submit" loading={submitting} disabled={missingRequiredDocuments > 0 || Object.values(uploadingFiles).some(Boolean)} className="mt-4 w-full">
+                <Button type="submit" data-tour="request-submit" loading={submitting} disabled={missingRequiredDocuments > 0 || Object.values(uploadingFiles).some(Boolean)} className="mt-4 w-full">
                   <CheckCircle2 className="size-4" />
                   {user ? 'ثبت نهایی درخواست' : 'ورود و ثبت درخواست'}
                 </Button>
@@ -847,7 +910,7 @@ export function DynamicField({ field, value, onChange, fileName, uploading, onFi
 }) {
   switch (field.type) {
     case 'textarea':
-      return <Textarea value={value ?? ''} placeholder={field.placeholder} onChange={(e) => onChange(e.target.value)} />;
+      return <Textarea value={value ?? ''} placeholder={field.placeholder} maxLength={field.maxLength || undefined} onChange={(e) => onChange(e.target.value)} />;
     case 'select':
       return (
         <Select
@@ -892,8 +955,10 @@ export function DynamicField({ field, value, onChange, fileName, uploading, onFi
     case 'money':
     case 'number':
       return <Input type="number" inputMode="numeric" value={value ?? ''} placeholder={field.placeholder} onChange={(e) => onChange(e.target.value)} />;
+    // (the character cap a ready-made field carries is applied in the default
+    // text branch below — numbers are bounded by their own type instead)
     case 'date':
-      return <Input type="date" value={value ?? ''} onChange={(e) => onChange(e.target.value)} />;
+      return <JalaliDateField value={value ?? ''} onChange={(e) => onChange(e)} />;
     default:
       return (
         <Input
@@ -903,6 +968,11 @@ export function DynamicField({ field, value, onChange, fileName, uploading, onFi
           onChange={(e) => onChange(e.target.value)}
           dir={field.type === 'iban' || field.type === 'national_id' ? 'ltr' : undefined}
           className={field.type === 'iban' || field.type === 'national_id' ? 'text-left' : undefined}
+          /* The cap a ready-made field carries. `maxLength` has been part of the
+             app's form model since the first release and was dropped by the API
+             validator, so the browser was the only place it could still be
+             enforced — which is the wrong place for a rule like «کد ملی ۱۰ رقم». */
+          maxLength={field.maxLength || undefined}
         />
       );
   }

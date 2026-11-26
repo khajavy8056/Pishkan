@@ -5,6 +5,7 @@ import {
 } from '../../lib/crypto.js';
 import { expandPermissions, hasPermission } from '../../lib/permissions.js';
 import { getBool, getNumber, getString, getJson } from '../settings/service.js';
+import { splitFullName } from '../profiles/service.js';
 import { sendOtpSms, isValidMobile, maskMobile, normalizeMobile } from '../sms/provider.js';
 import { badRequest, conflict, forbidden, tooMany, unauthorized } from '../../http/errors.js';
 import { writeAudit } from '../audit/service.js';
@@ -401,6 +402,9 @@ export async function verifyOtpAndLogin(
            VALUES (?, 'customer', ?, 1, ?, ?, ?, ?)`,
           [userId, mobile, '', requireApproval ? 'pending' : 'active', ts, ts],
         );
+        // An OTP sign-up collects no name at all, so this profile genuinely has
+        // nothing to prefill — the customer completes it on first use and the
+        // profile gate tells them exactly which parts are still missing.
         await run('INSERT INTO customer_profiles (user_id, extra, created_at, updated_at) VALUES (?, ?, ?, ?)', [userId, '{}', ts, ts]);
         await recordAttribution(options.referralCode, userId, mobile);
       });
@@ -603,7 +607,15 @@ export async function registerCustomer(input: RegisterInput, client: ClientInfo)
        VALUES (?, 'customer', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       [userId, mobile, 0, input.email ?? null, passwordHash, fullName, input.nationalId ?? null, requireApproval ? 'pending' : 'active', ts, ts, username],
     );
-    await run('INSERT INTO customer_profiles (user_id, extra, created_at, updated_at) VALUES (?, ?, ?, ?)', [userId, '{}', ts, ts]);
+    // The single «نام و نام خانوادگی» field of the sign-up form already IS the
+    // profile's two name columns. Storing both halves here is what keeps the app
+    // and the web panel from asking for the family name again on the customer's
+    // very first visit to their profile.
+    const names = splitFullName(fullName);
+    await run(
+      'INSERT INTO customer_profiles (user_id, first_name, last_name, extra, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)',
+      [userId, names.firstName || null, names.lastName || null, '{}', ts, ts],
+    );
     await recordAttribution(input.referralCode, userId, mobile);
   });
   await writeAudit({ actorId: userId, actorName: fullName, action: 'customer.register', entityType: 'user', entityId: userId, ip: client.ip });

@@ -1,7 +1,7 @@
 {
   "name": "pishkan",
   "private": true,
-  "version": "1.4.0",
+  "version": "1.0.1217",
   "description": "سامانه جامع اتوماسیون دفتر پیشخوان دولت",
   "license": "UNLICENSED",
   "workspaces": [
@@ -22,6 +22,7 @@
     "test:windows": "node windows/lib/selftest.mjs",
     "test:windows:deps": "node windows/lib/installer-deps-integration.mjs",
     "test:windows:safety": "node windows/lib/installer-safety-integration.mjs",
+    "test:windows:update": "node windows/lib/update-integration.mjs",
     "test:windows:tunnel": "node windows/lib/tunnel-integration.mjs",
     "verify:runtime": "node windows/lib/verify.mjs --mode core --env .env.windows.local",
     "verify:workflow": "node windows/lib/verify.mjs --mode workflow --env .env.windows.local",

@@ -14,6 +14,7 @@ import { api, ApiFailure } from '../../lib/api';
 import { faNum, rial } from '../../lib/format';
 import { useAuth } from '../../lib/auth';
 import { formatDuration, STEP_KIND_LABELS, type FormField, type WorkflowStep, type WorkflowStepKind } from '../../lib/site';
+import { FieldPresetPalette, SaveAsPresetButton, type FieldPreset } from '../../components/FieldPresetPalette';
 
 interface DocItem { key: string; title: string; required: boolean; note?: string; documentType?: string }
 
@@ -345,6 +346,21 @@ export function AdminServiceEditor() {
     const index = service.form.length + 1;
     set({ form: [...service.form, { key: `field_${index}`, label: '', type: 'text', required: false, placeholder: '', help: '' } as FormField] });
   };
+  /**
+   * A palette click inserts the preset's own object — label, type, required,
+   * help, cap and all — and leaves it editable. Duplicate keys are refused by the
+   * service schema (`کلید فیلد تکراری است`), and a form with two `national_id`
+   * fields would write one value over the other on submit, so the palette marks
+   * those chips disabled instead of letting the click through.
+   */
+  const addPresetField = (preset: FieldPreset) => {
+    if (service.form.some((f: FormField) => f.key === preset.key)) {
+      notify('این فیلد از قبل در همین فرم تعریف شده است.', 'info');
+      return;
+    }
+    set({ form: [...service.form, { ...preset.field } as FormField] });
+    notify(`«${preset.label}» با استاندارد سامانه اضافه شد.`, 'success');
+  };
   const updateField = (index: number, patch: Partial<FormField>) =>
     set({ form: service.form.map((f: FormField, i: number) => (i === index ? { ...f, ...patch } : f)) });
   const moveField = (index: number, dir: -1 | 1) => {
@@ -456,7 +472,13 @@ export function AdminServiceEditor() {
                 </div>
                 <Button size="sm" variant="ghost" onClick={addField}><Plus className="size-4" /> افزودن فیلد</Button>
               </div>
-              {service.form.length === 0 && <EmptyState title="فیلدی تعریف نشده" description="حداقل نام و شماره تماس را اضافه کنید." />}
+
+              <FieldPresetPalette
+                onPick={addPresetField}
+                takenKeys={service.form.map((field: FormField) => field.key)}
+              />
+
+              {service.form.length === 0 && <EmptyState title="فیلدی تعریف نشده" description="از فهرست بالا یک فیلد آماده بردارید یا حداقل نام و شماره تماس را دستی اضافه کنید." />}
               <div className="space-y-3">
                 {service.form.map((field: FormField, index: number) => (
                   <div key={index} className="rounded-xl bg-surface-3/50 p-3">
@@ -465,6 +487,10 @@ export function AdminServiceEditor() {
                       <div className="flex gap-1">
                         <Button size="sm" variant="ghost" onClick={() => moveField(index, -1)} aria-label="بالا"><ArrowUp className="size-3.5" /></Button>
                         <Button size="sm" variant="ghost" onClick={() => moveField(index, 1)} aria-label="پایین"><ArrowDown className="size-3.5" /></Button>
+                        <SaveAsPresetButton
+                          field={field}
+                          onSaved={() => notify('این فیلد از این پس در فهرست فیلدهای آماده است.', 'success')}
+                        />
                         <Button size="sm" variant="ghost" onClick={() => set({ form: service.form.filter((_: any, i: number) => i !== index) })} aria-label="حذف"><Trash2 className="size-3.5" /></Button>
                       </div>
                     </div>
@@ -481,6 +507,20 @@ export function AdminServiceEditor() {
                     <div className="mt-2 grid gap-2 sm:grid-cols-2">
                       <Input value={field.placeholder ?? ''} onChange={(e) => updateField(index, { placeholder: e.target.value })} placeholder="متن راهنمای داخل فیلد" />
                       <Input value={field.help ?? ''} onChange={(e) => updateField(index, { help: e.target.value })} placeholder="توضیح زیر فیلد" />
+                      {/* The app has enforced this cap forever; the editor could
+                          not set it, which is why «۱۰ رقم» stayed a hint. */}
+                      <Input
+                        type="number"
+                        min={1}
+                        max={500}
+                        value={field.maxLength ? String(field.maxLength) : ''}
+                        onChange={(e) => {
+                          const next = Number(e.target.value);
+                          updateField(index, { maxLength: Number.isFinite(next) && next > 0 ? Math.min(500, Math.round(next)) : undefined });
+                        }}
+                        placeholder="حداکثر طول (اختیاری)"
+                        aria-label="حداکثر طول فیلد"
+                      />
                     </div>
                     <label className="mt-2 flex items-center gap-2 text-[11px] text-navy-700">
                       <input type="checkbox" checked={Boolean(field.required)} onChange={(e) => updateField(index, { required: e.target.checked })} className="size-3.5" />

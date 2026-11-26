@@ -293,12 +293,12 @@ export function LandingAppSection() {
 
   return (
     <section ref={reveal} id="app" className="scroll-mt-24 py-16 sm:py-20" aria-label="اپلیکیشن اندروید">
-      <div className="mx-auto max-w-7xl px-4 sm:px-6">
+      <div className="lp-container">
         <div className="app-panel relative overflow-hidden rounded-[2.2rem] border border-line">
           <div className="app-panel-glow" aria-hidden="true" />
           <div className="app-panel-grid" aria-hidden="true" />
 
-          <div className="relative grid items-center gap-7 p-6 sm:p-10 lg:grid-cols-[minmax(0,1fr)_minmax(0,0.92fr)] lg:gap-12 lg:p-12">
+          <div className="relative grid items-center gap-7 p-6 sm:p-10 lg:grid-cols-[minmax(0,1fr)_minmax(0,0.92fr)] lg:gap-12 lg:p-12 min-[1800px]:p-16 min-[1800px]:gap-20">
             {/* ---------- copy column ---------- */}
             <div className="app-copy order-1">
               <span className="app-badge inline-flex items-center gap-2 rounded-full border px-3 py-1 text-[0.68rem] font-extrabold">
@@ -306,7 +306,7 @@ export function LandingAppSection() {
                 اپلیکیشن اندروید
               </span>
               <h2 className="app-title mt-3 text-2xl font-black leading-[1.45] sm:text-3xl">{title}</h2>
-              <p className="app-text mt-3 max-w-lg text-sm leading-7">{text}</p>
+              <p className="app-text mt-3 max-w-lg text-sm leading-7 min-[1800px]:max-w-xl">{text}</p>
 
               <ul className="app-features mt-6 grid gap-2.5 sm:grid-cols-2">
                 {features.map((feature) => {

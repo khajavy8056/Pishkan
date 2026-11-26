@@ -1,6 +1,7 @@
 import { q, run, one, tx, nowIso } from '../../db/index.js';
 import { id } from '../../lib/crypto.js';
 import { getBool } from '../settings/service.js';
+import { markDelivered } from './delivery.js';
 import { sendEventNotificationSms } from '../sms/provider.js';
 import type { SmsEvent } from '../sms/templates.js';
 
@@ -13,7 +14,13 @@ export interface NotifyInput {
   idempotencyKey?: string;
   /** Also ring the user's subscribed devices (Web Push). */
   push?: boolean;
-  email?: boolean;
+  // There is deliberately no `email` flag. A boolean that promises a message to
+  // somebody's inbox is a promise this build cannot keep — no SMTP transport
+  // exists — and an event that is silently half-delivered is worse than one that
+  // was never advertised. If mail is ever wired, add the flag together with the
+  // channel in `delivery.ts` (`CHANNELS`) and the label in
+  // `settings/definitions.ts`; `tests/notification-egress.test.ts` requires the
+  // three to move as one change.
   /** Stable machine-readable category, independent of localized text. */
   eventType?: string;
   /**
@@ -30,6 +37,28 @@ export interface NotifyInput {
   stageLabel?: string;
 }
 
+/**
+ * Hand the notice to whoever is connected to the live stream right now.
+ *
+ * Read back from the row instead of being built from the caller's input, so the
+ * event a browser or phone receives is exactly what the bell will show later —
+ * the two views of the same notice must never be able to disagree about the
+ * text, the link or the revision.
+ *
+ * Never throws: this is a delivery channel, and a closed socket must not fail the
+ * business flow that created the notice.
+ */
+export async function publishLive(userId: string, notificationId: string): Promise<number> {
+  try {
+    const { liveHub, toLiveEvent } = await import('./delivery.js');
+    const row = await one<any>('SELECT * FROM notifications WHERE id = ? AND user_id = ?', [notificationId, userId]);
+    if (!row) return 0;
+    return liveHub.publish(userId, toLiveEvent(row));
+  } catch {
+    return 0;
+  }
+}
+
 /** Persist the in-app notice first; an SMS failure never drops the notice. */
 export async function notifyUser(userId: string, input: NotifyInput): Promise<void> {
   const notificationId = id('ntf');
@@ -44,6 +73,12 @@ export async function notifyUser(userId: string, input: NotifyInput): Promise<vo
        VALUES (?, ?, ?, ?, ?, ?, ?, NULL, ?)`, [...params.slice(0, 7), input.eventType ?? null],
     );
   if (!inserted.changes) return;
+
+  // First, the channel that costs nothing and needs no third party: anything
+  // connected to the live stream (an open browser tab, a minimised app whose
+  // process is still alive) sees it this second. The tray/web-push channels run
+  // below for everyone who is not connected.
+  await publishLive(userId, notificationId);
 
   if (input.sms && (await getBool('sms.notify_enabled'))) {
     const user = await one<{ mobile: string | null }>('SELECT mobile FROM users WHERE id = ?', [userId]);
@@ -79,17 +114,31 @@ export async function notifyUser(userId: string, input: NotifyInput): Promise<vo
     // Never surfaced: push is a delivery channel, not part of the write.
   }
 
-  if (input.push) {
+  // The office's own push gateway, when it has one (پوشه، نجوا، چشمک, an ntfy
+  // box, a corporate bridge). Same notice, one POST, best-effort: a provider that
+  // is down must not delay the case that was just moved.
+  {
+    const { relayToUsers } = await import('./relay.js');
+    await relayToUsers([userId], {
+      title: input.title,
+      body: (input.body ?? '').slice(0, 500),
+      link: input.link ?? '',
+      notificationId,
+      tag: (input.idempotencyKey ?? notificationId).slice(0, 120),
+      kind: input.kind ?? 'info',
+    }).catch(() => undefined);
+  }
+
+  // Web Push (the office's browser, the customer's PWA) is attempted for every
+  // notice too, not only the ones carrying `push: true`. That flag was written
+  // when this was a "ring the free queue" feature and was never extended, so a
+  // customer reply, a support message and a referral all landed in the bell and
+  // nowhere else — which is the whole reason staff say "برای کارمندها
+  // نوتیفیکیشن کامل نمی‌آید". A device with no subscription costs one indexed
+  // query, and sendPushToUsers is already best-effort.
+  {
     const { sendPushToUsers } = await import('./push.js');
-    // In-app "chat:<ticketId>" pointers become a real URL for the device:
-    // the recipient lands in their panel with the conversation auto-opened.
-    let url = '/';
-    if (input.link && input.link.startsWith('/')) url = input.link;
-    else if (input.link && input.link.startsWith('chat:')) {
-      const target = await one<{ kind: string }>('SELECT kind FROM users WHERE id = ?', [userId]).catch(() => null);
-      const home = target?.kind === 'customer' ? '/app' : target?.kind === 'admin' ? '/admin' : '/staff';
-      url = `${home}?chat=${encodeURIComponent(input.link.slice(5))}`;
-    }
+    const url = await pushTargetUrl(userId, input);
     await sendPushToUsers([userId], {
       title: input.title,
       body: (input.body ?? '').slice(0, 180),
@@ -97,6 +146,76 @@ export async function notifyUser(userId: string, input: NotifyInput): Promise<vo
       tag: (input.idempotencyKey ?? notificationId).slice(0, 64),
     }).catch(() => undefined);
   }
+}
+
+/**
+ * Where a tapped browser notification goes.
+ *
+ * The stored `link` is written for the in-app bell and is not always a route:
+ * support conversations use the machine pointer `chat:<ticketId>`, and notices
+ * raised by scheduled sweeps sometimes carry no link at all. Falling back to
+ * `/` — which the old code did for every one of those — is what staff meant by
+ * «مقصد نوتیفیکیشن درست نیست؛ می‌رود صفحهٔ اصلی». So the target is resolved
+ * from the link when it is a route, from the pointer when it is not, and from
+ * the recipient's own panel otherwise, and it is always a place where the thing
+ * being announced can actually be acted on.
+ */
+async function pushTargetUrl(userId: string, input: NotifyInput): Promise<string> {
+  const link = String(input.link ?? '');
+  const recipient = await one<{ kind: string | null }>('SELECT kind FROM users WHERE id = ?', [userId]).catch(() => null);
+  const audience: 'customer' | 'staff' | 'admin' =
+    recipient?.kind === 'customer' ? 'customer' : recipient?.kind === 'admin' ? 'admin' : 'staff';
+  const home = audience === 'customer' ? '/app' : audience === 'admin' ? '/admin' : '/staff';
+  if (link.startsWith('/')) return link;
+  if (link.startsWith('chat:')) {
+    // The floating support widget opens itself from this query on load.
+    return `${home}?chat=${encodeURIComponent(link.slice(5))}`;
+  }
+  // No usable link: land on the panel section the event type belongs to rather
+  // than on a marketing home page the recipient has to navigate out of.
+  return panelHomeFor(input.eventType, audience);
+}
+
+/**
+ * Panel section per audience, for the event types the system knows.
+ *
+ * A hardcoded string per role would have been the second half of the reported
+ * bug: the admin panel has no `/admin/documents` and no `/admin/accounting`, so
+ * a link built by prefixing the panel path lands on «۴۰۴». Every value here is a
+ * route the web router registers, and
+ * `apps/web/tests/notification-routes.test.tsx` asserts exactly that — so a
+ * route rename breaks a test instead of quietly breaking a notification.
+ */
+const PANEL_SECTIONS: Record<string, { customer: string; staff: string; admin: string }> = {
+  message: { customer: '/app/messages', staff: '/staff/messages', admin: '/admin/messages' },
+  support: { customer: '/app/support', staff: '/staff/support', admin: '/admin/support' },
+  request: { customer: '/app/requests', staff: '/staff/requests', admin: '/admin/requests' },
+  // Reviewing documents is a staff screen; the admin reaches the same approval
+  // from the case list, which is the only place it exists for them.
+  document: { customer: '/app/documents', staff: '/staff/documents', admin: '/admin/requests' },
+  invoice: { customer: '/app/invoices', staff: '/staff/accounting', admin: '/admin/finance' },
+  wallet: { customer: '/app/wallet', staff: '/staff/finance', admin: '/admin/wallet' },
+  payroll: { customer: '/app/wallet', staff: '/staff/payroll', admin: '/admin/payroll' },
+  referral: { customer: '/app/referrals', staff: '/staff/referrals', admin: '/admin/referrals' },
+};
+
+/** Machine `event_type` → which section of the panel owns it. */
+const EVENT_SECTION: Record<string, string> = {
+  message: 'message',
+  support: 'support', ticket: 'support', ticket_message: 'support',
+  request: 'request', request_stage: 'request', document_requested: 'request', assignment: 'request',
+  document_approved: 'document', document_submitted: 'document', document_review: 'document',
+  invoice: 'invoice', payment: 'invoice', settlement: 'invoice', refund: 'invoice',
+  wallet: 'wallet', topup: 'wallet',
+  monthly: 'payroll', payroll: 'payroll',
+  referral: 'referral', discount: 'referral',
+};
+
+function panelHomeFor(eventType: string | undefined, audience: 'customer' | 'staff' | 'admin'): string {
+  const section = eventType ? EVENT_SECTION[eventType] : undefined;
+  const table = section ? PANEL_SECTIONS[section] : undefined;
+  if (!table) return audience === 'customer' ? '/app' : audience === 'admin' ? '/admin' : '/staff';
+  return table[audience];
 }
 
 /** Atomic, idempotent approval aggregation per customer and request. */
@@ -114,13 +233,27 @@ export async function notifyDocumentApproval(userId: string, requestId: string, 
         revision = notifications.revision + 1, created_at = excluded.created_at, read_at = NULL`,
     [id('ntf'), userId, 'مدارک پرونده تأیید شد', `۱ مدرک از پرونده ${trackingCode} تأیید شد.`, `/app/requests/${requestId}`, now, key, trackingCode]);
   });
+  // The aggregate rewrites one row instead of inserting a new one, so the live
+  // publish has to look the row up by its dedupe key.
+  const row = await one<{ id: string }>('SELECT id FROM notifications WHERE dedupe_key = ?', [key]);
+  if (row) await publishLive(userId, row.id);
 }
 
-export async function notifyRole(roleCodes: string[], input: NotifyInput): Promise<void> {
+/**
+ * Fan one notice out to a role.
+ *
+ * `exceptUserIds` skips the people who do not need to be told: always the
+ * actor (nobody needs a notice about what they just did) and anyone receiving a
+ * more specific notice for the same event, so a manager who owns the case is
+ * not sent both a personal and a role copy.
+ */
+export async function notifyRole(roleCodes: string[], input: NotifyInput, options: { exceptUserIds?: (string | null | undefined)[] } = {}): Promise<void> {
   const placeholders = roleCodes.map(() => '?').join(',');
+  const skip = (options.exceptUserIds ?? []).filter(Boolean) as string[];
+  const clause = skip.length ? ` AND u.id NOT IN (${skip.map(() => '?').join(',')})` : '';
   const users = await q<{ id: string }>(
-    `SELECT u.id FROM users u JOIN roles r ON r.id = u.role_id WHERE r.code IN (${placeholders}) AND u.status = 'active'`,
-    roleCodes,
+    `SELECT u.id FROM users u JOIN roles r ON r.id = u.role_id WHERE r.code IN (${placeholders}) AND u.status = 'active'${clause}`,
+    skip.length ? [...roleCodes, ...skip] : roleCodes,
   );
   for (const user of users) {
     await notifyUser(user.id, {
@@ -143,6 +276,10 @@ export async function listNotifications(userId: string, options: { unreadOnly?: 
     items: rows.map((r) => ({
       id: r.id, title: r.title, body: r.body, kind: r.kind, link: r.link,
       readAt: r.read_at, createdAt: r.created_at, eventType: r.event_type ?? null, revision: Number(r.revision ?? 1),
+      // A device that already confirmed this notice on another channel (a push it
+      // rendered, a browser tab that showed it) needs to be able to tell, or its
+      // own poll will raise a second copy of the same event. `readAt` is the wrong
+      // signal: it means a person opened it, not that it ever arrived.
     })),
   };
 }
@@ -153,4 +290,15 @@ export async function markRead(userId: string, notificationId?: string): Promise
   } else {
     await run('UPDATE notifications SET read_at = ? WHERE user_id = ? AND read_at IS NULL', [nowIso(), userId]);
   }
+  // Opening the bell is proof the person saw it, and is recorded as a delivery
+  // ack: without this, a notice read in-app stays "undelivered" forever and the
+  // retry sweeper keeps pushing it, which is how an app ends up buzzing about
+  // something the user already read.
+  await markDelivered(userId, notificationId ? [notificationId] : await unreadIds(userId), 'poll');
+}
+
+/** Ids still unread for this person — the batch form of a "seen" report. */
+async function unreadIds(userId: string): Promise<string[]> {
+  const rows = await q<{ id: string }>('SELECT id FROM notifications WHERE user_id = ? AND delivered_at IS NULL', [userId]);
+  return rows.map((r) => r.id);
 }

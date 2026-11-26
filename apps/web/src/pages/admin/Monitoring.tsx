@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import {
   Activity, AlertTriangle, BellRing, CheckCircle2, Cpu, Database, Download, Gauge, HardDrive,
-  MemoryStick, RefreshCw, Search, ServerCog, ShieldAlert, Trash2, Wifi,
+  MemoryStick, RefreshCw, Search, Send, ServerCog, ShieldAlert, Trash2, Wifi,
 } from 'lucide-react';
 import clsx from 'clsx';
 import { AppShell, PageHeader } from '../../components/shell';
@@ -127,6 +127,9 @@ export function AdminMonitoring() {
   const [selectedLog, setSelectedLog] = useState<LogRow | null>(null);
   const [pruneOpen, setPruneOpen] = useState(false);
   const [pruneBusy, setPruneBusy] = useState(false);
+  // The notification self-test: what the operator presses instead of guessing.
+  const [notifTest, setNotifTest] = useState<any | null>(null);
+  const [notifBusy, setNotifBusy] = useState(false);
 
   const [alerts, setAlerts] = useState<any[]>([]);
   const [alertSummary, setAlertSummary] = useState<any>(null);
@@ -240,6 +243,26 @@ export function AdminMonitoring() {
     }
   };
 
+  /**
+   * Ask the server to send *itself* a notice and report what the delivery ledger
+   * says about it. `POST /api/notifications/test` is the same `notifyUser` the
+   * business flows call, so a green answer here means the real path works, not
+   * that a test harness does. A red answer is the useful part: `confirmed: false`
+   * with zero registered devices is how «اعلان نمی‌رسد» usually resolves.
+   */
+  const runNotifTest = async () => {
+    setNotifBusy(true);
+    try {
+      const res = await api.post<{ data: any }>('/api/notifications/test');
+      setNotifTest(res.data);
+      notify(res.data?.confirmed ? 'دستگاه دریافت را تأیید کرد.' : 'اعلام ساخته شد؛ منتظر تأیید دستگاه.', res.data?.confirmed ? 'success' : 'info');
+    } catch (err) {
+      notify(err instanceof ApiFailure ? err.message : 'آزمون رساندن ناموفق بود', 'error');
+    } finally {
+      setNotifBusy(false);
+    }
+  };
+
   const iconFor = (key: string) => {
     const map: Record<string, React.ReactNode> = {
       database: <Database className="size-4" />, api: <Activity className="size-4" />, gateway: <Wifi className="size-4" />,
@@ -307,6 +330,56 @@ export function AdminMonitoring() {
               </div>
             ))}
           </div>
+
+          <Card>
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <div>
+                <h3 className="flex items-center gap-1.5 text-sm font-bold text-navy-900">
+                  <BellRing className="size-4" /> آزمون رساندن اعلان
+                </h3>
+                <p className="mt-0.5 text-[11px] leading-5 text-navy-500">
+                  یک اعلان واقعی برای خودتان ساخته و به همهٔ راه‌های روشن سپرده می‌شود؛ پاسخی که می‌بینید
+                  از دفتر دریافت‌ها خوانده می‌شود، نه از تخمین. ایمیل در این فهرست نیست، چون فرستندهٔ SMTP در
+                  این نسخه وجود ندارد.
+                </p>
+              </div>
+              <Button size="sm" onClick={runNotifTest} disabled={notifBusy}>
+                <Send className="size-4" /> {notifBusy ? 'در حال آزمون…' : 'آزمون کن'}
+              </Button>
+            </div>
+            {notifTest && (
+              <div className="mt-3 grid gap-2 text-[11px] sm:grid-cols-2">
+                <div className={clsx('rounded-xl p-2', notifTest.confirmed ? 'bg-emerald-50 text-emerald-900' : 'bg-amber-50 text-amber-900')}>
+                  <p className="font-bold">{notifTest.confirmed ? 'دستگاهی تأیید کرد' : 'هنوز تأییدی ثبت نشده'}</p>
+                  <p className="mt-0.5 leading-5">{notifTest.note}</p>
+                </div>
+                <div className="rounded-xl bg-surface-3 p-2">
+                  <p className="font-bold text-navy-800">
+                    {faNum(notifTest.status?.devices?.length ?? 0)} دستگاه ثبت‌شده • {faNum(notifTest.status?.waiting ?? 0)} در انتظار
+                  </p>
+                  <p className="mt-0.5 leading-5 text-navy-600">
+                    راه‌های روشن: {[
+                      notifTest.status?.liveEnabled ? 'اتصال زنده' : null,
+                      notifTest.status?.fcmEnabled ? 'فایربیس' : null,
+                      notifTest.status?.webPushEnabled ? 'Web Push' : null,
+                      notifTest.status?.relayEnabled ? 'وب‌هوک اعلان' : null,
+                      notifTest.status?.smsFallbackEnabled ? 'پیامک پشتیبان' : null,
+                    ].filter(Boolean).join('، ') || 'هیچ‌کدام'} — polling همیشه کار می‌کند.
+                  </p>
+                  {notifTest.status?.fcmProblem && (
+                    <p className="mt-1 font-semibold text-amber-800">{notifTest.status.fcmProblem}</p>
+                  )}
+                  <p className="mt-0.5 text-navy-500">{faNum(notifTest.status?.liveClients ?? 0)} اتصال زندهٔ برقرار</p>
+                  {(notifTest.status?.devices ?? []).slice(0, 3).map((device: any) => (
+                    <p key={`${device.platform}-${device.lastSeenAt ?? ''}`} className="mt-0.5 text-navy-500">
+                      {device.platform} • {device.seenRecently ? 'اخیراً آنلاین' : 'بی‌خبر از ' + (faDateTime(device.lastSeenAt) || '—')}
+                      {device.failing ? ' • با خطا' : ''}
+                    </p>
+                  ))}
+                </div>
+              </div>
+            )}
+          </Card>
 
           <div className="grid gap-3 lg:grid-cols-2">
             <Card>

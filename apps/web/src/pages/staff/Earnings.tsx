@@ -9,6 +9,7 @@ import {
 } from '../../components/ui';
 import { api, ApiFailure } from '../../lib/api';
 import { faDate, faDateTime, faNum, rial } from '../../lib/format';
+import { JalaliDateField } from '../../components/JalaliDateField';
 
 interface Dashboard {
   cooperationType: 'commission' | 'monthly' | 'none';
@@ -256,8 +257,8 @@ export function StaffEarnings() {
             </div>
             {rangeKey === 'custom' && (
               <div className="mb-4 grid gap-3 sm:grid-cols-2">
-                <Field label="از تاریخ"><Input type="date" value={custom.from} onChange={(e) => setCustom({ ...custom, from: e.target.value })} /></Field>
-                <Field label="تا تاریخ"><Input type="date" value={custom.to} onChange={(e) => setCustom({ ...custom, to: e.target.value })} /></Field>
+                <Field label="از تاریخ"><JalaliDateField value={custom.from} onChange={(e) => setCustom({ ...custom, from: e })} /></Field>
+                <Field label="تا تاریخ"><JalaliDateField value={custom.to} onChange={(e) => setCustom({ ...custom, to: e })} /></Field>
               </div>
             )}
             {!entries && <Loading rows={3} />}

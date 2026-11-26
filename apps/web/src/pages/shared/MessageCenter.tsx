@@ -1,16 +1,32 @@
 import { useEffect, useRef, useState } from 'react';
-import { useSearchParams } from 'react-router-dom';
-import { Send, Paperclip, Plus, Lock, Unlock, Link2, User, Search, ArrowRight } from 'lucide-react';
+import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom';
+import { Send, Paperclip, Plus, Lock, Unlock, Link2, User, Search, ArrowRight, FileText } from 'lucide-react';
 import clsx from 'clsx';
 import { AppShell, PageHeader } from '../../components/shell';
 import { Button, Card, EmptyState, Field, Input, Loading, Modal, Select, StatusBadge, useToast } from '../../components/ui';
 import { api, ApiFailure } from '../../lib/api';
 import { faDateTime, faNum } from '../../lib/format';
+import { fireTourHint } from '../../lib/tours';
 import { bytes } from '../../components/documents';
 
+/**
+ * One conversation list for the whole office.
+ *
+ * It is entered three ways, and all three must land on the right chat: from
+ * the message centre (`/staff/messages`), from a specific conversation
+ * (`/staff/messages/:threadId`, which is what a notification points at), and
+ * from a case (`?request=<id>`, which opens — or creates — that case's
+ * conversation). The third one used to be the broken one: the request thread
+ * was created blindly, so a failure left the page on an empty list with no
+ * explanation, and nothing in the UI ever said which case a conversation was
+ * about. Every thread now carries its case, and the header links back to it.
+ */
 export function MessageCenter({ variant }: { variant: 'staff' | 'admin' }) {
   const [params] = useSearchParams();
+  const { threadId: threadParam } = useParams();
+  const navigate = useNavigate();
   const requestId = params.get('request');
+  const caseHome = variant === 'admin' ? '/admin/requests' : '/staff/requests';
   const { notify } = useToast();
   const [threads, setThreads] = useState<any[]>([]);
   const [active, setActive] = useState<any>(null);
@@ -41,21 +57,35 @@ export function MessageCenter({ variant }: { variant: 'staff' | 'admin' }) {
     (async () => {
       try {
         const list = await loadThreads();
+        // A notification (or the bell) pointed at one conversation: open it by
+        // id, which is the whole point of putting the id in the link.
+        if (threadParam) {
+          const thread = list.find((t: any) => t.id === threadParam);
+          if (thread) await openThread(thread);
+          else navigate(`/${variant}/messages`, { replace: true });
+          return;
+        }
         if (requestId) {
+          // Find-or-create on the server: the same case always maps to the same
+          // thread, so nothing opens twice.
           const created = await api.post<{ data: any }>('/api/messages/threads', { requestId });
           const fresh = await loadThreads();
-          const thread = fresh.find((t: any) => t.id === created.data.id);
+          const thread = fresh.find((t: any) => t.id === created.data.id)
+            ?? (created.data.request ? { ...created.data, id: created.data.id } : null);
           if (thread) await openThread(thread);
         } else if (list[0] && window.matchMedia?.('(min-width: 1024px)').matches) {
           // Desktop shows both panes, so preselecting is helpful there;
           // on a phone the list must come first (one pane at a time).
           await openThread(list[0]);
         }
+      } catch (err) {
+        // An unexplained empty screen is what made the case chat look broken.
+        notify(err instanceof ApiFailure ? err.message : 'گفت‌وگوی این پرونده باز نشد.', 'error');
       } finally {
         setLoading(false);
       }
     })();
-  }, [requestId]);
+  }, [requestId, threadParam, variant, navigate, notify]);
 
   const refreshActive = async () => {
     if (!active) return;
@@ -65,6 +95,11 @@ export function MessageCenter({ variant }: { variant: 'staff' | 'admin' }) {
 
   const send = async (fileId?: string) => {
     if (!active || (!text.trim() && !fileId)) return;
+    // A document sent as chat text never reaches the case file. Both panels let
+    // people do it, so the attachment path asks the server whether this person
+    // keeps doing it — and answers with a one-line pointer to the document
+    // block on the case, not with a lecture or a re-run of the tour.
+    if (fileId && active.scope === 'request') void fireTourHint('document-in-chat');
     setSending(true);
     try {
       await api.post(`/api/messages/threads/${active.id}/messages`, { body: text || 'فایل پیوست', fileId });
@@ -141,7 +176,7 @@ export function MessageCenter({ variant }: { variant: 'staff' | 'admin' }) {
           <Card pad={false} className={clsx('overflow-hidden', active && 'hidden lg:block')}>
             <div className="flex items-center gap-2 border-b border-line px-3 py-2">
               <Search className="size-4 text-navy-400" />
-              <input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="جست‌وجو در گفت‌وگوها…" className="w-full bg-transparent py-1 text-sm outline-none" />
+              <input value={search} data-tour="chat-list" onChange={(e) => setSearch(e.target.value)} placeholder="جست‌وجو در گفت‌وگوها…" className="w-full bg-transparent py-1 text-sm outline-none" />
             </div>
             <div className="max-h-[62vh] overflow-y-auto scrollbar-thin">
               {filtered.length === 0 && <p className="px-4 py-6 text-sm text-navy-400">گفت‌وگویی یافت نشد.</p>}
@@ -151,7 +186,12 @@ export function MessageCenter({ variant }: { variant: 'staff' | 'admin' }) {
                     active?.id === thread.id && 'bg-brand-50/60')}>
                   <span className="min-w-0">
                     <span className="flex items-center gap-1.5">
-                      {thread.scope === 'request' && <Link2 className="size-3 text-accent" />}
+                      {thread.request ? (
+                        <span className="inline-flex shrink-0 items-center gap-1 rounded-md bg-brand-50 px-1.5 py-0.5 text-[10px] font-bold text-brand-700">
+                          <FileText className="size-3" />
+                          {faNum(thread.request.trackingCode)}
+                        </span>
+                      ) : thread.scope === 'request' ? <Link2 className="size-3 text-accent" /> : null}
                       <span className="truncate text-sm font-medium text-navy-900">{thread.subject}</span>
                     </span>
                     <span className="mt-0.5 block truncate text-[11px] text-navy-500">{thread.customerName} • {thread.lastMessage ?? ''}</span>
@@ -177,9 +217,18 @@ export function MessageCenter({ variant }: { variant: 'staff' | 'admin' }) {
                     </button>
                     <div className="min-w-0">
                     <p className="truncate text-sm font-semibold text-navy-900">{active.subject}</p>
-                    <p className="text-[11px] text-navy-500">
-                      {active.customerName} • {active.scope === 'request' ? 'مرتبط با پرونده' : 'گفت‌وگوی عمومی'}
-                    </p>
+                    {active.request ? (
+                      /* The conversation and the case are one thing: the chip is
+                         the way back, and the tracking code says which case this
+                         is without opening anything. */
+                      <Link to={`${caseHome}/${active.request.id}`} data-tour="chat-case"
+                        className="mt-0.5 inline-flex max-w-full items-center gap-1.5 rounded-md bg-brand-50 px-1.5 py-0.5 text-[11px] font-bold text-brand-700 transition hover:bg-brand-100">
+                        <FileText className="size-3.5 shrink-0" />
+                        <span className="truncate">پرونده {faNum(active.request.trackingCode)} — {active.request.title}</span>
+                      </Link>
+                    ) : (
+                      <p className="text-[11px] text-navy-500">{active.customerName} • گفت‌وگوی عمومی</p>
+                    )}
                     </div>
                   </div>
                   <div className="flex items-center gap-2">
@@ -228,7 +277,7 @@ export function MessageCenter({ variant }: { variant: 'staff' | 'admin' }) {
                   <input ref={fileInput} type="file" className="hidden" accept=".jpg,.jpeg,.png,.webp,.pdf"
                     onChange={(e) => e.target.files?.[0] && attach(e.target.files[0])} />
                   <Button variant="ghost" onClick={() => fileInput.current?.click()} aria-label="پیوست فایل"><Paperclip className="size-4" /></Button>
-                  <input value={text} onChange={(e) => setText(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && send()}
+                  <input value={text} data-tour="chat-composer" onChange={(e) => setText(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && send()}
                     placeholder={active.status === 'closed' ? 'این گفت‌وگو بسته است.' : 'پاسخ خود را بنویسید…'}
                     disabled={active.status === 'closed'} className="input" aria-label="متن پیام" />
                   <Button onClick={() => send()} loading={sending} disabled={active.status === 'closed'}><Send className="size-4" /></Button>

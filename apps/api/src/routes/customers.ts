@@ -15,6 +15,7 @@ import { validatePasswordAgainstPolicy } from '../modules/auth/service.js';
 import { listNotifications, markRead } from '../modules/notifications/service.js';
 import { param } from '../http/params.js';
 import { listCustomerDocuments } from '../modules/documents/service.js';
+import { splitFullName } from '../modules/profiles/service.js';
 
 export const customersRouter = Router();
 customersRouter.use(requireAuth);
@@ -224,9 +225,11 @@ customersRouter.post('/', requirePermission('customers.create'), asyncRoute(asyn
     [userId, mobile, body.email || null, body.password ? await hashPassword(body.password) : null,
       body.fullName, body.nationalId || null, ts, ts],
   );
+  const names = splitFullName(body.fullName);
   await run(
-    `INSERT INTO customer_profiles (user_id, address, province, city, extra, created_at, updated_at) VALUES (?, ?, ?, ?, '{}', ?, ?)`,
-    [userId, body.address ?? null, body.province ?? null, body.city ?? null, ts, ts],
+    `INSERT INTO customer_profiles (user_id, first_name, last_name, address, province, city, extra, created_at, updated_at)
+     VALUES (?, ?, ?, ?, ?, ?, '{}', ?, ?)`,
+    [userId, names.firstName || null, names.lastName || null, body.address ?? null, body.province ?? null, body.city ?? null, ts, ts],
   );
   await writeAudit({
     actorId: req.auth!.user.id, actorName: req.auth!.user.fullName, action: 'customer.create',

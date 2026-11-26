@@ -261,6 +261,51 @@ describe('landing page', () => {
     await waitFor(() => expect(container.querySelector('.ticker-wrap .ticker-track .ticker-item')).toBeTruthy());
   });
 
+  /**
+   * Wide-monitor contract.
+   *
+   * The page used to repeat `max-w-7xl` in every section while the ticker band
+   * ran edge to edge, which produced the two complaints users actually filed:
+   * dead background on both sides of a 1440p/4K screen, and a marquee that
+   * disagreed with the columns above and below it. Both are prevented by one
+   * shared measure: every section reads `lp-container`, and the container
+   * widens with the viewport instead of stopping at 1280px.
+   */
+  it('lays every landing section out on one shared, widening measure', () => {
+    const landingDir = path.resolve(__dirname, '../src/components/landing');
+    const sections = ['LandingHero.tsx', 'LandingServices.tsx', 'LandingStatsBand.tsx', 'LandingJourney.tsx',
+      'LandingAppSection.tsx', 'LandingFaqCtaFooter.tsx', 'LandingTopNav.tsx'];
+    for (const file of sections) {
+      const source = fs.readFileSync(path.join(landingDir, file), 'utf8');
+      expect(source, `${file} must not hard-cap a section at max-w-7xl`).not.toContain('max-w-7xl');
+    }
+    const hero = fs.readFileSync(path.join(landingDir, 'LandingHero.tsx'), 'utf8');
+    const services = fs.readFileSync(path.join(landingDir, 'LandingServices.tsx'), 'utf8');
+    const nav = fs.readFileSync(path.join(landingDir, 'LandingTopNav.tsx'), 'utf8');
+    expect(hero).toContain('lp-container');
+    expect(services).toContain('lp-container');
+    expect(nav).toContain('lp-nav');
+    // The marquee lives inside the shared measure instead of ignoring it.
+    expect(services).toMatch(/lp-band[\s\S]*?lp-container/);
+
+    expect(LANDING_STYLES).toContain('.landing-shell .lp-container');
+    expect(LANDING_STYLES).toContain('max-width: var(--lp-container)');
+    // …and it keeps growing instead of freezing at 1280px.
+    for (const width of ['1280px', '1536px', '1800px', '2200px']) {
+      expect(LANDING_STYLES, `container must widen at ${width}`).toMatch(new RegExp(`min-width: ${width}`));
+    }
+    // The ticker fades by a fixed inset so its first chip is not clipped by a
+    // percentage mask once the band stops being the full viewport width.
+    expect(LANDING_STYLES).toMatch(/\.landing-shell \.ticker-wrap \{[\s\S]*?2\.5rem/);
+  });
+
+  it('grows the service grid with the viewport instead of leaving three fat cards', async () => {
+    const services = fs.readFileSync(path.resolve(__dirname, '../src/components/landing/LandingServices.tsx'), 'utf8');
+    expect(services).toContain('useServiceColumns');
+    expect(services).toMatch(/min: 1920, cols: 5/);
+    expect(services).not.toContain('className="grid gap-5 sm:grid-cols-2 lg:grid-cols-3"');
+  });
+
   it('opens the floating auth modal from the landing header and closes on Escape', async () => {
     const { container } = renderAt('/', <HomePage />);
     await screen.findByRole('heading', { level: 1 });
