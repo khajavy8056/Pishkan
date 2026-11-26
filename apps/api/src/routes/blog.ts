@@ -251,12 +251,27 @@ const xmlEscape = (value: string) => value
 
 export const blogSeoRouter = Router();
 
+/** Canonical base from settings (SEO), falling back to the request origin. */
+async function seoBase(req: any): Promise<string> {
+  const { getString } = await import('../modules/settings/service.js');
+  const configured = (await getString('seo.canonical_base').catch(() => '')).trim().replace(/\/+$/, '');
+  if (configured) return configured;
+  return `${req.protocol}://${req.get('host') ?? ''}`;
+}
+
 blogSeoRouter.get('/sitemap.xml', asyncRoute(async (req, res) => {
-  const base = `${req.protocol}://${req.get('host') ?? ''}`;
+  const base = await seoBase(req);
   const staticPaths = ['/', '/services', '/blog', '/status', '/legal'];
   const posts = await sitemapPosts();
+  // Published, non-custom services are public catalogue pages and belong in
+  // the sitemap; private customer/staff/admin areas never do.
+  const { q } = await import('../db/index.js');
+  const services = await q<{ slug: string; updated_at: string }>(
+    "SELECT slug, updated_at FROM services WHERE is_published = 1 AND is_custom = 0 ORDER BY updated_at DESC LIMIT 1000",
+  ).catch(() => [] as { slug: string; updated_at: string }[]);
   const urls = [
     ...staticPaths.map((p) => `  <url><loc>${xmlEscape(`${base}${p}`)}</loc></url>`),
+    ...services.map((s) => `  <url><loc>${xmlEscape(`${base}/services/${encodeURIComponent(s.slug)}`)}</loc><lastmod>${xmlEscape(String(s.updated_at).slice(0, 10))}</lastmod></url>`),
     ...posts.map((p) => `  <url><loc>${xmlEscape(`${base}/blog/${encodeURIComponent(p.slug)}`)}</loc><lastmod>${xmlEscape(String(p.updated_at).slice(0, 10))}</lastmod></url>`),
   ];
   res.setHeader('content-type', 'application/xml; charset=utf-8');
@@ -265,8 +280,11 @@ blogSeoRouter.get('/sitemap.xml', asyncRoute(async (req, res) => {
 }));
 
 blogSeoRouter.get('/robots.txt', asyncRoute(async (req, res) => {
-  const base = `${req.protocol}://${req.get('host') ?? ''}`;
+  const base = await seoBase(req);
+  const { getString } = await import('../modules/settings/service.js');
+  const extra = (await getString('seo.robots_extra').catch(() => '')).trim();
   res.setHeader('content-type', 'text/plain; charset=utf-8');
   res.setHeader('cache-control', 'public, max-age=3600');
-  res.send(`User-agent: *\nAllow: /\nDisallow: /api/\nDisallow: /app/\nDisallow: /admin/\nDisallow: /staff/\nDisallow: /login\nDisallow: /login-admin\n\nSitemap: ${base}/sitemap.xml\n`);
+  // Private surfaces are always disallowed; the admin may only ADD lines.
+  res.send(`User-agent: *\nAllow: /\nDisallow: /api/\nDisallow: /app/\nDisallow: /admin/\nDisallow: /staff/\nDisallow: /login\nDisallow: /login-admin\nDisallow: /register\nDisallow: /reset-password\n${extra ? `\n${extra}\n` : ''}\nSitemap: ${base}/sitemap.xml\n`);
 }));

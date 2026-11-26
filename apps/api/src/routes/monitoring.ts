@@ -181,4 +181,10 @@ monitoringRouter.get('/alerts/summary', requirePermission('alerts.view'), asyncR
   ok(res, await alertSummary());
 }));
 
+/** Force a fresh TLS probe (bypasses the hourly cache) — real measurement. */
+monitoringRouter.post('/ssl/check', requirePermission('monitoring.view'), asyncRoute(async (_req, res) => {
+  const { checkSslCertificate } = await import('../modules/monitoring/ssl.js');
+  ok(res, await checkSslCertificate(true));
+}));
+
 monitoringRouter.use((_req, _res, next) => next(badRequest('مسیر مانیتورینگ نامعتبر است.')));

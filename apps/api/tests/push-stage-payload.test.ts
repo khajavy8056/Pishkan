@@ -75,7 +75,7 @@ const latestStageNotice = async (requestId: string) =>
     `SELECT id, title, body, event_type, link, dedupe_key
        FROM notifications
       WHERE user_id = ? AND event_type = 'request_stage' AND link = ?
-      ORDER BY created_at DESC, rowid DESC LIMIT 1`,
+      ORDER BY created_at DESC LIMIT 1`,
     [customerId, `/app/requests/${requestId}`],
   );
 

@@ -77,6 +77,14 @@ export const env = {
     fullName: str('BOOTSTRAP_ADMIN_NAME', 'مدیر سامانه'),
     mobile: str('BOOTSTRAP_ADMIN_MOBILE', ''),
   },
+  /**
+   * PostgreSQL client binaries. On Ubuntu the distro `pg_dump` can be older
+   * than the running server (e.g. PG14 client vs PG16 server) and refuses to
+   * dump; pointing these at the matching major version's binaries fixes that
+   * without touching PATH for the whole service.
+   */
+  pgDumpBin: str('PG_DUMP_BIN', 'pg_dump'),
+  pgRestoreBin: str('PG_RESTORE_BIN', 'pg_restore'),
   logLevel: str('LOG_LEVEL', nodeEnv === 'production' ? 'info' : 'debug'),
   demoMode: str('DEMO_MODE', 'false') === 'true',
   version: str('APP_VERSION', '1.0.1218'),

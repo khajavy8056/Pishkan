@@ -6,6 +6,7 @@ import {
 } from 'lucide-react';
 import clsx from 'clsx';
 import { parseListSetting, useSite } from '../lib/site';
+import { PublicSeoExtras, EnamadBadge } from '../lib/trust-seo';
 import { useAuth, homeFor } from '../lib/auth';
 import { useBrand, BrandLockup } from '../lib/brand';
 import { Skyline } from './visual';
@@ -54,6 +55,7 @@ export function PublicLayout({ children }: { children: ReactNode }) {
 
   return (
     <div className="flex min-h-dvh flex-col">
+      <PublicSeoExtras />
       {setting('site.support_notice') && (
         <div className="border-b border-shell-line bg-shell px-4 py-2 text-center text-xs leading-6 text-shell-fg">
           {setting('site.support_notice')}
@@ -223,7 +225,10 @@ export function PublicLayout({ children }: { children: ReactNode }) {
 
         <Skyline className="relative block h-14 w-full text-navy-900/[0.06] dark:text-white/[0.07]" />
         <div className="relative border-t border-shell-line px-4 pt-4 pb-20 text-center text-xs text-shell-muted lg:pb-4">
-          © {setting('site.footer_text')} – {brand.name}
+          <div className="flex flex-wrap items-center justify-between gap-4">
+            <span>© {setting('site.footer_text')} – {brand.name}</span>
+            <EnamadBadge />
+          </div>
         </div>
       </footer>
 

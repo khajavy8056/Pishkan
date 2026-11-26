@@ -38,8 +38,12 @@ import { pushRouter } from '../routes/push.js';
 import { notificationsRouter } from '../routes/notifications.js';
 import { mobileRouter } from '../routes/mobile.js';
 import { blogRouter, blogSeoRouter, publicBlogRouter } from '../routes/blog.js';
+import { guardRouter } from '../routes/guard.js';
 import { recordRequest } from '../modules/monitoring/metrics.js';
 import { logEvent, setMinimumLevel } from '../modules/logging/service.js';
+import { blockedUntil, isExemptAuth } from '../modules/guard/service.js';
+import { observeHttpStatus, observeRequestPath, isExploitPath } from '../modules/guard/detectors.js';
+import { HttpError } from './errors.js';
 
 function rateLimitConfig() {
   const configured = Number(process.env.RATE_LIMIT_PER_MINUTE ?? 300);
@@ -108,6 +112,43 @@ export async function createApp(): Promise<Express> {
   const httpHeaders = securityHeaders(false);
   app.use((req, res, next) => (req.secure ? secureHeaders : httpHeaders)(req, res, next));
 
+  // SEO integrations (GA4/GTM/Enamad) need their exact origins in the CSP.
+  // The extension is settings-driven and additive: with nothing configured
+  // the strict default stays byte-for-byte unchanged. Analytics bootstrap is
+  // a self-hosted script (/api/public/analytics.js), so no 'unsafe-inline'.
+  app.use(async (req, res, next) => {
+    try {
+      const [ga, gtm, enamadEnabled] = await Promise.all([
+        getString('seo.ga_measurement_id').catch(() => ''),
+        getString('seo.gtm_container_id').catch(() => ''),
+        getBool('site.enamad_enabled').catch(() => false),
+      ]);
+      if (!ga && !gtm && !enamadEnabled) return next();
+      const current = res.getHeader('Content-Security-Policy');
+      if (typeof current !== 'string') return next();
+      let csp = current;
+      const addTo = (directive: string, sources: string[]) => {
+        const re = new RegExp(`${directive}\\s([^;]+)`);
+        if (re.test(csp)) {
+          csp = csp.replace(re, (m, list) => `${directive} ${list} ${sources.filter((s) => !String(list).includes(s)).join(' ')}`.trim());
+        } else {
+          csp += `; ${directive} ${sources.join(' ')}`;
+        }
+      };
+      if (ga || gtm) {
+        addTo('script-src', ['https://www.googletagmanager.com', 'https://www.google-analytics.com']);
+        addTo('connect-src', ['https://www.google-analytics.com', 'https://analytics.google.com', 'https://www.googletagmanager.com']);
+        addTo('img-src', ['https://www.google-analytics.com', 'https://www.googletagmanager.com']);
+      }
+      if (enamadEnabled) {
+        addTo('img-src', ['https://trustseal.enamad.ir', 'https://logo.enamad.ir']);
+        addTo('frame-src', ['https://trustseal.enamad.ir']);
+      }
+      res.setHeader('Content-Security-Policy', csp);
+    } catch { /* keep the strict default on any settings read failure */ }
+    next();
+  });
+
   app.use((req, res, next) => {
     res.setHeader('Permissions-Policy', 'geolocation=(self), camera=(self), microphone=()');
     res.setHeader('X-Content-Type-Options', 'nosniff');
@@ -155,6 +196,10 @@ export async function createApp(): Promise<Express> {
       if (!req.path.startsWith('/api/notifications/stream')) recordRequest({ durationMs, status: res.statusCode, path: req.path });
       if (req.path.startsWith('/api/health') || req.path.startsWith('/api/notifications/stream')) return;
       if (res.statusCode >= 500) return; // errorHandler records the details
+      // Guard detectors: 403/404 bursts per IP (429 is caught in the limiter itself).
+      if (!(req as any).guardBlocked && [403, 404].includes(res.statusCode)) {
+        observeHttpStatus(res.statusCode, req.ip, req.path, req.method);
+      }
       const isDenied = res.statusCode === 401 || res.statusCode === 403;
       void logEvent({
         level: isDenied ? 'SECURITY' : res.statusCode >= 400 ? 'WARNING' : 'DEBUG',
@@ -200,8 +245,26 @@ export async function createApp(): Promise<Express> {
     }
   });
 
+  /* ------------------------- Takh Pishkhan Guard --------------------------- */
+  // Known exploit-path probes are reported even when the path 404s outside /api.
+  // Active IP blocks are enforced here; loopback/trusted IPs and (by default)
+  // authenticated staff/admin sessions are exempt so the guard can never lock
+  // the office out of its own system.
+  app.use((req, res, next) => {
+    observeRequestPath(req.ip, req.path, req.method);
+    void (async () => {
+      const until = await blockedUntil(req.ip);
+      if (!until) return next();
+      if (await isExemptAuth(req.auth)) return next();
+      (req as any).guardBlocked = true;
+      res.setHeader('Retry-After', String(Math.max(1, Math.ceil((new Date(until).getTime() - Date.now()) / 1000))));
+      next(new HttpError(403, 'دسترسی این نشانی IP به‌طور موقت توسط گارد امنیتی مسدود شده است. بعداً دوباره تلاش کنید.', 'guard_blocked'));
+    })().catch(next);
+  });
+
   /* ------------------------------- API routes ------------------------------ */
   app.use('/api',(_req,res,next)=>{res.setHeader('Cache-Control','no-store');next()});
+  app.use(['/api/guard','/api/v1/guard'],guardRouter);
   app.use(['/api/health','/api/v1/health'],healthRouter);
   app.use(['/api/public','/api/v1/public'],publicRouter);
   app.use(['/api/auth','/api/v1/auth'],authRouter);
@@ -253,6 +316,17 @@ export async function createApp(): Promise<Express> {
   if (fs.existsSync(uploadsPublic)) {
     app.use('/uploads/public', express.static(uploadsPublic, { maxAge: '7d', fallthrough: true }));
   }
+
+  // Sensitive probe paths (/.env, /.git/config, wp-login, …) must always 404 —
+  // never be masked by the SPA fallback returning a 200 index.html. This runs
+  // before static serving so a built frontend cannot make a probe look valid.
+  app.use((req, res, next) => {
+    if (isExploitPath(req.path)) {
+      res.status(404).json({ ok: false, error: { code: 'not_found', message: 'یافت نشد.' } });
+      return;
+    }
+    next();
+  });
 
   if (dist) {
     app.use(express.static(dist, { index: false, maxAge: '1h' }));

@@ -113,6 +113,10 @@ export function rateLimit(options: {
     const result = rateLimitStore.take(key, options.windowMs, options.max);
     if (!result.allowed) {
       res.setHeader('Retry-After', String(result.retryAfterSeconds));
+      // Guard: repeated rate-limit hits from one IP are an abuse signal.
+      void import('../modules/guard/detectors.js')
+        .then(({ observeHttpStatus }) => observeHttpStatus(429, req.ip, req.path, req.method))
+        .catch(() => undefined);
       return next(tooMany(options.message ?? `تعداد درخواست بیش از حد مجاز است. ${result.retryAfterSeconds} ثانیه دیگر تلاش کنید.`));
     }
     next();

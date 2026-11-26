@@ -61,6 +61,9 @@ export const BACKUP_PERMISSIONS = ['backup.restore'] as const;
 /** Customer Android app: banners, announcements and app-wide settings. */
 export const APP_PERMISSIONS = ['app.manage'] as const;
 
+/** Takh Pishkhan Guard: read the security dashboard vs. act on it. */
+export const GUARD_PERMISSIONS = ['guard.view', 'guard.manage'] as const;
+
 /**
  * Blog workflow grants beyond plain CRUD: publishing a post, moderating its
  * comments, managing categories and editing other authors' posts (editor).
@@ -83,6 +86,8 @@ export const EXTRA_PERMISSION_LABELS: Record<string, string> = {
   'blog.comments': 'مدیریت و تأیید نظرات بلاگ',
   'blog.categories': 'مدیریت دسته‌بندی‌های بلاگ',
   'blog.manage': 'ویرایش مطالب همهٔ نویسندگان بلاگ (سردبیر)',
+  'guard.view': 'مشاهدهٔ داشبورد و رویدادهای گارد امنیتی',
+  'guard.manage': 'اقدام امنیتی: مسدودسازی IP، اسکن، قرنطینه و بازسازی خط مبنا',
 };
 
 export type Permission =
@@ -91,7 +96,8 @@ export type Permission =
   | (typeof WALLET_PERMISSIONS)[number]
   | (typeof BACKUP_PERMISSIONS)[number]
   | (typeof BLOG_PERMISSIONS)[number]
-  | (typeof APP_PERMISSIONS)[number];
+  | (typeof APP_PERMISSIONS)[number]
+  | (typeof GUARD_PERMISSIONS)[number];
 
 export function allPermissions(): Permission[] {
   return [
@@ -101,6 +107,7 @@ export function allPermissions(): Permission[] {
     ...BACKUP_PERMISSIONS,
     ...BLOG_PERMISSIONS,
     ...APP_PERMISSIONS,
+    ...GUARD_PERMISSIONS,
   ];
 }
 
@@ -190,6 +197,7 @@ export const DEFAULT_ROLES: {
       'monitoring.view',
       'logs.view',
       'alerts.view', 'alerts.edit',
+      'guard.view',
     ],
   },
   {

@@ -15,6 +15,7 @@ import { startAlertScheduler, stopAlertScheduler } from './modules/monitoring/sc
 import { startAssignmentScheduler, stopAssignmentScheduler } from './modules/requests/scheduler.js';
 import { startBackupScheduler, stopBackupScheduler } from './modules/system/scheduler.js';
 import { startDeliverySweeper, stopDeliverySweeper } from './modules/notifications/sweeper.js';
+import { startGuardScheduler, stopGuardScheduler } from './modules/guard/scheduler.js';
 import { setMinimumLevel } from './modules/logging/service.js';
 import { getString } from './modules/settings/service.js';
 
@@ -123,6 +124,9 @@ async function bootstrap() {
   // Re-sends notices that never reached a device, and escalates the urgent ones to
   // SMS. Safe to leave running: with nothing unconfirmed it is one indexed query a minute.
   startDeliverySweeper();
+  // Takh Pishkhan Guard: periodic integrity/uploads scans, dependency audit,
+  // retention. Cheap when nothing is due (a settings read + timestamp check).
+  startGuardScheduler();
   await evaluateAlerts({ notify: true }).catch((error) => {
     console.error(`[boot] alert evaluation failed: ${safeErrorText(error)}`);
   });
@@ -148,6 +152,7 @@ async function bootstrap() {
     stopAssignmentScheduler();
     stopBackupScheduler();
     stopDeliverySweeper();
+    stopGuardScheduler();
     // Open notification streams would otherwise hold `server.close()` open until the
     // forced-exit timer; ending them lets a restart finish in milliseconds and
     // tells each client to reconnect to the new process.

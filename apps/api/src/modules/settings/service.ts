@@ -3,6 +3,7 @@ import { decryptSecret, encryptSecret, maskSecret } from '../../lib/crypto.js';
 import { SETTINGS, SETTING_GROUPS, settingDef, type SettingDef, type SettingGroupCode } from './definitions.js';
 import { HttpError, badRequest } from '../../http/errors.js';
 import { writeAudit } from '../audit/service.js';
+import { CUSTOM_VALIDATORS } from './custom-validators.js';
 
 type Value = string | number | boolean;
 let cache: Map<string, string> | null = null;
@@ -65,6 +66,14 @@ function validate(def: SettingDef, value: Value): string {
   }
   const maxLen = def.type === 'textarea' ? 20000 : def.type === 'text' || def.type === 'password' ? 2000 : 500;
   if (str.length > maxLen) throw badRequest(`«${def.label}» بیش از حد طولانی است.`);
+  const custom = CUSTOM_VALIDATORS[def.key];
+  if (custom) {
+    try {
+      return custom(str);
+    } catch (error: any) {
+      throw badRequest(error?.message ?? `«${def.label}» معتبر نیست.`);
+    }
+  }
   return str;
 }
 

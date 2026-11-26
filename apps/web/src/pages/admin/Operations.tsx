@@ -300,6 +300,11 @@ export function AdminSystem() {
   const [restoreConfirm, setRestoreConfirm] = useState('');
   const [restorePassword, setRestorePassword] = useState('');
   const [busy, setBusy] = useState(false);
+  // off-server transfers
+  const [transfers, setTransfers] = useState<any[]>([]);
+  const [transferBusy, setTransferBusy] = useState<string | null>(null);
+  const [externalTest, setExternalTest] = useState<{ ok: boolean; message: string } | null>(null);
+  const [externalTesting, setExternalTesting] = useState(false);
   // one-file restore from an uploaded package
   const [pkgFile, setPkgFile] = useState<File | null>(null);
   const [pkgProgress, setPkgProgress] = useState<number | null>(null);
@@ -324,12 +329,14 @@ export function AdminSystem() {
       api.get<{ data: any }>('/api/files/media/stats').catch(() => null),
       api.get<{ data: any }>('/api/files/media/diagnostics').catch(() => null),
       api.get<{ data: any }>('/api/system/lan').catch(() => null),
-    ]).then(([st, hl, bk, ss, dm, md, mdg, lanInfo]) => {
+      api.get<{ data: any[] }>('/api/system/backups/transfers').catch(() => ({ data: [] as any[] })),
+    ]).then(([st, hl, bk, ss, dm, md, mdg, lanInfo, tr]) => {
       setStatus(st.data); setHealth(hl?.data ?? null);
       setBackups({ items: bk.data, status: (bk as any).meta ?? null });
       setSessions(ss.data); setDomain(dm?.data ?? null);
       setMedia(md?.data ?? null); setMediaDiagnostics(mdg?.data ?? null);
       setLan(lanInfo?.data ?? null);
+      setTransfers(tr.data);
     }).catch((err) => setError(err instanceof ApiFailure ? err.message : 'خطا در دریافت وضعیت'))
       .finally(() => setLoading(false));
   };
@@ -344,6 +351,31 @@ export function AdminSystem() {
     } catch (err) {
       notify(err instanceof ApiFailure ? err.message : 'خطا', 'error');
     } finally { setBusy(false); }
+  };
+
+  const testExternal = async () => {
+    setExternalTesting(true);
+    setExternalTest(null);
+    try {
+      const res = await api.post<{ data: { ok: boolean; message: string } }>('/api/system/backups/external/test');
+      setExternalTest(res.data);
+      notify(res.data.message, res.data.ok ? 'success' : 'error');
+    } catch (err) {
+      notify(err instanceof ApiFailure ? err.message : 'خطا در آزمایش مقصد خارجی', 'error');
+    } finally { setExternalTesting(false); }
+  };
+
+  const transferBackupNow = async (backup: any) => {
+    setTransferBusy(backup.id);
+    try {
+      const res = await api.post<{ data: any }>(`/api/system/backups/${backup.id}/transfer`);
+      const s = res.data;
+      if (s.failed > 0) notify(`انتقال ناقص: ${faNum(s.uploaded)} موفق، ${faNum(s.failed)} ناموفق — ${s.errors?.[0] ?? ''}`, 'error');
+      else notify(`${faNum(s.uploaded)} فایل به مقصد ${s.target} منتقل شد.`, 'success');
+      load();
+    } catch (err) {
+      notify(err instanceof ApiFailure ? err.message : 'خطا در انتقال', 'error');
+    } finally { setTransferBusy(null); }
   };
 
   const verifyBackup = async (backup: any) => {
@@ -564,10 +596,16 @@ export function AdminSystem() {
 
               <div className="mb-3 flex flex-wrap gap-2">
                 <Button size="sm" loading={busy} onClick={createBackup} disabled={!can('backup.create')}>ایجاد نسخه پشتیبان</Button>
+                <Button size="sm" variant="ghost" loading={externalTesting} onClick={testExternal} disabled={!can('backup.create')}>آزمایش مقصد خارجی</Button>
                 <span className="self-center text-[11px] text-navy-500">
                   {backups.status?.lastBackupAt ? `آخرین نسخه: ${relative(backups.status.lastBackupAt)}` : 'هنوز نسخه‌ای ایجاد نشده است.'}
                 </span>
               </div>
+              {externalTest && (
+                <p className={clsx('mb-3 rounded-lg p-2 text-[11px] leading-5 ring-1', externalTest.ok ? 'bg-emerald-50 text-emerald-900 ring-emerald-200' : 'bg-rose-50 text-rose-900 ring-rose-200')}>
+                  {externalTest.message}
+                </p>
+              )}
               {can('backup.restore') && (
                 <div className="mb-4 rounded-2xl border-2 border-dashed border-navy-200 bg-surface/75 p-3"
                   onDragOver={(e) => e.preventDefault()}
@@ -692,6 +730,11 @@ export function AdminSystem() {
                         </>
                       )}
                       <Button size="sm" variant="ghost" onClick={() => { setRestoreModal(backup); setRestoreConfirm(''); setRestorePassword(''); }}>بازیابی</Button>
+                      {can('backup.create') && backup.status === 'ok' && (
+                        <Button size="sm" variant="ghost" loading={transferBusy === backup.id} onClick={() => transferBackupNow(backup)}>
+                          <Upload className="size-3.5" /> انتقال به مقصد خارجی
+                        </Button>
+                      )}
                       {can('backup.delete') && <Button size="sm" variant="ghost" onClick={() => deleteBackup(backup)}><Trash2 className="size-3.5" /> حذف</Button>}
                     </div>
                   </div>
@@ -700,8 +743,29 @@ export function AdminSystem() {
               <p className="mt-3 flex items-start gap-1.5 rounded-lg bg-amber-50 p-2 text-[11px] leading-5 text-amber-900">
                 <AlertTriangle className="mt-0.5 size-3.5 shrink-0" />
                 بازیابی، داده‌های جاری را با نسخه پشتیبان جایگزین می‌کند. قبل از بازیابی، از داده‌های فعلی نسخه پشتیبان بگیرید.
-                نسخه‌ها باید در مقصد خارج از سرور اصلی (S3/سرور پشتیبان) هم نگهداری شوند.
+                نسخه‌ها باید خارج از سرور اصلی هم نگهداری شوند: مقصد SFTP/FTP/Google Drive را در «تنظیمات ← پشتیبان‌گیری» پیکربندی و «ذخیرهٔ خارج از سرور» را فعال کنید.
               </p>
+
+              {transfers.length > 0 && (
+                <div className="mt-4">
+                  <h3 className="mb-2 flex items-center gap-2 text-sm font-bold text-navy-900"><Upload className="size-4 text-accent" /> تاریخچهٔ انتقال به مقصد خارجی</h3>
+                  <div className="max-h-56 space-y-1.5 overflow-y-auto">
+                    {transfers.slice(0, 30).map((t) => (
+                      <div key={t.id} className="rounded-lg bg-surface-3 px-2.5 py-1.5 text-[10px] leading-5">
+                        <div className="flex flex-wrap items-center justify-between gap-1">
+                          <span dir="ltr" className="max-w-[60%] truncate text-navy-800">{t.filename || t.remote_path || '—'}</span>
+                          <Badge tone={t.status === 'ok' ? 'success' : 'danger'}>{t.status === 'ok' ? 'منتقل شد' : 'ناموفق'}</Badge>
+                        </div>
+                        <p className="text-navy-500">
+                          {faDateTime(t.created_at)} • مقصد: <span dir="ltr">{t.target}</span>
+                          {t.status === 'ok' ? ` • ${faNum(Math.round((t.size ?? 0) / 1024))} KB` : ''}
+                        </p>
+                        {t.error && <p className="mt-0.5 text-rose-700">{t.error}</p>}
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
             </Card>
 
             <Card>

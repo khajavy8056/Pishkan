@@ -15,7 +15,10 @@ healthRouter.get('/', async (_req, res) => {
     migrations = Number(row?.c ?? 0);
     dbOk = migrations > 0;
   } catch (err: any) {
-    error = err?.message ?? 'database error';
+    // The raw driver message can embed host/user fragments of DATABASE_URL;
+    // the public probe only reports that the check failed, details go to the log.
+    error = 'database_unavailable';
+    console.error('[health] database probe failed:', err?.code ?? err?.name ?? 'error');
   }
 
   const healthy = dbOk;

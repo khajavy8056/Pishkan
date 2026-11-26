@@ -12,6 +12,39 @@ import { hasPermission } from '../lib/permissions.js';
 import { officeScope } from '../lib/scope.js';
 
 export const publicRouter = Router();
+
+/**
+ * Self-hosted analytics bootstrap (GA4 / GTM).
+ *
+ * Served from 'self' so the strict CSP needs no 'unsafe-inline': this file
+ * contains the standard dataLayer/gtag bootstrap and loads Google's external
+ * loader only for IDs that passed settings validation (G-… / GTM-…). With no
+ * IDs configured it returns an empty script. Public pages include it; admin,
+ * staff and customer panels never do.
+ */
+publicRouter.get('/analytics.js', asyncRoute(async (_req, res) => {
+  const ga = (await getString('seo.ga_measurement_id').catch(() => '')).trim();
+  const gtm = (await getString('seo.gtm_container_id').catch(() => '')).trim();
+  const gaValid = /^G-[A-Z0-9]{6,12}$/.test(ga);
+  const gtmValid = /^GTM-[A-Z0-9]{4,10}$/.test(gtm);
+  let js = '/* Pishkan analytics bootstrap — self-hosted, CSP-safe */\n';
+  if (gtmValid) {
+    // GTM wins when both are set: double-loading would double-count visits.
+    js += `(function(w,d,s,l,i){w[l]=w[l]||[];w[l].push({'gtm.start':new Date().getTime(),event:'gtm.js'});`
+      + `var f=d.getElementsByTagName(s)[0],j=d.createElement(s),dl=l!='dataLayer'?'&l='+l:'';`
+      + `j.async=true;j.src='https://www.googletagmanager.com/gtm.js?id='+i+dl;`
+      + `f.parentNode.insertBefore(j,f);})(window,document,'script','dataLayer','${gtm}');\n`;
+  } else if (gaValid) {
+    js += `window.dataLayer=window.dataLayer||[];function gtag(){dataLayer.push(arguments);}`
+      + `window.gtag=gtag;gtag('js',new Date());gtag('config','${ga}',{anonymize_ip:true});`
+      + `var s=document.createElement('script');s.async=true;`
+      + `s.src='https://www.googletagmanager.com/gtag/js?id=${ga}';document.head.appendChild(s);\n`;
+  }
+  res.setHeader('content-type', 'application/javascript; charset=utf-8');
+  res.setHeader('cache-control', 'public, max-age=300');
+  res.send(js);
+}));
+
 publicRouter.get('/cities', asyncRoute(async (_req, res) => {
   res.json({ ok: true, data: await (await import('../db/index.js')).q('SELECT id, name, province FROM cities WHERE is_active=1 ORDER BY province,name') });
 }));

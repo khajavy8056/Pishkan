@@ -127,7 +127,18 @@ export function SiteProvider({ children }: { children: ReactNode }) {
       }
       if (typeof res.data.settings['site.name'] === 'string') {
         const tagline = typeof res.data.settings['site.tagline'] === 'string' ? res.data.settings['site.tagline'] : '';
-        if (!document.documentElement.dataset.seoTitle) document.title = tagline ? `${res.data.settings['site.name']} | ${tagline}` : String(res.data.settings['site.name']);
+        const metaTitle = typeof res.data.settings['seo.meta_title'] === 'string' ? String(res.data.settings['seo.meta_title']).trim() : '';
+        if (!document.documentElement.dataset.seoTitle) {
+          document.title = metaTitle || (tagline ? `${res.data.settings['site.name']} | ${tagline}` : String(res.data.settings['site.name']));
+        }
+      }
+      // Site-wide default description from the SEO section (per-page useSeo
+      // overrides it later and restores this value on unmount).
+      const metaDescription = typeof res.data.settings['seo.meta_description'] === 'string' ? String(res.data.settings['seo.meta_description']).trim() : '';
+      if (metaDescription && !document.head.querySelector('meta[name="description"][data-seo-managed]')) {
+        let desc = document.head.querySelector('meta[name="description"]') as HTMLMetaElement | null;
+        if (!desc) { desc = document.createElement('meta'); desc.name = 'description'; document.head.appendChild(desc); }
+        desc.content = metaDescription;
       }
       const logoUrl = (typeof res.data.settings['site.logo_url'] === 'string' && res.data.settings['site.logo_url'])
         || (res.data.settings['site.logo_file_id'] ? '/api/public/brand-asset/logo' : '');

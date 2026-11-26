@@ -32,7 +32,8 @@ export interface SettingDef {
 export type SettingGroupCode =
   | 'general' | 'landing' | 'domain' | 'auth' | 'sms' | 'email' | 'security' | 'services'
   | 'accounting' | 'wallet' | 'workforce' | 'payroll' | 'assistant' | 'files' | 'backup'
-  | 'maintenance' | 'monitoring' | 'multibranch' | 'support' | 'android_app' | 'tours';
+  | 'maintenance' | 'monitoring' | 'multibranch' | 'support' | 'android_app' | 'tours'
+  | 'guard' | 'seo';
 
 export const SETTING_GROUPS: {
   code: SettingGroupCode;
@@ -62,6 +63,8 @@ export const SETTING_GROUPS: {
   { code: 'support', title: 'پشتیبانی و تیکت‌ها', description: 'فعال‌سازی میز پشتیبانی مشتریان و متن راهنمای آن', icon: 'life-buoy', order: 18 },
   { code: 'android_app', title: 'اپ اندروید مشتریان', description: 'نسخه‌بندی و سیاست به‌روزرسانی اپ، نوار اطلاعیه و روشن/خاموش بودن بنرها — مدیریت کامل بنرها در بخش «اپ اندروید» پنل مدیر کل است', icon: 'smartphone', order: 19 },
   { code: 'tours', title: 'راهنمای تصویری سامانه', description: 'گام‌به‌گام آموزش پنل مشتری و کارکنان، و راهنمای‌های کوتاهِ موقعیتی که پس از تکرار یک اشتباه نشان داده می‌شوند', icon: 'compass', order: 20 },
+  { code: 'guard', title: 'گارد تک پیشخوان', description: 'تشخیص حمله، مسدودسازی موقت IP، اسکن یکپارچگی فایل‌ها و آپلودها، بررسی آسیب‌پذیری وابستگی‌ها و پیامک هشدار امنیتی', icon: 'shield', order: 21 },
+  { code: 'seo', title: 'سئو، اینماد و گوگل', description: 'عنوان و توضیحات متا، تصویر اشتراک‌گذاری، Canonical، اینماد، Search Console، Analytics و Tag Manager', icon: 'globe', order: 22 },
 ];
 
 const bool = (v: boolean) => v;
@@ -407,6 +410,74 @@ export const SETTINGS: SettingDef[] = [
   { key: 'app.banners_enabled', group: 'android_app', type: 'boolean', label: 'نمایش بنرها در اپ', hint: 'وقتی خاموش باشد، ریل بنرها در صفحهٔ اصلی اپ پنهان می‌شود؛ بنرها پاک نمی‌شوند.', default: bool(true), public: true },
   { key: 'app.announcement', group: 'android_app', type: 'textarea', label: 'اطلاعیه سراسری داخل اپ', hint: 'وقتی پر باشد، بالای صفحه اصلی اپ به همه مشتری‌ها نشان داده می‌شود.', default: '', public: true },
   { key: 'app.welcome_title', group: 'android_app', type: 'text', label: 'عنوان خوشامد اپ', hint: 'خالی یعنی نام سامانه.', default: '', public: true },
+
+  /* ------------------------- Takh Pishkhan Guard ------------------------- */
+  { key: 'guard.enabled', group: 'guard', type: 'boolean', label: 'فعال بودن گارد', hint: 'خاموش کردن، تشخیص و واکنش خودکار را متوقف می‌کند؛ رویدادهای قبلی باقی می‌مانند.', default: bool(true) },
+  { key: 'guard.auto_block_enabled', group: 'guard', type: 'boolean', label: 'مسدودسازی خودکار IP مهاجم', hint: 'فقط موقت و برگشت‌پذیر؛ IPهای مورد اعتماد و loopback هرگز مسدود نمی‌شوند.', default: bool(true) },
+  { key: 'guard.block_minutes', group: 'guard', type: 'number', label: 'مدت مسدودسازی (دقیقه)', default: 30, min: 1, max: 1440 },
+  { key: 'guard.window_seconds', group: 'guard', type: 'number', label: 'پنجرهٔ شمارش رویداد (ثانیه)', hint: 'آستانه‌ها در این بازه شمرده می‌شوند.', default: 300, min: 30, max: 3600 },
+  { key: 'guard.auth_fail_threshold', group: 'guard', type: 'number', label: 'آستانهٔ ورود ناموفق از یک IP', default: 10, min: 3, max: 200 },
+  { key: 'guard.forbidden_threshold', group: 'guard', type: 'number', label: 'آستانهٔ دسترسی غیرمجاز (403) از یک IP', default: 20, min: 5, max: 500 },
+  { key: 'guard.notfound_threshold', group: 'guard', type: 'number', label: 'آستانهٔ مسیرهای ناموجود (404) — پویشگر', default: 40, min: 10, max: 1000 },
+  { key: 'guard.rate_abuse_threshold', group: 'guard', type: 'number', label: 'آستانهٔ ردشدن با محدودیت نرخ (429)', default: 10, min: 3, max: 200 },
+  { key: 'guard.upload_reject_threshold', group: 'guard', type: 'number', label: 'آستانهٔ آپلود ردشده از یک IP', default: 8, min: 2, max: 100 },
+  { key: 'guard.trusted_ips', group: 'guard', type: 'text', label: 'IPهای مورد اعتماد', hint: 'جداشده با ویرگول؛ این IPها هرگز خودکار مسدود نمی‌شوند (loopback همیشه مورد اعتماد است).', default: '' },
+  { key: 'guard.block_private_ips', group: 'guard', type: 'boolean', label: 'اجازهٔ مسدودسازی IPهای شبکهٔ داخلی', hint: 'خاموش (پیشنهادی): کاربران Wi‑Fi دفتر هرگز مسدود نمی‌شوند.', default: bool(false) },
+  { key: 'guard.never_block_staff', group: 'guard', type: 'boolean', label: 'کارکنان/مدیران احرازشده از مسدودسازی IP مستثنا هستند', hint: 'روشن (پیشنهادی): مدیر اصلی حتی از IP مهاجم هم بیرون نمی‌افتد.', default: bool(true) },
+  { key: 'guard.integrity_auto_scan', group: 'guard', type: 'boolean', label: 'اسکن خودکار یکپارچگی فایل‌های برنامه', default: bool(true) },
+  { key: 'guard.integrity_interval_hours', group: 'guard', type: 'number', label: 'فاصلهٔ اسکن یکپارچگی (ساعت)', default: 24, min: 1, max: 168 },
+  { key: 'guard.uploads_scan_enabled', group: 'guard', type: 'boolean', label: 'اسکن خودکار پوشهٔ آپلودها', default: bool(true) },
+  { key: 'guard.quarantine_enabled', group: 'guard', type: 'boolean', label: 'قرنطینهٔ خودکار فایل اجراییِ ثبت‌نشده', hint: 'فقط فایل‌هایی که در سامانه ثبت نشده‌اند و امضای اجرایی/اسکریپت دارند جابه‌جا می‌شوند؛ حذفی وجود ندارد و بازگردانی ممکن است.', default: bool(true) },
+  { key: 'guard.deps_check_enabled', group: 'guard', type: 'boolean', label: 'بررسی خودکار آسیب‌پذیری وابستگی‌ها', hint: 'از npm audit استفاده می‌کند؛ سرور باید به registry.npmjs.org دسترسی داشته باشد. به‌روزرسانی خودکار انجام نمی‌شود.', default: bool(true) },
+  { key: 'guard.deps_check_interval_hours', group: 'guard', type: 'number', label: 'فاصلهٔ بررسی وابستگی‌ها (ساعت)', default: 24, min: 1, max: 168 },
+  { key: 'guard.event_retention_days', group: 'guard', type: 'number', label: 'نگهداری رویدادهای امنیتی (روز)', default: 90, min: 7, max: 730 },
+  { key: 'guard.sms_enabled', group: 'guard', type: 'boolean', label: 'پیامک هشدار امنیتی', hint: 'از همان سرویس پیامک سامانه استفاده می‌کند؛ sms.enabled و الگوی اعلان باید فعال باشند.', default: bool(false) },
+  { key: 'guard.sms_mobile', group: 'guard', type: 'tel', label: 'شمارهٔ مدیر برای هشدار امنیتی', default: '' },
+  { key: 'guard.sms_min_severity', group: 'guard', type: 'select', label: 'حداقل شدت برای پیامک', options: [{ value: 'warning', label: 'هشدار و بحرانی' }, { value: 'critical', label: 'فقط بحرانی' }], default: 'critical' },
+  { key: 'guard.sms_max_per_hour', group: 'guard', type: 'number', label: 'سقف پیامک امنیتی در ساعت', default: 5, min: 1, max: 30 },
+  { key: 'guard.sms_template_id', group: 'guard', type: 'text', label: 'شناسهٔ الگوی پیامک گارد', hint: 'خالی یعنی همان الگوی اعلان عمومی (sms.notify_template_id). الگو باید در ملی پیامک تأیید شده باشد.', default: '' },
+  { key: 'guard.sms_events', group: 'guard', type: 'json', label: 'رویدادهای مشمول پیامک', hint: 'آرایه JSON از kind رویدادها؛ خالی [] یعنی همهٔ رویدادهای با شدت کافی.', default: '[]' },
+
+  /* --------------------------- SEO / Enamad / Google --------------------------- */
+  { key: 'seo.meta_title', group: 'seo', type: 'text', label: 'عنوان اصلی سایت (SEO)', hint: 'خالی یعنی «نام سامانه — شعار». در تگ title و og:title صفحهٔ اصلی استفاده می‌شود.', default: '', public: true },
+  { key: 'seo.meta_description', group: 'seo', type: 'textarea', label: 'توضیحات متا', hint: 'خلاصهٔ ۱۵۰–۱۶ کاراکتری برای گوگل و پیش‌نمایش شبکه‌های اجتماعی.', default: '', public: true },
+  { key: 'seo.meta_keywords', group: 'seo', type: 'text', label: 'کلمات کلیدی متا', hint: 'جداشده با ویرگول؛ امروز اثر رتبه‌ای ندارد ولی برای برخی موتورهای داخلی مفید است.', default: '', public: true },
+  { key: 'seo.og_image_url', group: 'seo', type: 'text', label: 'تصویر پیش‌نمایش شبکه‌های اجتماعی', hint: 'نشانی کامل https یا مسیر داخلی؛ پیشنهاد ۱۲۰۰×۶۳۰.', default: '', public: true },
+  { key: 'seo.canonical_base', group: 'seo', type: 'url', label: 'نشانی Canonical سایت', hint: 'مثل https://office.example.ir — بدون اسلش انتهایی؛ خالی یعنی APP_URL سرور.', default: '', public: true },
+  { key: 'seo.robots_extra', group: 'seo', type: 'textarea', label: 'خطوط اضافهٔ robots.txt', hint: 'به انتهای robots.txt اضافه می‌شود؛ مسیرهای خصوصی همیشه Disallow هستند.', default: '' },
+  { key: 'seo.google_site_verification', group: 'seo', type: 'text', label: 'کد تأیید Google Search Console', hint: 'محتوای متای google-site-verification (فقط توکن، نه کل تگ).', default: '', public: true },
+  { key: 'seo.bing_site_verification', group: 'seo', type: 'text', label: 'کد تأیید Bing Webmaster', default: '', public: true },
+  { key: 'seo.ga_measurement_id', group: 'seo', type: 'text', label: 'شناسهٔ Google Analytics 4', hint: 'قالب G-XXXXXXXXXX؛ فقط در صفحه‌های عمومی بارگذاری می‌شود، نه پنل‌ها.', default: '', public: true },
+  { key: 'seo.gtm_container_id', group: 'seo', type: 'text', label: 'شناسهٔ Google Tag Manager', hint: 'قالب GTM-XXXXXXX؛ اگر هر دو پر باشند، فقط GTM بارگذاری می‌شود تا شمارش دوباره نشود.', default: '', public: true },
+  { key: 'seo.org_json_ld', group: 'seo', type: 'json', label: 'دادهٔ ساختاریافتهٔ سازمان (JSON-LD)', hint: 'اختیاری؛ JSON معتبر Schema.org نوع Organization. خالی یعنی تولید خودکار از نام/نشانی دفتر.', default: '', public: true },
+  { key: 'site.enamad_enabled', group: 'seo', type: 'boolean', label: 'نمایش اینماد در فوتر', default: bool(false), public: true },
+  { key: 'site.enamad_code', group: 'seo', type: 'textarea', label: 'کد رسمی اینماد', hint: 'کد دریافتی از trustseal.enamad.ir را کامل اینجا بچسبانید. فقط پیوند/تصویر/iframe روی دامنهٔ enamad.ir پذیرفته می‌شود؛ هر اسکریپت یا دامنهٔ دیگر رد می‌شود.', default: '', public: true },
+
+  /* ------------------------------ External backup ------------------------------ */
+  { key: 'backup.external_enabled', group: 'backup', type: 'boolean', label: 'ذخیرهٔ نسخهٔ پشتیبان خارج از سرور', hint: 'پس از هر بکاپ موفق (دستی یا خودکار)، فایل‌ها به مقصد خارجی هم فرستاده می‌شوند.', default: bool(false) },
+  { key: 'backup.external_target', group: 'backup', type: 'select', label: 'مقصد خارجی', options: [{ value: 'sftp', label: 'SFTP (SSH)' }, { value: 'ftp', label: 'FTP / FTPS' }, { value: 'gdrive', label: 'Google Drive' }], default: 'sftp' },
+  { key: 'backup.external_path', group: 'backup', type: 'text', label: 'پوشهٔ مقصد (SFTP/FTP)', hint: 'مسیر نسبی یا مطلق روی سرور مقصد؛ ساخته می‌شود اگر نبود.', default: 'pishkan-backups' },
+  { key: 'backup.external_retention', group: 'backup', type: 'number', label: 'تعداد نسخهٔ نگهداری‌شده در مقصد خارجی', hint: 'پس از هر انتقال موفق، نسخه‌های قدیمی‌تر از این تعداد از مقصد پاک می‌شوند (فقط فایل‌های pishkan-*).', default: 14, min: 1, max: 120 },
+  { key: 'backup.sftp_host', group: 'backup', type: 'text', label: 'میزبان SFTP', default: '' },
+  { key: 'backup.sftp_port', group: 'backup', type: 'number', label: 'پورت SFTP', default: 22, min: 1, max: 65535 },
+  { key: 'backup.sftp_username', group: 'backup', type: 'text', label: 'نام کاربری SFTP', default: '' },
+  { key: 'backup.sftp_password', group: 'backup', type: 'password', label: 'رمز SFTP', default: '', secret: true },
+  { key: 'backup.sftp_private_key', group: 'backup', type: 'textarea', label: 'کلید خصوصی SSH (اختیاری)', hint: 'PEM کامل؛ جایگزین رمز می‌شود. -----BEGIN ... -----', default: '', secret: true },
+  { key: 'backup.sftp_passphrase', group: 'backup', type: 'password', label: 'عبارت عبور کلید خصوصی', default: '', secret: true },
+  { key: 'backup.ftp_host', group: 'backup', type: 'text', label: 'میزبان FTP', default: '' },
+  { key: 'backup.ftp_port', group: 'backup', type: 'number', label: 'پورت FTP', default: 21, min: 1, max: 65535 },
+  { key: 'backup.ftp_username', group: 'backup', type: 'text', label: 'نام کاربری FTP', default: '' },
+  { key: 'backup.ftp_password', group: 'backup', type: 'password', label: 'رمز FTP', default: '', secret: true },
+  { key: 'backup.ftp_secure', group: 'backup', type: 'boolean', label: 'FTP روی TLS (FTPS)', hint: 'روشن پیشنهاد می‌شود؛ خاموش فقط برای هاست‌های قدیمی بدون TLS.', default: bool(true) },
+  { key: 'backup.gdrive_client_id', group: 'backup', type: 'text', label: 'Google OAuth Client ID', default: '' },
+  { key: 'backup.gdrive_client_secret', group: 'backup', type: 'password', label: 'Google OAuth Client Secret', default: '', secret: true },
+  { key: 'backup.gdrive_refresh_token', group: 'backup', type: 'password', label: 'Google OAuth Refresh Token', hint: 'با دسترسی drive.file؛ راهنمای دریافت در docs/BACKUP-EXTERNAL-FA.md.', default: '', secret: true },
+  { key: 'backup.gdrive_folder_id', group: 'backup', type: 'text', label: 'شناسهٔ پوشهٔ Google Drive', hint: 'خالی یعنی ریشهٔ My Drive؛ پوشه باید با همان حساب ساخته شده باشد.', default: '' },
+
+  /* ------------------------------ Monitoring extras ------------------------------ */
+  { key: 'monitoring.alert_ssl_days', group: 'monitoring', type: 'number', label: 'هشدار انقضای گواهی SSL (روز مانده)', default: 14, min: 1, max: 90 },
+  { key: 'monitoring.alert_backup_age_hours', group: 'monitoring', type: 'number', label: 'هشدار کهنگی آخرین بکاپ موفق (ساعت)', default: 36, min: 1, max: 336 },
+  { key: 'monitoring.ssl_check_host', group: 'monitoring', type: 'text', label: 'میزبان بررسی گواهی SSL', hint: 'خالی یعنی دامنهٔ APP_URL؛ فقط وقتی پورت ۴۴ سرور مقصد باز باشد نتیجه قطعی است.', default: '' },
 ];
 
 export const SETTINGS_BY_KEY = new Map(SETTINGS.map((s) => [s.key, s]));

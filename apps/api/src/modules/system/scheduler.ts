@@ -147,6 +147,10 @@ async function tick() {
       message: 'نسخه پشتیبان خودکار ایجاد شد.',
       details: { filename: backup.filename, schedule: expression },
     });
+    // Off-server copy when enabled; failures are recorded + notified inside
+    // and never invalidate the healthy local backup.
+    const { maybeTransferBackup } = await import('./backup-external.js');
+    await maybeTransferBackup(backup.id);
   } catch (error) {
     lastError = error instanceof Error ? error.message : 'خطای ناشناخته در پشتیبان‌گیری خودکار';
     await logEvent({
