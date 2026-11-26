@@ -125,12 +125,21 @@ object PushRenderer {
      *        Flutter writes) so the mute switch keeps working when Dart is not
      *        running.
      */
+    /**
+     * Posts the notification and returns the notice it stands for, or `""` when
+     * nothing reached the tray.
+     *
+     * The return value is not decoration: the caller hands it to Dart, which
+     * reports it to the delivery ledger. An ack taken for a notice the system
+     * dropped would stop the retries for something nobody ever saw, so the
+     * answer here has to be exactly "did the OS accept this".
+     */
     fun show(
         context: Context,
         data: Map<String, String>,
         soundsEnabled: Boolean,
         largeIcon: Bitmap? = null,
-    ) {
+    ): String {
         ensureChannels(context)
         val title = data["title"].orEmpty().ifBlank { "تک پیشخوان" }
         val body = data["body"].orEmpty()
@@ -212,11 +221,21 @@ object PushRenderer {
         largeIcon?.let { builder.setLargeIcon(it) }
 
         val tag = data["tag"]
-        try {
-            NotificationManagerCompat.from(context).notify(tag, requestCode, builder.build())
+        val manager = NotificationManagerCompat.from(context)
+        if (!manager.areNotificationsEnabled()) {
+            // The app's tray is switched off at the OS level (the user's app
+            // setting, or POST_NOTIFICATIONS revoked on Android 13+). `notify`
+            // would drop this silently and return normally, which is precisely
+            // the case that must not be reported as delivered.
+            return ""
+        }
+        return try {
+            manager.notify(tag, requestCode, builder.build())
+            notificationId
         } catch (_: SecurityException) {
             // POST_NOTIFICATIONS revoked between checks: nothing to do, and
             // crashing the receiver would lose the message entirely.
+            ""
         }
     }
 

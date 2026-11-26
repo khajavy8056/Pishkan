@@ -348,9 +348,35 @@ class NotifierService {
       for (final event in events) {
         await _showSystem(event);
       }
+      // A notice this phone just put in the notification shade has been
+      // delivered, and only an ack says so: `delivered_at` is what ends the
+      // retry chain and cancels the SMS escalation. Without it, every customer
+      // who reads their notices in the tray — which is most of them — keeps a
+      // row stuck at "undelivered" forever, and the office sees a backlog that
+      // does not exist.
+      await ackShown(events.map((event) => event.id), channel: 'poll');
     }
     await _remember(prefs, items, seenKey);
     return events;
+  }
+
+  /// Tell the server that this device showed these notices, on [channel].
+  ///
+  /// `POST /api/notifications/ack` is the same endpoint the browser and the push
+  /// handler answer with, and it is idempotent per (notice, channel, device), so
+  /// the poll, the tap and a push render can all report the same notice without
+  /// coordinating. Unknown or foreign ids are skipped by the server's ownership
+  /// guard, which is why the local test notification can be passed through here
+  /// harmlessly.
+  ///
+  /// Deliberately best-effort: a failed ack costs one more retry, while an ack
+  /// that could throw here would cost the customer the notification itself.
+  static Future<void> ackShown(Iterable<String> ids, {required String channel}) async {
+    final list = ids.where((id) => id.trim().isNotEmpty).toList();
+    if (list.isEmpty) return;
+    try {
+      await api.postData('/api/notifications/ack', body: {'ids': list, 'channel': channel});
+    } catch (_) {}
   }
 
   static Future<void> _remember(SharedPreferences prefs, List<Map<String, dynamic>> items, String seenKey) async {

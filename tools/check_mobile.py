@@ -76,6 +76,12 @@ STEPS: list[tuple[str, list[str]]] = [
     # and push while the app is closed does nothing — silently, with no error
     # anywhere. This is the check that makes that configuration impossible to ship.
     ('firebase config sync', ['tools/checks/firebase_config_sync.py']),
+    # The phone's tray is a delivery, but only an ack says so. This ties the
+    # render in Kotlin to the ledger in Postgres — the failure it guards has no
+    # symptom anyone sees: notices that reached the shade stay "undelivered",
+    # the sweeper re-pushes them, and the SMS escalation fires for something
+    # the customer already read.
+    ('delivery ack chain', ['tools/checks/dart_delivery_ack.py']),
 ]
 
 # The deployment checks are a bash script, not a dart-tooling step, but they
