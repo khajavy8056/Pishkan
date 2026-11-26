@@ -14,7 +14,13 @@ export interface NotifyInput {
   idempotencyKey?: string;
   /** Also ring the user's subscribed devices (Web Push). */
   push?: boolean;
-  email?: boolean;
+  // There is deliberately no `email` flag. A boolean that promises a message to
+  // somebody's inbox is a promise this build cannot keep — no SMTP transport
+  // exists — and an event that is silently half-delivered is worse than one that
+  // was never advertised. If mail is ever wired, add the flag together with the
+  // channel in `delivery.ts` (`CHANNELS`) and the label in
+  // `settings/definitions.ts`; `tests/notification-egress.test.ts` requires the
+  // three to move as one change.
   /** Stable machine-readable category, independent of localized text. */
   eventType?: string;
   /**

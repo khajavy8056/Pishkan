@@ -23,9 +23,10 @@ import { z } from 'zod';
 import { asyncRoute, requireAuth } from '../http/middleware.js';
 import { unavailable } from '../http/errors.js';
 import { ok } from '../http/respond.js';
-import { nowIso } from '../db/index.js';
+import { nowIso, one } from '../db/index.js';
 import { getBool } from '../modules/settings/service.js';
 import { deliveryStatus, isChannel, liveHub, markDelivered, pendingUndelivered } from '../modules/notifications/delivery.js';
+import { notifyUser } from '../modules/notifications/service.js';
 
 export const notificationsRouter = Router();
 notificationsRouter.use(requireAuth);
@@ -106,4 +107,61 @@ notificationsRouter.post('/ack', asyncRoute(async (req, res) => {
 /** Channel health for this account — what the app's settings screen shows. */
 notificationsRouter.get('/status', asyncRoute(async (req, res) => {
   ok(res, await deliveryStatus(req.auth!.user.id));
+}));
+
+/**
+ * «چطور مطمئن شوم که ارسال واقعاً انجام می‌شود؟» — the one honest answer is to
+ * send something and look at what the ledger says about it, so that is what this
+ * endpoint does. It is a self-test, not a broadcast: the notice is created for
+ * the calling user alone, and there is no parameter naming anybody else.
+ *
+ * The reply separates the three things that get confused in practice:
+ *  * `attempted` — the server wrote the row and offered it to every channel that
+ *    is switched on. This is what a log can prove.
+ *  * `confirmed` — a device filed an ack, which is the only thing that means a
+ *    person actually saw it. A message can be attempted forever and never
+ *    confirmed (no phone registered, browser closed), and that is not a bug in
+ *    the sender.
+ *  * `channels` — the policy each channel is running under, so an office that
+ *    turned Firebase off is not told to look for a push that was never sent.
+ *
+ * `email` is deliberately absent: there is no SMTP transport in this build, and
+ * the settings panel says so on each of its fields. `tests/notification-egress.test.ts`
+ * keeps the two facts tied together.
+ */
+notificationsRouter.post('/test', asyncRoute(async (req, res) => {
+  const userId = req.auth!.user.id;
+  const stamp = new Date().toISOString().slice(11, 19);
+  // A distinct idempotency key per call, so repeated tests are repeated notices
+  // (the dedupe index would otherwise swallow the second one in the same second)
+  // while still going through the same insert path a real event uses.
+  const key = `notification.test:${userId}:${stamp}`;
+  // Not a stub: this is the very function the business flows call, so what the
+  // reply says about it applies to a real notice.
+  await notifyUser(userId, {
+    title: 'آزمون رساندن اعلان',
+    body: `این پیام برای آزمودن مسیرهای ارسال ساخته شده است — ساعت ${stamp} UTC.`,
+    kind: 'info',
+    eventType: 'notification.test',
+    idempotencyKey: key,
+    push: true,
+  });
+
+  // Give the live channel its fraction of a second: an open tab confirms on
+  // receipt, and a test that reads the ledger before it can answer would always
+  // say "unconfirmed".
+  await new Promise((resolve) => setTimeout(resolve, 250));
+  const row = await one<{ id: string; delivered_at: string | null }>(
+    'SELECT id, delivered_at FROM notifications WHERE dedupe_key = ? AND user_id = ?', [key, userId],
+  );
+  ok(res, {
+    notificationId: row?.id ?? null,
+    attempted: Boolean(row),
+    confirmed: Boolean(row?.delivered_at),
+    status: await deliveryStatus(userId),
+    note: row?.delivered_at
+      ? 'یک دستگاه دریافت را تأیید کرد.'
+      : 'پیام ساخته شد و به همهٔ راه‌های روشن داده شد، ولی هنوز هیچ دستگاهی آن را تأیید نکرده است. '
+        + 'اگر گوشی ثبت نشده یا تبی باز نیست، همین انتظار می‌رود؛ پس از تأیید، «آخرین تأیید» در همین پاسخ پر می‌شود.',
+  });
 }));
