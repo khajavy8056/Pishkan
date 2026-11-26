@@ -522,21 +522,36 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
     _load();
   }
 
+  /// True when the server already had values for this customer, which changes
+  /// the copy from «fill this in» to «check what you gave us at sign-up».
+  bool _prefilled = false;
+
+  /// camelCase form field -> snake_case column of the profile row.
+  ///
+  /// Written as a rule instead of a table because the table was the bug: a key
+  /// that was not listed (کد ملی, ایمیل, …) silently read `profile[null]`, so a
+  /// value the customer had typed at sign-up looked empty here and had to be
+  /// typed a second time.
+  static String _profileKey(String field) =>
+      field.splitMapJoin(RegExp('[A-Z]'), onMatch: (m) => '_${m[0]!.toLowerCase()}', onNonMatch: (n) => n);
+
   Future<void> _load() async {
     if (mounted) setState(() { _loading = true; _loadError = null; });
     try {
       final user = await fetchMe();
       final cities = asMapList(await api.getData('/api/public/cities'));
+      // `profileState.profile` carries the account's own name split into its
+      // two halves, so a customer who signed up with one «نام و نام خانوادگی»
+      // field is not asked for the family name again here.
       final profile = asMap(asMap(user['profileState'])['profile']);
       if (!mounted) return;
-      const profileKeys = {
-        'firstName': 'first_name', 'lastName': 'last_name',
-        'fatherName': 'father_name', 'postalCode': 'postal_code',
-        'address': 'address',
-      };
+      var filled = 0;
       for (final (key, _, _) in _defs) {
-        _fields[key]!.text = asStr(user[key] ?? profile[profileKeys[key]]);
+        final value = asStr(profile[_profileKey(key)] ?? user[key]);
+        _fields[key]!.text = value;
+        if (value.trim().isNotEmpty) filled += 1;
       }
+      _prefilled = filled > 0;
       final cityId = asStr(profile['city_id']);
       if (!mounted) return;
       setState(() {
@@ -594,7 +609,10 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(title: const Text('ویرایش مشخصات')),
-      body: _loading ? const LoadingView() : _loadError != null ? ErrorView(message: _loadError!, onRetry: _load) : ListView(padding: const EdgeInsets.fromLTRB(16, 10, 16, 24), children: [
+      // The save button lives in the scaffold's bottom slot and rises with the
+      // keyboard, so writing an address never hides «ذخیرهٔ تغییرات».
+      resizeToAvoidBottomInset: false,
+      body: _loading ? const LoadingView() : _loadError != null ? ErrorView(message: _loadError!, onRetry: _load) : ListView(padding: const EdgeInsets.fromLTRB(16, 10, 16, 18), children: [
         SoftCard(
           child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
             for (var i = 0; i < _defs.length; i++) ...[
@@ -623,13 +641,24 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
               onChanged: _province == null ? null : (value) => setState(() => _cityId = value),
             ),
             if (_cities.isEmpty) TextButton(onPressed: _load, child: const Text('فهرست شهرها خالی است؛ دریافت دوباره')),
-            const SizedBox(height: 18),
-            PlushButton(label: 'ذخیرهٔ تغییرات', icon: Icons.save_rounded, loading: _busy, onPressed: _save),
-            const SizedBox(height: 6),
-            Text('شماره موبایل شناسهٔ ورود شماست و از اینجا تغییر نمی‌کند؛ برای تغییرش با دفتر در تماس باشید.', style: TextStyle(fontSize: 11, color: context.inkMuted, height: 1.8)),
           ]),
         ),
+        const SizedBox(height: 10),
+        Text(
+          _prefilled
+              ? 'هرچه در ثبت‌نام یا ویرایش‌های قبلی وارد کرده‌اید از پیش پر شده است؛ فقط موارد خالی را کامل کنید. شماره موبایل شناسهٔ ورود شماست و از اینجا تغییر نمی‌کند؛ برای تغییرش با دفتر در تماس باشید.'
+              : 'این مشخصات یک بار پر می‌شود و در ثبت درخواست‌های بعدی خودش پر می‌شود. شماره موبایل شناسهٔ ورود شماست و از اینجا تغییر نمی‌کند؛ برای تغییرش با دفتر در تماس باشید.',
+          style: TextStyle(fontSize: 11, color: context.inkMuted, height: 1.8),
+        ),
       ]),
+      bottomNavigationBar: KeyboardAwareBar(
+        padding: const EdgeInsets.fromLTRB(16, 10, 16, 12),
+        decoration: BoxDecoration(
+          borderRadius: BorderRadius.vertical(top: const Radius.circular(20)),
+          boxShadow: const [BoxShadow(color: Color(0x140B1F3A), blurRadius: 18, offset: Offset(0, -5))],
+        ),
+        child: PlushButton(label: 'ذخیرهٔ تغییرات', icon: Icons.save_rounded, loading: _busy, onPressed: _save),
+      ),
     );
   }
 }

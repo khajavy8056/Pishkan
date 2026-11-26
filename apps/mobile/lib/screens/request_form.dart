@@ -262,6 +262,10 @@ class _RequestFormScreenState extends State<RequestFormScreen> {
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(title: Text(widget.service.title, overflow: TextOverflow.ellipsis)),
+      // The action bar below carries the keyboard inset itself, so the scaffold
+      // must not also resize for it — that would move the bar twice and leave a
+      // gap of blank surface under it.
+      resizeToAvoidBottomInset: false,
       body: Column(children: [
         _stepper(),
         Expanded(
@@ -275,10 +279,10 @@ class _RequestFormScreenState extends State<RequestFormScreen> {
           ]),
         ),
       ]),
-      // The bar belongs in the Scaffold's own slot: as the last child of a
-      // Column it did not move when the keyboard opened, so the "ثبت نهایی"
-      // button ended up under the keyboard on the last step -- where it is the
-      // only way forward.
+      // The bar belongs in the Scaffold's own slot (not as the last child of the
+      // Column above, which never moved when the keyboard opened) and it brings
+      // the keyboard inset with it, so "ثبت نهایی" stays reachable on the step
+      // where it is the only way forward.
       bottomNavigationBar: _actionBar(),
     );
   }
@@ -605,43 +609,44 @@ class _RequestFormScreenState extends State<RequestFormScreen> {
   }
 
   Widget _actionBar() {
+    final sizes = context.sizes;
+    final barPadding = EdgeInsets.fromLTRB(sizes.gutter, sizes.s(10), sizes.gutter, sizes.s(12));
+    final barDecoration = BoxDecoration(
+      borderRadius: BorderRadius.vertical(top: Radius.circular(sizes.s(24))),
+      boxShadow: [BoxShadow(color: const Color(0x140B1F3A), blurRadius: sizes.s(18), offset: Offset(0, -sizes.s(5)))],
+    );
+    // `KeyboardAwareBar`, not a plain Container: the last step of this flow has
+    // fields, and the «ثبت نهایی درخواست» button used to end up under the
+    // keyboard, so the customer had to close it just to find the way forward.
     if (_step == 3) {
-      final sizes = context.sizes;
-      return Container(
-        padding: EdgeInsets.fromLTRB(sizes.gutter, sizes.s(10), sizes.gutter, sizes.s(12)),
-        decoration: BoxDecoration(color: context.surface, borderRadius: BorderRadius.vertical(top: Radius.circular(sizes.s(24))), boxShadow: [BoxShadow(color: const Color(0x140B1F3A), blurRadius: sizes.s(18), offset: Offset(0, -sizes.s(5)))]),
-        child: SafeArea(
-          top: false,
-          child: PlushButton(label: 'بازگشت به خانه', icon: Icons.home_rounded, onPressed: () => Navigator.of(context).popUntil((route) => route.isFirst)),
-        ),
+      return KeyboardAwareBar(
+        padding: barPadding,
+        decoration: barDecoration,
+        child: PlushButton(label: 'بازگشت به خانه', icon: Icons.home_rounded, onPressed: () => Navigator.of(context).popUntil((route) => route.isFirst)),
       );
     }
-    final sizes = context.sizes;
-    return Container(
-      padding: EdgeInsets.fromLTRB(sizes.gutter, sizes.s(10), sizes.gutter, sizes.s(12)),
-      decoration: BoxDecoration(color: context.surface, borderRadius: BorderRadius.vertical(top: Radius.circular(sizes.s(24))), boxShadow: [BoxShadow(color: const Color(0x140B1F3A), blurRadius: sizes.s(18), offset: Offset(0, -sizes.s(5)))]),
-      child: SafeArea(
-        top: false,
-        child: Row(children: [
-          if (_step > 0) ...[
-            Expanded(
-              flex: 3,
-              child: OutlinedButton(onPressed: _submitting ? null : () => setState(() => _step = _step - 1), child: const Text('مرحلهٔ قبل')),
-            ),
-            const SizedBox(width: 10),
-          ],
+    return KeyboardAwareBar(
+      padding: barPadding,
+      decoration: barDecoration,
+      child: Row(children: [
+        if (_step > 0) ...[
           Expanded(
-            flex: 5,
-            child: PlushButton(
-              label: _step == 2 ? 'ثبت نهایی درخواست' : 'مرحلهٔ بعد',
-              arrow: _step < 2,
-              icon: _step == 2 ? Icons.check_circle_rounded : null,
-              loading: _submitting,
-              onPressed: _step == 2 ? _submit : _next,
-            ),
+            flex: 3,
+            child: OutlinedButton(onPressed: _submitting ? null : () => setState(() => _step = _step - 1), child: const Text('مرحلهٔ قبل')),
           ),
-        ]),
-      ),
+          const SizedBox(width: 10),
+        ],
+        Expanded(
+          flex: 5,
+          child: PlushButton(
+            label: _step == 2 ? 'ثبت نهایی درخواست' : 'مرحلهٔ بعد',
+            arrow: _step < 2,
+            icon: _step == 2 ? Icons.check_circle_rounded : null,
+            loading: _submitting,
+            onPressed: _step == 2 ? _submit : _next,
+          ),
+        ),
+      ]),
     );
   }
 }

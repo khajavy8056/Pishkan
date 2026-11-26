@@ -59,6 +59,15 @@ async function bootstrap() {
   // nothing and every new request asks for the same national card again. This
   // files the types the titles already imply. Idempotent; it never overwrites a
   // type the office set by hand.
+  // Customers who signed up before the «نام و نام خانوادگی» field was split into
+  // the profile's two name columns were asked for their family name again on
+  // their first visit to the profile. Fill the columns once, at boot, so the
+  // stored record matches what they already told us.
+  const { backfillProfileNames } = await import('./modules/profiles/service.js');
+  await backfillProfileNames((m) => console.log(`[boot] ${m}`)).catch((error) => {
+    console.warn('[boot] profile name backfill skipped:', safeErrorText(error));
+  });
+
   const { backfillServiceDocumentTypes } = await import('./modules/catalog/service.js');
   await backfillServiceDocumentTypes((m) => console.log(`[boot] ${m}`)).catch((error) => {
     console.error(`[boot] document type backfill failed: ${safeErrorText(error)}`);

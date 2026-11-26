@@ -859,17 +859,47 @@ Future<void> saveMappedProfileDocument(BuildContext context, String fileId, Stri
   }
 }
 
-/// The page backdrop.
+/// The bar that carries a screen's primary action, kept above the keyboard.
 ///
-/// Not a flat fill: a very low-contrast two-stop gradient, lit from the top,
-/// with one soft glow behind the area where the screen's heading sits. The
-/// difference from `scaffoldBackgroundColor` is subtle by design — enough that
-/// white cards look like they are resting on something rather than floating in
-/// a void, and never enough to compete with the content.
+/// A «ثبت نهایی» button that disappears under the IME is worse than no button
+/// at all: the customer types everything, cannot see the way forward, and has
+/// to learn that closing the keyboard is a prerequisite. Put this in the
+/// scaffold's `bottomNavigationBar` and set `resizeToAvoidBottomInset: false`
+/// on that scaffold — then exactly one thing decides how far the bar rises,
+/// and the scroll view above it shrinks by the same amount, so the field being
+/// typed in stays visible too.
 ///
-/// It is a single widget rather than a per-screen decoration so every page
-/// shares one backdrop; two screens with slightly different washes is the
-/// fastest way to make an app feel assembled instead of designed.
+/// The inset is applied outside the [SafeArea] on purpose: with the keyboard up
+/// there is no gesture bar to respect, and subtracting one from the other
+/// leaves the button half-buried on precisely the phones that have both.
+class KeyboardAwareBar extends StatelessWidget {
+  const KeyboardAwareBar({super.key, required this.child, this.padding, this.decoration});
+
+  final Widget child;
+  /// Horizontal/vertical padding of the bar itself, kept by the caller so each
+  /// screen can keep its own rhythm.
+  final EdgeInsetsGeometry? padding;
+  final BoxDecoration? decoration;
+
+  @override
+  Widget build(BuildContext context) {
+    // `padding.bottom` is reported as 0 while the keyboard covers the gesture
+    // bar, so the two insets never stack; when the keyboard is closed this is
+    // 0 and the SafeArea below takes over.
+    final keyboard = MediaQuery.viewInsetsOf(context).bottom;
+    return AnimatedContainer(
+      duration: const Duration(milliseconds: 170),
+      curve: Curves.easeOutCubic,
+      padding: EdgeInsets.only(bottom: keyboard),
+      decoration: decoration ?? BoxDecoration(color: Theme.of(context).colorScheme.surface),
+      child: SafeArea(
+        top: false,
+        child: Padding(padding: padding ?? EdgeInsets.zero, child: child),
+      ),
+    );
+  }
+}
+
 class PageWash extends StatelessWidget {
   const PageWash({super.key, required this.child, this.glow = true});
 
