@@ -5,6 +5,7 @@ import {
   Building2, Users, CalendarClock, FileText, Receipt, BarChart3, Settings, Database, ShieldCheck,
   LifeBuoy, Shapes, Sparkles, Compass, ChevronDown, Plus, BadgeCheck, ServerCog, ClipboardCheck, ArrowLeft, Smartphone,
   Moon, Sun, Monitor, Headset, TicketPercent, ListChecks, BotMessageSquare, CirclePlus, Clock3, CalendarDays, Newspaper,
+  RefreshCw,
 } from 'lucide-react';
 import clsx from 'clsx';
 import { useAuth, homeFor } from '../lib/auth';
@@ -95,6 +96,7 @@ const adminNav: NavItem[] = [
   { to: '/admin/referrals', label: 'کمپین‌های دعوت', icon: <Users className="size-5" />, permission: 'discounts.view', section: SECTION_SYSTEM },
   { to: '/admin/discounts', label: 'کدهای تخفیف', short: 'تخفیف', icon: <TicketPercent className="size-5" />, permission: 'discounts.view', section: SECTION_SYSTEM },
   { to: '/admin/monitoring', label: 'مرکز پایش', short: 'پایش', icon: <Activity className="size-5" />, permission: 'monitoring.view', section: SECTION_SYSTEM },
+  { to: '/admin/update', label: 'به‌روزرسانی سامانه', short: 'به‌روزرسانی', icon: <RefreshCw className="size-5" />, permission: 'system.view', section: SECTION_SYSTEM },
   { to: '/admin/payroll', label: 'حقوق و تسویه کارکنان', short: 'حقوق', icon: <Users className="size-5" />, permission: 'payroll.view', section: SECTION_SYSTEM },
   { to: '/admin/reports', label: 'گزارش‌ها', icon: <BarChart3 className="size-5" />, permission: 'reports.view', section: SECTION_SYSTEM },
   { to: '/admin/android-app', label: 'اپ اندروید', short: 'اپ', icon: <Smartphone className="size-5" />, permission: 'app.manage', section: SECTION_SYSTEM },
@@ -654,7 +656,7 @@ export function AppShell({ children, variant }: { children: ReactNode; variant: 
         </nav>
 
         <footer className="border-t border-line px-6 pt-4 pb-24 text-center text-xs text-navy-400 lg:pb-4">
-          {brand.name} — نسخه {import.meta.env.VITE_APP_VERSION ?? '1.4.0'}
+          {brand.name} — نسخه {import.meta.env.VITE_APP_VERSION ?? '1.0.1217'}
         </footer>
 
         <NotificationGate kind={variant} />

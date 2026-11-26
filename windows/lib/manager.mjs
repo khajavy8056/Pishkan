@@ -9,6 +9,8 @@
  *   node windows/lib/manager.mjs logs    --root C:\Pishkan [--lines 40]
  *   node windows/lib/manager.mjs backup  --root C:\Pishkan
  *   node windows/lib/manager.mjs restore --root C:\Pishkan --file <backup.sqlite>
+ *   node windows/lib/manager.mjs update-check --root C:\Pishkan [--json]
+ *   node windows/lib/manager.mjs update --root C:\Pishkan [--dry-run true]
  *   node windows/lib/manager.mjs open    --root C:\Pishkan (opens the browser)
  *
  * The server keeps running after this process exits (detached), so the GUI can
@@ -40,6 +42,7 @@ import { qrAscii, qrPngBase64 } from './qr.mjs';
 import { runLanFirewall } from './lan-firewall.mjs';
 import { formatManagerLogLine, sanitizeManagerLogMessage } from './manager-log.mjs';
 import { listPishkanServers, stopPishkanServers } from './owned-servers.mjs';
+import { checkForUpdate, runUpdate } from './update.mjs';
 
 const args = parseArgs();
 const ROOT = path.resolve(args.get('root', process.cwd()));
@@ -980,7 +983,41 @@ async function tunnelOff() {
   });
 }
 
-const commands = { start, stop, restart, status, backup, restore, open: openApp, 'open-data': openData, 'firewall-remove': removeLanFirewall, lan: lanInfo, tunnel: tunnelInfo, 'tunnel-on': tunnelOn, 'tunnel-off': tunnelOff };
+// `update-check` is read-only and safe to press any time; `update` is the one that
+// moves code, and it takes its own backup first (see windows/lib/update.mjs for
+// why neither is configurable).
+async function updateCheck() {
+  const result = await checkForUpdate({ root: ROOT });
+  return out({ ok: true, ...result });
+}
+
+async function updateNow() {
+  const npm = process.platform === 'win32' ? 'npm.cmd' : 'npm';
+  const result = await runUpdate({
+    root: ROOT,
+    // `--dry-run` on its own means yes; only an explicit false/0 says no.
+    dryRun: args.has('dry-run') && !['false', '0'].includes(String(args.get('dry-run') ?? '')),
+    deps: {
+      backup,
+      stop: () => stop({ quiet: true }),
+      start: () => start(),
+      verify: async () => ((await health(20_000)) ? { ok: true } : { ok: false, message: 'سرویس پس از به‌روزرسانی به /api/health پاسخ نداد.' }),
+      install: async () => {
+        const child = spawn(npm, ['ci', '--no-audit', '--no-fund'], { cwd: ROOT, stdio: 'ignore', shell: isWindows() });
+        const code = await new Promise((resolve) => child.on('exit', resolve));
+        return code === 0 ? { ok: true } : { ok: false, message: 'npm ci ناموفق بود؛ به نسخهٔ قبل بازگشته می‌شود.' };
+      },
+      migrate: async () => {
+        const child = spawn(npm, ['run', 'migrate', '--workspace', 'apps/api'], { cwd: ROOT, stdio: 'ignore', shell: isWindows() });
+        const code = await new Promise((resolve) => child.on('exit', resolve));
+        return code === 0 ? { ok: true } : { ok: false, message: 'مهاجرت پایگاه داده ناموفق بود؛ به نسخهٔ قبل بازگشته می‌شود.' };
+      },
+    },
+  });
+  return out(result);
+}
+
+const commands = { start, stop, restart, status, backup, restore, open: openApp, 'open-data': openData, 'firewall-remove': removeLanFirewall, lan: lanInfo, tunnel: tunnelInfo, 'tunnel-on': tunnelOn, 'tunnel-off': tunnelOff, 'update-check': updateCheck, update: updateNow };
 
 async function main() {
   if (command === 'logs') {

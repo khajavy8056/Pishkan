@@ -706,6 +706,8 @@ Future<Map<String, dynamic>> fetchMyDocuments() async {
 
 /// ---------- Version helpers ----------
 
+/// Version order, segment by segment. General purpose, and deliberately *not*
+/// what the update banner uses — see [compareAppVersions] for why.
 int compareVersions(String a, String b) {
   List<int> parts(String v) => v.split('.').map((p) => int.tryParse(p.replaceAll(RegExp(r'[^0-9]'), '')) ?? 0).toList();
   final pa = parts(a);
@@ -716,6 +718,31 @@ int compareVersions(String a, String b) {
     if (x != y) return x.compareTo(y);
   }
   return 0;
+}
+
+/// The last number of a release string — the build, under the `1.0.x` scheme.
+int _buildOf(String version) {
+  final parts = version.split('.').map((p) => int.tryParse(p.replaceAll(RegExp(r'[^0-9]'), '')) ?? 0).toList();
+  return parts.isEmpty ? 0 : parts.last;
+}
+
+/// Whether an installed app is older than the published one, in the office's
+/// numbering (docs/UPDATING-FOR-DEVELOPERS.md): `1.0.<build>`, where **only** the
+/// build moves and every older release was folded into it (`1.21.7` → `1.0.1217`).
+///
+/// The plain segment compare cannot answer this question during the transition, and
+/// the failure is silent in the worst direction: an install on `1.21.7` reads
+/// `21 > 0`, decides it is *newer* than `1.0.1217`, and never shows the update
+/// banner — the one group of users who must be told. So the build decides here,
+/// with [compareVersions] only breaking ties.
+///
+/// Two pre-scheme releases compared to each other is not a question the app asks;
+/// if it ever becomes one, use [compareVersions] instead and say why.
+int compareAppVersions(String installed, String published) {
+  final a = _buildOf(installed);
+  final b = _buildOf(published);
+  if (a != b) return a.compareTo(b);
+  return compareVersions(installed, published);
 }
 
 Future<String> currentAppVersion() async {

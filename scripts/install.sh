@@ -594,6 +594,15 @@ fi
 
 heading "پشتیبان‌گیری زمان‌بندی‌شده"
 install -m 0755 "${CURRENT_LINK}/scripts/pishkan" /usr/local/bin/pishkan
+
+# The privilege the admin panel's update button needs, installed once here so the
+# office never pastes a sudoers line by hand. Generated next to the binary it
+# names, and validated with visudo before it can lock anyone out.
+if [ -f "${CURRENT_LINK}/scripts/lib/update-sudoers.sh" ]; then
+  # shellcheck source=/dev/null
+  . "${CURRENT_LINK}/scripts/lib/update-sudoers.sh"
+  install_update_sudoers "$APP_USER" /usr/local/bin/pishkan || warn "مجوز به‌روزرسانی از پنل نصب نشد؛ به‌روزرسانی فقط با sudo pishkan update انجام می‌شود."
+fi
 cat >/etc/systemd/system/pishkan-backup.service <<EOF
 [Unit]
 Description=Pishkan daily backup

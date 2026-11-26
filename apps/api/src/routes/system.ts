@@ -23,6 +23,7 @@ import { writeAudit } from '../modules/audit/service.js';
 import { getBool, getNumber, getString } from '../modules/settings/service.js';
 import { param } from '../http/params.js';
 import { lanAccessInfo } from '../lib/server-bind.js';
+import { checkForUpdate, startUpdate, getUpdateJob, updateJobDto } from '../modules/system/update.js';
 
 export const systemRouter = Router();
 systemRouter.use(requireAuth);
@@ -51,6 +52,32 @@ systemRouter.get('/status', requirePermission('system.view'), asyncRoute(async (
     apiUrl: env.apiUrl,
     maintenance: await getBool('maintenance.mode'),
   });
+}));
+
+/* -------------------------------- update ---------------------------------- */
+/*
+ * The panel's «به‌روزرسانی» tab. Everything here defers to `scripts/pishkan`; see
+ * modules/system/update.ts for why the grant is narrow and why there is no field
+ * for a repository address, a branch or a commit.
+ */
+
+systemRouter.get('/update/check', requirePermission('system.view'), asyncRoute(async (_req, res) => {
+  ok(res, await checkForUpdate());
+}));
+
+systemRouter.post('/update/start', requirePermission('system.edit'), asyncRoute(async (req, res) => {
+  const job = await startUpdate(req.auth!.user.fullName);
+  await writeAudit({
+    actorId: req.auth!.user.id, actorName: req.auth!.user.fullName, action: 'system.update_start',
+    entityType: 'system', entityId: job.id, after: { fromCommit: job.fromCommit }, ip: req.ip,
+  });
+  ok(res, updateJobDto(job));
+}));
+
+systemRouter.get('/update/job/:id', requirePermission('system.view'), asyncRoute(async (req, res) => {
+  const job = await getUpdateJob(param(req, 'id'));
+  if (!job) { ok(res, { id: param(req, 'id'), status: 'unknown', lines: [] }); return; }
+  ok(res, updateJobDto(job));
 }));
 
 /** Read-only LAN address discovery for the admin panel (no secrets, no tokens). */

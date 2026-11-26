@@ -128,7 +128,9 @@ $statusPanel.Controls.Add($verdict)
 
 # ---------------------------------------------------------------- actions
 
-$actionsPanel = New-PishkanPanel 300 250 'card'
+# 250 → 256: the update row added below needs the height, and 108+256 still clears
+# the info panel at y=366 — the grid is packed to the pixel on purpose.
+$actionsPanel = New-PishkanPanel 300 256 'card'
 $actionsPanel.Location = New-Object System.Drawing.Point(12, 108)
 $form.Controls.Add($actionsPanel)
 
@@ -169,6 +171,16 @@ $actionsPanel.Controls.Add($restoreButton)
 $refreshButton = New-PishkanButton 'به‌روزرسانی وضعیت' 'ghost' 120 34
 $refreshButton.Location = New-Object System.Drawing.Point(24, 186)
 $actionsPanel.Controls.Add($refreshButton)
+# The pair the office was missing: «به‌روزرسانی وضعیت» only re-reads the local
+# service. These two talk to the repository — the first is read-only and cheap,
+# the second is the one that moves code (and it takes its own backup first).
+$versionCheckButton = New-PishkanButton 'بررسی نسخهٔ تازه' 'ghost' 120 32
+$versionCheckButton.Location = New-Object System.Drawing.Point(24, 224)
+$actionsPanel.Controls.Add($versionCheckButton)
+
+$updateButton = New-PishkanButton 'به‌روزرسانی سامانه' 'accent' 120 32
+$updateButton.Location = New-Object System.Drawing.Point(154, 224)
+$actionsPanel.Controls.Add($updateButton)
 
 # ------------------------------------------------------------------- logs
 
@@ -666,6 +678,67 @@ $openButton.Add_Click({ if ($script:AppUrl) { Start-Process $script:AppUrl } })
 $lanButton.Add_Click({ Show-LanDialog })
 $tunnelButton.Add_Click({ Show-TunnelDialog })
 $dataButton.Add_Click({ [void](Invoke-Manager @('open-data')) })
+
+$versionCheckButton.Add_Click({
+  if ($script:Busy) { return }
+  $script:Busy = $true
+  Set-Footer 'در حال بررسی نسخهٔ تازه در مخزن…' 'warn'
+  [System.Windows.Forms.Application]::DoEvents()
+  try {
+    $info = Invoke-Manager @('update-check')
+    if (@($info.problems).Count -gt 0) { Set-Footer ([string]$info.problems[0]) 'warn'; return }
+    if ($info.available) {
+      Set-Footer ('نسخهٔ تازه موجود است — ' + [string]$info.current.version + ' → ' + [string]$info.target.branch) 'ok'
+    } else {
+      Set-Footer ('همین نسخه تازه‌ترین است (' + [string]$info.current.version + ').') 'ok'
+    }
+  } catch {
+    Set-Footer ('بررسی نسخه ممکن نشد: ' + $_.Exception.Message) 'error'
+  } finally {
+    $script:Busy = $false
+  }
+})
+
+$updateButton.Add_Click({
+  if ($script:Busy) { return }
+  # Checked here rather than trusted from the footer: a minute has usually
+  # passed since the last look, and the backup-before-move promise depends on
+  # the tree still being clean when we start.
+  $check = Invoke-Manager @('update-check')
+  if (@($check.problems).Count -gt 0) {
+    Show-PishkanMessage 'به‌روزرسانی انجام نشد' (([string[]]$check.problems) -join [Environment]::NewLine) 'warn'
+    return
+  }
+  if (-not $check.available) {
+    Show-PishkanMessage 'به‌روزرسانی' 'همین نسخه، تازه‌ترین commit مخزن است؛ چیزی برای نصب نیست.' 'info'
+    return
+  }
+  $confirm = [System.Windows.Forms.MessageBox]::Show(
+    "پیش از هر تغییر، یک پشتیبان کامل از پایگاه داده گرفته می‌شود و اگر سرویس تازه سالم بالا نیاید، خودکار به همین نسخهٔ فعلی باز می‌گردد.`n`n"
+    + ('انتقال از ' + [string]$check.current.commit.Substring(0, 8) + ' به ' + [string]$check.target.commit.Substring(0, 8) + ' (شاخهٔ ' + [string]$check.target.branch + ').') + "`n`nادامه می‌دهید؟",
+    'تأیید به‌روزرسانی', [System.Windows.Forms.MessageBoxButtons]::YesNo, [System.Windows.Forms.MessageBoxIcon]::Warning)
+  if ($confirm -ne 'Yes') { return }
+  $script:Busy = $true
+  Set-Footer 'در حال به‌روزرسانی؛ پنل را نبندید…' 'warn'
+  [System.Windows.Forms.Application]::DoEvents()
+  try {
+    # Up to half an hour: a first npm ci on a modest laptop is slow, and an
+    # aborted update is worse than a patient window.
+    $result = Invoke-ManagerAsync @('update') 1800
+    if ($result.ok) {
+      Set-Footer ('نسخهٔ تازه فعال شد — ' + [string]$result.message) 'ok'
+      Show-PishkanMessage 'به‌روزرسانی انجام شد' ([string]$result.message) 'info'
+    } else {
+      Set-Footer ('به‌روزرسانی کامل نشد: ' + [string]$result.message) 'error'
+      Show-PishkanMessage 'به‌روزرسانی' ([string]$result.message) 'error'
+    }
+    Update-Status
+  } catch {
+    Set-Footer ('به‌روزرسانی ناموفق بود: ' + $_.Exception.Message) 'error'
+  } finally {
+    $script:Busy = $false
+  }
+})
 
 $backupButton.Add_Click({
   if ($script:Busy) { return }
