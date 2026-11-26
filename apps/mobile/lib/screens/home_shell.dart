@@ -111,9 +111,12 @@ class _HomeShellState extends State<HomeShell> with WidgetsBindingObserver {
       _refreshUnread();
       return;
     }
-    if (state == AppLifecycleState.paused || state == AppLifecycleState.inactive) {
+    if (state == AppLifecycleState.paused || state == AppLifecycleState.hidden) {
       // Pocket or home screen: hand the announcing back to the tray and let the
       // socket reconnect, which replays anything that arrived unconfirmed.
+      // `inactive` is deliberately not a trigger — it also fires for a
+      // permission dialog or the shade pulled down over the app, and flipping
+      // there would move the announcement out from under the customer's eyes.
       unawaited(KeepAlive.setQuiet(false));
     }
   }

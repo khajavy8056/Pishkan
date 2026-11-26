@@ -41,6 +41,16 @@ class KeepAlive {
 
   static bool _supportsPlatform = Platform.isAndroid;
 
+  /// The mode the platform side is currently in, mirrored here so arming never
+  /// loses it.
+  ///
+  /// Starts `true` because the only caller that arms the connection is the
+  /// shell's `initState`, which runs while the app is on screen. Without this,
+  /// every app open would push the server's replay of unconfirmed notices into
+  /// the tray as a burst of notifications — for events the customer is about to
+  /// see in the bell, one screen away.
+  static bool _quietWhileForeground = true;
+
   /// Arm or disarm from what the user chose and what the session allows.
   ///
   /// Safe to call on every sign-in, server change and toggle: the service treats
@@ -59,6 +69,10 @@ class KeepAlive {
         'baseUrl': session.serverUrl,
         'token': token,
       });
+      // Re-assert the mode after arming: `start` may have created the service,
+      // and a service that comes up in the default mode would announce the
+      // replay in the tray while the app is on screen.
+      await _channel.invokeMethod<void>('setQuiet', <String, dynamic>{'quiet': _quietWhileForeground});
     } catch (_) {
       // Missing plugin (tests, a build without the native side) or a dead
       // channel: the polling paths are unaffected, which is the whole point of
@@ -83,6 +97,9 @@ class KeepAlive {
   /// socket so the server replays anything that arrived in between.
   static Future<void> setQuiet(bool quiet) async {
     if (!_supportsPlatform) return;
+    final changed = quiet != _quietWhileForeground;
+    _quietWhileForeground = quiet;
+    if (!changed && quiet) return; // already quiet: nothing to tell the service
     try {
       final token = session.token;
       await _channel.invokeMethod<void>('setQuiet', <String, dynamic>{
