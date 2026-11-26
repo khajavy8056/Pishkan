@@ -12,6 +12,7 @@ import '../widgets/service_art_overlay.dart';
 import '../widgets/widgets.dart';
 import 'request_form.dart';
 import 'support.dart';
+import '../core/tour.dart';
 
 /// Service detail (approved design): banner + floating info card,
 /// backend-driven tabs (توضیحات / مدارک موردنیاز / پرسش‌وپاسخ) and the
@@ -383,10 +384,18 @@ class _ServiceDetailScreenState extends State<ServiceDetailScreen> {
           SizedBox(width: sizes.s(10)),
           Expanded(
             flex: 6,
-            child: PlushButton(
-              label: open ? 'ثبت درخواست' : 'پذیرش موقتاً بسته است',
-              arrow: open,
-              onPressed: open ? () => Navigator.push(context, MaterialPageRoute(builder: (_) => RequestFormScreen(service: service))) : null,
+            // The guided tour of the request flow begins here and only here:
+            // this is the button the customer is looking for, so a step about
+            // "how a request starts" has something real to frame. `autostart`
+            // asks the server-side catalogue once this element is on screen.
+            child: TourAnchor(
+              name: 'service-start',
+              autostart: true,
+              child: PlushButton(
+                label: open ? 'ثبت درخواست' : 'پذیرش موقتاً بسته است',
+                arrow: open,
+                onPressed: open ? () => Navigator.push(context, MaterialPageRoute(builder: (_) => RequestFormScreen(service: service))) : null,
+              ),
             ),
           ),
         ]),

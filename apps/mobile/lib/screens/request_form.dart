@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:io';
 
 import 'package:flutter/material.dart';
@@ -7,6 +8,7 @@ import '../core/api.dart';
 import '../core/format.dart';
 import '../core/service_icons.dart';
 import '../core/sizes.dart';
+import '../core/tour.dart';
 import '../core/theme.dart';
 import '../models/models.dart';
 import '../services/services.dart';
@@ -190,6 +192,11 @@ class _RequestFormScreenState extends State<RequestFormScreen> {
       for (final requirement in widget.service.requirements) {
         if (requirement.required && !_requirementFiles.containsKey(requirement.key)) {
           showSnack(context, 'مدرک «${requirement.title}» الزامی است.', error: true);
+          // The snack says what is missing once and vanishes. If the same wall
+          // is met twice, the customer is not reading snackbars — they are
+          // looking for the control — so the tour asks the server for a short
+          // pointer at the picker they have not noticed, and nothing more.
+          unawaited(TourController.instance.fireHint('confirm-before-document'));
           return;
         }
       }
@@ -267,7 +274,10 @@ class _RequestFormScreenState extends State<RequestFormScreen> {
       // gap of blank surface under it.
       resizeToAvoidBottomInset: false,
       body: Column(children: [
-        _stepper(),
+        // `autostart: true` on the first element of a screen is what asks the
+        // tour whether it should begin — the question is asked when the thing it
+        // explains appears, not on a timer that may fire before it exists.
+        TourAnchor(name: 'request-form', autostart: true, child: _stepper()),
         Expanded(
           child: ListView(padding: const EdgeInsets.fromLTRB(16, 6, 16, 18), children: [
             switch (_step) {
@@ -364,12 +374,15 @@ class _RequestFormScreenState extends State<RequestFormScreen> {
         SoftCard(child: Text('این خدمت مدرک از پیش‌تعریف‌شده‌ای ندارد. اگر بعداً مدرکی لازم شد، کارشناس در پرونده اطلاع می‌دهد و از همین اپ ارسالش می‌کنید.', style: TextStyle(color: context.inkMuted, fontSize: 13, height: 1.9)))
       else
         SoftCard(
-          child: Column(children: [
+          // The block a tour step frames: naming it here is what lets the
+          // guide point at the customer's own documents instead of describing
+          // them from memory.
+          child: TourAnchor(name: 'request-documents', child: Column(children: [
             for (var i = 0; i < service.requirements.length; i++) ...[
               _requirementRow(service.requirements[i]),
               if (i < service.requirements.length - 1) const Divider(height: 22),
             ],
-          ]),
+          ])),
         ),
       const SizedBox(height: 10),
       Text('عکس واضح و خوانا از اصل مدرک بفرستید؛ کیفیت پایین، بررسی را عقب می‌اندازد.', textAlign: TextAlign.center, style: TextStyle(fontSize: 11.5, color: context.inkMuted)),
@@ -458,12 +471,28 @@ class _RequestFormScreenState extends State<RequestFormScreen> {
           if (requirement.description.isNotEmpty) Text(requirement.description, style: TextStyle(fontSize: 11.5, color: context.inkMuted, height: 1.8)),
           if (uploaded != null) Text(uploaded.profileId.isNotEmpty ? '${uploaded.name} — تأییدشده در پروفایل' : uploaded.checked ? '${uploaded.name} — بررسی اولیه تصویر گذشت؛ در انتظار بررسی کارشناس' : '${uploaded.name} — خوانایی خودکار بررسی نشد؛ در انتظار کارشناس', style: TextStyle(fontSize: 11, color: color)),
           if (error != null) Text(error, style: const TextStyle(fontSize: 11.5, color: PishkanColors.danger, height: 1.7)),
-          if (_matchingDocs(requirement).isNotEmpty) TextButton.icon(onPressed: busy ? null : () => _chooseProfileDoc(requirement), icon: const Icon(Icons.folder_shared_outlined, size: 18), label: const Text('انتخاب مدرک تأییدشده پروفایل')),
+          if (_matchingDocs(requirement).isNotEmpty)
+            TourAnchor(
+              name: 'profile-document-picker',
+              child: TextButton.icon(onPressed: busy ? null : () => _chooseProfileDoc(requirement), icon: const Icon(Icons.folder_shared_outlined, size: 18), label: const Text('انتخاب مدرک تأییدشده پروفایل')),
+            ),
         ]),
       ),
       busy
           ? const SizedBox(width: 20, height: 20, child: CircularProgressIndicator(strokeWidth: 2))
-          : TextButton(onPressed: () => _pickRequirementFile(requirement), child: Text(uploaded == null ? 'بارگذاری' : 'جایگزین')),
+          : TextButton(
+              onPressed: () {
+                // The reported mistake exactly: a document the profile already
+                // holds is photographed again instead of picked from it. The
+                // first time is nobody's fault; the third time is a pattern, and
+                // the server is what decides which one this is.
+                if (_matchingDocs(requirement).isNotEmpty) {
+                  unawaited(TourController.instance.fireHint('document-from-profile'));
+                }
+                unawaited(_pickRequirementFile(requirement));
+              },
+              child: Text(uploaded == null ? 'بارگذاری' : 'جایگزین'),
+            ),
     ]);
   }
 
@@ -506,7 +535,7 @@ class _RequestFormScreenState extends State<RequestFormScreen> {
       ),
       const SectionTitle(title: 'پرداخت و سرعت انجام'),
       SoftCard(
-        child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+        child: TourAnchor(name: 'request-price', child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
           if (service.urgentAvailable) ...[
             const Text('سرعت انجام', style: TextStyle(fontWeight: FontWeight.w700, fontSize: 13)),
             const SizedBox(height: 8),
@@ -566,7 +595,7 @@ class _RequestFormScreenState extends State<RequestFormScreen> {
             const SizedBox(width: 6),
             Text(faMoney(_displayTotal), style: const TextStyle(fontWeight: FontWeight.w800, fontSize: 17, color: PishkanColors.primary)),
           ]),
-        ]),
+        ])),
       ),
     ]);
   }
@@ -638,12 +667,18 @@ class _RequestFormScreenState extends State<RequestFormScreen> {
         ],
         Expanded(
           flex: 5,
-          child: PlushButton(
+          // The one control every flow ends on, named so a guide can point at
+          // it — and so a tour step never has to describe a button it cannot
+          // see measured.
+          child: TourAnchor(
+            name: 'request-submit',
+            child: PlushButton(
             label: _step == 2 ? 'ثبت نهایی درخواست' : 'مرحلهٔ بعد',
             arrow: _step < 2,
             icon: _step == 2 ? Icons.check_circle_rounded : null,
             loading: _submitting,
             onPressed: _step == 2 ? _submit : _next,
+          ),
           ),
         ),
       ]),

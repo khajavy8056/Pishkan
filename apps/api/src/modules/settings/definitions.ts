@@ -32,7 +32,7 @@ export interface SettingDef {
 export type SettingGroupCode =
   | 'general' | 'landing' | 'domain' | 'auth' | 'sms' | 'email' | 'security' | 'services'
   | 'accounting' | 'wallet' | 'workforce' | 'payroll' | 'assistant' | 'files' | 'backup'
-  | 'maintenance' | 'monitoring' | 'multibranch' | 'support' | 'android_app';
+  | 'maintenance' | 'monitoring' | 'multibranch' | 'support' | 'android_app' | 'tours';
 
 export const SETTING_GROUPS: {
   code: SettingGroupCode;
@@ -61,6 +61,7 @@ export const SETTING_GROUPS: {
   { code: 'multibranch', title: 'چنددفتره', description: 'آماده‌سازی برای مدیریت چند دفتر مستقل (آزمایشی)', icon: 'building', order: 16 },
   { code: 'support', title: 'پشتیبانی و تیکت‌ها', description: 'فعال‌سازی میز پشتیبانی مشتریان و متن راهنمای آن', icon: 'life-buoy', order: 18 },
   { code: 'android_app', title: 'اپ اندروید مشتریان', description: 'نسخه‌بندی و سیاست به‌روزرسانی اپ، نوار اطلاعیه و روشن/خاموش بودن بنرها — مدیریت کامل بنرها در بخش «اپ اندروید» پنل مدیر کل است', icon: 'smartphone', order: 19 },
+  { code: 'tours', title: 'راهنمای تصویری سامانه', description: 'گام‌به‌گام آموزش پنل مشتری و کارکنان، و راهنمای‌های کوتاهِ موقعیتی که پس از تکرار یک اشتباه نشان داده می‌شوند', icon: 'compass', order: 20 },
 ];
 
 const bool = (v: boolean) => v;
@@ -260,6 +261,15 @@ export const SETTINGS: SettingDef[] = [
   { key: 'workforce.followup_after_hours', group: 'workforce', type: 'number', label: 'آستانهٔ یادآوری پیگیری (ساعت بدون تغییر)', default: 24, min: 1, max: 720 },
   { key: 'workforce.auto_assign_on_shift', group: 'workforce', type: 'boolean', label: 'فقط کارشناسان حاضر در شیفت ارجاع بگیرند', hint: 'برای دفتر تازه‌راه‌اندازی‌شده خاموش است؛ پس از تعریف شیفت‌ها و حضور کارکنان می‌توانید آن را فعال کنید.', default: bool(false) },
 
+  /* --------------------------------- tours --------------------------------- */
+  { key: 'tours.enabled', group: 'tours', type: 'boolean', label: 'راهنمای تصویری فعال', hint: 'با خاموش‌کردن آن، نه راهنمای گام‌به‌گام شروع می‌شود و نه راهنمای موقعیتی؛ داده‌های «چه کسی تا کجا دیده» پاک نمی‌شود.', default: bool(true), public: true },
+  { key: 'tours.auto_start', group: 'tours', type: 'boolean', label: 'اجرای خودکار راهنما در نخستین ورود', hint: 'روشن: برای کسی که هنوز راهنما را ندیده، یک‌بار خودش باز می‌شود. خاموش: راهنما فقط با دکمهٔ «راهنما» باز می‌شود و هیچ‌کس میان کارش قطع نمی‌شود.', default: bool(true) },
+  { key: 'tours.dismiss_retry_days', group: 'tours', type: 'number', label: 'فاصله تا پیشنهاد دوباره پس از «رد کردن» (روز)', hint: 'اگر کاربری راهنما را رد کرد، پس از این مدت و فقط اگر دوباره سر همان صفحه بود، یک بار دیگر پیشنهاد می‌شود. صفر یعنی هرگز.', default: 30, min: 0, max: 365 },
+  { key: 'tours.hints_enabled', group: 'tours', type: 'boolean', label: 'راهنمای‌های موقعیتی (پس از تکرار اشتباه) فعال', hint: 'این‌ها راهنمای کوتاه و یک‌خطی‌اند که فقط وقتی نشان داده می‌شوند کاربر چند بار پشت سر هم همان کار نادرست را انجام داده باشد؛ جایگزین بازشدن دوبارهٔ کل راهنما نمی‌شوند.', default: bool(true) },
+  { key: 'tours.hint_repeat_after', group: 'tours', type: 'number', label: 'تکرار یک کار تا نمایش راهنمای موقعیتی', hint: 'مثلاً ۲ یعنی بار دوم که کاربر همان اشتباه را انجام داد راهنمای کوتاه می‌آید. عدد بالاتر مداخله‌گر کمتر.', default: 2, min: 1, max: 10 },
+  { key: 'tours.hint_max_per_day', group: 'tours', type: 'number', label: 'سقف راهنمای موقعیتی برای هر کاربر در روز', hint: 'پس از این تعداد، تا فردا هیچ راهنمای کوتاه تازه‌ای نشان داده نمی‌شود.', default: 3, min: 0, max: 20 },
+  { key: 'tours.copy_override', group: 'tours', type: 'json', label: 'متن‌های جایگزین راهنما', hint: 'برای تغییر یک جمله بدون انتشار نسخهٔ جدید. نمونه: {"tours":{"customer-request":{"documents":{"body":"…"}}},"hints":{"document-from-profile":{"title":"…"}}}. کلیدهای ناشناخته نادیده گرفته می‌شوند.', default: '{}' },
+
   /* -------------------------------- assistant ------------------------------ */
   { key: 'assistant.enabled', group: 'assistant', type: 'boolean', label: 'دستیار هوشمند فعال', default: bool(true), public: true },
   { key: 'assistant.name', group: 'assistant', type: 'text', label: 'نام دستیار', default: 'دستیار هوشمند پیشخوان', public: true },
@@ -356,7 +366,7 @@ export const SETTINGS: SettingDef[] = [
   { key: 'multibranch.allow_cross_branch_reports', group: 'multibranch', type: 'boolean', label: 'گزارش تلفیقی بین دفاتر', default: bool(false) },
 
   /* --------------------------- Android customer app --------------------------- */
-  { key: 'app.latest_version', group: 'android_app', type: 'text', label: 'آخرین نسخه منتشرشده اپ', hint: 'آخرین نسخه‌ای که منتشر کرده‌اید. اپ اگر قدیمی‌تر باشد پیام به‌روزرسانی نشان می‌دهد؛ پس این مقدار باید با نسخه‌ای که واقعاً منتشر شده برابر باشد، وگرنه همهٔ کاربران پیام «نسخهٔ تازه موجود است» می‌بینند.', default: '1.21.3', public: true },
+  { key: 'app.latest_version', group: 'android_app', type: 'text', label: 'آخرین نسخه منتشرشده اپ', hint: 'آخرین نسخه‌ای که منتشر کرده‌اید. اپ اگر قدیمی‌تر باشد پیام به‌روزرسانی نشان می‌دهد؛ پس این مقدار باید با نسخه‌ای که واقعاً منتشر شده برابر باشد، وگرنه همهٔ کاربران پیام «نسخهٔ تازه موجود است» می‌بینند.', default: '1.21.4', public: true },
   { key: 'app.min_version', group: 'android_app', type: 'text', label: 'حداقل نسخه مجاز', hint: 'نسخه‌های قدیمی‌تر از این نمی‌توانند ادامه دهند و باید به‌روزرسانی شوند. پایین نگه داشتنش یعنی هیچ کاربری به‌خاطر نسخه از اپ بیرون نمی‌ماند.', default: '1.0.0', public: true },
   { key: 'app.update_url', group: 'android_app', type: 'url', label: 'پیوند دریافت نسخه تازه', hint: 'لینک مستقیم APK یا صفحه فروشگاه؛ خالی یعنی از «پیوند دانلود اپلیکیشن اندروید» صفحه فرود استفاده شود.', default: '', public: true },
   { key: 'app.force_update', group: 'android_app', type: 'boolean', label: 'به‌روزرسانی اجباری', hint: 'وقتی روشن است، کاربر قدیمی بدون به‌روزرسانی نمی‌تواند وارد اپ شود.', default: bool(false), public: true },

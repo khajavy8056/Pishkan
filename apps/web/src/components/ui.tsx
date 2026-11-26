@@ -1,6 +1,6 @@
 import {
   Children,cloneElement,isValidElement,useId,type ReactElement,createContext, useCallback, useContext, useEffect, useMemo, useRef, useState,
-  type ButtonHTMLAttributes, type InputHTMLAttributes, type ReactNode, type SelectHTMLAttributes, type TextareaHTMLAttributes,
+  type ButtonHTMLAttributes, type HTMLAttributes, type InputHTMLAttributes, type ReactNode, type SelectHTMLAttributes, type TextareaHTMLAttributes,
 } from 'react';
 import { CheckCircle2, AlertTriangle, Info, X, Loader2, ChevronLeft, ChevronRight, Inbox } from 'lucide-react';
 import clsx from 'clsx';
@@ -8,8 +8,14 @@ import { STATUS_LABELS, STATUS_STYLES, faNum } from '../lib/format';
 
 /* ---------------------------------- atoms --------------------------------- */
 
-export function Card({ children, className, pad = true }: { children: ReactNode; className?: string; pad?: boolean }) {
-  return <div className={clsx('card', pad && 'card-pad', className)}>{children}</div>;
+/**
+ * `...rest` is deliberate: a `Card` is the smallest unit the office layout is
+ * made of, so it is also the element a guided tour points at
+ * (`data-tour="case-documents"`). Without it every anchor would need a wrapper
+ * div, and wrappers are how a spotlight ends up framing the wrong thing.
+ */
+export function Card({ children, className, pad = true, ...rest }: { children: ReactNode; className?: string; pad?: boolean } & HTMLAttributes<HTMLDivElement>) {
+  return <div className={clsx('card', pad && 'card-pad', className)} {...rest}>{children}</div>;
 }
 
 export function SectionTitle({ title, description, action, eyebrow }: { title: string; description?: string; action?: ReactNode; eyebrow?: string }) {

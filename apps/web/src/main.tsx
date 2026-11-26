@@ -159,6 +159,9 @@ function App() {
               <Route path="/app/offers" element={customer(<CustomerOffers />)} />
               <Route path="/app/documents" element={customer(<CustomerDocuments />)} />
               <Route path="/app/messages" element={customer(<CustomerMessages />)} />
+              {/* A message notice links to the conversation itself, so the
+                  router has to be able to open it directly. */}
+              <Route path="/app/messages/:threadId" element={customer(<CustomerMessages />)} />
               <Route path="/app/support" element={customer(<CustomerSupportPage />)} />
               <Route path="/app/profile" element={customer(<CustomerProfile />)} />
               <Route path="/app/referrals" element={customer(<CustomerReferrals />)} />
@@ -171,6 +174,7 @@ function App() {
               <Route path="/staff/customers" element={staffOnly(<StaffCustomers />,'customers.view')} />
               <Route path="/staff/custom-services" element={staffOnly(<StaffCustomService />,'services.create')} />
               <Route path="/staff/messages" element={staffOnly(<MessageCenter variant="staff" />)} />
+              <Route path="/staff/messages/:threadId" element={staffOnly(<MessageCenter variant="staff" />)} />
               <Route path="/staff/support" element={staffOnly(<StaffSupportPage />,'support.view')} />
               <Route path="/staff/discounts" element={financial(<AdminDiscountsPage variant="staff" />,'discounts.view')} />
               <Route path="/staff/referrals" element={financial(<AdminReferrals variant="staff" />,'discounts.view')} />
@@ -200,6 +204,7 @@ function App() {
               <Route path="/admin/staff" element={adminOnly(<AdminStaff />,'staff.view')} />
               <Route path="/admin/shifts" element={adminOnly(<AdminShifts />,'shifts.view')} />
               <Route path="/admin/messages" element={adminOnly(<MessageCenter variant="admin" />)} />
+              <Route path="/admin/messages/:threadId" element={adminOnly(<MessageCenter variant="admin" />)} />
               <Route path="/admin/support" element={adminOnly(<AdminSupportPage />,'support.view')} />
               <Route path="/admin/discounts" element={adminOnly(<AdminDiscountsPage />,'discounts.view')} />
               <Route path="/admin/referrals" element={adminOnly(<AdminReferrals />,'discounts.view')} />

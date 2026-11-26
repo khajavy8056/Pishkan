@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:url_launcher/url_launcher.dart';
 
@@ -27,6 +28,8 @@ import 'payments.dart';
 import 'referrals.dart';
 import 'server_setup.dart';
 import 'wallet.dart';
+import '../core/tour.dart';
+import '../core/home_navigation.dart';
 
 /// Profile tab: identity card, quick links, connection settings and
 /// edit-profile / change-password / sign-out actions.
@@ -309,6 +312,34 @@ class _ProfileTabState extends State<ProfileTab> {
                 _link(Icons.lock_reset_rounded, 'تغییر رمز عبور', 'رمز فعلی و رمز تازه', () => Navigator.push(context, MaterialPageRoute(builder: (_) => const ChangePasswordScreen()))),
               ]),
             ),
+            // The same entry point the web account menu offers. After a guide is
+            // skipped there is no automatic second chance — so the way back has
+            // to be somewhere a person thinks to look, and it has to promise the
+            // same thing it did the first time: the tour starts on its own screen.
+            ListenableBuilder(
+              listenable: TourController.instance,
+              builder: (context, _) {
+                final guides = TourController.instance.offerings;
+                if (guides.isEmpty) return const SizedBox.shrink();
+                return Column(children: [
+                  const SectionTitle(title: 'راهنمای استفاده از اپ'),
+                  SoftCard(
+                    padding: const EdgeInsets.symmetric(vertical: 6, horizontal: 8),
+                    child: Column(children: [
+                      for (var i = 0; i < guides.length; i++) ...[
+                        _link(
+                          Icons.explore_outlined,
+                          guides[i].label,
+                          'قدم‌به‌قدم، روی همان صفحه',
+                          () => _startGuide(guides[i]),
+                        ),
+                        if (i < guides.length - 1) const Divider(height: 1),
+                      ],
+                    ]),
+                  ),
+                ]);
+              },
+            ),
             const SectionTitle(title: 'تنظیمات اپلیکیشن'),
             SoftCard(
               padding: const EdgeInsets.symmetric(vertical: 4, horizontal: 8),
@@ -472,6 +503,23 @@ class _ProfileTabState extends State<ProfileTab> {
     ]);
   }
 
+  /// Starting a guide means putting the person on its screen first.
+  ///
+  /// A tour about the request wizard has no business opening on the profile
+  /// page, so the request is handed to [TourController] and the app moves to the
+  /// screen where that tour's own anchors live — which is the moment it begins.
+  void _startGuide(TourData guide) {
+    unawaited(TourController.instance.replay(guide.code));
+    if (guide.anchor == 'profile') {
+      Navigator.push(context, MaterialPageRoute(builder: (_) => const EditProfileScreen()));
+    } else if (guide.anchor == 'service-detail') {
+      Navigator.of(context).popUntil((route) => route.isFirst);
+      requestHomeTabIndex(1);
+    }
+    // Any other destination is left alone: `replay` parked the request, and the
+    // guide opens by itself the first time a screen it belongs to is reached.
+  }
+
   Widget _link(IconData icon, String title, String subtitle, VoidCallback onTap, {bool ltr = false}) {
     return ListTile(
       leading: Container(
@@ -593,7 +641,13 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
         'cityId': _cityId,
       };
       await api.patchData('/api/auth/profile', body: body);
-      await fetchMe();
+      final me = await fetchMe();
+      // Saved, and still incomplete: the same save a second and third time is
+      // the pattern that means the missing fields are not being noticed rather
+      // than not being known. The server decides when that becomes a tip.
+      if (asMap(asMap(me['profileState']))['complete'] == false) {
+        unawaited(TourController.instance.fireHint('profile-incomplete'));
+      }
       if (mounted) {
         showSuccess(context, 'مشخصات شما به‌روزرسانی شد.');
         Navigator.pop(context);
@@ -657,7 +711,11 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
           borderRadius: BorderRadius.vertical(top: const Radius.circular(20)),
           boxShadow: const [BoxShadow(color: Color(0x140B1F3A), blurRadius: 18, offset: Offset(0, -5))],
         ),
-        child: PlushButton(label: 'ذخیرهٔ تغییرات', icon: Icons.save_rounded, loading: _busy, onPressed: _save),
+        child: TourAnchor(
+          name: 'profile-form',
+          autostart: true,
+          child: PlushButton(label: 'ذخیرهٔ تغییرات', icon: Icons.save_rounded, loading: _busy, onPressed: _save),
+        ),
       ),
     );
   }

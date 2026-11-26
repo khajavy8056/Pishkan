@@ -3,7 +3,7 @@ import { Link, NavLink, useLocation, useNavigate } from 'react-router-dom';
 import {
   LayoutDashboard, ClipboardList, Wallet, MessageSquare, User, Bell, LogOut, Menu, X, Search, Activity,
   Building2, Users, CalendarClock, FileText, Receipt, BarChart3, Settings, Database, ShieldCheck,
-  LifeBuoy, Shapes, Sparkles, ChevronDown, Plus, BadgeCheck, ServerCog, ClipboardCheck, ArrowLeft, Smartphone,
+  LifeBuoy, Shapes, Sparkles, Compass, ChevronDown, Plus, BadgeCheck, ServerCog, ClipboardCheck, ArrowLeft, Smartphone,
   Moon, Sun, Monitor, Headset, TicketPercent, ListChecks, BotMessageSquare, CirclePlus, Clock3, CalendarDays, Newspaper,
 } from 'lucide-react';
 import clsx from 'clsx';
@@ -16,6 +16,8 @@ import { useSite } from '../lib/site';
 import { Button, Spinner, useToast } from './ui';
 import { ChatWidget } from './ChatWidget';
 import { NotificationGate } from './NotificationGate';
+import { SmartTour } from './tour/SmartTour';
+import { loadTours, replayTour, tourSnapshot } from '../lib/tours';
 
 export interface NavItem {
   to: string;
@@ -147,6 +149,10 @@ export function AppShell({ children, variant }: { children: ReactNode; variant: 
   const [searchOpen, setSearchOpen] = useState(false);
   const [notifications, setNotifications] = useState<any[]>([]);
   const [unread, setUnread] = useState(0);
+  // The tour catalogue is per person and tiny; loading it with the shell (rather
+  // than on the first page that wants it) is what lets a step point at the
+  // shell's own navigation and lets auto-start decide before the first paint.
+  useEffect(() => { void loadTours(); }, []);
   const knownNotificationIds = useRef<Set<string> | null>(null);
 
   const nav = useMemo(() => {
@@ -527,6 +533,7 @@ export function AppShell({ children, variant }: { children: ReactNode; variant: 
                     <Link to={variant === 'customer' ? '/app/profile' : '/staff/shifts'} className="block rounded-lg px-3 py-2 text-sm text-navy-700 hover:bg-surface-3">
                       حساب کاربری
                     </Link>
+                    <TourMenuItem variant={variant} />
                     <button
                       type="button"
                       onClick={async () => { await logout(); navigate('/'); }}
@@ -600,8 +607,34 @@ export function AppShell({ children, variant }: { children: ReactNode; variant: 
 
         <NotificationGate kind={variant} />
         <ChatWidget />
+        {/* Guided tour: mounted once for every signed-in screen so a step can
+            point at anything on the page, including the shell's own navigation. */}
+        <SmartTour />
       </div>
     </div>
+  );
+}
+
+/**
+ * «راهنمای این صفحه» in the account menu.
+ *
+ * The tour must be restartable by design, not by clearing storage: someone who
+ * skipped it once and later got lost needs the same door back that they walked
+ * out of. It is hidden when there is nothing left to show on this screen, so a
+ * dead entry never appears.
+ */
+export function TourMenuItem({ variant }: { variant: 'customer' | 'staff' | 'admin' }) {
+  const state = tourSnapshot();
+  const { pathname } = useLocation();
+  const audience = variant === 'customer' ? 'customer' : 'office';
+  const tour = state.tours.find((item) => item.audience === audience
+    && item.steps.some((step) => !step.route || pathname.startsWith(step.route)));
+  if (!state.enabled || !tour) return null;
+  return (
+    <button type="button" onClick={() => { void replayTour(tour.code); }}
+      className="mt-0.5 flex w-full items-center gap-2 rounded-lg px-3 py-2 text-sm text-navy-700 hover:bg-surface-3">
+      <Compass className="size-4" /> راهنمای {tour.label}
+    </button>
   );
 }
 

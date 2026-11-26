@@ -661,6 +661,39 @@ Future<void> sendChatMessage(String threadId, {String body = '', String fileId =
   });
 }
 
+/// ---------- Guided tour ----------
+
+/// The tour catalogue for this person, with their place in it.
+///
+/// One call per sign-in rather than one per screen: a tour that has to be
+/// fetched when the wizard opens is a tour that appears a beat late, and the
+/// server already filtered out the ones this person finished or skipped.
+Future<Map<String, dynamic>> fetchTours() async {
+  return asMap(await api.getData('/api/tours'));
+}
+
+/// Progress, dismissal, completion, replay — best-effort by design.
+Future<void> recordTourProgress(String code, String action, {int step = 0}) async {
+  try {
+    await api.postData('/api/tours/$code', body: {'action': action, 'step': step});
+  } catch (_) {
+    // The tour must never fail a screen it is only decorating.
+  }
+}
+
+/// Reports a recognised wrong action and returns whether a tip may be shown.
+///
+/// The answer is the server's: the count lives with the account, so the same
+/// pattern on the web and on the phone is one pattern, and the office's caps
+/// apply to both clients at once.
+Future<Map<String, dynamic>> postTourHint(String key) async {
+  try {
+    return asMap(await api.postData('/api/tours/hint', body: {'key': key}));
+  } catch (_) {
+    return const {'show': false};
+  }
+}
+
 /// ---------- Profile documents ----------
 
 Future<Map<String, dynamic>> fetchMyDocuments() async {

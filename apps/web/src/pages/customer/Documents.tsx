@@ -190,7 +190,10 @@ export function CustomerDocuments() {
         title="مدارک من"
         description="کارت ملی، شناسنامه و سایر مدارک را یک‌بار خوانا و بدون برش بارگذاری کنید تا در پرونده‌ها قابل استفاده باشند."
         actions={(
-          <div className="flex gap-2">
+          // The second step of the profile tour frames this block: the promise
+          // («send it once, reuse it forever») belongs to the place the archive
+          // lives, not to the request that happens to be asking for it now.
+          <div className="flex gap-2" data-tour="profile-documents">
             <Button size="sm" variant="ghost" onClick={() => load()}><RefreshCw className="size-4" /> بازبینی</Button>
             <Button size="sm" onClick={() => openUpload()}><Plus className="size-4" /> افزودن مدرک</Button>
           </div>

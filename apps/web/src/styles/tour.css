@@ -1,0 +1,98 @@
+/*
+ * Guided tour («راهنمای تصویری»).
+ *
+ * Scoped under `.pishkan-tour` and appended to the document head by
+ * components/tour/SmartTour.tsx, so it is delivered with the tour rather than
+ * with the global stylesheet: a person who never sees a tour never downloads a
+ * byte of it.
+ *
+ * Everything here is geometry and motion. The colours come from the same
+ * Tailwind tokens as the rest of the panel — a tour that looks like a different
+ * product is a tour people trust less, not more.
+ */
+
+.pishkan-tour-scrim {
+  position: fixed;
+  inset: 0;
+  z-index: 1200;
+}
+
+/* Blocking on descriptive steps, transparent on a step the person must perform. */
+.pishkan-tour-scrim[data-mode='descriptive'] {
+  pointer-events: auto;
+}
+
+.pishkan-tour-scrim[data-mode='interactive'] {
+  pointer-events: none;
+}
+
+.pishkan-tour-ring {
+  position: fixed;
+  border-radius: 14px;
+  /* The spotlight itself: the dark field is drawn as one enormous spread, which
+     keeps the ring perfectly aligned with the element it frames while the page
+     scrolls, with no mask, no SVG and no second paint. */
+  box-shadow: 0 0 0 4px rgba(255, 255, 255, 0.14), 0 0 0 100vmax rgba(6, 18, 36, 0.66);
+  outline: 2px solid rgba(255, 255, 255, 0.92);
+  outline-offset: 0;
+  pointer-events: none;
+  transition: top 220ms cubic-bezier(0.22, 0.61, 0.36, 1),
+    left 220ms cubic-bezier(0.22, 0.61, 0.36, 1),
+    width 220ms cubic-bezier(0.22, 0.61, 0.36, 1),
+    height 220ms cubic-bezier(0.22, 0.61, 0.36, 1);
+}
+
+.pishkan-tour-card {
+  position: fixed;
+  z-index: 1201;
+  width: min(23rem, calc(100vw - 2rem));
+  transition: top 220ms cubic-bezier(0.22, 0.61, 0.36, 1),
+    left 220ms cubic-bezier(0.22, 0.61, 0.36, 1);
+}
+
+.pishkan-tour-tip {
+  position: fixed;
+  z-index: 1190;
+  width: min(20rem, calc(100vw - 2rem));
+  animation: pishkan-tip-in 240ms cubic-bezier(0.22, 0.61, 0.36, 1) both;
+}
+
+@keyframes pishkan-tip-in {
+  from {
+    opacity: 0;
+    transform: translateY(6px) scale(0.98);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+.pishkan-tour-dots span {
+  display: block;
+  height: 6px;
+  width: 6px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.35);
+  transition: background 160ms linear, width 200ms cubic-bezier(0.22, 0.61, 0.36, 1);
+}
+
+.pishkan-tour-dots span[data-current='true'] {
+  background: #fff;
+  width: 18px;
+}
+
+/*
+ * A tour that slides things around while the person is trying to read them is
+ * the opposite of helpful. With motion off the ring and card jump to their new
+ * place instead of travelling, and the tip simply appears.
+ */
+@media (prefers-reduced-motion: reduce) {
+  .pishkan-tour-ring,
+  .pishkan-tour-card {
+    transition: none;
+  }
+  .pishkan-tour-tip {
+    animation: none;
+  }
+}

@@ -76,6 +76,9 @@ class _HomeShellState extends State<HomeShell> with WidgetsBindingObserver {
     }
     // Warm the sound preference so the first tap does not await the disk.
     AppPrefs.soundsEnabled().ignore();
+    // The tour catalogue is per person and small: fetched once here so a step
+    // can point at anything on any screen, including this shell's own tabs.
+    unawaited(TourController.instance.load());
     _refreshUnread();
     // First check shortly after entering, then every 30s while visible.
     Future<void>.delayed(const Duration(seconds: 4), _poll);
@@ -115,6 +118,11 @@ class _HomeShellState extends State<HomeShell> with WidgetsBindingObserver {
   }
 
   void _sessionChanged() {
+    if (!session.isSignedIn) {
+      // Tour state follows the person, not the phone: the next account to sign
+      // in has its own answers about what it has already been shown.
+      TourController.instance.resetForNewSession();
+    }
     if (!session.isSignedIn && mounted) {
       Navigator.pushAndRemoveUntil(context, MaterialPageRoute(builder: (_) => const LoginScreen()), (_) => false);
     }

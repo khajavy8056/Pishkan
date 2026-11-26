@@ -4,10 +4,11 @@ import { Link, useParams, useSearchParams } from 'react-router-dom';
 import {
   ClipboardList, FileText, Clock, AlertTriangle, CheckCircle2, UserPlus, UploadCloud, Send,
   Users, CalendarClock, ArrowRight, Wallet, RefreshCw, LogIn, LogOut, Search, MessageSquare,
-  ShieldAlert, Download, BadgeCheck, FileCheck2, XCircle, Landmark, PackageCheck, Paperclip,
+  ShieldAlert, Download, BadgeCheck, FileCheck2, XCircle, Landmark, PackageCheck, Paperclip, History,
 } from 'lucide-react';
 import clsx from 'clsx';
 import { AppShell, PageHeader } from '../../components/shell';
+import { fireTourHint } from '../../lib/tours';
 import { DocumentViewer, FileSummary, FileThumbnail } from '../../components/documents';
 import {
   Badge, Button, Card, EmptyState, ErrorState, Field, Input, Loading, Modal, Select, StatCard,
@@ -326,8 +327,18 @@ export function RequestDetail({ variant = 'staff' }: { variant?: 'staff' | 'admi
       const res = await api.post<{ data: any }>(`/api/requests/${id}/steps/${direction > 0 ? 'advance' : 'back'}`, {});
       setRequest(res.data);
       notify(direction > 0 ? 'مرحلهٔ پرونده جلو رفت.' : 'به مرحلهٔ قبل برگشتید.', 'success');
+      // Working inside a case that is on no one's board is how work gets
+      // double-handled and how a deadline is missed. Naming the assign button is
+      // the whole tip; whether to interrupt at all is the server's call.
+      if (direction > 0 && !res.data?.assigneeName) void fireTourHint('unassigned-case');
     } catch (err) {
-      notify(err instanceof ApiFailure ? err.message : 'خطا در تغییر مرحله', 'error');
+      const message = err instanceof ApiFailure ? err.message : 'خطا در تغییر مرحله';
+      notify(message, 'error');
+      // The most common way to be blocked here is pressing «انجام شد» while a
+      // document is still unverified. The error line says it once and scrolls
+      // past; the tip points at the block that has to be cleared, and the
+      // server keeps it to people who actually keep doing it.
+      if (direction > 0 && /مدرک|مدارک/.test(message)) void fireTourHint('confirm-before-document');
     } finally { setBusy(false); }
   };
 
@@ -506,8 +517,8 @@ export function RequestDetail({ variant = 'staff' }: { variant?: 'staff' | 'admi
             {can('requests.edit') && ['assigned', 'in_progress', 'waiting_documents', 'waiting_customer'].includes(request.status) && <Button size="sm" onClick={() => setDeliverModal(true)}><PackageCheck className="size-4" /> تحویل به مشتری</Button>}
             {can('requests.edit')&&<Button size="sm" variant="ghost" onClick={() => { setNextStatus(request.status); setStatusModal(true); }}>تغییر وضعیت</Button>}
             {can('requests.edit')&&<Button size="sm" variant="ghost" onClick={openDeadline}><CalendarClock className="size-4" /> مهلت قطعی</Button>}
-            {office&&can('requests.edit')&&<Button size="sm" variant="ghost" onClick={openAssign}><UserPlus className="size-4" /> ارجاع مسئول</Button>}
-            <Link to={`${base}/messages?request=${request.id}`} className="btn-ghost btn-sm"><MessageSquare className="size-4" /> گفت‌وگو</Link>
+            {office&&can('requests.edit')&&<Button size="sm" variant="ghost" data-tour="case-assign" onClick={openAssign}><UserPlus className="size-4" /> ارجاع مسئول</Button>}
+            <Link to={`${base}/messages?request=${request.id}`} data-tour="case-chat" className="btn-ghost btn-sm"><MessageSquare className="size-4" /> گفت‌وگو</Link>
           </div>
         }
       />
@@ -569,7 +580,7 @@ export function RequestDetail({ variant = 'staff' }: { variant?: 'staff' | 'admi
                     <PackageCheck className="size-4" /> تحویل به مشتری و پایان کار
                   </Button>
                 ) : (
-                  <Button size="sm" loading={busy} onClick={() => void moveStep(1)}>
+                  <Button size="sm" data-tour="case-advance" onClick={() => void moveStep(1)}>
                     <CheckCircle2 className="size-4" />
                     {request.currentStepTitle ? `«${request.currentStepTitle}» انجام شد؛ مرحلهٔ بعد` : 'مرحلهٔ بعد'}
                   </Button>
@@ -581,7 +592,7 @@ export function RequestDetail({ variant = 'staff' }: { variant?: 'staff' | 'admi
 
           <CaseAutomation request={request} onChange={load} />
           {can('payroll.contracts.edit') && <CommissionSharesCard requestId={request.id} />}
-          <Card>
+          <Card data-tour="case-documents">
             <h2 className="mb-3 font-bold text-navy-900">مدارک پرونده</h2>
             {request.documents.length === 0 && <p className="text-sm text-navy-400">مدرکی پیوست نشده است.</p>}
             <div className="space-y-2">
@@ -628,7 +639,7 @@ export function RequestDetail({ variant = 'staff' }: { variant?: 'staff' | 'admi
           </Card>
 
           <Card>
-            <h2 className="mb-3 font-bold text-navy-900">تاریخچه و یادداشت‌ها</h2>
+            <h2 className="mb-3 flex items-center gap-1.5 font-bold text-navy-900" data-tour="case-timeline"><History className="size-4 text-navy-400" /> تاریخچه و یادداشت‌ها</h2>
             <ol className="relative space-y-4 border-r border-navy-100 pr-4">
               {request.events.map((event: any) => (
                 <li key={event.id} className="relative">

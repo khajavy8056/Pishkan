@@ -9,6 +9,7 @@ import clsx from 'clsx';
 import { PublicLayout } from '../../components/public-layout';
 import { CategoryIcon } from '../../components/visual';
 import { AppShell } from '../../components/shell';
+import { fireTourHint } from '../../lib/tours';
 import { formatDuration, useSite, type FormField, type Service } from '../../lib/site';
 import { useAuth, homeFor } from '../../lib/auth';
 import { api, ApiFailure } from '../../lib/api';
@@ -401,12 +402,17 @@ export function ServiceDetailPage({ variant = 'public' }: { variant?: 'public' |
         message: field.type === 'checkbox' ? `«${field.label}» باید تأیید شود.` : `«${field.label}» الزامی است.`,
       })));
       setFormError('پیش از ثبت، فیلدهای الزامی مشخص‌شده را کامل کنید.');
+      // Not a validation message — a tour event. The server decides whether a
+      // person who keeps meeting this wall gets a short tip pointing at the
+      // block they are skipping, and how often.
+      void fireTourHint('confirm-before-document');
       return;
     }
     if (missingRequiredDocuments > 0) {
       const missingDocuments = documentRequirements.filter((document) => document.required && !documentUploads[document.key]);
       setFieldErrors(missingDocuments.map((document) => ({ path: `documents.${document.key}`, message: `بارگذاری مدرک «${document.title}» الزامی است.` })));
       setFormError(`برای ادامه ${faNum(missingRequiredDocuments)} مدرک الزامی را بارگذاری کنید.`);
+      void fireTourHint('confirm-before-document');
       return;
     }
     setSubmitting(true);
@@ -634,7 +640,7 @@ export function ServiceDetailPage({ variant = 'public' }: { variant?: 'public' |
                     <p className="mt-4 text-xs leading-6 text-navy-600">
                       فرم ثبت این خدمت در پنل مشتری شما آماده است و اطلاعات پروفایل‌تان آنجا به‌صورت خودکار در تکمیل فرم کمکتان می‌کند.
                     </p>
-                    <Link to={`/app/services/${service.slug}`} className="btn-primary btn-lg mt-4 w-full">
+                    <Link to={`/app/services/${service.slug}`} data-tour="service-start" className="btn-primary btn-lg mt-4 w-full">
                       <CheckCircle2 className="size-5" /> ثبت درخواست در پنل من
                     </Link>
                   </>
@@ -653,7 +659,7 @@ export function ServiceDetailPage({ variant = 'public' }: { variant?: 'public' |
                 </p>
               </div>
             ) : (
-            <form onSubmit={submit} className="card card-pad sticky top-24">
+            <form onSubmit={submit} data-tour="request-form" className="card card-pad sticky top-24">
               <h2 className="font-bold text-navy-900">ثبت درخواست</h2>
               <p className="mt-1 text-xs leading-6 text-navy-500">فیلدها و مدارک ستاره‌دار الزامی هستند.</p>
 
@@ -695,7 +701,7 @@ export function ServiceDetailPage({ variant = 'public' }: { variant?: 'public' |
               </div>
 
               {documentRequirements.length > 0 && (
-                <div className="mt-5 space-y-3 rounded-xl bg-surface-3/70 p-3">
+                <div data-tour="request-documents" className="mt-5 space-y-3 rounded-xl bg-surface-3/70 p-3">
                   <h3 className="text-sm font-bold text-navy-900">بارگذاری مدارک خدمت</h3>
                   {documentRequirements.map((document) => (
                     <Field key={document.key} label={document.title} required={document.required}
@@ -711,7 +717,7 @@ export function ServiceDetailPage({ variant = 'public' }: { variant?: 'public' |
               )}
 
               {service.urgentEnabled && <label className="mt-5 flex cursor-pointer items-start gap-3 rounded-xl border border-amber-200 bg-amber-50 p-4 text-sm"><input type="checkbox" checked={priority==='high'} onChange={e=>setPriority(e.target.checked?'high':'normal')} className="mt-1 size-4 accent-amber-600" /><span><b>انجام فوری</b><small className="mt-1 block leading-6">افزایش {faNum(service.urgentPercent ?? 0)}٪ مبلغ پایه · زمان {formatDuration(service.urgentMinutes, service.urgentDays)} · ظرفیت محدود</small></span></label>}
-              {quote && <div aria-live="polite" className="mt-4 space-y-2 rounded-xl bg-surface-3 p-4 text-xs text-navy-600"><div className="flex justify-between"><span>زمان تخمینی خدمت</span><span>{formatDuration(quote.estimatedMinutes, quote.estimatedDays)}</span></div><div className="flex justify-between"><span>هزینه پایه</span><span>{rial(quote.baseFee)}</span></div><div className="flex justify-between"><span>هزینه فوری</span><span>{rial(quote.urgentFee)}</span></div><div className="flex justify-between"><span>تخفیف خدمت</span><span>{rial(quote.discount ?? 0)}</span></div>{(quote.codeDiscount ?? 0) > 0 && <div className="flex justify-between font-bold text-emerald-700"><span>تخفیف کد {appliedCode}</span><span>{rial(quote.codeDiscount)}-</span></div>}<div className="flex justify-between"><span>مالیات بر ارزش افزوده</span><span>{rial(quote.tax)}</span></div><div className="flex justify-between border-t border-navy-200 pt-3 text-sm font-bold text-navy-900"><span>جمع قابل پرداخت</span><span>{rial(quote.total)}</span></div>{priority==='high'&&!quote.urgentAvailable&&<p className="text-rose-700">ظرفیت فوری تکمیل است؛ حالت عادی را انتخاب کنید.</p>}</div>}
+              {quote && <div aria-live="polite" data-tour="request-price" className="mt-4 space-y-2 rounded-xl bg-surface-3 p-4 text-xs text-navy-600"><div className="flex justify-between"><span>زمان تخمینی خدمت</span><span>{formatDuration(quote.estimatedMinutes, quote.estimatedDays)}</span></div><div className="flex justify-between"><span>هزینه پایه</span><span>{rial(quote.baseFee)}</span></div><div className="flex justify-between"><span>هزینه فوری</span><span>{rial(quote.urgentFee)}</span></div><div className="flex justify-between"><span>تخفیف خدمت</span><span>{rial(quote.discount ?? 0)}</span></div>{(quote.codeDiscount ?? 0) > 0 && <div className="flex justify-between font-bold text-emerald-700"><span>تخفیف کد {appliedCode}</span><span>{rial(quote.codeDiscount)}-</span></div>}<div className="flex justify-between"><span>مالیات بر ارزش افزوده</span><span>{rial(quote.tax)}</span></div><div className="flex justify-between border-t border-navy-200 pt-3 text-sm font-bold text-navy-900"><span>جمع قابل پرداخت</span><span>{rial(quote.total)}</span></div>{priority==='high'&&!quote.urgentAvailable&&<p className="text-rose-700">ظرفیت فوری تکمیل است؛ حالت عادی را انتخاب کنید.</p>}</div>}
               {quoteError && <p role="alert" className="mt-4 text-sm text-rose-700">{quoteError} <Link className="underline" to="/app/profile">تکمیل پروفایل</Link></p>}
               {user?.kind === 'customer' && (
                 <div className="mt-4 rounded-xl border border-dashed border-navy-200 p-3">
@@ -776,7 +782,7 @@ export function ServiceDetailPage({ variant = 'public' }: { variant?: 'public' |
                   پذیرش این خدمت موقتاً متوقف شده است. برای اطلاع از زمان فعال‌سازی با دفتر تماس بگیرید.
                 </div>
               ) : (
-                <Button type="submit" loading={submitting} disabled={missingRequiredDocuments > 0 || Object.values(uploadingFiles).some(Boolean)} className="mt-4 w-full">
+                <Button type="submit" data-tour="request-submit" loading={submitting} disabled={missingRequiredDocuments > 0 || Object.values(uploadingFiles).some(Boolean)} className="mt-4 w-full">
                   <CheckCircle2 className="size-4" />
                   {user ? 'ثبت نهایی درخواست' : 'ورود و ثبت درخواست'}
                 </Button>

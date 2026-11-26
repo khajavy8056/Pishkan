@@ -25,6 +25,7 @@ import { settingsRouter } from '../routes/settings.js';
 import { filesRouter } from '../routes/files.js';
 import { documentsRouter } from '../routes/documents.js';
 import { assistantRouter } from '../routes/assistant.js';
+import { toursRouter } from '../routes/tours.js';
 import { dashboardRouter } from '../routes/dashboard.js';
 import { systemRouter } from '../routes/system.js';
 import { paymentsRouter } from '../routes/payments.js';
@@ -213,6 +214,7 @@ export async function createApp(): Promise<Express> {
   app.use(['/api/files','/api/v1/files'],filesRouter);
   app.use(['/api/documents','/api/v1/documents'],documentsRouter);
   app.use(['/api/assistant','/api/v1/assistant'],assistantRouter);
+  app.use(['/api/tours','/api/v1/tours'],toursRouter);
   app.use(['/api/dashboard','/api/v1/dashboard'],dashboardRouter);
   app.use(['/api/system','/api/v1/system'],systemRouter);
   app.use(['/api/payments','/api/v1/payments'],paymentsRouter);

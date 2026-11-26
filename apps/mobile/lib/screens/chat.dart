@@ -11,6 +11,8 @@ import '../core/theme.dart';
 import '../models/models.dart';
 import '../services/services.dart';
 import '../widgets/widgets.dart';
+import 'request_detail.dart';
+import '../core/tour.dart';
 
 /// Conversation list (general + per-case threads, same as the web widget).
 class ChatThreadsScreen extends StatefulWidget {
@@ -80,6 +82,15 @@ class _ChatThreadsScreenState extends State<ChatThreadsScreen> with WidgetsBindi
     }
   }
 
+  /// «پرونده ۴۲۱۷ — کارت ملی» from the case reference the server sends.
+  String _caseLabel(Map<String, dynamic> request) {
+    final tracking = asStr(request['trackingCode']);
+    final title = asStr(request['title']);
+    if (tracking.isEmpty && title.isEmpty) return '';
+    if (tracking.isEmpty) return title;
+    return title.isEmpty ? 'پرونده $tracking' : 'پرونده $tracking — $title';
+  }
+
   Future<void> _newGeneralThread() async {
     try {
       final id = await openThread(subject: 'گفت‌وگو با دفتر');
@@ -130,6 +141,12 @@ class _ChatThreadsScreenState extends State<ChatThreadsScreen> with WidgetsBindi
                                 child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
                                   Text(asStr(thread['subject']).isEmpty ? 'گفتگو با دفتر' : asStr(thread['subject']), style: TextStyle(fontWeight: FontWeight.w700, fontSize: 13.5), maxLines: 1, overflow: TextOverflow.ellipsis),
                                   const SizedBox(height: 3),
+                                  // Which case this is, on the row itself — the list used to
+                                  // say only «گفت‌وگو درباره پرونده», which identified nothing.
+                                  if (thread['request'] != null) ...[
+                                    Text(_caseLabel(asMap(thread['request'])), style: const TextStyle(fontSize: 10.5, color: PishkanColors.primary, fontWeight: FontWeight.w700), maxLines: 1, overflow: TextOverflow.ellipsis),
+                                    const SizedBox(height: 2),
+                                  ],
                                   Text(asStr(thread['lastMessage']).isEmpty ? 'بدون پیام' : asStr(thread['lastMessage']), style: TextStyle(fontSize: 11.5, color: context.inkMuted), maxLines: 1, overflow: TextOverflow.ellipsis),
                                 ]),
                               ),
@@ -211,6 +228,10 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
   final _input = TextEditingController();
   final _scroll = ScrollController();
   List<Map<String, dynamic>> _messages = const [];
+  /// The case this conversation belongs to, as the server describes it
+  /// (`{id, trackingCode, title, status}`). A chat opened from a file — or from
+  /// a notice about one — has to say which file it is and offer the way back.
+  Map<String, dynamic> _request = const {};
   bool _loading = true;
   bool _sending = false;
   String? _error;
@@ -290,7 +311,9 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
       final data = await fetchThread(widget.threadId);
       if (!mounted) return;
       final messages = asMapList(data['messages']);
+      final request = asMap(asMap(data['thread'])['request']);
       setState(() {
+        _request = request;
         _messages = messages;
         _cursor = messages.isEmpty ? '' : asStr(messages.last['createdAt']);
         _loading = false;
@@ -386,6 +409,13 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
   Future<void> _sendAttachment() async {
     final file = await pickDocumentFile(context, documentScanner: false);
     if (file == null) return;
+    // Attaching a document inside a case conversation is the mistake this tip
+    // exists for: the file reaches the chat but never the case's document
+    // slots, so the office still has to ask for it. Only a case thread counts —
+    // in a general or support conversation an attachment is simply correct.
+    if (asStr(_request['id']).isNotEmpty) {
+      unawaited(TourController.instance.fireHint('document-in-chat'));
+    }
     setState(() => _sending = true);
     try {
       final fileId = await uploadOne(file);
@@ -431,6 +461,7 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
       ),
       body: Column(children: [
         if (!_online && !_loading && _error == null) _offlineStrip(),
+        _caseStrip(),
         Expanded(
           child: _loading
               ? const LoadingView()
@@ -453,7 +484,7 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
           child: Container(
             padding: const EdgeInsets.fromLTRB(10, 8, 10, 10),
             color: context.surface,
-            child: Row(children: [
+            child: TourAnchor(name: 'chat-composer', child: Row(children: [
               IconButton(onPressed: _sending ? null : _sendAttachment, icon: const Icon(Icons.attach_file_rounded)),
               Expanded(
                 child: TextField(
@@ -471,7 +502,7 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
                 onPressed: _sending ? null : _send,
                 icon: _sending ? const SizedBox(width: 18, height: 18, child: CircularProgressIndicator(strokeWidth: 2)) : const Icon(Icons.send_rounded),
               ),
-            ]),
+            ])),
           ),
         ),
       ]),
@@ -543,6 +574,39 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
                 ),
             ],
           ]),
+        ]),
+      ),
+    );
+  }
+
+  /// The case this thread is about, as a tappable header strip.
+  ///
+  /// The office opens a conversation *from* a case; the customer arrives at the
+  /// same conversation from a notification. Both need the tracking code in front
+  /// of them and the case one tap away, or a chat about پرونده ۴۲۱۷ is just a
+  /// chat.
+  Widget _caseStrip() {
+    final requestId = asStr(_request['id']);
+    if (requestId.isEmpty) return const SizedBox.shrink();
+    final tracking = asStr(_request['trackingCode']);
+    final title = asStr(_request['title']);
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(14, 8, 14, 0),
+      child: SoftCard(
+        onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => RequestDetailScreen(requestId: requestId))),
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+        child: Row(children: [
+          Icon(Icons.description_outlined, size: 18, color: PishkanColors.primary),
+          const SizedBox(width: 8),
+          Expanded(
+            child: Text(
+              tracking.isEmpty ? title : 'پرونده $tracking${title.isEmpty ? '' : ' — $title'}',
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: const TextStyle(fontSize: 12.5, fontWeight: FontWeight.w800),
+            ),
+          ),
+          Icon(Icons.chevron_left_rounded, size: 18, color: context.inkMuted),
         ]),
       ),
     );
