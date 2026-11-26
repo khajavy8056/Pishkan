@@ -16,6 +16,7 @@ import { archiveRequestDocument, documentTypeLabel, reuseDocumentInRequest } fro
 import { notifyDocumentApproval, notifyUser } from '../modules/notifications/service.js';
 import { param } from '../http/params.js';
 import { writeAudit } from '../modules/audit/service.js';
+import { learnFromSubmission } from '../modules/profiles/autofill.js';
 
 export const requestsRouter = Router();
 requestsRouter.use(requireAuth);
@@ -188,6 +189,26 @@ requestsRouter.post('/',
       idempotencyKey,
     }, { id: auth.user.id, name: auth.user.fullName, ip: req.ip });
 
+    /**
+     * The profile learns from what this person just typed.
+     *
+     * Only when the customer submitted their own case: a staff member typing on
+     * someone's behalf is not the person's own declaration, and the office should
+     * not be able to fill a customer's profile by guessing in another's form.
+     * Best-effort by design — a request must never fail because a convenience
+     * write did. `profileLearned` rides along in the response so the client can
+     * say «این هم در پروفایل شما ذخیره شد», which is the half that makes the
+     * behaviour discoverable instead of mysterious.
+     */
+    let profileLearned: string[] = [];
+    if (request && auth.user.kind === 'customer' && customerId === auth.user.id) {
+      try {
+        profileLearned = (await learnFromSubmission(customerId, body.formData ?? {})).learned;
+      } catch {
+        profileLearned = [];
+      }
+    }
+
     if (request) {
       await notifyUser(customerId, {
         title: 'درخواست شما ثبت شد',
@@ -198,7 +219,7 @@ requestsRouter.post('/',
         sms: { eventCode: 'request_created', variables: { tracking_code: request.trackingCode, service_title: request.serviceTitle } },
       }).catch(() => undefined);
     }
-    created(res, request);
+    created(res, profileLearned.length ? { ...request, profileLearned } : request);
   }));
 
 requestsRouter.get('/:id/handoffs',asyncRoute(async(req,res)=>{ok(res,await handoffsForCase(param(req,'id'),req.auth!))}));

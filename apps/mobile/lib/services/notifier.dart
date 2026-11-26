@@ -44,6 +44,19 @@ class AppPrefs {
     await prefs.setBool(_notificationsKey, value);
   }
 
+  /// Whether the «از پروفایل پر کن» tip has already been shown.
+  ///
+  /// One look is the whole design. The purpose is discovery — a customer who was
+  /// never told the shortcut exists — and a tip that comes back on every form is
+  /// precisely the thing people train themselves to swipe away without reading.
+  /// The flag is per device, never per account: nothing about the customer leaves
+  /// the phone for it.
+  static const _autofillHintKey = 'pishkan.pref.autofillHint';
+
+  static Future<bool> autofillHintSeen() async => (await SharedPreferences.getInstance()).getBool(_autofillHintKey) ?? false;
+
+  static Future<void> setAutofillHintSeen() async => (await SharedPreferences.getInstance()).setBool(_autofillHintKey, true);
+
   static Future<bool> biometricEnabled() async {
     final prefs = await SharedPreferences.getInstance();
     return prefs.getBool(_biometricKey) ?? false;

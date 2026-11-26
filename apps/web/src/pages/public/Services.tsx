@@ -10,6 +10,7 @@ import { PublicLayout } from '../../components/public-layout';
 import { CategoryIcon } from '../../components/visual';
 import { AppShell } from '../../components/shell';
 import { fireTourHint } from '../../lib/tours';
+import { claimAutofillHint } from '../../lib/autofillHint';
 import { formatDuration, useSite, type FormField, type Service } from '../../lib/site';
 import { useAuth, homeFor } from '../../lib/auth';
 import { api, ApiFailure } from '../../lib/api';
@@ -267,11 +268,44 @@ export function ServiceDetailPage({ variant = 'public' }: { variant?: 'public' |
     return matches;
   }, [service, autofill]);
 
+  /**
+   * The hint that makes the autofill button findable.
+   *
+   * The button beside the form had become furniture — people scroll past it and
+   * retype their IBAN for the fourth time. So the first time a customer actually
+   * starts typing in a service form, a small card points at the shortcut.
+   *
+   * The *policy* (once per browser, only when there is something to fill, silent
+   * when storage is broken) lives in `lib/autofillHint.ts` where it can be
+   * tested; what is here is only the presentation and the one rule that belongs
+   * to a popover rather than to a flag: clicking anywhere outside it closes it
+   * and changes nothing. No overlay, nothing to press to escape, nothing that
+   * stops a person from simply carrying on with the form.
+   */
+  const [hintOpen, setHintOpen] = useState(false);
+  const hintClaimedRef = useRef(false);
+  const showAutofillHint = () => {
+    if (hintClaimedRef.current) return;
+    hintClaimedRef.current = true; // never re-asked during the same visit
+    if (claimAutofillHint(autofillMatches.length)) setHintOpen(true);
+  };
+  useEffect(() => {
+    if (!hintOpen) return;
+    // Any interaction outside the card closes it — that is the "no nag" part: the
+    // person was doing something else, and the app must not fight them for it.
+    const onDocClick = (event: MouseEvent) => {
+      if (!(event.target instanceof Element) || !event.target.closest('[data-autofill-hint]')) setHintOpen(false);
+    };
+    window.addEventListener('mousedown', onDocClick);
+    return () => window.removeEventListener('mousedown', onDocClick);
+  }, [hintOpen]);
+
   const openAutofill = () => {
     const picked: Record<string, boolean> = {};
     for (const match of autofillMatches) picked[match.field.key] = true;
     setAutofillPicked(picked);
     setAutofillOpen(true);
+    setHintOpen(false);
   };
 
   const applyAutofill = () => {
@@ -451,7 +485,10 @@ export function ServiceDetailPage({ variant = 'public' }: { variant?: 'public' |
         if (window.sessionStorage.getItem(storageKey) === idempotencyKey) window.sessionStorage.removeItem(storageKey);
       } catch { /* storage may be unavailable */ }
       submissionKeyRef.current = null;
-      notify(`درخواست ثبت شد. کد پیگیری: ${res.data.trackingCode}`, 'success');
+      // The other half of the promise: a value that also landed in the profile is
+      // named, so the next form prefilling itself does not look like magic.
+      const learned = (res.data as { profileLearned?: string[] }).profileLearned ?? [];
+      notify(`درخواست ثبت شد. کد پیگیری: ${res.data.trackingCode}${learned.length ? ` — ${faNum(learned.length)} مورد (${learned.join('، ')}) هم در پروفایل شما ذخیره شد.` : ''}`, 'success');
       navigate(`/app/requests/${res.data.id}`);
     } catch (err) {
       if (err instanceof ApiFailure) {
@@ -682,7 +719,26 @@ export function ServiceDetailPage({ variant = 'public' }: { variant?: 'public' |
                 </div>
               )}
 
-              <div className="mt-4 space-y-4">
+              <div className="relative mt-4 space-y-4" onFocusCapture={showAutofillHint}>
+                {hintOpen && (
+                  <div data-autofill-hint role="status"
+                    className="absolute inset-x-0 top-0 z-20 -translate-y-full pb-2">
+                    <div className="flex items-start gap-2 rounded-xl border border-brand-200 bg-surface px-3 py-2.5 shadow-lg shadow-navy-900/10">
+                      <UserRoundCheck className="mt-0.5 size-4 shrink-0 text-brand-700" />
+                      <p className="flex-1 text-xs leading-6 text-navy-700">
+                        {faNum(autofillMatches.length)} مورد از اطلاعات این فرم در پروفایل شما هست؛ لازم نیست دوباره بنویسید.
+                      </p>
+                      <button type="button" onClick={openAutofill}
+                        className="shrink-0 rounded-lg bg-brand-700 px-2.5 py-1 text-xs font-bold text-white">
+                        پر کردن از پروفایل
+                      </button>
+                      <button type="button" aria-label="باشه، بعداً" onClick={() => setHintOpen(false)}
+                        className="shrink-0 rounded-lg p-1 text-navy-400 hover:bg-surface-3">
+                        <X className="size-3.5" />
+                      </button>
+                    </div>
+                  </div>
+                )}
                 {service.form.map((field) => (
                   <Field key={field.key} label={field.label} hint={field.help} required={field.required} error={errorFor(field.key)}>
                     <DynamicField
@@ -854,7 +910,7 @@ export function DynamicField({ field, value, onChange, fileName, uploading, onFi
 }) {
   switch (field.type) {
     case 'textarea':
-      return <Textarea value={value ?? ''} placeholder={field.placeholder} onChange={(e) => onChange(e.target.value)} />;
+      return <Textarea value={value ?? ''} placeholder={field.placeholder} maxLength={field.maxLength || undefined} onChange={(e) => onChange(e.target.value)} />;
     case 'select':
       return (
         <Select
@@ -899,6 +955,8 @@ export function DynamicField({ field, value, onChange, fileName, uploading, onFi
     case 'money':
     case 'number':
       return <Input type="number" inputMode="numeric" value={value ?? ''} placeholder={field.placeholder} onChange={(e) => onChange(e.target.value)} />;
+    // (the character cap a ready-made field carries is applied in the default
+    // text branch below — numbers are bounded by their own type instead)
     case 'date':
       return <JalaliDateField value={value ?? ''} onChange={(e) => onChange(e)} />;
     default:
@@ -910,6 +968,11 @@ export function DynamicField({ field, value, onChange, fileName, uploading, onFi
           onChange={(e) => onChange(e.target.value)}
           dir={field.type === 'iban' || field.type === 'national_id' ? 'ltr' : undefined}
           className={field.type === 'iban' || field.type === 'national_id' ? 'text-left' : undefined}
+          /* The cap a ready-made field carries. `maxLength` has been part of the
+             app's form model since the first release and was dropped by the API
+             validator, so the browser was the only place it could still be
+             enforced — which is the wrong place for a rule like «کد ملی ۱۰ رقم». */
+          maxLength={field.maxLength || undefined}
         />
       );
   }

@@ -11,6 +11,7 @@ import '../core/sizes.dart';
 import '../core/tour.dart';
 import '../core/theme.dart';
 import '../models/models.dart';
+import '../services/notifier.dart';
 import '../services/services.dart';
 import '../widgets/dynamic_form.dart';
 import '../widgets/widgets.dart';
@@ -165,6 +166,53 @@ class _RequestFormScreenState extends State<RequestFormScreen> {
     }
   }
 
+  /// The small card that points at the autofill shortcut, shown the first time
+  /// the customer touches the form.
+  ///
+  /// Three rules, all of them the user's: it is a hint and not a gate (nothing is
+  /// blocked, typing continues underneath); if it is not pressed it simply goes
+  /// away and does nothing; and it is asked about once per device, because a
+  /// second showing is a nag. It is also only ever *considered* when there is
+  /// actually something to fill — the fetch decides, so the promise is never made
+  /// about an empty profile.
+  bool _hintVisible = false;
+  bool _hintConsidered = false;
+
+  Future<void> _maybeShowAutofillHint() async {
+    if (_hintConsidered || _hintVisible) return;
+    _hintConsidered = true;
+    if (await AppPrefs.autofillHintSeen()) return;
+    int fillable;
+    try {
+      final values = asMap(asMap(await api.getData('/api/auth/profile/autofill'))['values']);
+      fillable = widget.service.formFields.where((field) {
+        final empty = !_values.containsKey(field.key) || asStr(_values[field.key]).trim().isEmpty;
+        return empty && asStr(values[field.key]).trim().isNotEmpty;
+      }).length;
+    } catch (_) {
+      return; // A hint must never cost a customer anything, not even a spinner.
+    }
+    if (fillable == 0 || !mounted) return;
+    await AppPrefs.setAutofillHintSeen();
+    if (mounted) setState(() => _hintVisible = true);
+  }
+
+  Widget _autofillHint() {
+    return SoftCard(
+      child: Row(children: [
+        const Icon(Icons.auto_awesome, size: 18, color: PishkanColors.primary),
+        const SizedBox(width: 8),
+        Expanded(
+          child: Text('اطلاعات این فرم را از پروفایل خودتان پر کنید.',
+              style: TextStyle(fontSize: 12, color: context.ink, height: 1.8)),
+        ),
+        TextButton(onPressed: () { setState(() => _hintVisible = false); _fillFromProfile(); },
+            child: const Text('پر کردن', style: TextStyle(fontWeight: FontWeight.w800))),
+        TextButton(onPressed: () => setState(() => _hintVisible = false), child: const Text('بعداً')),
+      ]),
+    );
+  }
+
   Future<void> _fillFromProfile() async {
     setState(() => _loadingAutofill = true);
     try {
@@ -235,6 +283,13 @@ class _RequestFormScreenState extends State<RequestFormScreen> {
       );
       if (!mounted) return;
       playAppSound('success');
+      // The profile kept what it did not know. Naming it is what turns an
+      // invisible side effect into a promise the customer can see: the next
+      // service will already have these.
+      final learned = created['profileLearned'];
+      if (learned is List && learned.isNotEmpty) {
+        showSnack(context, '${faDigits(learned.length.toString())} مورد (${learned.map((item) => item.toString()).join('، ')}) در پروفایل شما هم ذخیره شد.');
+      }
       setState(() {
         _createdRequestId = asStr(created['id']);
         _createdTrackingCode = asStr(created['trackingCode']);
@@ -359,8 +414,16 @@ class _RequestFormScreenState extends State<RequestFormScreen> {
       if (service.formFields.isNotEmpty) Align(alignment: Alignment.centerRight, child: TextButton.icon(onPressed: _loadingAutofill ? null : _fillFromProfile, icon: Icon(Icons.person_outline_rounded), label: Text(_loadingAutofill ? 'در حال دریافت…' : 'استفاده از اطلاعات پروفایل خودم'))),
       if (service.formFields.isEmpty)
         SoftCard(child: Text('این خدمت فرم اطلاعاتی ندارد؛ مستقیم به مرحلهٔ مدارک بروید.', style: TextStyle(color: context.inkMuted, fontSize: 13, height: 1.9)))
-      else
-        SoftCard(child: DynamicForm(key: _formKey, fields: service.formFields, values: _values)),
+      else ...[
+        if (_hintVisible) _autofillHint(),
+        // A tap anywhere in the form is what "touching the first field" means
+        // here; translucent so the tap still reaches the input underneath.
+        GestureDetector(
+          behavior: HitTestBehavior.translucent,
+          onTapDown: (_) => _maybeShowAutofillHint(),
+          child: SoftCard(child: DynamicForm(key: _formKey, fields: service.formFields, values: _values)),
+        ),
+      ],
     ]);
   }
 

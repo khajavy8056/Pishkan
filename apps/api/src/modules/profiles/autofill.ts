@@ -7,7 +7,8 @@
  * offer «استفاده از اطلاعات پروفایل من» and fill the matching fields in one
  * tap. Values are only ever returned to their owner.
  */
-import { one } from '../../db/index.js';
+import { one, run } from '../../db/index.js';
+import { validNationalId } from './service.js';
 
 export interface AutofillEntry { key: string; label: string; value: string }
 
@@ -81,6 +82,109 @@ export async function profileAutofill(userId: string) {
     }
   }
   return { values, entries, missing };
+}
+
+/**
+ * Which submitted answers are really facts about the person — and where they live.
+ *
+ * The office's request: «تاریخ تولد در پروفایل نیست، ولی اگر یک بار در یک خدمت
+ * پر شود، برای خدمات بعدی همان پر شود». The mapping is by **exact key**, with no
+ * label or type guessing, and that is not laziness: the same key is what the read
+ * side (`profileAutofill`) returns values under, so write and read agree by
+ * construction. Guessing from «تاریخ تولد همسر» being a `date` would put another
+ * person's birthday into the account owner's profile, and it would then be
+ * offered on every future form — a wrong fact is far more expensive than a
+ * missing one. The exact-key rule is also what makes the two halves agree:
+ * `profileAutofill` returns values under these same keys, and both the app's
+ * `fillEmptyFromProfile` and the web checkout look a field up by `field.key`.
+ *
+ * **Invariant: every key in this map is a key `profileAutofill` publishes.** A
+ * value the profile stores but cannot hand back is a field that looks remembered
+ * and never is — which is worse than not saving it, because the person already
+ * told us once. `tests/profile-learning.test.ts` enforces it.
+ *
+ * What is deliberately absent, and why that is not an oversight:
+ *  * `mobile`, `email`, `national_id`, `first_name`, `last_name`, `city` — the
+ *    identity cells a *complete profile* already requires. `requireCompleteProfile`
+ *    is a hard gate on every submission (name, a verified-shaped mobile, a valid
+ *    national id, a city), so a customer cannot be missing them and this map would
+ *    never fire. Writing them from a form would only be reachable if the gate were
+ *    relaxed — and then a clerk's guess would move a login identity, which is a
+ *    worse trade. Leaving them out keeps the list honest: it is exactly the facts
+ *    the profile does *not* insist on, which is where the office's
+ *    «به مرور کامل بشه» actually applies.
+ *  * `city`/`province` as free text — coverage is `customer_profiles.city_id`, a
+ *    real FK the quote step checks; text would disagree with it.
+ */
+const WRITEBACK: Record<string, { column: string; validate?: (value: string) => boolean }> = {
+  birth_date: { column: 'birth_date', validate: (v) => /^\d{4}-\d{2}-\d{2}$/.test(v) },
+  father_name: { column: 'father_name', validate: (v) => v.length >= 2 && v.length <= 60 },
+  birth_certificate_no: { column: 'birth_certificate_no', validate: (v) => v.length >= 3 && v.length <= 20 },
+  birth_place: { column: 'birth_place', validate: (v) => v.length >= 2 && v.length <= 60 },
+  job_title: { column: 'job_title', validate: (v) => v.length >= 2 && v.length <= 60 },
+  address: { column: 'address', validate: (v) => v.length >= 8 && v.length <= 400 },
+  postal_code: { column: 'postal_code', validate: (v) => /^\d{10}$/.test(v) },
+  // The column is `landline`; the key both sides publish is `phone`. A form field
+  // literally keyed `landline` is deliberately not learned, because the rule below
+  // is what makes this whole feature safe to leave switched on.
+  phone: { column: 'landline', validate: (v) => /^0\d{9,11}$/.test(v) },
+  iban: { column: 'iban', validate: validIban },
+  bank_name: { column: 'bank_name', validate: (v) => v.length >= 2 && v.length <= 60 },
+  card_number: { column: 'card_number', validate: (v) => /^\d{16}$/.test(v) },
+};
+
+/**
+ * Complete the profile from a submission, without ever overwriting it.
+ *
+ * Three rules carry the safety, and they are the reason this can run on every
+ * request:
+ *
+ *  1. **Empty cells only.** The profile is the person's own declaration; a form
+ *     answer never rewrites something they set. A typo in one service must not
+ *     become the source of truth for the next five.
+ *  2. **Validated like the read side.** `validateFormData` already normalised
+ *     digits and checked the checksums, and each column re-checks its own shape
+ *     here — because this runs for submissions made through other paths (the
+ *     assistant, a staff-created case) too.
+ *  3. **Never another person's fact.** Only the applicant's own keys are mapped
+ *     above; `spouse_national_id`, `child_birth_date`, `landlord_*` and the rest
+ *     are answers *about someone else* and are left in the case file.
+ *
+ * Returns the Persian labels of what was learned, so the client can say
+ * «۲ مورد به پروفایل شما اضافه شد» — the moment the person notices that the
+ * system is filling itself in is the moment autofill stops being a hidden button.
+ */
+export async function learnFromSubmission(
+  userId: string,
+  answers: Record<string, unknown>,
+): Promise<{ learned: string[] }> {
+  const profile = await one<any>(
+    `SELECT p.* FROM customer_profiles p JOIN users u ON u.id = p.user_id
+      WHERE p.user_id = ? AND u.kind = 'customer'`,
+    [userId],
+  );
+  if (!profile) return { learned: [] };
+
+  const setProfile: Record<string, string> = {};
+  for (const [key, rule] of Object.entries(WRITEBACK)) {
+    const value = String(answers[key] ?? '').trim();
+    if (!value) continue;
+    if (rule.validate && !rule.validate(value)) continue;
+    // Empty cells only — the profile is the person's own declaration.
+    if (String(profile[rule.column] ?? '').trim()) continue;
+    setProfile[rule.column] = value;
+  }
+  if (!Object.keys(setProfile).length) return { learned: [] };
+
+  const ts = new Date().toISOString();
+  const columns = Object.keys(setProfile);
+  await run(
+    `UPDATE customer_profiles SET ${columns.map((column) => `${column} = ?`).join(', ')}, updated_at = ? WHERE user_id = ?`,
+    [...Object.values(setProfile), ts, userId],
+  );
+  // Labels, not keys: this list is shown to a person, and it is the sentence that
+  // makes the behaviour discoverable («این هم در پروفایل شما ذخیره شد»).
+  return { learned: columns.map((column) => FIELD_LABELS[column] ?? column) };
 }
 
 /** Iranian IBAN (IR + 24 digits) with mod-97 check, shared with form validation. */

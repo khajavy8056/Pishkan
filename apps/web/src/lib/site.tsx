@@ -69,6 +69,8 @@ export interface FormField {
   options?: string[];
   placeholder?: string;
   help?: string;
+  /** Character cap carried by a ready-made field (`national_id` → 10). */
+  maxLength?: number;
 }
 
 export type WorkflowStepKind = 'action' | 'waiting_customer' | 'waiting_organization' | 'followup' | 'delivery';

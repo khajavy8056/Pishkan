@@ -19,6 +19,7 @@ import { id } from '../lib/crypto.js';
 import { param } from '../http/params.js';
 import type { Request, Response } from 'express';
 import { renderArtworkPng } from '../modules/catalog/artwork-render.js';
+import { deletePreset, formFieldSchema, listPresets, savePreset } from '../modules/catalog/presets.js';
 
 export const catalogRouter = Router();
 
@@ -117,17 +118,52 @@ catalogRouter.get('/admin/services/:id', requirePermission('services.view'), asy
   ok(res, { ...service, stats: { total: Number(stats?.total ?? 0), open: Number(stats?.open ?? 0), revenue: Number(revenue?.total ?? 0) } });
 }));
 
+/* --------------------------- admin: field palette -------------------------- */
+
+/**
+ * `GET /api/catalog/admin/form-field-presets?q=`
+ *
+ * The «فیلدهای آماده» palette. Three sources merged (built-in shapes, every
+ * field the catalogue already defines, and what this office saved on purpose) —
+ * see `modules/catalog/presets.ts` for why a scan rather than a maintained list.
+ *
+ * `q` is searched the way the service catalogue is searched, i.e. after Persian
+ * normalisation, so «ملي» finds «ملی» and a key typed in English works too.
+ */
+catalogRouter.get('/admin/form-field-presets', requirePermission('services.view'), asyncRoute(async (req, res) => {
+  const items = await listPresets({
+    query: typeof req.query.q === 'string' ? req.query.q : '',
+    limit: Number(req.query.limit ?? 80),
+  });
+  ok(res, items, { total: items.length });
+}));
+
+/**
+ * `POST /api/catalog/admin/form-field-presets`
+ *
+ * Make a field the office just wrote reusable *now*, before the service is even
+ * saved. `source` becomes `manual`, which is also the rank: the deliberate
+ * standard for a key wins over whatever drifted into the catalogue.
+ */
+catalogRouter.post('/admin/form-field-presets', requirePermission('services.edit'), asyncRoute(async (req, res) => {
+  const preset = await savePreset(req.body, { id: req.auth!.user.id });
+  await writeAudit({
+    actorId: req.auth!.user.id, actorName: req.auth!.user.fullName, action: 'field-preset.save',
+    entityType: 'form_field_preset', entityId: preset.key, after: { key: preset.key, label: preset.label, type: preset.type }, ip: req.ip,
+  });
+  created(res, preset);
+}));
+
+/** Only a saved preset can be deleted; the catalogue's own fields are the scan's. */
+catalogRouter.delete('/admin/form-field-presets/:key', requirePermission('services.edit'), asyncRoute(async (req, res) => {
+  await deletePreset(param(req, 'key'));
+  ok(res, { message: 'فیلد آماده حذف شد.' });
+}));
+
 /* ------------------------------ admin: write ------------------------------ */
 
-const formFieldSchema = z.object({
-  key: z.string().min(2).max(41),
-  label: z.string().min(2).max(120),
-  type: z.enum(['text', 'tel', 'number', 'national_id', 'date', 'textarea', 'select', 'radio', 'checkbox', 'file', 'money', 'iban', 'postal_code']),
-  required: z.boolean().optional(),
-  options: z.array(z.string()).optional(),
-  placeholder: z.string().max(120).optional(),
-  help: z.string().max(300).optional(),
-});
+// `formFieldSchema` lives in `modules/catalog/presets.ts` and is imported here,
+// so a palette entry can never be something the service schema would reject.
 
 const serviceSchema = z.object({
   title: z.string().min(3).max(200).optional(),
