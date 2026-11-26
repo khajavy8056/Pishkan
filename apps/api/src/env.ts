@@ -79,7 +79,7 @@ export const env = {
   },
   logLevel: str('LOG_LEVEL', nodeEnv === 'production' ? 'info' : 'debug'),
   demoMode: str('DEMO_MODE', 'false') === 'true',
-  version: str('APP_VERSION', '1.0.1217'),
+  version: str('APP_VERSION', '1.0.1218'),
 } as const;
 
 /** Fail fast on obviously unsafe production configuration. */

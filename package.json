@@ -1,7 +1,7 @@
 {
   "name": "pishkan",
   "private": true,
-  "version": "1.0.1217",
+  "version": "1.0.1218",
   "description": "سامانه جامع اتوماسیون دفتر پیشخوان دولت",
   "license": "UNLICENSED",
   "workspaces": [

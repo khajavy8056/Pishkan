@@ -2,7 +2,9 @@ import 'dart:io';
 
 import 'package:flutter/services.dart';
 
-import '../core/session.dart';
+// `session`, `AppPrefs` and `fetchDeliveryStatus` all come in through the two
+// imports below; a direct `../core/session.dart` here would be an unused import,
+// and `flutter analyze` in CI fails the build on those.
 import 'notifier.dart';
 import 'services.dart';
 

@@ -1,8 +1,8 @@
 {
   "product": "Pishkan",
   "productFa": "پیشکان",
-  "appVersion": "1.0.1217",
-  "installerVersion": "1.0.1217",
+  "appVersion": "1.0.1218",
+  "installerVersion": "1.0.1218",
   "channel": "local-test",
   "entry": {
     "installer": "windows/PishkanSetup.cmd",
