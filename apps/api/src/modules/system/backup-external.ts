@@ -303,6 +303,13 @@ export async function transferBackup(backupId: string): Promise<TransferSummary>
 
   const parts: { filename: string; checksum: string | null }[] = [{ filename: backup.filename, checksum: backup.checksum }];
   if (backup.uploads_filename) parts.push({ filename: backup.uploads_filename, checksum: backup.uploads_checksum ?? null });
+  const codeMatch = /^pishkan-(.+)\.(dump|db)$/.exec(backup.filename);
+  if (codeMatch) {
+    const codeFilename = `pishkan-code-${codeMatch[1]}.tar.gz`;
+    if (fs.existsSync(path.join(backup.location || env.backupDir, codeFilename))) {
+      parts.push({ filename: codeFilename, checksum: null });
+    }
+  }
 
   let adapter: ExternalAdapter | null = null;
   try {

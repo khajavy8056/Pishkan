@@ -43,16 +43,21 @@ function stamp(): string {
   return new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
 }
 
-/** Create one database backup record with an explicitly associated uploads archive. */
-export async function createBackup(actor: { id: string; name: string }, note?: string): Promise<BackupRow> {
+/** Create one database backup record with an optional paired uploads & code archive. */
+export async function createBackup(
+  actor: { id: string; name: string },
+  note?: string,
+  opts?: { dbOnly?: boolean },
+): Promise<BackupRow> {
   const dir = backupDir();
   const backupId = id('bak');
   const suffix = `${stamp()}-${crypto.randomBytes(4).toString('hex')}`;
   const filename = `pishkan-${suffix}.${env.dbDriver === 'postgres' ? 'dump' : 'db'}`;
   const target = backupPath(filename, dir);
-  const includeUploads = await getBool('backup.include_uploads');
-  if (!includeUploads) throw badRequest('برای ساخت نسخه پشتیبان کامل، گزینه «شامل فایل‌های مدارک» را فعال کنید.');
-  const uploadsFilename = `pishkan-uploads-${suffix}.tar.gz`;
+  const dbOnly = Boolean(opts?.dbOnly);
+  const includeUploads = !dbOnly && (await getBool('backup.include_uploads'));
+  if (!dbOnly && !includeUploads) throw badRequest('برای ساخت نسخه پشتیبان کامل، گزینه «شامل فایل‌های مدارک» را فعال کنید.');
+  const uploadsFilename = includeUploads ? `pishkan-uploads-${suffix}.tar.gz` : null;
   const uploadsTarget = uploadsFilename ? backupPath(uploadsFilename, dir) : null;
   let size = 0;
   let checksum: string | null = null;
@@ -94,6 +99,23 @@ export async function createBackup(actor: { id: string; name: string }, note?: s
         );
         throw badRequest(`آرشیو مدارک ساخته یا بررسی نشد؛ نسخه پشتیبان کامل نیست و با وضعیت ناموفق ثبت شد. ${error?.message ?? ''}`);
       }
+    }
+
+    if (!dbOnly && (await getBool('backup.include_code').catch(() => false))) {
+      const codeTarget = backupPath(`pishkan-code-${suffix}.tar.gz`, dir);
+      const codeRoot = path.resolve(process.cwd());
+      await exec(
+        'tar',
+        [
+          '-czf', codeTarget,
+          '--exclude=node_modules', '--exclude=.git', '--exclude=.venv',
+          '--exclude=dist', '--exclude=backups', '--exclude=uploads', '--exclude=*.log',
+          '-C', codeRoot, '.',
+        ],
+        { timeout: 10 * 60_000 },
+      ).catch(() => {
+        try { fs.rmSync(codeTarget, { force: true }); } catch { /* best effort */ }
+      });
     }
 
     await run(
