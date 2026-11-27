@@ -1,4 +1,0 @@
-Pishkan deploy report TEST
-Server: [server-ip]
-action=doctor
-result: smoke test of publish mechanism
