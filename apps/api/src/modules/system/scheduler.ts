@@ -113,6 +113,7 @@ const SYSTEM_ACTOR = { id: 'system:backup-scheduler', name: 'پشتیبان‌گ
 let timer: NodeJS.Timeout | null = null;
 let running = false;
 let lastFiredMinute = '';
+let dbLastFiredMinute = '';
 let lastRunAt: string | null = null;
 let lastSuccessAt: string | null = null;
 let lastError: string | null = null;
@@ -122,35 +123,51 @@ async function tick() {
   if (running) return;
   running = true;
   try {
-    if (!(await getBool('backup.enabled'))) return;
-    const expression = await getString('backup.schedule_cron');
-    const cron = parseCron(expression);
-    if (!cron) {
-      lastError = `عبارت زمان‌بندی «${expression}» معتبر نیست.`;
-      return;
-    }
     const now = new Date();
     const parts = tehranParts(now);
     const minuteKey = `${parts.year}-${parts.month}-${parts.day}T${parts.hour}:${parts.minute}`;
-    if (minuteKey === lastFiredMinute) return;
-    if (!cronMatches(cron, now)) return;
-    lastFiredMinute = minuteKey;
-    lastRunAt = now.toISOString();
-    const backup = await createBackup(SYSTEM_ACTOR, 'پشتیبان خودکار زمان‌بندی‌شده');
-    lastBackupId = backup.id;
-    lastSuccessAt = new Date().toISOString();
-    lastError = null;
-    await logEvent({
-      level: 'INFO', category: 'background', action: 'backup.auto', result: 'success',
-      actorId: SYSTEM_ACTOR.id, actorName: SYSTEM_ACTOR.name,
-      entityType: 'backup', entityId: backup.id,
-      message: 'نسخه پشتیبان خودکار ایجاد شد.',
-      details: { filename: backup.filename, schedule: expression },
-    });
-    // Off-server copy when enabled; failures are recorded + notified inside
-    // and never invalidate the healthy local backup.
-    const { maybeTransferBackup } = await import('./backup-external.js');
-    await maybeTransferBackup(backup.id);
+
+    if (await getBool('backup.enabled')) {
+      const expression = await getString('backup.schedule_cron');
+      const cron = parseCron(expression);
+      if (!cron) {
+        lastError = `عبارت زمان‌بندی «${expression}» معتبر نیست.`;
+      } else if (minuteKey !== lastFiredMinute && cronMatches(cron, now)) {
+        lastFiredMinute = minuteKey;
+        lastRunAt = now.toISOString();
+        const backup = await createBackup(SYSTEM_ACTOR, 'پشتیبان خودکار زمان‌بندی‌شده');
+        lastBackupId = backup.id;
+        lastSuccessAt = new Date().toISOString();
+        lastError = null;
+        await logEvent({
+          level: 'INFO', category: 'background', action: 'backup.auto', result: 'success',
+          actorId: SYSTEM_ACTOR.id, actorName: SYSTEM_ACTOR.name,
+          entityType: 'backup', entityId: backup.id,
+          message: 'نسخه پشتیبان خودکار ایجاد شد.',
+          details: { filename: backup.filename, schedule: expression },
+        });
+        const { maybeTransferBackup } = await import('./backup-external.js');
+        await maybeTransferBackup(backup.id);
+      }
+    }
+
+    if (await getBool('backup.db_enabled')) {
+      const dbExpression = await getString('backup.db_schedule_cron');
+      const dbCron = parseCron(dbExpression);
+      if (dbCron && minuteKey !== dbLastFiredMinute && cronMatches(dbCron, now)) {
+        dbLastFiredMinute = minuteKey;
+        const dbBackup = await createBackup(SYSTEM_ACTOR, 'پشتیبان سریع دیتابیس (زمان‌بندی‌شده)', { dbOnly: true });
+        await logEvent({
+          level: 'INFO', category: 'background', action: 'backup.auto_db', result: 'success',
+          actorId: SYSTEM_ACTOR.id, actorName: SYSTEM_ACTOR.name,
+          entityType: 'backup', entityId: dbBackup.id,
+          message: 'نسخه پشتیبان سریع دیتابیس ایجاد شد.',
+          details: { filename: dbBackup.filename, schedule: dbExpression },
+        });
+        const { maybeTransferBackup } = await import('./backup-external.js');
+        await maybeTransferBackup(dbBackup.id);
+      }
+    }
   } catch (error) {
     lastError = error instanceof Error ? error.message : 'خطای ناشناخته در پشتیبان‌گیری خودکار';
     await logEvent({
