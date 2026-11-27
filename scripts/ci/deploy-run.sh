@@ -27,6 +27,7 @@ VPS_HOST="${VPS_HOST:-}"
 VPS_USER="${VPS_USER:-}"
 VPS_PORT="${VPS_PORT:-22}"
 VPS_SSH_KEY="${VPS_SSH_KEY:-}"
+AGENT_SSH_KEY="${AGENT_SSH_KEY:-}"
 VPS_HOST_KEY="${VPS_HOST_KEY:-}"
 DRY_RUN="${PISHKAN_CI_DRY_RUN:-0}"
 
@@ -43,6 +44,49 @@ case "$FORCE_RAW" in
   false|0|"") FORCE=0 ;;
   *) die "FORCE must be true or false, got '$FORCE_RAW'" ;;
 esac
+
+# --- restricted agent session (post-revocation, approval-gated) --------------
+# ACTION=agent NEVER uses the full deploy key. It connects as the locked-down
+# `pishkan-agent` user whose SSH key only exists during an operator-approved
+# window (OpenSSH expiry-time) and whose forced command runs read-only
+# diagnostics. This is the path the agent uses AFTER the operator revokes the
+# main secret; while the main secret is valid the agent uses normal actions.
+if [ "$ACTION" = "agent" ]; then
+  [ -n "$VPS_HOST" ] || die "VPS_HOST secret is required for action=agent"
+  [ -n "$AGENT_SSH_KEY" ] || die "AGENT_SSH_KEY secret is required for action=agent (run: pishkan-agent-bootstrap setup)"
+  [[ "$VPS_PORT" =~ ^[0-9]{1,5}$ ]] || die "VPS_PORT must be numeric, got '$VPS_PORT'"
+  if [ "$DRY_RUN" = "1" ]; then
+    echo "DRY RUN — agent session: ssh -p ${VPS_PORT} pishkan-agent@${VPS_HOST} (forced read-only diagnostics)"
+    exit 0
+  fi
+  WORK="$(mktemp -d)"; trap 'rm -rf "$WORK"' EXIT
+  KEY="$WORK/id_agent"; KNOWN="$WORK/known_hosts"
+  printf '%s\n' "$AGENT_SSH_KEY" > "$KEY"; chmod 600 "$KEY"
+  if [ -n "$VPS_HOST_KEY" ]; then
+    printf '%s\n' "$VPS_HOST_KEY" > "$KNOWN"
+  else
+    ssh-keyscan -p "$VPS_PORT" -t ed25519,rsa "$VPS_HOST" > "$KNOWN" 2>/dev/null || true
+  fi
+  [ -s "$KNOWN" ] || die "no host key for agent session — set VPS_HOST_KEY or check VPS_HOST/VPS_PORT."
+  chmod 600 "$KNOWN"
+  echo "── Agent session (read-only, operator-approved window) ──"
+  rc=0
+  ssh -i "$KEY" -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes \
+      -o UserKnownHostsFile="$KNOWN" -o ConnectTimeout=20 -p "$VPS_PORT" \
+      "pishkan-agent@$VPS_HOST" "agent ${REQUEST_ID}" || rc=$?
+  if [ -n "${GITHUB_STEP_SUMMARY:-}" ]; then
+    {
+      echo "## نشست تشخیصی عامل (فقط-خواندنی)"
+      echo ""
+      if [ "$rc" -eq 0 ]; then
+        echo "✅ انجام شد — پنجرهٔ تأییدشدهٔ اپراتور."
+      else
+        echo "❌ ناموفق (کد $rc) — احتمالاً درخواست تأیید نشده یا پنجرهٔ دسترسی بسته/منقضی است."
+      fi
+    } >> "$GITHUB_STEP_SUMMARY"
+  fi
+  exit "$rc"
+fi
 
 # --- required secrets ---------------------------------------------------------
 missing=()

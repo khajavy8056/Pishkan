@@ -635,8 +635,27 @@ install -m 0755 "${CURRENT_LINK}/scripts/pishkan" /usr/local/bin/pishkan
 # Dedicated terminal management panel + auto-launch on interactive SSH login.
 # The hook is guarded so it never affects non-interactive sessions (the deploy
 # workflow's SSH commands, scp, cron) and can be skipped with PISHKAN_NO_PANEL=1.
-if [ -f "${CURRENT_LINK}/scripts/pishkan-agent-requests" ]; then
-  install -m 0755 "${CURRENT_LINK}/scripts/pishkan-agent-requests" /usr/local/bin/pishkan-agent-requests
+for tool in pishkan-agent-requests pishkan-agent-shell pishkan-agent-diagnostics pishkan-agent-bootstrap; do
+  if [ -f "${CURRENT_LINK}/scripts/${tool}" ]; then
+    install -m 0755 "${CURRENT_LINK}/scripts/${tool}" "/usr/local/bin/${tool}"
+  fi
+done
+# Organizational mail server CLI + compose template. The product API (running as
+# the unprivileged APP_USER) drives mailbox creation through this single scoped
+# sudo rule; the actual docker-mailserver is provisioned later via `pishkan-mail
+# install --domain <domain>` once DNS is ready. See docs/EMAIL-ORGANIZATIONAL-FA.md.
+if [ -f "${CURRENT_LINK}/scripts/mail/pishkan-mail" ]; then
+  install -m 0755 "${CURRENT_LINK}/scripts/mail/pishkan-mail" /usr/local/bin/pishkan-mail
+  install -d -m 0755 /usr/local/share/pishkan
+  install -m 0644 "${CURRENT_LINK}/scripts/mail/docker-compose.mail.yml" /usr/local/share/pishkan/docker-compose.mail.yml
+  printf '%s ALL=(root) NOPASSWD: /usr/local/bin/pishkan-mail\n' "$APP_USER" > /etc/sudoers.d/pishkan-mail
+  chmod 0440 /etc/sudoers.d/pishkan-mail
+  if visudo -cf /etc/sudoers.d/pishkan-mail >/dev/null 2>&1; then
+    ok "ابزار ایمیل سازمانی نصب شد (pishkan-mail)."
+  else
+    rm -f /etc/sudoers.d/pishkan-mail
+    warn "قانون sudoers ایمیل نامعتبر بود؛ حذف شد."
+  fi
 fi
 if [ -f "${CURRENT_LINK}/scripts/pishkan-panel" ]; then
   install -m 0755 "${CURRENT_LINK}/scripts/pishkan-panel" /usr/local/bin/pishkan-panel

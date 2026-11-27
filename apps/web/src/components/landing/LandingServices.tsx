@@ -72,6 +72,7 @@ export function LandingTicker() {
                 key={`${cat.id}-${idx}`}
                 to={`/services?category=${encodeURIComponent(cat.slug)}`}
                 className="ticker-item"
+                dir="rtl"
               >
                 <img
                   src={resolveCategoryImage(cat)}

@@ -532,9 +532,11 @@ cmd_update() {
     if [ -f "${CURRENT_LINK}/scripts/pishkan-panel" ]; then
       install -m 0755 "${CURRENT_LINK}/scripts/pishkan-panel" /usr/local/bin/pishkan-panel
     fi
-    if [ -f "${CURRENT_LINK}/scripts/pishkan-agent-requests" ]; then
-      install -m 0755 "${CURRENT_LINK}/scripts/pishkan-agent-requests" /usr/local/bin/pishkan-agent-requests
-    fi
+    for tool in pishkan-agent-requests pishkan-agent-shell pishkan-agent-diagnostics pishkan-agent-bootstrap; do
+      if [ -f "${CURRENT_LINK}/scripts/${tool}" ]; then
+        install -m 0755 "${CURRENT_LINK}/scripts/${tool}" "/usr/local/bin/${tool}"
+      fi
+    done
     install -m 0644 "${CURRENT_LINK}/deploy/systemd/pishkan-backup.service" /etc/systemd/system/ 2>/dev/null || true
 
     # A new release may change the nginx template itself (a new header, a new

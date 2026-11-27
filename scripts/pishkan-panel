@@ -108,6 +108,36 @@ confirm_update() {
   case "$a" in y|Y|yes) run_protected "$PISHKAN_BIN" update ;; *) echo "لغو شد."; pause ;; esac
 }
 
+mail_menu() {
+  if ! command -v pishkan-mail >/dev/null 2>&1; then
+    echo "ابزار pishkan-mail نصب نشده است."; pause; return 0
+  fi
+  while true; do
+    printf '\n%s\n' "${B}${C}── ایمیل سازمانی ──${R}"
+    pishkan-mail status || true
+    printf '  %s راه‌اندازی سرور ایمیل (نیازمند دامنه)\n' "${B}1)${R}"
+    printf '  %s ساخت صندوق تازه\n' "${B}2)${R}"
+    printf '  %s فهرست صندوق‌ها\n' "${B}3)${R}"
+    printf '  %s رکوردهای DNS\n' "${B}4)${R}"
+    printf '  %s تنظیمات اتصال Gmail\n' "${B}5)${R}"
+    printf '  %s بازگشت\n' "${B}q)${R}"
+    printf '%s' "انتخاب: "
+    read -r mc || return 0
+    case "$mc" in
+      1) printf '%s' "دامنهٔ ایمیل سازمانی (مثلاً office.ir): "; read -r md || continue
+         [ -n "$md" ] && pishkan-mail install --domain "$md"; pause ;;
+      2) printf '%s' "نشانی کامل صندوق (مثلاً admin@office.ir): "; read -r ma || continue
+         printf '%s' "رمز (حداقل ۸ نویسه): "; read -r mp || continue
+         [ -n "$ma" ] && [ -n "$mp" ] && pishkan-mail add "$ma" "$mp"; pause ;;
+      3) pishkan-mail list; pause ;;
+      4) pishkan-mail dns; pause ;;
+      5) pishkan-mail gmail; pause ;;
+      q|Q|"") return 0 ;;
+      *) echo "گزینهٔ نامعتبر." ;;
+    esac
+  done
+}
+
 agent_requests_menu() {
   if ! command -v pishkan-agent-requests >/dev/null 2>&1; then
     echo "ابزار pishkan-agent-requests نصب نشده است."; pause; return 0
@@ -125,9 +155,19 @@ agent_requests_menu() {
         [ -n "$rvid" ] && pishkan-agent-requests revoke "$rvid"
         pause ;;
       *)
-        printf '%s' "${Y}عملیات «agent» برای این درخواست تا ۱۵ دقیقه و فقط یک بار تأیید شود؟ (y/N): ${R}"
-        read -r ok || return 0
-        case "$ok" in y|Y|yes) pishkan-agent-requests approve "$rid"; pause ;; *) echo "لغو شد." ;; esac ;;
+        printf '%s' "${Y}تأیید دسترسی فقط-خواندنی؟${R} بزنید ${B}y${R} (زمانِ درخواستیِ عامل) یا ${B}y 20${R} / ${B}y 120${R} (دقیقهٔ دلخواه): "
+        read -r ok mins || return 0
+        case "$ok" in
+          y|Y|yes)
+            if [ -n "$mins" ]; then
+              case "$mins" in (*[!0-9]*|'') echo "مدت باید عدد (دقیقه) باشد."; pause; continue ;; esac
+              pishkan-agent-requests approve "$rid" "$mins"
+            else
+              pishkan-agent-requests approve "$rid"
+            fi
+            pause ;;
+          *) echo "لغو شد." ;;
+        esac ;;
     esac
   done
 }
@@ -148,6 +188,7 @@ menu() {
     printf '  %s نسخه و بررسی به‌روزرسانی\n'      "${B}11)${R}"
     printf '  %s تماشای زندهٔ نشست نصب/به‌روزرسانی (tmux)\n' "${B}12)${R}"
     printf '  %s درخواست‌های دسترسی عامل (تأیید/رد)\n' "${B}13)${R}"
+    printf '  %s ایمیل سازمانی (صندوق‌ها / DNS / Gmail)\n' "${B}14)${R}"
     printf '  %s خروج به ترمینال معمولی (سپس exit برای logout)\n' "${B}0)${R}"
     printf '\n%s' "${B}انتخاب کنید:${R} "
     read -r choice || return 0
@@ -165,6 +206,7 @@ menu() {
       11) run_cmd "$PISHKAN_BIN" check-update ;;
       12) watch_deploy_session ;;
       13) agent_requests_menu ;;
+      14) mail_menu ;;
       0) printf '%s\n' "${G}خروج به ترمینال معمولی. برای بازگشت به پنل: pishkan-panel${R}"; return 0 ;;
       *) printf '%s\n' "${Y}گزینه نامعتبر.${R}"; sleep 1 ;;
     esac

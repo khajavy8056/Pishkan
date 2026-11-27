@@ -1,0 +1,10 @@
+#!/usr/bin/env bash
+# Forced command for the restricted `pishkan-agent` SSH user.
+#
+# sshd runs THIS instead of whatever command the client sends (the authorized_keys
+# line carries command="…",restrict,expiry-time="…"). The agent therefore never
+# gets a shell — only the read-only diagnostics helper, through a single tightly
+# scoped sudo rule. Outside an approved window the key is absent/expired, so this
+# is never reached.
+set -euo pipefail
+exec sudo -n /usr/local/bin/pishkan-agent-diagnostics

@@ -6,6 +6,7 @@ import { SiteProvider } from './lib/site';
 import { ToastProvider } from './components/ui';
 import { ThemeProvider } from './lib/theme';
 import { RequireRole } from './components/shell';
+import { ScrollTopButton } from './components/ScrollTopButton';
 import type { ReactNode } from 'react';
 
 import { HomePage } from './pages/public/Home';
@@ -132,6 +133,7 @@ function App() {
         <ToastProvider>
           <BrowserRouter>
             <ScrollToTop />
+            <ScrollTopButton />
             <Suspense fallback={<RouteFallback />}>
             <Routes>
               {/* public */}

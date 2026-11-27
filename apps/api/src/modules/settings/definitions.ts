@@ -232,6 +232,11 @@ export const SETTINGS: SettingDef[] = [
   { key: 'email.notify_tickets', group: 'email', type: 'boolean', label: 'ایمیل رویدادهای تیکت پشتیبانی', hint: 'ثبت تیکت و پاسخ تازه؛ هر کاربر می‌تواند دریافت را برای خودش خاموش کند.', default: bool(true) },
   { key: 'email.notify_security', group: 'email', type: 'boolean', label: 'ایمیل هشدارهای امنیتی و پایش', hint: 'هشدارهای گارد و پایش برای مدیران.', default: bool(true) },
   { key: 'email.daily_limit', group: 'email', type: 'number', label: 'سقف ارسال ایمیل روزانه', hint: 'برای جلوگیری از ارسال ناخواستهٔ انبوه.', default: 500, min: 1, max: 100000 },
+  /* Organizational mail server (docker-mailserver) — provisioned on the VPS in
+   * the install phase by `pishkan-mail`. The domain is the suffix for every
+   * mailbox the admin creates (admin@<domain>). See docs/EMAIL-ORGANIZATIONAL-FA.md. */
+  { key: 'mail.domain', group: 'email', type: 'text', label: 'دامنهٔ ایمیل سازمانی', hint: 'پسوند صندوق‌های سازمانی، مثلاً office.ir. باید رکوردهای MX/SPF/DKIM آن در DNS تنظیم شده باشد.', default: '' },
+  { key: 'mail.hostname', group: 'email', type: 'text', label: 'نام میزبان ایمیل', hint: 'زیردامنهٔ سرور ایمیل، پیش‌فرض mail (یعنی mail.office.ir).', default: 'mail' },
   { key: 'email.log_body', group: 'email', type: 'boolean', label: 'ثبت متن ایمیل در لاگ داخلی', hint: 'برای حریم خصوصی بهتر است خاموش باشد؛ لینک‌های یک‌بارمصرف داخل متن هستند.', default: bool(false) },
   { key: 'email.test_recipient', group: 'email', type: 'email', label: 'ایمیل مقصد آزمایشی', hint: 'دکمهٔ «ارسال ایمیل آزمایشی» به این نشانی می‌فرستد.', default: '' },
 

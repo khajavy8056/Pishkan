@@ -1,0 +1,41 @@
+#!/usr/bin/env bash
+# Read-only diagnostics for an approved agent window. Runs as root via a single
+# scoped sudo rule (see /etc/sudoers.d/pishkan-agent). It NEVER changes anything:
+# it only prints status, doctor output and a tail of the logs, with IPs redacted.
+#
+# Defense in depth: the SSH key already carries an expiry-time, but we also
+# refuse to run unless a live approval exists on disk.
+set -uo pipefail
+
+STATE_DIR="${PISHKAN_STATE_DIR:-/var/lib/pishkan}"
+APPROVAL_DIR="$STATE_DIR/agent-approvals"
+now="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+
+active=0
+if [ -d "$APPROVAL_DIR" ]; then
+  for f in "$APPROVAL_DIR"/*.conf; do
+    [ -f "$f" ] || continue
+    exp="$(sed -n 's/^EXPIRES_AT=//p' "$f")"
+    if [[ "$exp" > "$now" ]]; then active=1; fi
+  done
+fi
+if [ "$active" != "1" ]; then
+  echo "دسترسی فعالی وجود ندارد. اپراتور باید در پنل (منوی ۱۳) درخواست را تأیید کند."
+  exit 1
+fi
+
+# Redact IPv4 literals so the public report never leaks the server address.
+redact() { sed -E 's/([0-9]{1,3}\.){3}[0-9]{1,3}/[IP]/g'; }
+
+echo "===== pishkan status ====="
+if command -v pishkan >/dev/null 2>&1; then pishkan status 2>&1 | redact || true; else echo "(pishkan CLI not installed yet)"; fi
+echo
+echo "===== pishkan doctor ====="
+if command -v pishkan >/dev/null 2>&1; then pishkan doctor 2>&1 | redact || true; fi
+echo
+echo "===== recent application logs (tail 80) ====="
+for log in /var/log/pishkan/app.log /var/log/pishkan/api.log; do
+  if [ -f "$log" ]; then echo "--- $log ---"; tail -n 80 "$log" | redact; fi
+done
+echo
+echo "===== agent session complete (read-only; window closes automatically) ====="

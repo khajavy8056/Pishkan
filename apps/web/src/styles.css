@@ -858,3 +858,17 @@ details > summary::marker { content: ''; }
   .app-store-btn:hover,
   .app-store-btn:active { transform: none; transition: none; }
 }
+
+/* ==========================================================================
+   Global scroll-to-top button (mounted at the router root → every page).
+   It parks above the chat FAB; when the chat panel opens it steps aside so
+   the two never overlap. ChatWidget toggles body[data-chat-open].
+   ========================================================================== */
+body[data-chat-open='true'] .scroll-top-fab {
+  opacity: 0 !important;
+  pointer-events: none !important;
+  transform: translateY(0.75rem);
+}
+@media (prefers-reduced-motion: reduce) {
+  .scroll-top-fab { transition: none; }
+}

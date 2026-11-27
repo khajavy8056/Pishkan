@@ -36,6 +36,7 @@ import { referralsRouter } from '../routes/referrals.js';
 import { supportRouter } from '../routes/support.js';
 import { pushRouter } from '../routes/push.js';
 import { notificationsRouter } from '../routes/notifications.js';
+import { mailboxesRouter } from '../routes/mailboxes.js';
 import { mobileRouter } from '../routes/mobile.js';
 import { blogRouter, blogSeoRouter, publicBlogRouter } from '../routes/blog.js';
 import { guardRouter } from '../routes/guard.js';
@@ -292,6 +293,7 @@ export async function createApp(): Promise<Express> {
   app.use(['/api/support','/api/v1/support'],supportRouter);
   app.use(['/api/push','/api/v1/push'],pushRouter);
   app.use(['/api/notifications','/api/v1/notifications'],notificationsRouter);
+  app.use(['/api/mailboxes','/api/v1/mailboxes'],mailboxesRouter);
   app.use(['/api/app','/api/v1/app'],mobileRouter);
   app.use(['/api/blog','/api/v1/blog'],blogRouter);
   app.use(['/api/public/blog','/api/v1/public/blog'],publicBlogRouter);
