@@ -35,7 +35,7 @@ import { id } from '../../lib/crypto.js';
 import { getBool, getNumber, getString } from '../settings/service.js';
 
 /** Every channel a notice can travel on. Written to `notification_acks.channel`. */
-export const CHANNELS = ['fcm', 'web', 'live', 'poll', 'sms', 'relay'] as const;
+export const CHANNELS = ['fcm', 'web', 'live', 'poll', 'sms', 'relay', 'email'] as const;
 export type DeliveryChannel = (typeof CHANNELS)[number];
 
 export function isChannel(value: unknown): value is DeliveryChannel {
@@ -399,6 +399,7 @@ export interface DeliveryPolicy {
   fcmEnabled: boolean;
   fcmProblem: string;
   webPushEnabled: boolean;
+  emailEnabled: boolean;
   liveClients: number;
 }
 
@@ -421,6 +422,7 @@ export async function deliveryPolicy(): Promise<DeliveryPolicy> {
     fcmEnabled: fcm.enabled,
     fcmProblem: fcm.problem,
     webPushEnabled: (await getBool('sms.push_enabled')) && Boolean(web.enabled && web.publicKey),
+    emailEnabled: await getBool('email.enabled'),
     liveClients: liveHub.clientCount,
   };
 }

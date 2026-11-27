@@ -1,0 +1,186 @@
+#!/usr/bin/env python3
+"""
+pishkan-agent-requests — the operator side of the agent access approval gate.
+
+Flow (security by explicit, per-session human approval):
+  1. The agent publishes a request file to the GitHub branch
+     `pishkan-agent-requests` (requests/<id>.json): what it wants to do and why.
+  2. The operator opens the PuTTY panel → «درخواست‌های دسترسی عامل» → this tool
+     lists pending requests fetched from GitHub (public repo, read-only).
+  3. Approving writes /var/lib/pishkan/agent-approvals/<id>.conf — a 15-minute,
+     single-use approval. Rejecting writes nothing.
+  4. The agent triggers workflow action=agent with request_id=<id>; the server
+     (remote-deploy.sh) refuses unless a matching, unexpired, unused approval
+     exists, then consumes it. When the work ends, the access ends.
+  5. Next time, the whole story repeats — no standing access is ever granted.
+
+The approval lives ONLY on the server; GitHub never learns the decision, and
+the agent cannot approve its own request (it has no write path to the server).
+
+Usage: pishkan-agent-requests list | approve <id> | revoke <id> | status
+"""
+import json
+import os
+import sys
+import urllib.request
+from datetime import datetime, timedelta, timezone
+
+REPO = os.environ.get("PISHKAN_REPO", "khajavy8056/Pishkan")
+BRANCH = "pishkan-agent-requests"
+APPROVAL_DIR = os.environ.get("PISHKAN_STATE_DIR", "/var/lib/pishkan") + "/agent-approvals"
+APPROVAL_TTL_MINUTES = 15
+API = f"https://api.github.com/repos/{REPO}/contents/requests?ref={BRANCH}"
+
+
+def now():
+    return datetime.now(timezone.utc)
+
+
+def iso(dt):
+    return dt.strftime("%Y-%m-%dT%H:%M:%SZ")
+
+
+def fetch_requests():
+    """Pending requests from GitHub. Returns [] when the branch is absent."""
+    try:
+        req = urllib.request.Request(API, headers={"User-Agent": "pishkan-panel", "Accept": "application/vnd.github+json"})
+        with urllib.request.urlopen(req, timeout=15) as res:
+            entries = json.load(res)
+    except urllib.error.HTTPError as err:
+        if err.code == 404:
+            return []
+        raise
+    out = []
+    for entry in entries:
+        if not entry.get("name", "").endswith(".json"):
+            continue
+        try:
+            req2 = urllib.request.Request(entry["url"], headers={"User-Agent": "pishkan-panel", "Accept": "application/vnd.github+json"})
+            with urllib.request.urlopen(req2, timeout=15) as res2:
+                blob = json.load(res2)
+            import base64
+            data = json.loads(base64.b64decode(blob["content"]).decode("utf-8"))
+            data["_path"] = entry["path"]
+            out.append(data)
+        except Exception:
+            continue
+    return out
+
+
+def approval_path(request_id):
+    safe = "".join(c for c in request_id if c.isalnum() or c in "-_")
+    if not safe or safe != request_id:
+        raise SystemExit("شناسه درخواست نامعتبر است.")
+    return os.path.join(APPROVAL_DIR, f"{safe}.conf")
+
+
+def read_approval(request_id):
+    path = approval_path(request_id)
+    if not os.path.isfile(path):
+        return None
+    values = {}
+    with open(path, encoding="utf-8") as fh:
+        for line in fh:
+            line = line.strip()
+            if "=" in line and not line.startswith("#"):
+                key, _, value = line.partition("=")
+                values[key.strip()] = value.strip()
+    return values
+
+
+def list_requests():
+    requests = fetch_requests()
+    if not requests:
+        print("درخواست معلقی وجود ندارد.")
+        return
+    print(f"{'شناسه':<24} {'عملیات':<12} {'وضعیت':<14} دلیل")
+    print("-" * 78)
+    for r in sorted(requests, key=lambda x: x.get("created_at", "")):
+        rid = str(r.get("id", "?"))
+        action = str(r.get("action", "agent"))
+        approval = read_approval(rid) if rid.replace("-", "").replace("_", "").isalnum() else None
+        if approval and approval.get("USED") == "1":
+            state = "مصرف‌شده"
+        elif approval and approval.get("EXPIRES_AT", "") > iso(now()):
+            state = "تأییدشده ✓"
+        elif approval:
+            state = "منقضی"
+        else:
+            expires = str(r.get("expires_at", ""))
+            state = "در انتظار" if expires > iso(now()) else "منقضی"
+        reason = str(r.get("reason", ""))[:40]
+        print(f"{rid:<24} {action:<12} {state:<14} {reason}")
+    print("\nتأیید:  pishkan-agent-requests approve <شناسه>")
+    print("لغو:    pishkan-agent-requests revoke <شناسه>")
+
+
+def approve(request_id):
+    requests = fetch_requests()
+    match = next((r for r in requests if str(r.get("id")) == request_id), None)
+    if match is None:
+        raise SystemExit("این شناسه در شاخهٔ درخواست‌ها یافت نشد.")
+    if str(match.get("expires_at", "")) < iso(now()):
+        raise SystemExit("این درخواست منقضی شده است؛ عامل باید درخواست تازه بدهد.")
+    existing = read_approval(request_id)
+    if existing and existing.get("USED") == "1":
+        raise SystemExit("این درخواست قبلاً مصرف شده است؛ برای دسترسی دوباره، درخواست تازه لازم است.")
+    os.makedirs(APPROVAL_DIR, exist_ok=True)
+    path = approval_path(request_id)
+    expires = iso(now() + timedelta(minutes=APPROVAL_TTL_MINUTES))
+    with open(path, "w", encoding="utf-8") as fh:
+        fh.write(f"REQUEST_ID={request_id}\n")
+        fh.write(f"ACTION={match.get('action', 'agent')}\n")
+        fh.write(f"APPROVED_AT={iso(now())}\n")
+        fh.write(f"EXPIRES_AT={expires}\n")
+        fh.write("USED=0\n")
+    os.chmod(path, 0o600)
+    print(f"✓ تأیید شد. عامل تا {expires} (۱۵ دقیقه) و فقط یک بار می‌تواند عملیات «{match.get('action', 'agent')}» را اجرا کند.")
+    print("  پس از اجرا، دسترسی خودکار بسته می‌شود؛ برای بار بعد باید دوباره تأیید کنید.")
+
+
+def revoke(request_id):
+    path = approval_path(request_id)
+    if os.path.isfile(path):
+        os.remove(path)
+        print("✓ تأیید لغو شد.")
+    else:
+        print("تأیید فعالی برای این شناسه وجود ندارد.")
+
+
+def status():
+    if not os.path.isdir(APPROVAL_DIR):
+        print("هیچ تأییدی ثبت نشده است.")
+        return
+    files = [f for f in os.listdir(APPROVAL_DIR) if f.endswith(".conf")]
+    if not files:
+        print("هیچ تأییدی ثبت نشده است.")
+        return
+    for name in sorted(files):
+        values = {}
+        with open(os.path.join(APPROVAL_DIR, name), encoding="utf-8") as fh:
+            for line in fh:
+                if "=" in line:
+                    key, _, value = line.strip().partition("=")
+                    values[key] = value
+        state = "مصرف‌شده" if values.get("USED") == "1" else ("فعال" if values.get("EXPIRES_AT", "") > iso(now()) else "منقضی")
+        print(f"{values.get('REQUEST_ID', name)}: {state} (تا {values.get('EXPIRES_AT', '?')})")
+
+
+def main():
+    if os.geteuid() != 0:
+        raise SystemExit("این دستور باید با root اجرا شود (sudo pishkan-agent-requests …).")
+    args = sys.argv[1:]
+    if not args or args[0] == "list":
+        list_requests()
+    elif args[0] == "approve" and len(args) == 2:
+        approve(args[1])
+    elif args[0] == "revoke" and len(args) == 2:
+        revoke(args[1])
+    elif args[0] == "status":
+        status()
+    else:
+        raise SystemExit(__doc__)
+
+
+if __name__ == "__main__":
+    main()

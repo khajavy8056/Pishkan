@@ -61,8 +61,8 @@ export function AdminCustomers() {
     if (!editing) return;
     try {
       await api.patch(`/api/customers/${editing.id}`, {
-        fullName: editing.fullName, email: editing.email, nationalId: editing.nationalId,
-        status: editing.status, address: editing.profile?.address, city: editing.profile?.city,
+        fullName: String(editing.fullName ?? '').trim(), email: editing.email ?? '', nationalId: editing.nationalId ?? '',
+        status: editing.status, address: editing.profile?.address ?? '', city: editing.profile?.city ?? '',
       });
       notify('تغییرات ذخیره شد.', 'success');
       setEditing(null);
@@ -356,9 +356,12 @@ export function AdminStaff() {
   const saveStaff = async () => {
     if (!editing) return;
     try {
+      // Fields the office never filled load as null; send clean values so an
+      // untouched empty field can never fail validation on save.
+      const maxCases = Number(editing.maxActiveCases);
       await api.patch(`/api/staff/${editing.id}`, {
-        fullName: editing.fullName, email: editing.email, position: editing.position,
-        roleCode: editing.roleCode, maxActiveCases: Number(editing.maxActiveCases),
+        fullName: String(editing.fullName ?? '').trim(), email: editing.email ?? '', position: editing.position ?? '',
+        roleCode: editing.roleCode, ...(Number.isFinite(maxCases) && maxCases >= 1 ? { maxActiveCases: Math.trunc(maxCases) } : {}),
         acceptsNewCases: editing.acceptsNewCases, status: editing.status,
         specialties: Array.isArray(editing.specialties) ? editing.specialties : String(editing.specialties ?? '').split(',').map((s) => s.trim()).filter(Boolean),
         ...(editing.newPassword ? { newPassword: editing.newPassword } : {}),

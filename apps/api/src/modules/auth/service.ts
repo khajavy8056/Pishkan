@@ -25,6 +25,7 @@ export interface UserRow {
   role_id: string | null;
   mobile: string | null;
   mobile_verified: number;
+  email_verified?: number;
   email: string | null;
   username: string | null;
   password_hash: string | null;
@@ -111,6 +112,7 @@ export function publicUser(user: UserRow) {
     mobile: user.mobile,
     mobileVerified: Boolean(user.mobile_verified),
     email: user.email,
+    emailVerified: Boolean(user.email_verified),
     username: user.username,
     nationalId: user.national_id,
     status: user.status,

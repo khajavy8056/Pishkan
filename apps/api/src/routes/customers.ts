@@ -291,19 +291,25 @@ customersRouter.get('/:id', requirePermission('customers.view'), asyncRoute(asyn
 
 customersRouter.patch('/:id', requirePermission('customers.edit'), asyncRoute(async (req, res) => {
   if(!officeScope(req.auth!))throw forbidden('تغییر هویت و وضعیت مشتری فقط توسط مدیریت مجاز است.');
+  // Null-tolerant for the same reason as the staff edit route: the dialog
+  // round-trips the loaded record, so unfilled fields come back as JSON null.
   const body = z.object({
-    fullName: z.string().min(3).max(120).optional(),
-    email: z.string().email().optional().or(z.literal('')),
-    nationalId: z.string().length(10).optional().or(z.literal('')),
-    status: z.enum(['active', 'pending', 'suspended']).optional(),
-    address: z.string().max(500).optional(),
-    city: z.string().max(60).optional(),
-    province: z.string().max(60).optional(),
-    notes: z.string().max(2000).optional(),
+    fullName: z.string().trim().min(3).max(120).optional(),
+    email: z.string().trim().email().or(z.literal('')).nullish(),
+    nationalId: z.string().length(10).or(z.literal('')).nullish(),
+    status: z.enum(['active', 'pending', 'suspended']).nullish(),
+    address: z.string().max(500).nullish(),
+    city: z.string().max(60).nullish(),
+    province: z.string().max(60).nullish(),
+    notes: z.string().max(2000).nullish(),
   }).parse(req.body);
 
   const user = await one<any>('SELECT * FROM users WHERE id = ? AND kind = ?', [param(req, 'id'), 'customer']);
   if (!user) throw notFound('مشتری یافت نشد.');
+  if (body.email && body.email.toLowerCase() !== String(user.email ?? '').toLowerCase()) {
+    const dupe = await one('SELECT id FROM users WHERE LOWER(email) = ? AND id <> ?', [body.email.toLowerCase(), user.id]);
+    if (dupe) throw conflict('این ایمیل قبلاً برای کاربر دیگری ثبت شده است.', [{ field: 'email', message: 'ایمیل تکراری است.' }]);
+  }
 
   await run(
     `UPDATE users SET full_name = ?, email = ?, national_id = ?, status = ?, notes = ?, updated_at = ? WHERE id = ?`,

@@ -244,6 +244,7 @@ requestsRouter.patch('/:id/status', requirePermission('requests.edit'), asyncRou
       link: `/app/requests/${request.id}`,
       idempotencyKey: `request:${request.id}:status:${updated?.updatedAt ?? body.status}`,
       sms: { eventCode: 'request_status', variables: { tracking_code: request.trackingCode, status: STATUS_LABELS[body.status] } },
+      email: { template: 'notification', variables: { link: `/app/requests/${request.id}` } },
     }).catch(() => undefined);
   }
   ok(res, await safeRequest(req, param(req, 'id')));

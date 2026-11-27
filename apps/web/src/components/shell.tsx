@@ -600,7 +600,7 @@ export function AppShell({ children, variant }: { children: ReactNode; variant: 
                   <p className="px-2 pt-3 pb-1 text-[10px] font-semibold tracking-wide text-navy-400">حالت نمایش</p>
                   <ThemeMenu />
                   <div className="mt-2 border-t border-line pt-2">
-                    <Link to={variant === 'customer' ? '/app/profile' : '/staff/shifts'} className="block rounded-lg px-3 py-2 text-sm text-navy-700 hover:bg-surface-3">
+                    <Link to={variant === 'customer' ? '/app/profile' : '/staff/account'} className="block rounded-lg px-3 py-2 text-sm text-navy-700 hover:bg-surface-3">
                       حساب کاربری
                     </Link>
                     <TourMenuItem variant={variant} />

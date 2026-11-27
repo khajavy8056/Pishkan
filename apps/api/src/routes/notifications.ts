@@ -110,6 +110,28 @@ notificationsRouter.get('/status', asyncRoute(async (req, res) => {
 }));
 
 /**
+ * «کدام هشدارها به ایمیل من برسد» — the person's own email alarm preferences.
+ * Scoped to the calling account; there is no parameter naming anybody else.
+ */
+notificationsRouter.get('/email-prefs', asyncRoute(async (req, res) => {
+  const { emailPrefsFor } = await import('../modules/email/service.js');
+  ok(res, await emailPrefsFor(req.auth!.user.id));
+}));
+
+notificationsRouter.put('/email-prefs', asyncRoute(async (req, res) => {
+  const body = z.object({
+    emailEnabled: z.boolean().optional(),
+    tickets: z.boolean().optional(),
+    cases: z.boolean().optional(),
+    payments: z.boolean().optional(),
+    security: z.boolean().optional(),
+    announcements: z.boolean().optional(),
+  }).parse(req.body);
+  const { setEmailPrefs } = await import('../modules/email/service.js');
+  ok(res, await setEmailPrefs(req.auth!.user.id, body));
+}));
+
+/**
  * «چطور مطمئن شوم که ارسال واقعاً انجام می‌شود؟» — the one honest answer is to
  * send something and look at what the ledger says about it, so that is what this
  * endpoint does. It is a self-test, not a broadcast: the notice is created for

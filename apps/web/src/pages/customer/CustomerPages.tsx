@@ -1,4 +1,5 @@
 import { MobileVerification } from '../../components/mobile-verification';
+import { EmailVerification, EmailAlarmPrefs } from '../../components/email-card';
 import { AppStoreButtons } from '../../components/app-store-buttons';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom';
@@ -1501,6 +1502,7 @@ export function CustomerProfile() {
         <Card>
           <h2 className="mb-4 font-bold text-navy-900">اطلاعات حساب</h2>
           <MobileVerification />
+          <EmailVerification />
           <div className="space-y-4">
             <div className="grid gap-4 sm:grid-cols-2"><Field label="نام" required><Input value={form.firstName} onChange={e=>setForm({...form,firstName:e.target.value})} autoComplete="given-name" /></Field><Field label="نام خانوادگی" required><Input value={form.lastName} onChange={e=>setForm({...form,lastName:e.target.value})} autoComplete="family-name" /></Field></div>
             <div className="grid gap-4 sm:grid-cols-2">
@@ -1521,6 +1523,11 @@ export function CustomerProfile() {
         </Card>
 
         <div className="space-y-6">
+          <Card>
+            <h2 className="mb-2 font-bold text-navy-900">اعلان‌های ایمیلی من</h2>
+            <p className="mb-3 text-xs text-navy-500">مشخص کنید کدام رویدادها به ایمیل شما ارسال شوند.</p>
+            <EmailAlarmPrefs />
+          </Card>
           <Card>
             <h2 className="mb-2 font-bold text-navy-900">تخفیفات من</h2>
             <p className="mb-3 text-xs text-navy-500">کد را هنگام ثبت درخواست وارد کنید؛ شرایط خدمت و مبلغ هنگام ثبت بررسی می‌شود.</p>

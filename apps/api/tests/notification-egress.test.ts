@@ -44,11 +44,11 @@ async function tsFiles(dir: string): Promise<string[]> {
 const EGRESS = /\bfetch\s*\(|https?\.(request|get)\s*\(|\.sendNotification\s*\(|createConnection|net\.connect|tls\.connect/;
 
 describe('the delivery channel set is closed', () => {
-  it('is exactly the six the ledger writes acks for', () => {
+  it('is exactly the seven the ledger writes acks for', () => {
     // live (our own socket), fcm, web (VAPID), relay (a purchased gateway),
-    // poll (the client pulling its list) and sms — escalation, never a fourth
-    // simultaneous copy. Sorted, so a seventh is a decision and not a typo.
-    expect([...CHANNELS].sort()).toEqual(['fcm', 'live', 'poll', 'relay', 'sms', 'web']);
+    // poll (the client pulling its list), sms — escalation — and email (SMTP,
+    // modules/email). Sorted, so an eighth is a decision and not a typo.
+    expect([...CHANNELS].sort()).toEqual(['email', 'fcm', 'live', 'poll', 'relay', 'sms', 'web']);
   });
 
   it('adds no sender inside the notifications module beyond those channels', async () => {
@@ -107,15 +107,14 @@ describe('the delivery channel set is closed', () => {
     }
   });
 
-  it('answers the panel with the same list, and with no email half', async () => {
+  it('answers the panel with the same list, email included', async () => {
     const server = await app();
     const admin = await adminSession();
     const res = await request(server).get('/api/notifications/status').set('cookie', admin.cookie).expect(200);
     const policy = res.body.data.policy ?? res.body.data;
-    for (const flag of ['liveEnabled', 'fcmEnabled', 'webPushEnabled', 'relayEnabled', 'smsFallbackEnabled']) {
+    for (const flag of ['liveEnabled', 'fcmEnabled', 'webPushEnabled', 'relayEnabled', 'smsFallbackEnabled', 'emailEnabled']) {
       expect(typeof policy[flag], `${flag} must be reported, not assumed`).toBe('boolean');
     }
-    expect(policy).not.toHaveProperty('emailEnabled');
   });
 });
 
