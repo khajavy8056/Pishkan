@@ -1,0 +1,269 @@
+#!/usr/bin/env bash
+# ---------------------------------------------------------------------------
+# pishkan-mail — organizational mail server (docker-mailserver) for Pishkan.
+#
+# Provisioned on the VPS during the install phase. Gives every mailbox a real
+# IMAP/SMTP login on the office's own domain, usable from the Gmail Android app
+# (Add account → Other (IMAP)). The product admin UI drives the account commands
+# below through a scoped sudo rule; passwords live ONLY in the mail server.
+#
+# Commands:
+#   install --domain <domain> [--hostname mail] [--image <img>]
+#   add <address> <password>        create a mailbox
+#   passwd <address> <password>     change a mailbox password
+#   enable <address> | disable <address>   suspend / restore login (keeps mail)
+#   del <address>                   delete a mailbox
+#   list [--json]                   list mailboxes
+#   status [--json]                 installed / running / domain / hostname
+#   dns [--json]                    print the DNS records to create
+#   gmail [--json]                  IMAP/SMTP settings for the Gmail app
+#   tls                             (re)provision the Let's Encrypt cert
+#   uninstall                       stop + remove the container (keeps data)
+#
+# Honest note: actual delivery (Gmail inbox, PTR, port 25) is verified on the
+# real VPS in the install phase — see docs/EMAIL-ORGANIZATIONAL-FA.md.
+# ---------------------------------------------------------------------------
+set -euo pipefail
+
+MAIL_ROOT="/opt/pishkan/mail"
+ENV_FILE="${MAIL_ROOT}/mail.env"
+CONTAINER="pishkan-mail"
+C=$'\033[36m'; G=$'\033[32m'; Y=$'\033[33m'; R=$'\033[0m'; B=$'\033[1m'
+say() { printf '%s\n' "$*"; }
+die() { printf '✖ %s\n' "$*" >&2; exit 1; }
+
+[ "$(id -u)" -eq 0 ] || die "این دستور باید با root اجرا شود."
+
+load_env() {
+  if [ -f "$ENV_FILE" ]; then
+    # shellcheck disable=SC1090
+    . "$ENV_FILE"
+  fi
+  MAIL_DOMAIN="${MAIL_DOMAIN:-}"
+  MAIL_HOSTNAME="${MAIL_HOSTNAME:-mail}"
+  MAIL_IMAGE="${MAIL_IMAGE:-ghcr.io/docker-mailserver/docker-mailserver:latest}"
+}
+
+ensure_docker() {
+  if ! command -v docker >/dev/null 2>&1; then
+    say "${Y}نصب Docker…${R}"
+    curl -fsSL https://get.docker.com | sh || die "نصب Docker ناموفق بود."
+  fi
+  docker compose version >/dev/null 2>&1 || die "docker compose plugin در دسترس نیست."
+}
+
+dexec() { docker exec "$CONTAINER" "$@"; }
+
+valid_address() {
+  [[ "$1" =~ ^[a-z0-9](?:[a-z0-9._-]{0,29}[a-z0-9])?@[a-z0-9.-]+\.[a-z]{2,}$ ]]
+}
+
+require_running() {
+  docker ps --format '{{.Names}}' | grep -qx "$CONTAINER" || die "سرور ایمیل در حال اجرا نیست. ابتدا: pishkan-mail install --domain <دامنه>"
+}
+
+cmd_install() {
+  local domain="" hostname="mail" image=""
+  while [ $# -gt 0 ]; do
+    case "$1" in
+      --domain) domain="$2"; shift 2 ;;
+      --hostname) hostname="$2"; shift 2 ;;
+      --image) image="$2"; shift 2 ;;
+      *) die "گزینهٔ نامعتبر: $1" ;;
+    esac
+  done
+  [ -n "$domain" ] || die "دامنه لازم است: pishkan-mail install --domain office.ir"
+  [[ "$domain" =~ ^([a-z0-9]([a-z0-9-]*[a-z0-9])?\.)+[a-z]{2,}$ ]] || die "دامنه نامعتبر: $domain"
+  ensure_docker
+  install -d -m 0750 "$MAIL_ROOT"/{data,state,config,logs}
+  cat > "$ENV_FILE" <<EOF
+MAIL_DOMAIN=${domain}
+MAIL_HOSTNAME=${hostname}
+MAIL_IMAGE=${image:-ghcr.io/docker-mailserver/docker-mailserver:latest}
+EOF
+  chmod 0640 "$ENV_FILE"
+  load_env
+
+  # Render the compose file next to this script's template.
+  local tpl
+  tpl="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/docker-compose.mail.yml"
+  [ -f "$tpl" ] || tpl="/usr/local/share/pishkan/docker-compose.mail.yml"
+  [ -f "$tpl" ] || die "قالب compose یافت نشد."
+  sed -e "s/\${MAIL_DOMAIN}/${MAIL_DOMAIN}/g" \
+      -e "s/\${MAIL_HOSTNAME}/${MAIL_HOSTNAME}/g" \
+      -e "s#\${MAIL_IMAGE:-ghcr.io/docker-mailserver/docker-mailserver:latest}#${MAIL_IMAGE}#g" \
+      "$tpl" > "${MAIL_ROOT}/docker-compose.yml"
+
+  cmd_tls || say "${Y}هشدار: گواهی TLS آماده نشد؛ پس از تنظیم DNS دستور pishkan-mail tls را اجرا کنید.${R}"
+
+  ( cd "$MAIL_ROOT" && docker compose up -d )
+  say "${G}✓ سرور ایمیل بالا آمد. در حال ساخت کلید DKIM…${R}"
+  sleep 8
+  dexec setup config dkim > "${MAIL_ROOT}/config/dkim-dns.txt" 2>&1 || say "${Y}ساخت DKIM خودکار انجام نشد؛ بعداً pishkan-mail dns را اجرا کنید.${R}"
+  say ""
+  cmd_dns
+  say ""
+  say "${G}مرحلهٔ بعد:${R} رکوردهای بالا را در DNS (Cloudflare) بسازید، PTR را از پنل VPS تنظیم کنید،"
+  say "سپس با ${B}pishkan-mail add admin@${MAIL_DOMAIN} <رمز>${R} اولین صندوق را بسازید و در Gmail وصل کنید."
+}
+
+cmd_tls() {
+  load_env
+  [ -n "$MAIL_DOMAIN" ] || die "ابتدا install را اجرا کنید."
+  local fqdn="${MAIL_HOSTNAME}.${MAIL_DOMAIN}"
+  command -v certbot >/dev/null 2>&1 || die "certbot نصب نیست (با نصب اصلی سامانه نصب می‌شود)."
+  if command -v nginx >/dev/null 2>&1; then
+    certbot --nginx -d "$fqdn" --non-interactive --agree-tos --register-unsafely-without-email || \
+    certbot certonly --nginx -d "$fqdn" --non-interactive --agree-tos --register-unsafely-without-email || die "صدور گواهی برای ${fqdn} ناموفق بود."
+  else
+    certbot certonly --standalone -d "$fqdn" --non-interactive --agree-tos --register-unsafely-without-email || die "صدور گواهی برای ${fqdn} ناموفق بود."
+  fi
+  say "${G}✓ گواهی TLS برای ${fqdn} آماده است.${R}"
+}
+
+cmd_add() {
+  load_env; require_running
+  local address="${1:-}" password="${2:-}"
+  valid_address "$address" || die "نشانی نامعتبر: $address"
+  [ "${address#*@}" = "$MAIL_DOMAIN" ] || die "دامنهٔ نشانی باید ${MAIL_DOMAIN} باشد."
+  [ "${#password}" -ge 8 ] || die "رمز باید حداقل ۸ نویسه باشد."
+  dexec setup email add "$address" "$password" || die "ساخت صندوق ناموفق بود."
+  say "${G}✓ صندوق ${address} ساخته شد.${R}"
+}
+
+cmd_passwd() {
+  load_env; require_running
+  local address="${1:-}" password="${2:-}"
+  valid_address "$address" || die "نشانی نامعتبر: $address"
+  [ "${#password}" -ge 8 ] || die "رمز باید حداقل ۸ نویسه باشد."
+  dexec setup email update "$address" "$password" || die "تغییر رمز ناموفق بود."
+  say "${G}✓ رمز ${address} تغییر کرد.${R}"
+}
+
+# Suspend/restore by moving the account line (with its password hash) between
+# postfix-accounts.cf and suspended-accounts.cf. docker-mailserver's change
+# detector reloads postfix+dovecot automatically, so login stops/starts without
+# losing the password or the maildir.
+accounts_file() { printf '%s/config/postfix-accounts.cf' "$MAIL_ROOT"; }
+suspended_file() { printf '%s/config/suspended-accounts.cf' "$MAIL_ROOT"; }
+
+cmd_disable() {
+  load_env; require_running
+  local address="${1:-}"; valid_address "$address" || die "نشانی نامعتبر: $address"
+  local af sf; af="$(accounts_file)"; sf="$(suspended_file)"
+  [ -f "$af" ] || die "این صندوق فعال نیست یا یافت نشد."
+  grep -F "${address}|" "$af" >> "$sf" || die "این صندوق فعال نیست یا یافت نشد."
+  grep -vF "${address}|" "$af" > "${af}.tmp" && mv "${af}.tmp" "$af"
+  say "${G}✓ صندوق ${address} معلق شد (ایمیل‌ها حفظ می‌شوند).${R}"
+}
+
+cmd_enable() {
+  load_env; require_running
+  local address="${1:-}"; valid_address "$address" || die "نشانی نامعتبر: $address"
+  local af sf; af="$(accounts_file)"; sf="$(suspended_file)"
+  { [ -f "$sf" ] && grep -F "${address}|" "$sf" >> "$af"; } || die "این صندوق معلق نیست."
+  grep -vF "${address}|" "$sf" > "${sf}.tmp" && mv "${sf}.tmp" "$sf"
+  say "${G}✓ صندوق ${address} دوباره فعال شد.${R}"
+}
+
+cmd_del() {
+  load_env; require_running
+  local address="${1:-}"; valid_address "$address" || die "نشانی نامعتبر: $address"
+  dexec setup email del -y "$address" || die "حذف صندوق ناموفق بود."
+  local sf; sf="$(suspended_file)"
+  if [ -f "$sf" ]; then grep -vF "${address}|" "$sf" > "${sf}.tmp" && mv "${sf}.tmp" "$sf"; fi
+  say "${G}✓ صندوق ${address} حذف شد.${R}"
+}
+
+cmd_list() {
+  load_env
+  local json=0; [ "${1:-}" = "--json" ] && json=1
+  if ! docker ps --format '{{.Names}}' | grep -qx "$CONTAINER"; then
+    [ "$json" = 1 ] && { echo "[]"; return 0; }
+    say "سرور ایمیل در حال اجرا نیست."; return 0
+  fi
+  local raw; raw="$(dexec setup email list 2>/dev/null || true)"
+  if [ "$json" = 1 ]; then
+    printf '%s\n' "$raw" | sed -E 's/^[* ]+//' | grep -E '@' | \
+      awk 'BEGIN{print "["} {printf "%s{\"address\":\"%s\"}", (NR>1?",":""), $1} END{print "]"}'
+  else
+    printf '%s\n' "$raw"
+  fi
+}
+
+cmd_status() {
+  load_env
+  local json=0; [ "${1:-}" = "--json" ] && json=1
+  local installed=false running=false
+  [ -f "$ENV_FILE" ] && installed=true
+  docker ps --format '{{.Names}}' 2>/dev/null | grep -qx "$CONTAINER" && running=true
+  if [ "$json" = 1 ]; then
+    printf '{"installed":%s,"running":%s,"domain":"%s","hostname":"%s"}\n' "$installed" "$running" "$MAIL_DOMAIN" "$MAIL_HOSTNAME"
+  else
+    say "نصب‌شده: ${installed} | در حال اجرا: ${running} | دامنه: ${MAIL_DOMAIN:-—} | میزبان: ${MAIL_HOSTNAME}"
+  fi
+}
+
+cmd_dns() {
+  load_env
+  local json=0; [ "${1:-}" = "--json" ] && json=1
+  [ -n "$MAIL_DOMAIN" ] || die "ابتدا install را اجرا کنید."
+  local fqdn="${MAIL_HOSTNAME}.${MAIL_DOMAIN}"
+  local dkim=""
+  if [ -f "${MAIL_ROOT}/config/dkim-dns.txt" ]; then
+    dkim="$(grep -iE 'v=DKIM1|p=' "${MAIL_ROOT}/config/dkim-dns.txt" | head -1 || true)"
+  fi
+  if [ "$json" = 1 ]; then
+    printf '{"mx":"%s","a":"%s","spf":"v=spf1 mx ~all","dmarc":"v=DMARC1; p=quarantine; rua=mailto:postmaster@%s","dkim":"%s","ptr":"%s"}\n' \
+      "$fqdn" "$fqdn" "$MAIL_DOMAIN" "${dkim//\"/\\\"}" "$fqdn"
+  else
+    say "${B}${C}── رکوردهای DNS برای ${MAIL_DOMAIN} ──${R}"
+    say "MX     @              → ${fqdn}   (اولویت ۱۰)"
+    say "A      ${MAIL_HOSTNAME}           → IP سرور   (در Cloudflare: DNS only / خاکستری)"
+    say "TXT    @              → \"v=spf1 mx ~all\""
+    say "TXT    _dmarc         → \"v=DMARC1; p=quarantine; rua=mailto:postmaster@${MAIL_DOMAIN}\""
+    if [ -n "$dkim" ]; then say "TXT    mail._domainkey  → ${dkim}"; else say "TXT    mail._domainkey  → (پس از pishkan-mail install تولید می‌شود)"; fi
+    say "PTR    IP سرور        → ${fqdn}   (از پنل ارائه‌دهندهٔ VPS)"
+  fi
+}
+
+cmd_gmail() {
+  load_env
+  local json=0; [ "${1:-}" = "--json" ] && json=1
+  local fqdn="${MAIL_HOSTNAME}.${MAIL_DOMAIN}"
+  if [ "$json" = 1 ]; then
+    printf '{"domain":"%s","incoming":{"host":"%s","port":993,"security":"SSL/TLS"},"outgoing":{"host":"%s","port":465,"security":"SSL/TLS"}}\n' \
+      "$MAIL_DOMAIN" "$fqdn" "$fqdn"
+  else
+    say "${B}${C}── اتصال اپ Gmail اندروید ──${R}"
+    say "Gmail → Settings → Add account → Other (IMAP)"
+    say "نام کاربری: نشانی کامل صندوق (مثلاً admin@${MAIL_DOMAIN})"
+    say "Incoming (IMAP): ${fqdn}  port 993  SSL/TLS"
+    say "Outgoing (SMTP): ${fqdn}  port 465  SSL/TLS  (یا 587 STARTTLS)"
+    say "رمز: همان رمز صندوق"
+  fi
+}
+
+cmd_uninstall() {
+  load_env
+  if [ -f "${MAIL_ROOT}/docker-compose.yml" ]; then
+    ( cd "$MAIL_ROOT" && docker compose down ) || true
+  fi
+  say "${G}✓ سرور ایمیل متوقف شد. داده‌ها در ${MAIL_ROOT} حفظ شدند.${R}"
+}
+
+case "${1:-}" in
+  install) shift; cmd_install "$@" ;;
+  add) shift; cmd_add "$@" ;;
+  passwd) shift; cmd_passwd "$@" ;;
+  enable) shift; cmd_enable "$@" ;;
+  disable) shift; cmd_disable "$@" ;;
+  del) shift; cmd_del "$@" ;;
+  list) shift; cmd_list "$@" ;;
+  status) shift; cmd_status "$@" ;;
+  dns) shift; cmd_dns "$@" ;;
+  gmail) shift; cmd_gmail "$@" ;;
+  tls) shift; cmd_tls "$@" ;;
+  uninstall) shift; cmd_uninstall "$@" ;;
+  *) die "دستور نامعتبر. usage: pishkan-mail {install|add|passwd|enable|disable|del|list|status|dns|gmail|tls|uninstall}" ;;
+esac

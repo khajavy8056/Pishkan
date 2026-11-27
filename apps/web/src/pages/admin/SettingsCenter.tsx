@@ -11,6 +11,7 @@ import {
   Textarea, useToast,
 } from '../../components/ui';
 import { api, ApiFailure } from '../../lib/api';
+import { MailboxesCard } from '../../components/MailboxesCard';
 import { faDateTime, faNum } from '../../lib/format';
 import { Link } from 'react-router-dom';
 
@@ -465,6 +466,8 @@ export function SettingsCenter() {
               )}
             </Card>
           )}
+
+          {activeGroup === 'email' && <MailboxesCard />}
 
           {activeGroup === 'domain' && (
             <Card>

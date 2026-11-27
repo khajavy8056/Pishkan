@@ -44,6 +44,14 @@ export function ChatWidget({ placement = 'shell' }: { placement?: 'shell' | 'pag
   const canSupport = isCustomer || can('support.view');
 
   const [open, setOpen] = useState(false);
+  // Tell the global scroll-to-top button to step aside while the chat panel is
+  // open (they share the same corner). A body attribute keeps the two components
+  // decoupled — no shared React state needed.
+  useEffect(() => {
+    if (open) document.body.setAttribute('data-chat-open', 'true');
+    else document.body.removeAttribute('data-chat-open');
+    return () => document.body.removeAttribute('data-chat-open');
+  }, [open]);
   const [view, setView] = useState<'list' | 'thread' | 'compose'>('list');
   const [tickets, setTickets] = useState<any[]>([]);
   const [active, setActive] = useState<any | null>(null);
@@ -212,16 +220,16 @@ export function ChatWidget({ placement = 'shell' }: { placement?: 'shell' | 'pag
   };
 
   const fullPagePath = !user ? '/login' : isCustomer ? '/app/support' : user.kind === 'admin' ? '/admin/support' : '/staff/support';
-  // Bottom-right corner of the screen. Inside the panels the navy sidebar
-  // owns the right edge on desktop, so the widget parks beside it instead of
-  // covering the navigation (sidebar is 17.5rem wide).
-  // On mobile both placements float above the bottom navigation dock
-  // (public pages have one too), so nothing tappable hides behind it.
+  // Public pages park the widget in the bottom-LEFT corner so the bottom-right
+  // stays free for the global scroll-to-top button (which sits above the FAB).
+  // Inside the panels the navy sidebar owns the right edge on desktop, so the
+  // widget parks beside it instead of covering the navigation (sidebar 17.5rem).
+  // On mobile both placements float above the bottom navigation dock.
   const fabPosition = placement === 'page'
-    ? 'bottom-20 right-4 lg:bottom-6 lg:right-6'
+    ? 'bottom-20 left-4 lg:bottom-6 lg:left-6'
     : 'bottom-20 right-4 lg:bottom-6 lg:right-[19rem]';
   const panelPosition = placement === 'page'
-    ? 'bottom-36 right-4 lg:bottom-24 lg:right-6'
+    ? 'bottom-36 left-4 lg:bottom-24 lg:left-6'
     : 'bottom-36 right-4 lg:bottom-24 lg:right-[19rem]';
   const unreadOf = (ticket: any) => (isCustomer ? ticket.unreadForCustomer : ticket.unreadForStaff) ?? 0;
 

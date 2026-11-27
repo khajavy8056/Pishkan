@@ -1,0 +1,192 @@
+#!/usr/bin/env bash
+# ---------------------------------------------------------------------------
+# pishkan-agent-bootstrap — one command to open (or close) the agent's initial
+# full-access connection to a fresh server, BEFORE the product is installed.
+#
+# Run on the VPS as root:
+#   curl -fsSL https://raw.githubusercontent.com/khajavy8056/Pishkan/main/scripts/pishkan-agent-bootstrap | sudo bash
+#   …or, from a cloned repo:  sudo bash scripts/pishkan-agent-bootstrap setup
+#
+# Modes:
+#   setup   (default) create the deploy + restricted-agent users and SSH keys,
+#           install the approval tooling, and print the GitHub Secrets block.
+#   revoke  cut the agent's FULL access immediately (empties the deploy key,
+#           locks the account). The request-based path keeps working: a future
+#           panel approval re-enables the restricted key for a timed window.
+#   status  show users, key presence and active approval windows.
+#   keys    reprint the GitHub Secrets block (root only).
+#
+# Security: private keys are printed ONCE to this terminal so you can paste them
+# into GitHub → Settings → Secrets → Actions. Never paste them into chat. After
+# copying, run `clear` and close the terminal. They also stay root-only in
+# /etc/pishkan/agent-keys so `keys` can reprint them if you lose them.
+# ---------------------------------------------------------------------------
+set -euo pipefail
+
+REPO="${PISHKAN_REPO:-khajavy8056/Pishkan}"
+REF="${PISHKAN_REF:-main}"
+RAW="https://raw.githubusercontent.com/${REPO}/${REF}/scripts"
+KEYDIR="/etc/pishkan/agent-keys"
+DEPLOY_USER="pishkan-deploy"
+AGENT_USER="pishkan-agent"
+STATE_DIR="/var/lib/pishkan"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+
+C=$'\033[36m'; G=$'\033[32m'; Y=$'\033[33m'; R=$'\033[0m'; B=$'\033[1m'
+say() { printf '%s\n' "$*"; }
+die() { printf '✖ %s\n' "$*" >&2; exit 1; }
+
+[ "$(id -u)" -eq 0 ] || die "این دستور باید با root اجرا شود (sudo bash …)."
+
+install_tool() {
+  local name="$1"
+  if [ -f "${SCRIPT_DIR}/${name}" ]; then
+    install -m 0755 "${SCRIPT_DIR}/${name}" "/usr/local/bin/${name}"
+  else
+    curl -fsSL "${RAW}/${name}" -o "/usr/local/bin/${name}" || die "دانلود ${name} ناموفق بود."
+    chmod 0755 "/usr/local/bin/${name}"
+  fi
+}
+
+ensure_user() {
+  local user="$1"
+  if ! id "$user" >/dev/null 2>&1; then
+    useradd -m -s /bin/bash "$user"
+  fi
+  install -d -m 0700 -o "$user" -g "$user" "/home/${user}/.ssh"
+}
+
+gen_key() {
+  local name="$1" comment="$2"
+  if [ ! -f "${KEYDIR}/${name}" ]; then
+    ssh-keygen -t ed25519 -N "" -f "${KEYDIR}/${name}" -C "$comment" >/dev/null
+  fi
+}
+
+detect_ip() {
+  local ip
+  ip="$(curl -fsSL --max-time 8 https://api.ipify.org 2>/dev/null || true)"
+  if [ -z "$ip" ]; then ip="$(hostname -I 2>/dev/null | awk '{print $1}')"; fi
+  printf '%s' "$ip"
+}
+
+detect_port() {
+  local port
+  port="$(sed -nE 's/^[[:space:]]*Port[[:space:]]+([0-9]+).*/\1/p' /etc/ssh/sshd_config 2>/dev/null | head -1)"
+  printf '%s' "${port:-22}"
+}
+
+print_secrets() {
+  local ip port hostkey deploy_priv agent_priv
+  ip="$(detect_ip)"; port="$(detect_port)"
+  [ -n "$ip" ] || die "شناسایی IP عمومی ناموفق بود؛ دستی وارد کنید."
+  local hostpub
+  hostpub="$(cat /etc/ssh/ssh_host_ed25519_key.pub 2>/dev/null | awk '{print $1" "$2}')"
+  if [ "$port" = "22" ]; then hostkey="${ip} ${hostpub}"; else hostkey="[${ip}]:${port} ${hostpub}"; fi
+  deploy_priv="$(cat "${KEYDIR}/deploy_ed25519")"
+  agent_priv="$(cat "${KEYDIR}/agent_ed25519")"
+
+  say ""
+  say "${B}${C}══════════════════════════════════════════════════════════════════${R}"
+  say "${B} این مقادیر را در GitHub → Settings → Secrets and variables → Actions${R}"
+  say "${B} به‌عنوان Repository secret بسازید (New repository secret).${R}"
+  say "${C}══════════════════════════════════════════════════════════════════${R}"
+  say ""
+  say "${Y}VPS_HOST${R}        = ${ip}"
+  say "${Y}VPS_PORT${R}        = ${port}"
+  say "${Y}VPS_USER${R}        = ${DEPLOY_USER}"
+  say "${Y}VPS_HOST_KEY${R}    = ${hostkey}"
+  say ""
+  say "${Y}VPS_SSH_KEY${R}     = (کلید خصوصی کامل زیر — دسترسی کامل نصب/به‌روزرسانی)"
+  printf '%s\n' "$deploy_priv"
+  say ""
+  say "${Y}AGENT_SSH_KEY${R}   = (کلید خصوصی کامل زیر — فقط-خواندنی، فعال فقط با تأیید شما)"
+  printf '%s\n' "$agent_priv"
+  say ""
+  say "${C}══════════════════════════════════════════════════════════════════${R}"
+  say "${G}نکات امنیتی:${R}"
+  say "  • این کلیدها را فقط در GitHub Secrets بگذارید؛ هرگز در چت نفرستید."
+  say "  • پس از کپی، دستور ${B}clear${R} را بزنید و ترمینال را ببندید."
+  say "  • VPS_SSH_KEY دسترسی کامل است؛ هر وقت خواستید با ${B}pishkan-agent-bootstrap revoke${R} ببندید."
+  say "  • AGENT_SSH_KEY بدون تأیید شما در پنل هیچ دسترسی ندارد (کلید روی سرور غیرفعال است)."
+  say ""
+  say "${G}مرحلهٔ بعد:${R} به عامل بگویید وصل شود و نصب را انجام دهد (workflow action=install)."
+}
+
+do_setup() {
+  say "${B}${C}── آماده‌سازی اتصال عامل ──${R}"
+  command -v ssh-keygen >/dev/null 2>&1 || die "openssh-client نصب نیست."
+  install -d -m 0700 "$KEYDIR"
+  install -d -m 0755 "$STATE_DIR"
+
+  ensure_user "$DEPLOY_USER"
+  ensure_user "$AGENT_USER"
+  gen_key deploy_ed25519 "pishkan-deploy"
+  gen_key agent_ed25519 "pishkan-agent"
+
+  # Full-access deploy key (this is what the agent uses during install).
+  install -m 0600 -o "$DEPLOY_USER" -g "$DEPLOY_USER" "${KEYDIR}/deploy_ed25519.pub" "/home/${DEPLOY_USER}/.ssh/authorized_keys"
+  # Restricted agent key starts INERT (empty); a panel approval installs it.
+  : > "/home/${AGENT_USER}/.ssh/authorized_keys"
+  chmod 0600 "/home/${AGENT_USER}/.ssh/authorized_keys"
+  chown "$AGENT_USER:$AGENT_USER" "/home/${AGENT_USER}/.ssh/authorized_keys"
+
+  # Scoped sudo: deploy may do anything (install); agent may ONLY run diagnostics.
+  printf '%s ALL=(ALL) NOPASSWD:ALL\n' "$DEPLOY_USER" > /etc/sudoers.d/pishkan-deploy
+  chmod 0440 /etc/sudoers.d/pishkan-deploy
+  printf '%s ALL=(root) NOPASSWD: /usr/local/bin/pishkan-agent-diagnostics\n' "$AGENT_USER" > /etc/sudoers.d/pishkan-agent
+  chmod 0440 /etc/sudoers.d/pishkan-agent
+  visudo -cf /etc/sudoers.d/pishkan-deploy >/dev/null || die "sudoers deploy نامعتبر."
+  visudo -cf /etc/sudoers.d/pishkan-agent >/dev/null || die "sudoers agent نامعتبر."
+
+  install_tool pishkan-agent-requests
+  install_tool pishkan-agent-shell
+  install_tool pishkan-agent-diagnostics
+
+  # Prune expired approvals + rebuild the restricted key every minute.
+  printf '* * * * * root /usr/local/bin/pishkan-agent-requests prune >/dev/null 2>&1\n' > /etc/cron.d/pishkan-agent-prune
+  chmod 0644 /etc/cron.d/pishkan-agent-prune
+
+  say "${G}✓ کاربران و کلیدها ساخته شدند؛ ابزار تأیید نصب شد.${R}"
+  print_secrets
+}
+
+do_revoke() {
+  say "${B}${Y}── بستن دسترسی کامل عامل ──${R}"
+  if id "$DEPLOY_USER" >/dev/null 2>&1; then
+    : > "/home/${DEPLOY_USER}/.ssh/authorized_keys"
+    usermod -L "$DEPLOY_USER" 2>/dev/null || true
+  fi
+  if id "$AGENT_USER" >/dev/null 2>&1; then
+    : > "/home/${AGENT_USER}/.ssh/authorized_keys"
+  fi
+  rm -f "${STATE_DIR}/agent-approvals/"*.conf 2>/dev/null || true
+  say "${G}✓ دسترسی کامل بسته شد (کلید deploy خالی و حساب قفل شد).${R}"
+  say "  • از این پس عامل فقط با درخواست + تأیید شما در پنل (منوی ۱۳) و برای مدت محدود وصل می‌شود."
+  say "  • کلید AGENT_SSH_KEY در GitHub بماند؛ بدون تأیید شما غیرفعال است."
+  say "  • اگر می‌خواهید همه‌چیز را ببندید، secretهای VPS_SSH_KEY و AGENT_SSH_KEY را هم از GitHub حذف کنید."
+}
+
+do_status() {
+  say "${B}${C}── وضعیت دسترسی عامل ──${R}"
+  for u in "$DEPLOY_USER" "$AGENT_USER"; do
+    if id "$u" >/dev/null 2>&1; then
+      local n
+      n="$(grep -c . "/home/${u}/.ssh/authorized_keys" 2>/dev/null || echo 0)"
+      say "  ${u}: موجود — ${n} کلید فعال"
+    else
+      say "  ${u}: ساخته نشده"
+    fi
+  done
+  if command -v pishkan-agent-requests >/dev/null 2>&1; then
+    pishkan-agent-requests status || true
+  fi
+}
+
+case "${1:-setup}" in
+  setup) do_setup ;;
+  revoke) do_revoke ;;
+  status) do_status ;;
+  keys) print_secrets ;;
+  *) die "حالت نامعتبر: $1 (setup | revoke | status | keys)" ;;
+esac

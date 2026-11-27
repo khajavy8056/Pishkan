@@ -1,24 +1,35 @@
 #!/usr/bin/env python3
 """
-pishkan-agent-requests — the operator side of the agent access approval gate.
+pishkan-agent-requests — the operator side of post-revocation agent access.
 
-Flow (security by explicit, per-session human approval):
-  1. The agent publishes a request file to the GitHub branch
-     `pishkan-agent-requests` (requests/<id>.json): what it wants to do and why.
-  2. The operator opens the PuTTY panel → «درخواست‌های دسترسی عامل» → this tool
-     lists pending requests fetched from GitHub (public repo, read-only).
-  3. Approving writes /var/lib/pishkan/agent-approvals/<id>.conf — a 15-minute,
-     single-use approval. Rejecting writes nothing.
-  4. The agent triggers workflow action=agent with request_id=<id>; the server
-     (remote-deploy.sh) refuses unless a matching, unexpired, unused approval
-     exists, then consumes it. When the work ends, the access ends.
-  5. Next time, the whole story repeats — no standing access is ever granted.
+Access model (see docs/AGENT-ACCESS-FA.md):
+  * During install, and for as long as the main deploy secret is valid, the
+    agent has FULL access through the normal workflow — no approval, no timer.
+  * Once the operator revokes that secret (pishkan-agent-bootstrap revoke), the
+    only way back in is this request flow:
+      1. The agent publishes requests/<id>.json to the GitHub branch
+         `pishkan-agent-requests` (id, reason, requested_minutes, expiry).
+      2. The operator opens the PuTTY panel → menu 13 → sees the reason and the
+         duration the agent asked for, then approves with `y` (uses the asked
+         duration) or `y 20` / `y 120` to grant a custom number of MINUTES.
+      3. Approval installs the agent's restricted SSH key with an OpenSSH
+         `expiry-time` so it stops working automatically at the end of the
+         window. The key is inert (absent) outside an approved window.
+      4. The agent connects as the locked-down `pishkan-agent` user (read-only
+         diagnostics, forced command) until the window closes. `revoke` cuts it
+         immediately; the next session needs a fresh approval.
 
-The approval lives ONLY on the server; GitHub never learns the decision, and
-the agent cannot approve its own request (it has no write path to the server).
+The decision lives ONLY on the server. GitHub never learns it, and the agent
+cannot approve its own request.
 
-Usage: pishkan-agent-requests list | approve <id> | revoke <id> | status
+Usage:
+  pishkan-agent-requests list
+  pishkan-agent-requests approve <id> [minutes]
+  pishkan-agent-requests revoke <id>
+  pishkan-agent-requests status
+  pishkan-agent-requests prune        # drop expired approvals + rebuild key
 """
+import base64
 import json
 import os
 import sys
@@ -27,8 +38,13 @@ from datetime import datetime, timedelta, timezone
 
 REPO = os.environ.get("PISHKAN_REPO", "khajavy8056/Pishkan")
 BRANCH = "pishkan-agent-requests"
-APPROVAL_DIR = os.environ.get("PISHKAN_STATE_DIR", "/var/lib/pishkan") + "/agent-approvals"
-APPROVAL_TTL_MINUTES = 15
+STATE_DIR = os.environ.get("PISHKAN_STATE_DIR", "/var/lib/pishkan")
+APPROVAL_DIR = STATE_DIR + "/agent-approvals"
+AGENT_PUBKEY = os.environ.get("PISHKAN_AGENT_PUBKEY", "/etc/pishkan/agent-keys/agent_ed25519.pub")
+AGENT_AUTHKEYS = os.environ.get("PISHKAN_AGENT_AUTHKEYS", "/home/pishkan-agent/.ssh/authorized_keys")
+AGENT_SHELL = os.environ.get("PISHKAN_AGENT_SHELL", "/usr/local/bin/pishkan-agent-shell")
+DEFAULT_MINUTES = 15
+MAX_MINUTES = 1440  # 24h ceiling; operator can grant up to a day per approval
 API = f"https://api.github.com/repos/{REPO}/contents/requests?ref={BRANCH}"
 
 
@@ -38,6 +54,13 @@ def now():
 
 def iso(dt):
     return dt.strftime("%Y-%m-%dT%H:%M:%SZ")
+
+
+def parse_iso(value):
+    try:
+        return datetime.strptime(value, "%Y-%m-%dT%H:%M:%SZ").replace(tzinfo=timezone.utc)
+    except (ValueError, TypeError):
+        return None
 
 
 def fetch_requests():
@@ -58,7 +81,6 @@ def fetch_requests():
             req2 = urllib.request.Request(entry["url"], headers={"User-Agent": "pishkan-panel", "Accept": "application/vnd.github+json"})
             with urllib.request.urlopen(req2, timeout=15) as res2:
                 blob = json.load(res2)
-            import base64
             data = json.loads(base64.b64decode(blob["content"]).decode("utf-8"))
             data["_path"] = entry["path"]
             out.append(data)
@@ -88,82 +110,148 @@ def read_approval(request_id):
     return values
 
 
+def all_approvals():
+    if not os.path.isdir(APPROVAL_DIR):
+        return []
+    out = []
+    for name in sorted(os.listdir(APPROVAL_DIR)):
+        if not name.endswith(".conf"):
+            continue
+        values = {}
+        with open(os.path.join(APPROVAL_DIR, name), encoding="utf-8") as fh:
+            for line in fh:
+                if "=" in line and not line.startswith("#"):
+                    key, _, value = line.strip().partition("=")
+                    values[key] = value
+        values["_file"] = name
+        out.append(values)
+    return out
+
+
+def active_approvals():
+    current = iso(now())
+    return [a for a in all_approvals() if a.get("EXPIRES_AT", "") > current]
+
+
+def rebuild_authorized_keys():
+    """Install the restricted agent key ONLY while a window is open.
+
+    A single key line carries the latest expiry among active approvals, a
+    forced command (no interactive shell) and `restrict` (no port/agent/X11
+    forwarding). Outside any window the file is emptied, so the AGENT_SSH_KEY
+    secret is inert even though it still exists in GitHub.
+    """
+    active = active_approvals()
+    if not active:
+        if os.path.isfile(AGENT_AUTHKEYS):
+            with open(AGENT_AUTHKEYS, "w", encoding="utf-8") as fh:
+                fh.write("")
+            os.chmod(AGENT_AUTHKEYS, 0o600)
+        return
+    if not os.path.isfile(AGENT_PUBKEY):
+        # Key material not provisioned yet (bootstrap not run). The approval is
+        # still recorded; the forced-command diagnostics check is the gate.
+        return
+    with open(AGENT_PUBKEY, encoding="utf-8") as fh:
+        pubkey = fh.read().strip()
+    latest = max(parse_iso(a.get("EXPIRES_AT", "")) or now() for a in active)
+    expiry = latest.strftime("%Y%m%d%H%M%S")  # OpenSSH expiry-time, UTC
+    line = f'command="{AGENT_SHELL}",restrict,expiry-time="{expiry}" {pubkey}\n'
+    os.makedirs(os.path.dirname(AGENT_AUTHKEYS), exist_ok=True)
+    with open(AGENT_AUTHKEYS, "w", encoding="utf-8") as fh:
+        fh.write(line)
+    os.chmod(AGENT_AUTHKEYS, 0o600)
+
+
+def requested_minutes_of(match):
+    try:
+        value = int(match.get("requested_minutes", DEFAULT_MINUTES))
+    except (ValueError, TypeError):
+        value = DEFAULT_MINUTES
+    return max(1, min(MAX_MINUTES, value))
+
+
 def list_requests():
     requests = fetch_requests()
     if not requests:
         print("درخواست معلقی وجود ندارد.")
         return
-    print(f"{'شناسه':<24} {'عملیات':<12} {'وضعیت':<14} دلیل")
-    print("-" * 78)
+    print(f"{'شناسه':<24} {'دقیقه':<7} {'وضعیت':<14} دلیل")
+    print("-" * 84)
     for r in sorted(requests, key=lambda x: x.get("created_at", "")):
         rid = str(r.get("id", "?"))
-        action = str(r.get("action", "agent"))
         approval = read_approval(rid) if rid.replace("-", "").replace("_", "").isalnum() else None
-        if approval and approval.get("USED") == "1":
-            state = "مصرف‌شده"
-        elif approval and approval.get("EXPIRES_AT", "") > iso(now()):
-            state = "تأییدشده ✓"
+        if approval and approval.get("EXPIRES_AT", "") > iso(now()):
+            remaining = int((parse_iso(approval["EXPIRES_AT"]) - now()).total_seconds() // 60)
+            state = f"فعال ({remaining}د)"
         elif approval:
             state = "منقضی"
         else:
-            expires = str(r.get("expires_at", ""))
-            state = "در انتظار" if expires > iso(now()) else "منقضی"
-        reason = str(r.get("reason", ""))[:40]
-        print(f"{rid:<24} {action:<12} {state:<14} {reason}")
-    print("\nتأیید:  pishkan-agent-requests approve <شناسه>")
-    print("لغو:    pishkan-agent-requests revoke <شناسه>")
+            state = "در انتظار" if str(r.get("expires_at", "")) > iso(now()) else "منقضی"
+        minutes = str(requested_minutes_of(r))
+        reason = str(r.get("reason", ""))[:44]
+        print(f"{rid:<24} {minutes:<7} {state:<14} {reason}")
+    print("\nتأیید با زمان درخواستی:  pishkan-agent-requests approve <شناسه>")
+    print("تأیید با زمان دلخواه:    pishkan-agent-requests approve <شناسه> 20")
+    print("لغو دسترسی:              pishkan-agent-requests revoke <شناسه>")
 
 
-def approve(request_id):
+def approve(request_id, minutes=None):
     requests = fetch_requests()
     match = next((r for r in requests if str(r.get("id")) == request_id), None)
     if match is None:
         raise SystemExit("این شناسه در شاخهٔ درخواست‌ها یافت نشد.")
     if str(match.get("expires_at", "")) < iso(now()):
         raise SystemExit("این درخواست منقضی شده است؛ عامل باید درخواست تازه بدهد.")
-    existing = read_approval(request_id)
-    if existing and existing.get("USED") == "1":
-        raise SystemExit("این درخواست قبلاً مصرف شده است؛ برای دسترسی دوباره، درخواست تازه لازم است.")
+    if minutes is None:
+        minutes = requested_minutes_of(match)
+    else:
+        minutes = max(1, min(MAX_MINUTES, int(minutes)))
     os.makedirs(APPROVAL_DIR, exist_ok=True)
     path = approval_path(request_id)
-    expires = iso(now() + timedelta(minutes=APPROVAL_TTL_MINUTES))
+    expires_dt = now() + timedelta(minutes=minutes)
+    expires = iso(expires_dt)
     with open(path, "w", encoding="utf-8") as fh:
         fh.write(f"REQUEST_ID={request_id}\n")
         fh.write(f"ACTION={match.get('action', 'agent')}\n")
+        fh.write(f"REASON={str(match.get('reason', '')).replace(chr(10), ' ')[:200]}\n")
         fh.write(f"APPROVED_AT={iso(now())}\n")
         fh.write(f"EXPIRES_AT={expires}\n")
-        fh.write("USED=0\n")
+        fh.write(f"MINUTES={minutes}\n")
     os.chmod(path, 0o600)
-    print(f"✓ تأیید شد. عامل تا {expires} (۱۵ دقیقه) و فقط یک بار می‌تواند عملیات «{match.get('action', 'agent')}» را اجرا کند.")
-    print("  پس از اجرا، دسترسی خودکار بسته می‌شود؛ برای بار بعد باید دوباره تأیید کنید.")
+    rebuild_authorized_keys()
+    print(f"✓ تأیید شد. عامل به مدت {minutes} دقیقه (تا {expires}) می‌تواند وصل شود.")
+    print("  دسترسی فقط-خواندنی است و در پایان زمان خودکار بسته می‌شود.")
+    print("  برای بستن فوری:  pishkan-agent-requests revoke " + request_id)
 
 
 def revoke(request_id):
     path = approval_path(request_id)
     if os.path.isfile(path):
         os.remove(path)
-        print("✓ تأیید لغو شد.")
-    else:
-        print("تأیید فعالی برای این شناسه وجود ندارد.")
+    rebuild_authorized_keys()
+    print("✓ دسترسی این درخواست بسته شد.")
+
+
+def prune():
+    removed = 0
+    current = iso(now())
+    for a in all_approvals():
+        if a.get("EXPIRES_AT", "") <= current:
+            os.remove(os.path.join(APPROVAL_DIR, a["_file"]))
+            removed += 1
+    rebuild_authorized_keys()
+    print(f"✓ {removed} تأیید منقضی پاک شد؛ کلید دسترسی بازسازی شد.")
 
 
 def status():
-    if not os.path.isdir(APPROVAL_DIR):
-        print("هیچ تأییدی ثبت نشده است.")
+    active = active_approvals()
+    if not active:
+        print("هیچ پنجرهٔ دسترسی فعالی وجود ندارد.")
         return
-    files = [f for f in os.listdir(APPROVAL_DIR) if f.endswith(".conf")]
-    if not files:
-        print("هیچ تأییدی ثبت نشده است.")
-        return
-    for name in sorted(files):
-        values = {}
-        with open(os.path.join(APPROVAL_DIR, name), encoding="utf-8") as fh:
-            for line in fh:
-                if "=" in line:
-                    key, _, value = line.strip().partition("=")
-                    values[key] = value
-        state = "مصرف‌شده" if values.get("USED") == "1" else ("فعال" if values.get("EXPIRES_AT", "") > iso(now()) else "منقضی")
-        print(f"{values.get('REQUEST_ID', name)}: {state} (تا {values.get('EXPIRES_AT', '?')})")
+    for a in active:
+        remaining = int((parse_iso(a["EXPIRES_AT"]) - now()).total_seconds() // 60)
+        print(f"{a.get('REQUEST_ID', '?')}: فعال — {remaining} دقیقهٔ باقی‌مانده (تا {a.get('EXPIRES_AT')})")
 
 
 def main():
@@ -172,12 +260,14 @@ def main():
     args = sys.argv[1:]
     if not args or args[0] == "list":
         list_requests()
-    elif args[0] == "approve" and len(args) == 2:
-        approve(args[1])
+    elif args[0] == "approve" and len(args) in (2, 3):
+        approve(args[1], int(args[2]) if len(args) == 3 else None)
     elif args[0] == "revoke" and len(args) == 2:
         revoke(args[1])
     elif args[0] == "status":
         status()
+    elif args[0] == "prune":
+        prune()
     else:
         raise SystemExit(__doc__)
 

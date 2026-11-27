@@ -551,13 +551,24 @@ html {
    ========================================================================== */
 .landing-shell .ticker-wrap {
   overflow: hidden;
+  /* The page is RTL, but a `-50%` marquee only loops seamlessly in LTR: in RTL
+     the track is anchored to the right edge, so translating it left peels it
+     away from that edge and opens a growing blank gap on the right (exactly the
+     "runs out, then restarts" bug). Forcing LTR on the rail makes the track
+     anchor left, so the second identical half slides in behind the first with
+     no gap. Each chip keeps its own RTL text direction (dir="rtl" in markup). */
+  direction: ltr;
   /* Fixed fades instead of percentages: inside the shared container the band
      is narrower than the viewport, and `8%` of a 2368px column hides half of
      the first item. */
   mask-image: linear-gradient(90deg, transparent, #000 2.5rem, #000 calc(100% - 2.5rem), transparent);
   -webkit-mask-image: linear-gradient(90deg, transparent, #000 2.5rem, #000 calc(100% - 2.5rem), transparent);
 }
-.landing-shell .ticker-track { display: flex; width: max-content; gap: 0.9rem; animation: lpTicker 36s linear infinite; }
+/* No `gap` on the track: a flex gap sits BETWEEN items, so the seam between the
+   two halves would be short by half a gap and the loop would visibly jump.
+   The spacing lives on each chip as a trailing margin instead, which makes the
+   two halves exactly equal and the -50% translate perfectly seamless. */
+.landing-shell .ticker-track { display: flex; width: max-content; animation: lpTicker 36s linear infinite; }
 .landing-shell .ticker-wrap:hover .ticker-track { animation-play-state: paused; }
 @keyframes lpTicker { to { transform: translateX(-50%); } }
 
@@ -565,6 +576,9 @@ html {
   display: inline-flex;
   align-items: center;
   gap: 0.55rem;
+  /* Trailing margin (not a track gap) keeps the two marquee halves exactly
+     equal so the -50% loop has no seam. See .ticker-track above. */
+  margin-right: 0.9rem;
   border-radius: 999px;
   padding: 0.5rem 1.1rem;
   border: 1px solid var(--line);
