@@ -109,15 +109,15 @@ describe.skipIf(!hasPython)('external backup transfers (real SFTP/FTP servers)',
     expect(test.body.data.ok).toBe(true);
 
     const res = await request(server).post(`/api/system/backups/${backupId}/transfer`).set('Cookie', admin.cookie).expect(200);
-    expect(res.body.data.uploaded).toBe(2); // db + uploads archive
+    expect(res.body.data.uploaded).toBe(3); // db + uploads + code archive
     expect(res.body.data.failed).toBe(0);
 
     // Verify the REAL bytes landed on the remote side.
     const remoteDir = path.join(sftpRoot, 'offsite/nested');
     const files = fs.readdirSync(remoteDir);
-    expect(files.length).toBe(2);
+    expect(files.length).toBe(3);
     const rows = await q<any>("SELECT * FROM backup_transfers WHERE backup_id = ? AND status = 'ok'", [backupId]);
-    expect(rows.length).toBe(2);
+    expect(rows.length).toBe(3);
     for (const row of rows) {
       const remoteFile = path.join(remoteDir, row.filename);
       expect(fs.existsSync(remoteFile)).toBe(true);
@@ -154,12 +154,12 @@ describe.skipIf(!hasPython)('external backup transfers (real SFTP/FTP servers)',
     expect(test.body.data.ok).toBe(true);
 
     const res = await request(server).post(`/api/system/backups/${backupId}/transfer`).set('Cookie', admin.cookie).expect(200);
-    expect(res.body.data.uploaded).toBe(2);
+    expect(res.body.data.uploaded).toBe(3);
     expect(res.body.data.failed).toBe(0);
 
     const remoteDir = path.join(ftpRoot, 'ftp-offsite');
     const rows = await q<any>("SELECT * FROM backup_transfers WHERE backup_id = ? AND target = 'ftp' AND status = 'ok'", [backupId]);
-    expect(rows.length).toBe(2);
+    expect(rows.length).toBe(3);
     for (const row of rows) {
       expect(sha256(path.join(remoteDir, row.filename))).toBe(row.checksum);
     }
@@ -182,7 +182,7 @@ describe.skipIf(!hasPython)('external backup transfers (real SFTP/FTP servers)',
       'backup.sftp_password': 'SftpTest#123',
     } as any, actor, { confirmCritical: true });
     const res = await request(server).post(`/api/system/backups/${backupId}/transfer`).set('Cookie', admin.cookie).expect(200);
-    expect(res.body.data.uploaded).toBe(2);
+    expect(res.body.data.uploaded).toBe(3);
 
     const files = fs.readdirSync(remoteDir);
     expect(files).toContain('important-foreign-file.txt'); // foreign file survives
@@ -197,11 +197,11 @@ describe.skipIf(!hasPython)('external backup transfers (real SFTP/FTP servers)',
     await updateSettings({ 'backup.external_enabled': true, 'backup.external_target': 'ftp', 'backup.external_retention': 14 } as any, actor, { confirmCritical: true });
     const created = await request(server).post('/api/system/backups').set('Cookie', admin.cookie).send({ note: 'external-test' }).expect(200);
     expect(created.body.data.transfer).toBeTruthy();
-    expect(created.body.data.transfer.uploaded).toBe(2);
+    expect(created.body.data.transfer.uploaded).toBe(3);
     expect(created.body.data.transfer.failed).toBe(0);
 
     const history = await request(server).get(`/api/system/backups/transfers?backupId=${created.body.data.id}`).set('Cookie', admin.cookie).expect(200);
-    expect(history.body.data.length).toBe(2);
+    expect(history.body.data.length).toBe(3);
     expect(history.body.data.every((t: any) => t.status === 'ok')).toBe(true);
     await updateSettings({ 'backup.external_enabled': false } as any, actor, { confirmCritical: true });
   }, 90_000);
