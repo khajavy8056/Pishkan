@@ -528,6 +528,10 @@ cmd_update() {
     [ "$json_out" = "1" ] && printf '{"ok":true,"updated":true,"commit":"%s","version":"%s","release":"%s"}\n' \
       "$commit" "${new_version:-}" "$(basename "$new_dir")"
     install -m 0755 "${CURRENT_LINK}/scripts/pishkan" /usr/local/bin/pishkan
+    # Keep the SSH-login management panel in step with the release.
+    if [ -f "${CURRENT_LINK}/scripts/pishkan-panel" ]; then
+      install -m 0755 "${CURRENT_LINK}/scripts/pishkan-panel" /usr/local/bin/pishkan-panel
+    fi
     install -m 0644 "${CURRENT_LINK}/deploy/systemd/pishkan-backup.service" /etc/systemd/system/ 2>/dev/null || true
 
     # A new release may change the nginx template itself (a new header, a new

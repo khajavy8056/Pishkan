@@ -632,6 +632,26 @@ fi
 heading "پشتیبان‌گیری زمان‌بندی‌شده"
 install -m 0755 "${CURRENT_LINK}/scripts/pishkan" /usr/local/bin/pishkan
 
+# Dedicated terminal management panel + auto-launch on interactive SSH login.
+# The hook is guarded so it never affects non-interactive sessions (the deploy
+# workflow's SSH commands, scp, cron) and can be skipped with PISHKAN_NO_PANEL=1.
+if [ -f "${CURRENT_LINK}/scripts/pishkan-panel" ]; then
+  install -m 0755 "${CURRENT_LINK}/scripts/pishkan-panel" /usr/local/bin/pishkan-panel
+  PANEL_HOOK='# Pishkan management panel (auto-launch on interactive SSH login)
+if [ -n "${SSH_CONNECTION:-}" ] && [ -z "${PISHKAN_NO_PANEL:-}" ] && [ -z "${PISHKAN_PANEL_SHOWN:-}" ] && command -v pishkan-panel >/dev/null 2>&1; then
+  case "$-" in *i*) export PISHKAN_PANEL_SHOWN=1; pishkan-panel || true ;; esac
+fi'
+  for pf in /root/.profile /root/.bash_profile; do
+    if [ "$pf" = "/root/.bash_profile" ] && [ ! -f "$pf" ]; then continue; fi
+    touch "$pf"
+    if ! grep -q "PISHKAN_PANEL_SHOWN" "$pf"; then
+      printf '\n%s\n' "$PANEL_HOOK" >>"$pf"
+    fi
+  done
+  ok "پنل ترمینالی مدیریت نصب شد (با ورود SSH باز می‌شود؛ غیرفعال‌سازی موقت: PISHKAN_NO_PANEL=1)."
+  journal_step "panel" "ok" "pishkan-panel installed + SSH login hook"
+fi
+
 # The privilege the admin panel's update button needs, installed once here so the
 # office never pastes a sudoers line by hand. Generated next to the binary it
 # names, and validated with visudo before it can lock anyone out.
