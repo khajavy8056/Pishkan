@@ -7,9 +7,12 @@ name: Deploy to VPS
 #   needed, and never prints secrets. The install report is sanitized.
 # - The installer is idempotent: it never deletes customer data. Updates go
 #   through `pishkan update --ref <full SHA>` with automatic backup + rollback.
+# - Each run's full output is published to the `pishkan-deploy-reports` branch
+#   (server IP redacted) so the agent can read it via the contents API and
+#   diagnose failures — the raw Actions log host is not reachable from the sandbox.
 #
 # Two triggers:
-#   workflow_dispatch  — the "Run workflow" button in the Actions tab (operator).
+#   workflow_dispatch   — the "Run workflow" button in the Actions tab (operator).
 #   repository_dispatch — the agent triggers it via the API (type: pishkan-deploy,
 #                         parameters in client_payload). Same job, same validation.
 #
@@ -33,6 +36,8 @@ on:
           - provision-tls
           - backup
           - report
+          - logs
+          - reset
       domain:
         description: 'Public domain, e.g. office.example.ir (blank = IP-only install / keep existing config)'
         type: string
@@ -44,7 +49,7 @@ on:
         required: false
         default: ''
       force:
-        description: 'Re-run the installer even if already installed (data preserved; use update for new code)'
+        description: 'Re-run installer even if installed (data preserved); REQUIRED for reset (stops service, keeps all data)'
         type: boolean
         default: false
       ref:
@@ -55,8 +60,9 @@ on:
   repository_dispatch:
     types: [pishkan-deploy]
 
+# contents:write is needed only to publish the run report to the reports branch.
 permissions:
-  contents: read
+  contents: write
 
 concurrency:
   group: pishkan-vps-deploy
@@ -85,4 +91,15 @@ jobs:
           GITHUB_SHA: ${{ github.sha }}
           BRANCH: ${{ github.ref_name }}
           RUN_ID: ${{ github.run_id }}
-        run: bash scripts/ci/deploy-run.sh
+        run: |
+          set -o pipefail
+          bash scripts/ci/deploy-run.sh 2>&1 | tee "$RUNNER_TEMP/deploy-output.log"
+
+      - name: Publish deploy report (readable by the agent)
+        if: always()
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RUN_ID: ${{ github.run_id }}
+          VPS_HOST: ${{ secrets.VPS_HOST }}
+        run: bash scripts/ci/publish-report.sh "$RUNNER_TEMP/deploy-output.log"
