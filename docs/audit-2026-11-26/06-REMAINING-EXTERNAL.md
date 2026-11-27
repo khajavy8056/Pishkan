@@ -6,10 +6,18 @@
 Google OAuth/VPS/دستگاه اندروید در دسترس نیست). برای هر مورد **دقیقاً** چیزی که لازم است و
 دستور تأیید روی سرور واقعی آمده است. هیچ‌کدام «انجام‌شده» ادعا نمی‌شود.
 
+## ۰. نصب روی VPS (پیش‌نیاز همهٔ موارد پایین)
+**لازم:** VPS با Ubuntu 22.04/24.04 و دسترسی root؛ اطلاعات غیرمحرمانه (IP، کاربر، پورت).
+**روش انتخابی کاربر:** استقرار از طریق **GitHub Actions** — `docs/DEPLOY-GITHUB-ACTIONS-FA.md`.
+کاربر کلید SSH را در Secrets گیت‌هاب می‌گذارد؛ عامل workflow را اجرا و گزارش را می‌خواند.
+**تأیید:** `action=install` سبز + `action=doctor` بدون خطا + گزارش `/var/log/pishkan/install-report.md`.
+**وضعیت:** pipeline ساخته و اعتبارسنجی شد (bash -n، تست واحد ورودی‌ها، dry-run آفلاین، YAML معتبر)؛
+اجرای واقعی روی سرور کاربر هنوز انجام نشده (منتظر Secrets و اطلاعات سرور).
+
 ## ۱. دامنه + Cloudflare + DNS
 **لازم:** دامنهٔ ثبت‌شده، حساب Cloudflare، دسترسی به پنل DNS.
 **مراحل:** `docs/DOMAIN-CLOUDFLARE.md` (ثبت → حساب CF → nameserver → رکورد A/www → proxy).
-**تأیید روی سرور:** `sudo pishkan doctor` (DNS/دامنه/گواهی را بررسی می‌کند).
+**تأیید روی سرور:** `sudo pishkan doctor` (DNS/دامنه/گواهی را بررسی می‌کند) یا `action=doctor` در workflow.
 
 ## ۲. SSL زنده (Let's Encrypt یا Cloudflare Origin)
 **لازم:** DNS منتشرشده، پورت ۸۰/۴۴۳ باز، Cloudflare روی **Full (Strict)** (نه Flexible).
