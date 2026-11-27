@@ -38,6 +38,12 @@ on:
           - report
           - logs
           - reset
+          - agent
+      request_id:
+        description: 'Agent access request id — REQUIRED for action=agent; approve it first in the server panel (menu 13)'
+        type: string
+        required: false
+        default: ''
       domain:
         description: 'Public domain, e.g. office.example.ir (blank = IP-only install / keep existing config)'
         type: string
@@ -84,6 +90,7 @@ jobs:
           VPS_SSH_KEY: ${{ secrets.VPS_SSH_KEY }}
           VPS_HOST_KEY: ${{ secrets.VPS_HOST_KEY }}
           ACTION: ${{ inputs.action || github.event.client_payload.action || 'doctor' }}
+          REQUEST_ID: ${{ inputs.request_id || github.event.client_payload.request_id || '' }}
           DOMAIN: ${{ inputs.domain || github.event.client_payload.domain || '' }}
           ACME_EMAIL: ${{ inputs.acme_email || github.event.client_payload.acme_email || '' }}
           FORCE: ${{ inputs.force || github.event.client_payload.force || 'false' }}
