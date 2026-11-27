@@ -88,6 +88,7 @@ jobs:
           VPS_USER: ${{ secrets.VPS_USER }}
           VPS_PORT: ${{ secrets.VPS_PORT }}
           VPS_SSH_KEY: ${{ secrets.VPS_SSH_KEY }}
+          AGENT_SSH_KEY: ${{ secrets.AGENT_SSH_KEY }}
           VPS_HOST_KEY: ${{ secrets.VPS_HOST_KEY }}
           ACTION: ${{ inputs.action || github.event.client_payload.action || 'doctor' }}
           REQUEST_ID: ${{ inputs.request_id || github.event.client_payload.request_id || '' }}
