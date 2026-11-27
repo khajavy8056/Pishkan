@@ -198,11 +198,19 @@ sudo shred -u /etc/pishkan/initial-admin-secret.txt
 پس از آنکه Secrets را اضافه کردید و اطلاعات غیرمحرمانه (IP، کاربر، پورت، وضعیت
 دامنه) را به عامل دادید، عامل می‌تواند:
 
-1. workflow را با `gh workflow run` اجرا کند.
+1. workflow را اجرا کند. دو راه دارد:
+   - **دکمهٔ «Run workflow»** در تب Actions (توسط شما).
+   - **`repository_dispatch`** از طریق API (توسط عامل، با رویداد `pishkan-deploy` و
+     پارامترها در `client_payload`). GitHub App سندباکس مجوز `workflow_dispatch`
+     مستقیم را ندارد (۴۰۳)، اما `repository_dispatch` را دارد؛ برای همین workflow
+     هر دو trigger را می‌پذیرد و همان job با همان اعتبارسنجی اجرا می‌شود.
 2. لاگ و گزارش نصب را از GitHub بخواند.
 3. خطاها را ریشه‌یابی، کد/پیکربندی را اصلاح و دوباره اجرا کند.
 4. پس از نصب، `doctor` را اجرا کند تا تأیید نهایی بگیرد.
 5. بستهٔ اتصال اندروید (`/etc/pishkan/android-connection.json`) را برای مرحلهٔ بعدی آماده کند.
+
+> اگر فایل workflow شما هنوز فقط `workflow_dispatch` دارد (نسخهٔ اول)، عامل نمی‌تواند
+> خودش اجرا کند و باید شما «Run workflow» را بزنید. نسخهٔ به‌روز هر دو trigger را دارد.
 
 ---
 
