@@ -26,6 +26,11 @@ UPLOAD_DIR="${UPLOAD_DIR:-${STATE_DIR}/uploads}"
 BACKUP_DIR="${BACKUP_DIR:-/var/backups/pishkan}"
 LOG_DIR="${LOG_DIR:-/var/log/pishkan}"
 
+# APP_NAME names the nginx vhost files (pishkan.conf / pishkan-tls.conf). It was
+# referenced by install.sh and `pishkan provision` but never defined, so under
+# `set -u` the installer crashed at the nginx step on a real server. Define it
+# here, next to the other identity constants, with the conventional value.
+APP_NAME="${APP_NAME:-pishkan}"
 SERVICE_NAME="${SERVICE_NAME:-pishkan-api}"
 DB_NAME="${DB_NAME:-pishkan}"
 DB_USER="${DB_USER:-pishkan}"
