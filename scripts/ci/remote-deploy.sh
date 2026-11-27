@@ -22,11 +22,20 @@
 set -Eeuo pipefail
 
 REPO_URL="${PISHKAN_REPO_URL:-https://github.com/khajavy8056/Pishkan.git}"
-CONFIG_DIR="/etc/pishkan"
-STATE_DIR="/var/lib/pishkan"
-LOG_DIR="/var/log/pishkan"
+# Production always uses the defaults; the overrides exist so the session
+# machinery can be exercised end-to-end in a sandbox without touching /etc.
+CONFIG_DIR="${PISHKAN_CONFIG_DIR:-/etc/pishkan}"
+STATE_DIR="${PISHKAN_STATE_DIR:-/var/lib/pishkan}"
+LOG_DIR="${PISHKAN_LOG_DIR:-/var/log/pishkan}"
 INSTALL_LOCK="${STATE_DIR}/.install-complete"
 REPORT_FILE="${LOG_DIR}/install-report.md"
+
+# Long actions run inside a detached tmux session so a dropped SSH connection
+# does NOT kill the install. The session keeps running on the server; the
+# operator can watch it live from PuTTY with `tmux attach -r -t pishkan-deploy`.
+SESSION_NAME="pishkan-deploy"
+SESSION_LOG="${LOG_DIR}/deploy-session.log"
+SESSION_EXIT="${LOG_DIR}/deploy-session.exit"
 
 CLEANUP_DIR=""
 # Always return 0: under `set -e` a non-zero EXIT trap could overwrite a
@@ -204,6 +213,19 @@ redact_stream() {
 }
 
 action_logs() {
+  say "===== tmux deploy session (live status) ====="
+  if command -v tmux >/dev/null 2>&1 && tmux has-session -t "$SESSION_NAME" 2>/dev/null; then
+    say "session '$SESSION_NAME' is RUNNING — watch from PuTTY: tmux attach -r -t $SESSION_NAME"
+  else
+    say "(no running deploy session)"
+  fi
+  if [ -f "$SESSION_EXIT" ]; then say "last session exit code: $(cat "$SESSION_EXIT")"; fi
+  if [ -f "$SESSION_LOG" ]; then
+    say ""
+    say "===== deploy-session.log (last 120 lines — full installer output) ====="
+    tail -n 120 "$SESSION_LOG" | redact_stream
+  fi
+  say ""
   say "===== install.log (last 150 lines) ====="
   if [ -f "$LOG_DIR/install.log" ]; then tail -n 150 "$LOG_DIR/install.log" | redact_stream; else say "(no install.log yet)"; fi
   say ""
@@ -226,6 +248,14 @@ action_reset() {
   local force="$1"
   [ "$force" = "1" ] || die "reset requires force=true (it stops the service). Customer data, uploads, config and backups are never deleted."
   say "Resetting install state — preserving database, uploads, config and backups…"
+
+  # A still-running install session would race with the cleanup — end it first.
+  if command -v tmux >/dev/null 2>&1 && tmux has-session -t "$SESSION_NAME" 2>/dev/null; then
+    say "Stopping the running deploy session '$SESSION_NAME' first…"
+    tmux kill-session -t "$SESSION_NAME" 2>/dev/null || true
+  fi
+  # Also remove the panel binary so a stale panel cannot call a removed CLI.
+  rm -f /usr/local/bin/pishkan-panel
 
   systemctl stop pishkan-api 2>/dev/null || true
   systemctl disable pishkan-api 2>/dev/null || true
@@ -251,6 +281,117 @@ action_reset() {
   say "  Re-run action=install to install fresh; it reuses the preserved config and data."
 }
 
+# --- tmux session persistence --------------------------------------------------
+ensure_tmux() {
+  command -v tmux >/dev/null 2>&1 && return 0
+  say "Installing tmux (keeps the install alive across SSH disconnects)…"
+  export DEBIAN_FRONTEND=noninteractive
+  # Fresh Ubuntu boots often hold the dpkg lock (unattended-upgrades) — retry.
+  local attempt
+  for attempt in 1 2 3; do
+    if apt-get update -qq && apt-get install -y -qq tmux; then return 0; fi
+    say "apt attempt ${attempt} failed (dpkg lock?) — retrying in 15s…"
+    sleep 15
+  done
+  die "could not install tmux after 3 attempts — install it manually: apt-get install -y tmux"
+}
+
+# Dispatch a single action (used both directly and inside the tmux session).
+dispatch_action() {
+  local action="$1" domain="$2" email="$3" force="$4" ref="$5" branch="$6"
+  case "$action" in
+    install)       action_install "$domain" "$email" "$force" "$ref" "$branch" ;;
+    update)        action_update "$ref" ;;
+    doctor)        require_cli; pishkan doctor ;;
+    status)        require_cli; pishkan status ;;
+    provision-tls) action_provision_tls "$domain" "$email" ;;
+    backup)        require_cli; pishkan backup ;;
+    report)        print_report ;;
+    logs)          action_logs ;;
+    reset)         action_reset "$force" ;;
+  esac
+}
+
+# Follow the running session's log until it writes its exit marker. This is the
+# best-effort foreground part: if the SSH connection drops, the tmux session (the
+# actual work) keeps running on the server and can be re-attached or re-followed.
+follow_session() {
+  local tailpid waited=0 rc
+  tail -n +1 -f "$SESSION_LOG" & tailpid=$!
+  while [ ! -f "$SESSION_EXIT" ]; do
+    sleep 2; waited=$((waited + 2))
+    if [ "$waited" -ge 3600 ]; then
+      kill "$tailpid" 2>/dev/null || true
+      die "deploy session timed out after 1h — it may still be running: tmux attach -t $SESSION_NAME"
+    fi
+    if ! tmux has-session -t "$SESSION_NAME" 2>/dev/null && [ ! -f "$SESSION_EXIT" ]; then
+      sleep 2
+      [ -f "$SESSION_EXIT" ] && break
+      kill "$tailpid" 2>/dev/null || true
+      die "deploy session ended without an exit marker — inspect: cat $SESSION_LOG"
+    fi
+  done
+  sleep 1
+  kill "$tailpid" 2>/dev/null || true
+  rc="$(cat "$SESSION_EXIT" 2>/dev/null || echo 1)"
+  say ""
+  say "=== deploy session finished (exit $rc) ==="
+  return "$rc"
+}
+
+# Run a long action inside a detached tmux session (survives SSH disconnects).
+run_long_action() {
+  local action="$1" domain="$2" email="$3" force="$4" ref="$5" branch="$6"
+  mkdir -p "$LOG_DIR"
+
+  # Inside the tmux session: do the work, capture output + exit code. The work
+  # runs in nested subshells so a `die`/non-zero exit is captured into the marker
+  # instead of aborting before the marker is written; `set +e` is confined to the
+  # subshell so it never leaks to the caller's shell options.
+  if [ "${PISHKAN_IN_TMUX:-0}" = "1" ]; then
+    local rc
+    (
+      set +e
+      ( dispatch_action "$action" "$domain" "$email" "$force" "$ref" "$branch" ) 2>&1 | tee -a "$SESSION_LOG"
+      printf '%s\n' "${PIPESTATUS[0]}" > "$SESSION_EXIT"
+    )
+    rc="$(cat "$SESSION_EXIT" 2>/dev/null || echo 1)"
+    return "$rc"
+  fi
+
+  ensure_tmux
+  if tmux has-session -t "$SESSION_NAME" 2>/dev/null; then
+    say "A deploy session is already running (tmux: $SESSION_NAME) — following it (resume after a disconnect)."
+  else
+    rm -f "$SESSION_EXIT"
+    : > "$SESSION_LOG"
+    # A tiny runner guarantees the exit marker even if the inner script dies
+    # early (input validation, sudo failure, …) before its own marker logic.
+    local runner="${LOG_DIR}/deploy-session-runner.sh"
+    {
+      printf '#!/usr/bin/env bash\n'
+      # Pin the effective paths explicitly: a long-lived tmux server can carry
+      # a stale environment, so the inner run must not rely on inheritance.
+      printf 'export PISHKAN_CONFIG_DIR=%q PISHKAN_STATE_DIR=%q PISHKAN_LOG_DIR=%q PISHKAN_REPO_URL=%q\n' \
+        "$CONFIG_DIR" "$STATE_DIR" "$LOG_DIR" "$REPO_URL"
+      printf 'PISHKAN_IN_TMUX=1 bash %q' "$0"
+      printf ' %q' "$action" "$domain" "$email" "$force" "$ref" "$branch"
+      printf '\nrc=$?\n'
+      printf '[ -f %q ] || printf "%%s\\n" "$rc" > %q\n' "$SESSION_EXIT" "$SESSION_EXIT"
+    } > "$runner"
+    chmod 700 "$runner"
+    tmux new-session -d -s "$SESSION_NAME" -x 220 -y 50 "bash $(printf '%q' "$runner")"
+    say "Started tmux session '$SESSION_NAME' — it survives SSH disconnects."
+  fi
+  say "┌────────────────────────────────────────────────────────────────┐"
+  say "│ تماشای زندهٔ نصب از PuTTY (هم‌زمان):                            │"
+  say "│   tmux attach -r -t pishkan-deploy   ← فقط تماشا (امن)          │"
+  say "│   tmux attach -t pishkan-deploy      ← تماشا + تعامل            │"
+  say "│ خروج از تماشا بدون توقف نصب:  Ctrl-b سپس d                     │"
+  say "└────────────────────────────────────────────────────────────────┘"
+  follow_session
+}
+
 # --- main ----------------------------------------------------------------------
 main() {
   [ "$#" -eq 6 ] || die "usage: remote-deploy.sh <action> <domain> <acme_email> <force> <ref> <branch>"
@@ -264,15 +405,12 @@ main() {
 
   say "=== Pishkan remote deploy: action=${action} ref=${ref:0:12} branch=${branch} ==="
   case "$action" in
-    install)       action_install "$domain" "$email" "$force" "$ref" "$branch" ;;
-    update)        action_update "$ref" ;;
-    doctor)        require_cli; pishkan doctor ;;
-    status)        require_cli; pishkan status ;;
-    provision-tls) action_provision_tls "$domain" "$email" ;;
-    backup)        require_cli; pishkan backup ;;
-    report)        print_report ;;
-    logs)          action_logs ;;
-    reset)         action_reset "$force" ;;
+    # Long-running actions: run inside tmux so a dropped SSH link cannot kill them.
+    install|update|provision-tls|backup)
+      run_long_action "$action" "$domain" "$email" "$force" "$ref" "$branch" ;;
+    # Short / read-only actions: run directly.
+    *)
+      dispatch_action "$action" "$domain" "$email" "$force" "$ref" "$branch" ;;
   esac
 }
 

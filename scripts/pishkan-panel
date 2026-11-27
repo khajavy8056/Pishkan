@@ -1,0 +1,148 @@
+#!/usr/bin/env bash
+# ---------------------------------------------------------------------------
+# pishkan-panel — dedicated terminal management panel for تک پیشخوان.
+#
+# Launched automatically on interactive SSH login (hook installed by install.sh).
+# It gives the operator one screen to run the common management tasks and enter
+# settings directly, without memorizing commands. Exiting the panel (option 0)
+# drops to a normal shell; nothing here deletes customer data.
+#
+# Skip it for one session:  PISHKAN_NO_PANEL=1 ssh root@server
+# ---------------------------------------------------------------------------
+
+# No `set -e`: a failed command must return to the menu, not close the panel.
+set -u
+
+PISHKAN_BIN="${PISHKAN_BIN:-pishkan}"
+CONFIG_DIR="/etc/pishkan"
+DEPLOY_CONF="${CONFIG_DIR}/deploy.conf"
+REPORT_FILE="/var/log/pishkan/install-report.md"
+
+if [ -t 1 ]; then
+  B=$'\033[1m'; G=$'\033[32m'; Y=$'\033[33m'; C=$'\033[36m'; R=$'\033[0m'
+else
+  B=""; G=""; Y=""; C=""; R=""
+fi
+
+pause() { printf '\n%s' "${Y}برای بازگشت به منو Enter بزنید…${R} "; read -r _ || true; }
+
+run_cmd() {
+  printf '\n'
+  "$@"
+  local rc=$?
+  printf '\n%s\n' "${C}(کد خروج: ${rc})${R}"
+  pause
+}
+
+# Long operations (update/backup/restart/provision) run inside a tmux session
+# and the panel attaches to it: if SSH drops mid-operation, the work continues
+# on the server and re-opening the panel option re-attaches to the same session.
+# All arguments are fixed command words (never free user input), so "$*" is safe.
+run_protected() {
+  if command -v tmux >/dev/null 2>&1 && [ -z "${TMUX:-}" ] && [ -t 0 ]; then
+    tmux new-session -A -s pishkan-panel-op \
+      "$*; rc=\$?; printf '\n(کد خروج: %s)\n' \"\$rc\"; printf 'برای بازگشت به پنل Enter بزنید…'; read -r _"
+    pause
+  else
+    run_cmd "$@"
+  fi
+}
+
+watch_deploy_session() {
+  if command -v tmux >/dev/null 2>&1 && tmux has-session -t pishkan-deploy 2>/dev/null; then
+    echo "اتصال به نشست نصب/به‌روزرسانی (فقط تماشا؛ خروج: Ctrl-b سپس d)…"
+    sleep 1
+    tmux attach -r -t pishkan-deploy
+    pause
+  else
+    echo "نشست نصب فعالی در حال اجرا نیست. آخرین خروجی ثبت‌شده:"
+    tail -n 40 /var/log/pishkan/deploy-session.log 2>/dev/null || echo "(هنوز لاگی ثبت نشده است)"
+    pause
+  fi
+}
+
+header() {
+  clear 2>/dev/null || true
+  printf '%s\n' "${B}${C}╔════════════════════════════════════════════════════════╗${R}"
+  printf '%s\n' "${B}${C}║          پنل مدیریت ترمینالی تک پیشخوان                  ║${R}"
+  printf '%s\n' "${B}${C}╚════════════════════════════════════════════════════════╝${R}"
+  if command -v "$PISHKAN_BIN" >/dev/null 2>&1; then
+    local ver
+    ver="$("$PISHKAN_BIN" version 2>/dev/null | head -1 || true)"
+    printf '  %s\n' "${G}${ver:-نصب شده}${R}"
+  else
+    printf '  %s\n' "${Y}هشدار: دستور pishkan یافت نشد (سامانه نصب نشده است).${R}"
+  fi
+  if [ "$(id -u)" -ne 0 ]; then
+    printf '  %s\n' "${Y}هشدار: کاربر شما root نیست؛ بیشتر دستورات مدیریتی کار نمی‌کنند. با root وارد شوید.${R}"
+  fi
+  printf '\n'
+}
+
+set_domain() {
+  printf '\n%s' "دامنه (مثلاً office.example.ir — خالی برای لغو): "
+  read -r d || return 0
+  if [ -z "$d" ]; then echo "لغو شد."; pause; return 0; fi
+  # Strict validation: only safe characters reach the sed rewrite below.
+  if ! printf '%s' "$d" | grep -Eq '^[A-Za-z0-9]([A-Za-z0-9.-]*[A-Za-z0-9])?$' || ! printf '%s' "$d" | grep -q '\.'; then
+    echo "دامنه نامعتبر است (فقط حروف انگلیسی، رقم، نقطه و خط تیره؛ باید نقطه داشته باشد)."; pause; return 0
+  fi
+  printf '%s' "ایمیل برای Let's Encrypt: "
+  read -r e || return 0
+  if ! printf '%s' "$e" | grep -Eq '^[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}$'; then
+    echo "ایمیل نامعتبر است؛ لغو شد."; pause; return 0
+  fi
+  if [ ! -f "$DEPLOY_CONF" ]; then echo "فایل ${DEPLOY_CONF} یافت نشد."; pause; return 0; fi
+  sed -i "s|^DOMAIN=.*|DOMAIN=${d}|" "$DEPLOY_CONF"
+  # Keep a non-empty www alias in sync with the new domain; leave an empty one empty.
+  if grep -Eq '^DOMAIN_WWW=.+' "$DEPLOY_CONF"; then sed -i "s|^DOMAIN_WWW=.*|DOMAIN_WWW=www.${d}|" "$DEPLOY_CONF"; fi
+  if grep -q '^ACME_EMAIL=' "$DEPLOY_CONF"; then sed -i "s|^ACME_EMAIL=.*|ACME_EMAIL=${e}|" "$DEPLOY_CONF"; else printf 'ACME_EMAIL=%s\n' "$e" >>"$DEPLOY_CONF"; fi
+  if grep -q '^TLS_MODE=' "$DEPLOY_CONF"; then sed -i "s|^TLS_MODE=.*|TLS_MODE=auto|" "$DEPLOY_CONF"; else printf 'TLS_MODE=auto\n' >>"$DEPLOY_CONF"; fi
+  echo "اعمال تنظیمات و درخواست گواهی HTTPS…"
+  run_protected "$PISHKAN_BIN" provision --tls
+}
+
+confirm_update() {
+  printf '\n%s' "${Y}به‌روزرسانی انجام شود؟ پشتیبان خودکار گرفته می‌شود و در خطا بازمی‌گردد. (y/N): ${R}"
+  read -r a || return 0
+  case "$a" in y|Y|yes) run_protected "$PISHKAN_BIN" update ;; *) echo "لغو شد."; pause ;; esac
+}
+
+menu() {
+  while true; do
+    header
+    printf '  %s وضعیت و سلامت سامانه\n'        "${B}1)${R}"
+    printf '  %s بررسی کامل (doctor)\n'           "${B}2)${R}"
+    printf '  %s مشاهده لاگ‌های API\n'            "${B}3)${R}"
+    printf '  %s پشتیبان‌گیری دستی\n'             "${B}4)${R}"
+    printf '  %s به‌روزرسانی امن\n'               "${B}5)${R}"
+    printf '  %s راه‌اندازی مجدد سرویس\n'         "${B}6)${R}"
+    printf '  %s بازنشانی رمز مدیر کل\n'          "${B}7)${R}"
+    printf '  %s تنظیم دامنه / HTTPS (ورود مستقیم)\n' "${B}8)${R}"
+    printf '  %s ویرایش deploy.conf با nano\n'    "${B}9)${R}"
+    printf '  %s گزارش نصب\n'                    "${B}10)${R}"
+    printf '  %s نسخه و بررسی به‌روزرسانی\n'      "${B}11)${R}"
+    printf '  %s تماشای زندهٔ نشست نصب/به‌روزرسانی (tmux)\n' "${B}12)${R}"
+    printf '  %s خروج به ترمینال معمولی (سپس exit برای logout)\n' "${B}0)${R}"
+    printf '\n%s' "${B}انتخاب کنید:${R} "
+    read -r choice || return 0
+    case "$choice" in
+      1) run_cmd "$PISHKAN_BIN" status ;;
+      2) run_cmd "$PISHKAN_BIN" doctor ;;
+      3) run_cmd "$PISHKAN_BIN" logs api ;;
+      4) run_protected "$PISHKAN_BIN" backup ;;
+      5) confirm_update ;;
+      6) run_protected "$PISHKAN_BIN" restart ;;
+      7) run_cmd "$PISHKAN_BIN" reset-admin ;;
+      8) set_domain ;;
+      9) if command -v nano >/dev/null 2>&1; then nano "$DEPLOY_CONF"; else run_cmd cat "$DEPLOY_CONF"; fi ;;
+      10) if [ -f "$REPORT_FILE" ]; then run_cmd cat "$REPORT_FILE"; else echo "گزارشی نیست."; pause; fi ;;
+      11) run_cmd "$PISHKAN_BIN" check-update ;;
+      12) watch_deploy_session ;;
+      0) printf '%s\n' "${G}خروج به ترمینال معمولی. برای بازگشت به پنل: pishkan-panel${R}"; return 0 ;;
+      *) printf '%s\n' "${Y}گزینه نامعتبر.${R}"; sleep 1 ;;
+    esac
+  done
+}
+
+menu
