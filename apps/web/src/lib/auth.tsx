@@ -11,6 +11,7 @@ export interface CurrentUser {
   nationalId: string | null;
   profileState?: {complete:boolean;missing:string[];profile:any};
   mobileVerified: boolean;
+  emailVerified?: boolean;
   status: string;
   mfaEnabled: boolean;
   mustChangePassword: boolean;

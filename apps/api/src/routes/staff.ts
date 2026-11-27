@@ -151,6 +151,9 @@ staffRouter.post('/', requirePermission('staff.create'), asyncRoute(async (req, 
   if (body.username && await one('SELECT id FROM users WHERE LOWER(username) = ?', [body.username.toLowerCase()])) {
     throw conflict('این نام کاربری قبلاً استفاده شده است.');
   }
+  if (body.email && await one('SELECT id FROM users WHERE LOWER(email) = ?', [body.email.toLowerCase()])) {
+    throw conflict('این ایمیل قبلاً برای کاربر دیگری ثبت شده است.', [{ field: 'email', message: 'ایمیل تکراری است.' }]);
+  }
 
   const ts = nowIso();
   const userId = id('usr');
@@ -173,27 +176,48 @@ staffRouter.post('/', requirePermission('staff.create'), asyncRoute(async (req, 
     actorId: req.auth!.user.id, actorName: req.auth!.user.fullName, action: 'staff.create',
     entityType: 'user', entityId: userId, after: { fullName: body.fullName, roleCode: role.code }, ip: req.ip,
   });
+  // A set-your-own-password link instead of sharing the initial password in
+  // person — best effort, never fails the creation (email.staff_welcome).
+  {
+    const { sendStaffWelcome } = await import('../modules/auth/email-flows.js');
+    await sendStaffWelcome(userId, { ip: req.ip }).catch(() => undefined);
+  }
   const row = await one<any>(`${STAFF_SELECT} WHERE u.id = ?`, [userId]);
   created(res, mapStaff(row));
 }));
 
 staffRouter.patch('/:id', requirePermission('staff.edit'), asyncRoute(async (req, res) => {
+  // The edit form round-trips the record it loaded, so fields the office never
+  // filled (email, position, employeeCode) arrive back as JSON null. `.optional()`
+  // alone rejects null and made EVERY save on such a record fail — including a
+  // plain password reset. Null is accepted everywhere below and means either
+  // «clear» (email) or «leave as is» (the rest); '' and null newPassword mean
+  // «no password change», which is what an empty password box has always meant.
   const body = z.object({
-    fullName: z.string().min(3).max(120).optional(),
-    email: z.string().email().optional().or(z.literal('')),
-    roleCode: z.string().optional(),
-    status: z.enum(['active', 'suspended']).optional(),
-    employeeCode: z.string().max(40).optional(),
-    position: z.string().max(120).optional(),
-    specialties: z.array(z.string()).optional(),
-    maxActiveCases: z.number().int().min(1).max(500).optional(),
-    acceptsNewCases: z.boolean().optional(),
-    mfaRequired: z.boolean().optional(),
-    newPassword: z.string().min(8).max(200).optional(),
+    fullName: z.string().trim().min(3).max(120).optional(),
+    email: z.string().trim().email().or(z.literal('')).nullish(),
+    roleCode: z.string().min(1).nullish(),
+    status: z.enum(['active', 'suspended']).nullish(),
+    employeeCode: z.string().max(40).nullish(),
+    position: z.string().max(120).nullish(),
+    specialties: z.array(z.string()).nullish(),
+    maxActiveCases: z.coerce.number().int().min(1).max(500).nullish(),
+    acceptsNewCases: z.boolean().nullish(),
+    mfaRequired: z.boolean().nullish(),
+    newPassword: z.preprocess(
+      (v) => (v === null || v === '' ? undefined : v),
+      z.string().min(8).max(200).optional(),
+    ),
   }).parse(req.body);
 
   const user = await one<any>(`SELECT * FROM users WHERE id = ? AND kind IN ('staff','admin')`, [param(req, 'id')]);
   if (!user) throw notFound('کارمند یافت نشد.');
+  // The email column is UNIQUE across all users; without this check a duplicate
+  // surfaced as a generic 500 instead of a sentence the office can act on.
+  if (body.email && body.email.toLowerCase() !== String(user.email ?? '').toLowerCase()) {
+    const dupe = await one('SELECT id FROM users WHERE LOWER(email) = ? AND id <> ?', [body.email.toLowerCase(), user.id]);
+    if (dupe) throw conflict('این ایمیل قبلاً برای کاربر دیگری ثبت شده است.', [{ field: 'email', message: 'ایمیل تکراری است.' }]);
+  }
   const targetRole = await one<any>('SELECT code FROM roles WHERE id = ?', [user.role_id]);
   if ((targetRole?.code === 'super_admin' || user.kind === 'admin') && req.auth!.user.roleCode !== 'super_admin') throw forbidden('تغییر حساب مدیریتی فقط توسط مدیر کل مجاز است.');
   if (targetRole?.code === 'super_admin' && (body.status === 'suspended' || (body.roleCode && body.roleCode !== 'super_admin'))) {
@@ -220,15 +244,18 @@ staffRouter.patch('/:id', requirePermission('staff.edit'), asyncRoute(async (req
     await validatePasswordAgainstPolicy(body.newPassword);
   }
 
+  const nextEmail = body.email !== undefined ? (body.email || null) : user.email;
+  const emailChanged = String(nextEmail ?? '').toLowerCase() !== String(user.email ?? '').toLowerCase();
   await run(
-    `UPDATE users SET full_name = ?, email = ?, role_id = ?, status = ?, password_hash = ?, mfa_enabled = ?, updated_at = ? WHERE id = ?`,
+    `UPDATE users SET full_name = ?, email = ?, role_id = ?, status = ?, password_hash = ?, mfa_enabled = ?, email_verified = ?, updated_at = ? WHERE id = ?`,
     [
       body.fullName ?? user.full_name,
-      body.email !== undefined ? (body.email || null) : user.email,
+      nextEmail,
       roleId,
       body.status ?? user.status,
       body.newPassword ? await hashPassword(body.newPassword) : user.password_hash,
       body.mfaRequired !== undefined ? (body.mfaRequired ? 1 : 0) : user.mfa_enabled,
+      emailChanged ? 0 : Number(user.email_verified ?? 0),
       nowIso(), user.id,
     ],
   );

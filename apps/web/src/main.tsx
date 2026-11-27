@@ -11,7 +11,7 @@ import type { ReactNode } from 'react';
 import { HomePage } from './pages/public/Home';
 import { ServiceDetailPage, ServicesPage } from './pages/public/Services';
 import {
-  LegalPage, LoginPage, NotFoundPage, RegisterPage, ResetPasswordPage, StaffLoginPage, StatusPage,
+  LegalPage, LoginPage, NotFoundPage, RegisterPage, ResetPasswordPage, StaffLoginPage, StatusPage, VerifyEmailPage,
 } from './pages/public/Auth';
 import { AssistantPage } from './pages/public/Assistant';
 import { BlogHome, BlogPostPage } from './pages/public/Blog';
@@ -55,6 +55,7 @@ const StaffDocuments = lazyPage(() => import('./pages/staff/StaffPages'), 'Staff
 const StaffPerformance = lazyPage(() => import('./pages/staff/StaffPages'), 'StaffPerformance');
 const StaffRequests = lazyPage(() => import('./pages/staff/StaffPages'), 'StaffRequests');
 const StaffShifts = lazyPage(() => import('./pages/staff/StaffPages'), 'StaffShifts');
+const StaffAccount = lazyPage(() => import('./pages/staff/Account'), 'StaffAccount');
 const StaffWorkbench = lazyPage(() => import('./pages/staff/Workbench'), 'StaffWorkbench');
 const StaffEarnings = lazyPage(() => import('./pages/staff/Earnings'), 'StaffEarnings');
 const EligibleQueue = lazyPage(() => import('./pages/staff/Queue'), 'EligibleQueue');
@@ -149,6 +150,7 @@ function App() {
               <Route path="/register" element={<RegisterPage />} />
               <Route path="/invite/:token" element={<InviteLanding />} />
               <Route path="/reset-password" element={<ResetPasswordPage />} />
+              <Route path="/verify-email" element={<VerifyEmailPage />} />
 
               {/* customer */}
               <Route path="/app" element={customer(<CustomerDashboard />)} />
@@ -181,6 +183,7 @@ function App() {
               <Route path="/staff/discounts" element={financial(<AdminDiscountsPage variant="staff" />,'discounts.view')} />
               <Route path="/staff/referrals" element={financial(<AdminReferrals variant="staff" />,'discounts.view')} />
               <Route path="/staff/shifts" element={staffOnly(<StaffShifts />)} />
+              <Route path="/staff/account" element={staffOnly(<StaffAccount />)} />
               <Route path="/staff/queue" element={staffOnly(<EligibleQueue />,'requests.edit')} />
               <Route path="/staff/accounting" element={financial(<AdminFinance />,'invoices.view')} />
               <Route path="/staff/reports" element={financial(<AdminReports />,'reports.view')} />

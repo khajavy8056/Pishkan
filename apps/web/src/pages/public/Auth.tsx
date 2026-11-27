@@ -358,11 +358,12 @@ export function StaffLoginPage() {
 
         <div className="card card-pad shadow-2xl">
           <LoginPanel audience="staff" />
+          <Link to="/reset-password" className="mt-3 block text-center text-xs text-navy-500 hover:text-navy-800">رمز عبور خود را فراموش کرده‌اید؟ بازیابی با ایمیل</Link>
         </div>
 
         <p className="mt-5 flex items-center justify-center gap-2 text-center text-[11px] leading-6 text-shell-muted">
           <ShieldCheck className="size-4 shrink-0" />
-          تلاش‌های ورود ثبت و پایش می‌شوند. اگر رمز را فراموش کرده‌اید با مدیر کل سامانه تماس بگیرید.
+          تلاش‌های ورود ثبت و پایش می‌شوند. اگر رمز را فراموش کرده‌اید، از «بازیابی با ایمیل» استفاده کنید یا با مدیر کل سامانه تماس بگیرید.
         </p>
       </div>
     </div>
@@ -564,12 +565,39 @@ export function NotFoundPage() {
 export function ResetPasswordPage() {
   const navigate = useNavigate();
   const { notify } = useToast();
+  const [searchParams] = useSearchParams();
+  const linkToken = searchParams.get('token') ?? '';
+  const [channel, setChannel] = useState<'email' | 'sms'>('email');
+  const [identifier, setIdentifier] = useState('');
   const [mobile, setMobile] = useState('');
   const [code, setCode] = useState('');
   const [password, setPassword] = useState('');
-  const [step, setStep] = useState<'request' | 'reset'>('request');
+  const [step, setStep] = useState<'request' | 'reset'>(linkToken ? 'reset' : 'request');
+  const [emailRequested, setEmailRequested] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
+
+  const requestEmail = async () => {
+    setLoading(true); setError('');
+    try {
+      const res = await api.post<{ data: { message: string } }>('/api/auth/password/reset-email/request', { identifier });
+      setEmailRequested(true);
+      notify(res.data?.message ?? 'اگر حسابی با این مشخصات وجود داشته باشد، لینک بازیابی ارسال شد.', 'success');
+    } catch (err) {
+      setError(err instanceof ApiFailure ? err.message : 'خطا در ارسال لینک');
+    } finally { setLoading(false); }
+  };
+
+  const confirmEmail = async () => {
+    setLoading(true); setError('');
+    try {
+      await api.post('/api/auth/password/reset-email/confirm', { token: linkToken, newPassword: password });
+      notify('رمز عبور تعیین شد. اکنون وارد شوید.', 'success');
+      navigate('/login', { replace: true });
+    } catch (err) {
+      setError(err instanceof ApiFailure ? err.message : 'تعیین رمز ناموفق بود');
+    } finally { setLoading(false); }
+  };
 
   const request = async () => {
     setLoading(true); setError('');
@@ -593,32 +621,124 @@ export function ResetPasswordPage() {
     } finally { setLoading(false); }
   };
 
+  // Arrived through the emailed one-time link: only the new password is asked.
+  if (linkToken) {
+    return (
+      <PublicLayout>
+        <div className="mx-auto max-w-md px-4 py-14">
+          <div className="card card-pad">
+            <h1 className="text-lg font-bold text-navy-900">تعیین رمز عبور جدید</h1>
+            <p className="mt-1 text-sm text-navy-500">لینک بازیابی شما معتبر است. رمز تازه را تعیین کنید؛ همهٔ نشست‌های قبلی بسته می‌شوند.</p>
+            <div className="mt-5 space-y-4">
+              <Field label="رمز عبور جدید" hint="حداقل ۱۰ کاراکتر شامل حرف و رقم." required>
+                <Input type="password" value={password} onChange={(e) => setPassword(e.target.value)} dir="ltr" className="text-left" />
+              </Field>
+              {error && <p className="text-xs text-rose-700">{error}</p>}
+              <Button className="w-full" loading={loading} onClick={confirmEmail}>تعیین رمز جدید</Button>
+              <Link to="/login" className="block text-center text-xs text-navy-500 hover:text-navy-800">بازگشت به ورود</Link>
+            </div>
+          </div>
+        </div>
+      </PublicLayout>
+    );
+  }
+
   return (
     <PublicLayout>
       <div className="mx-auto max-w-md px-4 py-14">
         <div className="card card-pad">
           <h1 className="text-lg font-bold text-navy-900">بازیابی رمز عبور</h1>
-          <p className="mt-1 text-sm text-navy-500">با کد پیامکی، رمز عبور جدید تعیین کنید.</p>
+          <p className="mt-1 text-sm text-navy-500">از طریق لینک ایمیل (کارکنان و مشتریان) یا کد پیامکی (مشتریان).</p>
+          <div className="mt-4 grid grid-cols-2 gap-2">
+            <Button variant={channel === 'email' ? 'primary' : 'ghost'} size="sm" onClick={() => { setChannel('email'); setError(''); }}>لینک ایمیل</Button>
+            <Button variant={channel === 'sms' ? 'primary' : 'ghost'} size="sm" onClick={() => { setChannel('sms'); setError(''); }}>کد پیامکی</Button>
+          </div>
           <div className="mt-5 space-y-4">
-            <Field label="شماره موبایل" required>
-              <Input value={mobile} onChange={(e) => setMobile(e.target.value)} dir="ltr" className="text-left" inputMode="tel" />
-            </Field>
-            {step === 'reset' && (
+            {channel === 'email' ? (
               <>
-                <Field label="کد پیامکی" required>
-                  <Input value={code} onChange={(e) => setCode(e.target.value)} dir="ltr" className="text-center tracking-[0.4em]" inputMode="numeric" maxLength={8} />
+                <Field label="نام کاربری یا ایمیل" required>
+                  <Input value={identifier} onChange={(e) => setIdentifier(e.target.value)} dir="ltr" className="text-left" />
                 </Field>
-                <Field label="رمز عبور جدید" hint="حداقل ۸ کاراکتر شامل حرف و رقم." required>
-                  <Input type="password" value={password} onChange={(e) => setPassword(e.target.value)} dir="ltr" className="text-left" />
+                {emailRequested && (
+                  <p className="rounded-lg bg-emerald-50 p-3 text-xs leading-6 text-emerald-800">
+                    اگر حسابی با این مشخصات و ایمیل ثبت‌شده وجود داشته باشد، لینک بازیابی ارسال شد. صندوق ورودی (و پوشهٔ اسپم) را بررسی کنید؛ لینک ۳۰ دقیقه اعتبار دارد.
+                  </p>
+                )}
+                {error && <p className="text-xs text-rose-700">{error}</p>}
+                <Button className="w-full" loading={loading} onClick={requestEmail}>ارسال لینک بازیابی</Button>
+              </>
+            ) : (
+              <>
+                <Field label="شماره موبایل" required>
+                  <Input value={mobile} onChange={(e) => setMobile(e.target.value)} dir="ltr" className="text-left" inputMode="tel" />
                 </Field>
+                {step === 'reset' && (
+                  <>
+                    <Field label="کد پیامکی" required>
+                      <Input value={code} onChange={(e) => setCode(e.target.value)} dir="ltr" className="text-center tracking-[0.4em]" inputMode="numeric" maxLength={8} />
+                    </Field>
+                    <Field label="رمز عبور جدید" hint="حداقل ۱۰ کاراکتر شامل حرف و رقم." required>
+                      <Input type="password" value={password} onChange={(e) => setPassword(e.target.value)} dir="ltr" className="text-left" />
+                    </Field>
+                  </>
+                )}
+                {error && <p className="text-xs text-rose-700">{error}</p>}
+                <Button className="w-full" loading={loading} onClick={step === 'request' ? request : reset}>
+                  {step === 'request' ? 'دریافت کد بازیابی' : 'تعیین رمز جدید'}
+                </Button>
               </>
             )}
-            {error && <p className="text-xs text-rose-700">{error}</p>}
-            <Button className="w-full" loading={loading} onClick={step === 'request' ? request : reset}>
-              {step === 'request' ? 'دریافت کد بازیابی' : 'تعیین رمز جدید'}
-            </Button>
             <Link to="/login" className="block text-center text-xs text-navy-500 hover:text-navy-800">بازگشت به ورود</Link>
           </div>
+        </div>
+      </div>
+    </PublicLayout>
+  );
+}
+
+/** Landing page of the emailed verification link. The confirm endpoint is
+ * account-scoped, so the person must be logged in; the page says so plainly
+ * instead of failing silently. */
+export function VerifyEmailPage() {
+  const { notify } = useToast();
+  const [searchParams] = useSearchParams();
+  const token = searchParams.get('token') ?? '';
+  const [state, setState] = useState<'idle' | 'working' | 'done' | 'error' | 'auth'>('idle');
+  const [message, setMessage] = useState('');
+
+  const confirm = async () => {
+    setState('working');
+    try {
+      await api.post('/api/auth/email/verify/confirm', { proof: token });
+      setState('done');
+      notify('ایمیل شما تأیید شد.', 'success');
+    } catch (err) {
+      if (err instanceof ApiFailure && err.status === 401) {
+        setState('auth');
+        setMessage('برای تأیید ایمیل ابتدا وارد حساب خود شوید، سپس دوباره همین لینک را باز کنید.');
+      } else {
+        setState('error');
+        setMessage(err instanceof ApiFailure ? err.message : 'تأیید ناموفق بود.');
+      }
+    }
+  };
+
+  return (
+    <PublicLayout>
+      <div className="mx-auto max-w-md px-4 py-14">
+        <div className="card card-pad text-center">
+          <h1 className="text-lg font-bold text-navy-900">تأیید ایمیل</h1>
+          {state === 'done' ? (
+            <p className="mt-4 rounded-lg bg-emerald-50 p-3 text-sm text-emerald-800">✅ ایمیل شما با موفقیت تأیید شد.</p>
+          ) : (
+            <>
+              <p className="mt-2 text-sm text-navy-500">برای تأیید نشانی ایمیل حساب خود، دکمهٔ زیر را بزنید.</p>
+              {message && <p className="mt-3 rounded-lg bg-amber-50 p-3 text-xs leading-6 text-amber-800">{message}</p>}
+              <Button className="mt-4 w-full" loading={state === 'working'} onClick={confirm} disabled={!token}>تأیید ایمیل من</Button>
+              {!token && <p className="mt-2 text-xs text-rose-700">توکن تأیید در نشانی وجود ندارد؛ از لینک داخل ایمیل استفاده کنید.</p>}
+            </>
+          )}
+          <Link to="/app" className="mt-4 block text-xs text-navy-500 hover:text-navy-800">بازگشت به سامانه</Link>
         </div>
       </div>
     </PublicLayout>

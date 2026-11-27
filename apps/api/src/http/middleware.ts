@@ -1,6 +1,7 @@
 import type { NextFunction, Request, Response } from 'express';
 import { ZodError } from 'zod';
 import { HttpError, forbidden, tooMany, unauthorized } from './errors.js';
+import { translateZodError } from './validation.js';
 import type { AuthContext } from '../modules/auth/types.js';
 import { hasPermission } from '../lib/permissions.js';
 import { safeErrorText, sanitizeLogText } from '../lib/safe-log.js';
@@ -142,9 +143,12 @@ export function errorHandler(err: any, req: Request, res: Response, _next: NextF
     details = err.details;
   } else if (err instanceof ZodError) {
     status = 400;
-    message = 'داده‌های ارسالی معتبر نیست.';
     code = 'validation_error';
-    details = err.issues.map((i) => ({ path: i.path.join('.'), message: i.message }));
+    // Name the field and the rule in Persian — a generic «داده‌ها معتبر نیست»
+    // is what made a null email from the edit form look like a broken save.
+    const translated = translateZodError(err);
+    message = translated.message;
+    details = translated.details;
   } else if (err?.type === 'entity.too.large') {
     status = 413;
     message = 'حجم درخواست بیش از حد مجاز است.';

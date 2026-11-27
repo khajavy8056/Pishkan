@@ -1298,6 +1298,7 @@ export async function moveStep(
       // screen reader can say it in words.
       progress: steps.length > 1 ? Math.min(1, Math.max(0, next / (steps.length - 1))) : null,
       stageLabel: steps[next].title,
+      email: { template: 'notification', variables: { link: `/app/requests/${requestId}` } },
       // Stable per case, so two consecutive stage changes overwrite instead of
       // both staying in the tray.
       idempotencyKey: `request-stage:${requestId}:${next}`,

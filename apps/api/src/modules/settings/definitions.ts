@@ -69,11 +69,6 @@ export const SETTING_GROUPS: {
 
 const bool = (v: boolean) => v;
 
-/** Reused by the `email.*` entries below, so the panel cannot imply a channel this
- *  build does not have. `tests/notification-channels.test.ts` keeps the marker and the
- *  absence of a transport tied together (`tests/notification-egress.test.ts`). */
-const EMAIL_UNWIRED = 'این تنظیم ذخیره می‌شود ولی فعلاً هیچ ایمیلی ارسال نمی‌شود (سامانه فرستندهٔ SMTP ندارد). '
-  + 'راه‌های واقعیِ رساندن اعلان: اتصال زنده، فایربیس، Web Push، وب‌هوک اعلان، و پیامک پشتیبان.';
 
 export const SETTINGS: SettingDef[] = [
   /* ------------------------------- general -------------------------------- */
@@ -211,29 +206,34 @@ export const SETTINGS: SettingDef[] = [
   { key: 'push.relay_key', group: 'sms', type: 'textarea', secret: true, label: 'کلید وب‌هوک (Bearer)', hint: 'اگر سرویس اعلان شما کلید می‌خواهد. رمزنگاری‌شده ذخیره می‌شود و به هیچ کلاینتی فرستاده نمی‌شود.', default: '' },
 
   /* --------------------------------- email --------------------------------
-   * Stored, not wired. There is no SMTP transport anywhere in this codebase, so
-   * nothing in this group sends anything today. The keys stay (an office that has
-   * already typed a host and a password should not lose them on the day mail is
-   * implemented) but the panel says what is true, because a switch reading «روشن»
-   * while no mail ever leaves the server is the kind of silence that costs someone
-   * a deadline. The channels that really do deliver live in
-   * `modules/notifications/delivery.ts` (`CHANNELS`).
+   * WIRED: `modules/email/provider.ts` sends through SMTP (nodemailer) and every
+   * attempt lands in `email_logs`. The channel is registered in
+   * `modules/notifications/delivery.ts` (`CHANNELS`) and reported by
+   * `/api/notifications/status` as `emailEnabled`. With no host configured the
+   * provider is the honest `console` development transport.
    *
-   * `tests/notification-egress.test.ts` fails if one of these keys is read by
-   * code *and* still carries the marker, or is unread and has lost the marker —
-   * so the wording can only be dropped together with a real implementation.
+   * `tests/notification-egress.test.ts` still enforces the two-way rule: a key
+   * read by code must not carry an «unwired» marker, and an unread key must.
    */
-  { key: 'email.enabled', group: 'email', type: 'boolean', label: 'ارسال ایمیل (فرستندهٔ SMTP وصل نیست)', hint: EMAIL_UNWIRED, default: bool(false) },
-  { key: 'email.host', group: 'email', type: 'text', label: 'هاست SMTP', hint: 'برای روزی که فرستندهٔ ایمیل به سامانه وصل شود؛ اکنون هیچ ایمیلی از این تنظیمات خارج نمی‌شود.', default: '' },
-  { key: 'email.port', group: 'email', type: 'number', label: 'پورت SMTP', hint: 'برای روزی که فرستندهٔ ایمیل وصل شود؛ اکنون استفاده نمی‌شود.', default: 587, min: 1, max: 65535 },
-  { key: 'email.secure', group: 'email', type: 'boolean', label: 'اتصال امن (TLS)', hint: 'برای روزی که فرستندهٔ ایمیل وصل شود؛ اکنون استفاده نمی‌شود.', default: bool(true) },
-  { key: 'email.user', group: 'email', type: 'text', label: 'نام کاربری SMTP', hint: 'برای روزی که فرستندهٔ ایمیل وصل شود؛ اکنون استفاده نمی‌شود.', default: '' },
-  { key: 'email.password', group: 'email', type: 'password', secret: true, label: 'رمز عبور SMTP', hint: 'برای روزی که فرستندهٔ ایمیل وصل شود؛ اکنون استفاده نمی‌شود و به هیچ سرویسی فرستاده نمی‌شود.', default: '' },
-  { key: 'email.from_name', group: 'email', type: 'text', label: 'نام فرستنده', hint: 'برای روزی که فرستندهٔ ایمیل وصل شود؛ اکنون استفاده نمی‌شود.', default: 'دفتر پیشخوان' },
-  { key: 'email.from_address', group: 'email', type: 'email', label: 'ایمیل فرستنده', hint: 'برای روزی که فرستندهٔ ایمیل وصل شود؛ اکنون استفاده نمی‌شود.', default: '' },
-  { key: 'email.notify_new_request', group: 'email', type: 'boolean', label: 'ایمیل هنگام ثبت درخواست جدید', hint: EMAIL_UNWIRED, default: bool(true) },
-  { key: 'email.notify_status_change', group: 'email', type: 'boolean', label: 'ایمیل هنگام تغییر وضعیت پرونده', hint: EMAIL_UNWIRED, default: bool(true) },
-  { key: 'email.notify_payment', group: 'email', type: 'boolean', label: 'ایمیل هنگام پرداخت', hint: EMAIL_UNWIRED, default: bool(true) },
+  { key: 'email.enabled', group: 'email', type: 'boolean', label: 'ارسال ایمیل فعال باشد', hint: 'کلید اصلی همهٔ ایمیل‌های سامانه (بازیابی رمز، تأیید ایمیل، اعلان‌ها). بدون هاست SMTP، ارسال در حالت شبیه‌ساز توسعه انجام می‌شود.', default: bool(false) },
+  { key: 'email.host', group: 'email', type: 'text', label: 'هاست SMTP', hint: 'مثلاً mail.example.ir یا smtp.gmail.com. خالی = شبیه‌ساز توسعه (بدون ارسال واقعی).', default: '' },
+  { key: 'email.port', group: 'email', type: 'number', label: 'پورت SMTP', hint: 'معمولاً 587 (STARTTLS) یا 465 (TLS مستقیم).', default: 587, min: 1, max: 65535 },
+  { key: 'email.secure', group: 'email', type: 'boolean', label: 'اتصال امن مستقیم (TLS/465)', hint: 'برای پورت 465 روشن و برای 587 خاموش بگذارید؛ در 587 ارتقا به TLS خودکار انجام می‌شود.', default: bool(false) },
+  { key: 'email.user', group: 'email', type: 'text', label: 'نام کاربری SMTP', hint: 'معمولاً همان نشانی ایمیل فرستنده.', default: '' },
+  { key: 'email.password', group: 'email', type: 'password', secret: true, label: 'رمز عبور SMTP', hint: 'برای Gmail باید «App Password» باشد، نه رمز اصلی حساب.', default: '' },
+  { key: 'email.from_name', group: 'email', type: 'text', label: 'نام فرستنده', default: 'دفتر پیشخوان' },
+  { key: 'email.from_address', group: 'email', type: 'email', label: 'ایمیل فرستنده', hint: 'مثلاً no-reply@example.ir — باید اجازهٔ ارسال از آن را داشته باشید.', default: '' },
+  { key: 'email.password_reset_enabled', group: 'email', type: 'boolean', label: 'بازیابی رمز عبور با لینک ایمیل', hint: 'برای کارکنان و مشتریان؛ لینک یک‌بارمصرف ۳۰ دقیقه‌ای.', default: bool(true) },
+  { key: 'email.verification_enabled', group: 'email', type: 'boolean', label: 'تأیید ایمیل با کد/لینک', hint: 'کاربر از پروفایل خود درخواست تأیید می‌دهد.', default: bool(true) },
+  { key: 'email.staff_welcome', group: 'email', type: 'boolean', label: 'ایمیل خوش‌آمد به کارمند تازه', hint: 'هنگام ساخت حساب کارمند دارای ایمیل، لینک تعیین رمز شخصی ارسال می‌شود.', default: bool(true) },
+  { key: 'email.notify_new_request', group: 'email', type: 'boolean', label: 'ایمیل هنگام ثبت درخواست جدید', default: bool(true) },
+  { key: 'email.notify_status_change', group: 'email', type: 'boolean', label: 'ایمیل هنگام تغییر وضعیت پرونده', default: bool(true) },
+  { key: 'email.notify_payment', group: 'email', type: 'boolean', label: 'ایمیل هنگام پرداخت', default: bool(true) },
+  { key: 'email.notify_tickets', group: 'email', type: 'boolean', label: 'ایمیل رویدادهای تیکت پشتیبانی', hint: 'ثبت تیکت و پاسخ تازه؛ هر کاربر می‌تواند دریافت را برای خودش خاموش کند.', default: bool(true) },
+  { key: 'email.notify_security', group: 'email', type: 'boolean', label: 'ایمیل هشدارهای امنیتی و پایش', hint: 'هشدارهای گارد و پایش برای مدیران.', default: bool(true) },
+  { key: 'email.daily_limit', group: 'email', type: 'number', label: 'سقف ارسال ایمیل روزانه', hint: 'برای جلوگیری از ارسال ناخواستهٔ انبوه.', default: 500, min: 1, max: 100000 },
+  { key: 'email.log_body', group: 'email', type: 'boolean', label: 'ثبت متن ایمیل در لاگ داخلی', hint: 'برای حریم خصوصی بهتر است خاموش باشد؛ لینک‌های یک‌بارمصرف داخل متن هستند.', default: bool(false) },
+  { key: 'email.test_recipient', group: 'email', type: 'email', label: 'ایمیل مقصد آزمایشی', hint: 'دکمهٔ «ارسال ایمیل آزمایشی» به این نشانی می‌فرستد.', default: '' },
 
   /* -------------------------------- security ------------------------------- */
   { key: 'security.force_https', group: 'security', type: 'boolean', label: 'اجبار HTTPS', hint: 'درخواست‌های HTTP به HTTPS هدایت می‌شوند.', default: bool(true) },
@@ -432,6 +432,7 @@ export const SETTINGS: SettingDef[] = [
   { key: 'guard.deps_check_interval_hours', group: 'guard', type: 'number', label: 'فاصلهٔ بررسی وابستگی‌ها (ساعت)', default: 24, min: 1, max: 168 },
   { key: 'guard.event_retention_days', group: 'guard', type: 'number', label: 'نگهداری رویدادهای امنیتی (روز)', default: 90, min: 7, max: 730 },
   { key: 'guard.sms_enabled', group: 'guard', type: 'boolean', label: 'پیامک هشدار امنیتی', hint: 'از همان سرویس پیامک سامانه استفاده می‌کند؛ sms.enabled و الگوی اعلان باید فعال باشند.', default: bool(false) },
+  { key: 'guard.email_enabled', group: 'guard', type: 'boolean', label: 'ایمیل هشدار امنیتی به مدیران', hint: 'به همهٔ مدیران فعال دارای ایمیل ارسال می‌شود؛ همان سیاست شدت/رویداد و سقف ساعتی پیامک، و ترجیحات ایمیل هر مدیر. email.enabled و email.notify_security باید روشن باشند.', default: bool(false) },
   { key: 'guard.sms_mobile', group: 'guard', type: 'tel', label: 'شمارهٔ مدیر برای هشدار امنیتی', default: '' },
   { key: 'guard.sms_min_severity', group: 'guard', type: 'select', label: 'حداقل شدت برای پیامک', options: [{ value: 'warning', label: 'هشدار و بحرانی' }, { value: 'critical', label: 'فقط بحرانی' }], default: 'critical' },
   { key: 'guard.sms_max_per_hour', group: 'guard', type: 'number', label: 'سقف پیامک امنیتی در ساعت', default: 5, min: 1, max: 30 },

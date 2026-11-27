@@ -4,6 +4,7 @@ import { getBool } from '../settings/service.js';
 import { markDelivered } from './delivery.js';
 import { sendEventNotificationSms } from '../sms/provider.js';
 import type { SmsEvent } from '../sms/templates.js';
+import type { EmailTemplateCode } from '../email/templates.js';
 
 export interface NotifyInput {
   title: string;
@@ -14,13 +15,13 @@ export interface NotifyInput {
   idempotencyKey?: string;
   /** Also ring the user's subscribed devices (Web Push). */
   push?: boolean;
-  // There is deliberately no `email` flag. A boolean that promises a message to
-  // somebody's inbox is a promise this build cannot keep — no SMTP transport
-  // exists — and an event that is silently half-delivered is worse than one that
-  // was never advertised. If mail is ever wired, add the flag together with the
-  // channel in `delivery.ts` (`CHANNELS`) and the label in
-  // `settings/definitions.ts`; `tests/notification-egress.test.ts` requires the
-  // three to move as one change.
+  /** Also email the person, through the SMTP channel (`modules/email`). The
+   * event category's system toggle and the person's own email alarm prefs both
+   * apply; a refused send is a ledger row, never a failed business flow. The
+   * channel is registered in `delivery.ts` (`CHANNELS`) and the settings group
+   * is wired in `settings/definitions.ts` — the three moved as one change, as
+   * `tests/notification-egress.test.ts` requires. */
+  email?: { template: EmailTemplateCode; variables?: Record<string, string>; category?: 'tickets' | 'cases' | 'payments' | 'security' | 'announcements' };
   /** Stable machine-readable category, independent of localized text. */
   eventType?: string;
   /**
@@ -86,6 +87,19 @@ export async function notifyUser(userId: string, input: NotifyInput): Promise<vo
       const smsKey = `${input.idempotencyKey ?? notificationId}:sms`;
       await sendEventNotificationSms(user.mobile, input.sms, smsKey).catch(() => undefined);
     }
+  }
+
+  // The email channel: same event, one more door to the person's attention.
+  // Every gate (system category toggle, the person's own alarm prefs, a present
+  // address) lives in the email service; failures stay in its ledger.
+  if (input.email) {
+    const { sendNotificationEmail } = await import('../email/service.js');
+    await sendNotificationEmail(userId, {
+      template: input.email.template,
+      category: input.email.category,
+      variables: { title: input.title, body: input.body ?? '', link: input.link ?? '', ...(input.email.variables ?? {}) },
+      idempotencyKey: `${input.idempotencyKey ?? notificationId}:email`,
+    }).catch(() => undefined);
   }
 
   // Native push (FCM) is attempted for every persistent notice, not only the

@@ -51,11 +51,14 @@ die() { printf '✖ %s\n' "$*" >&2; exit 1; }
 
 # --- input validation (runs before escalation so errors are immediate) ------
 validate_inputs() {
-  local action="$1" domain="$2" email="$3" force="$4" ref="$5" branch="$6"
+  local action="$1" domain="$2" email="$3" force="$4" ref="$5" branch="$6" request_id="${7:-}"
   case "$action" in
-    install|update|doctor|status|provision-tls|backup|report|logs|reset) ;;
-    *) die "unknown action '$action' (allowed: install update doctor status provision-tls backup report logs reset)" ;;
+    install|update|doctor|status|provision-tls|backup|report|logs|reset|agent) ;;
+    *) die "unknown action '$action' (allowed: install update doctor status provision-tls backup report logs reset agent)" ;;
   esac
+  if [ "$action" = "agent" ]; then
+    [[ "$request_id" =~ ^[A-Za-z0-9_-]{8,64}$ ]] || die "action=agent requires a valid request_id (approved by the operator in the server panel)"
+  fi
   if [ -n "$domain" ] && ! [[ "$domain" =~ ^[A-Za-z0-9][A-Za-z0-9.-]*\.[A-Za-z]{2,}$ ]]; then
     die "invalid domain '$domain' — expected e.g. office.example.ir, without scheme or path"
   fi
@@ -281,6 +284,48 @@ action_reset() {
   say "  Re-run action=install to install fresh; it reuses the preserved config and data."
 }
 
+# --- agent session (operator-approved, single-use, read-only) ------------------
+# The agent publishes a request to the GitHub branch `pishkan-agent-requests`;
+# the operator approves it in the server panel (pishkan-agent-requests approve).
+# The approval is a 15-minute, single-use file that lives ONLY on this server.
+# Without it this action refuses to run — the agent cannot approve itself.
+action_agent() {
+  local request_id="$1"
+  local approval="${STATE_DIR}/agent-approvals/${request_id}.conf"
+  [ -f "$approval" ] || die "no operator approval for request '$request_id'. Ask the operator to approve it in the server panel (menu: درخواست‌های دسترسی عامل)."
+
+  local a_action a_expires a_used line key value
+  a_action=""; a_expires=""; a_used=""
+  while IFS= read -r line; do
+    key="${line%%=*}"; value="${line#*=}"
+    case "$key" in
+      ACTION) a_action="$value" ;;
+      EXPIRES_AT) a_expires="$value" ;;
+      USED) a_used="$value" ;;
+    esac
+  done < "$approval"
+
+  [ "$a_used" = "0" ] || die "approval for '$request_id' was already consumed — a fresh operator approval is required for each session."
+  local now_utc
+  now_utc="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+  [[ "$a_expires" > "$now_utc" ]] || die "approval for '$request_id' expired at $a_expires — ask the operator to approve a fresh request."
+  [ "$a_action" = "agent" ] || die "approval is for action '$a_action', not 'agent'."
+
+  # Consume BEFORE running: even a failed session burns the one-shot approval.
+  sed -i 's/^USED=0$/USED=1/' "$approval"
+  say "✔ Operator approval verified and consumed (request $request_id). Read-only diagnostics follow."
+  say ""
+  say "===== pishkan status ====="
+  if command -v pishkan >/dev/null 2>&1; then pishkan status 2>&1 | redact_stream || true; else say "(pishkan CLI not installed)"; fi
+  say ""
+  say "===== pishkan doctor ====="
+  if command -v pishkan >/dev/null 2>&1; then pishkan doctor 2>&1 | redact_stream || true; fi
+  say ""
+  action_logs
+  say ""
+  say "=== agent session complete — approval consumed; next session needs a fresh approval ==="
+}
+
 # --- tmux session persistence --------------------------------------------------
 ensure_tmux() {
   command -v tmux >/dev/null 2>&1 && return 0
@@ -394,13 +439,13 @@ run_long_action() {
 
 # --- main ----------------------------------------------------------------------
 main() {
-  [ "$#" -eq 6 ] || die "usage: remote-deploy.sh <action> <domain> <acme_email> <force> <ref> <branch>"
-  local action="$1" domain="$2" email="$3" force="$4" ref="$5" branch="$6"
+  [ "$#" -eq 6 ] || [ "$#" -eq 7 ] || die "usage: remote-deploy.sh <action> <domain> <acme_email> <force> <ref> <branch> [request_id]"
+  local action="$1" domain="$2" email="$3" force="$4" ref="$5" branch="$6" request_id="${7:-}"
   validate_inputs "$@"
 
   if [ "$(id -u)" -ne 0 ]; then
     say "SSH user is not root — escalating with sudo -n…"
-    exec sudo -n bash "$0" "$action" "$domain" "$email" "$force" "$ref" "$branch"
+    exec sudo -n bash "$0" "$action" "$domain" "$email" "$force" "$ref" "$branch" "$request_id"
   fi
 
   say "=== Pishkan remote deploy: action=${action} ref=${ref:0:12} branch=${branch} ==="
@@ -408,6 +453,9 @@ main() {
     # Long-running actions: run inside tmux so a dropped SSH link cannot kill them.
     install|update|provision-tls|backup)
       run_long_action "$action" "$domain" "$email" "$force" "$ref" "$branch" ;;
+    # Operator-approved agent session: gated, single-use, read-only.
+    agent)
+      action_agent "$request_id" ;;
     # Short / read-only actions: run directly.
     *)
       dispatch_action "$action" "$domain" "$email" "$force" "$ref" "$branch" ;;

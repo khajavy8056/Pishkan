@@ -69,6 +69,9 @@ export async function sweep(): Promise<{ retried: number; escalated: number }> {
   try {
     const retried = (await getBool('push.retry_enabled')) ? await retryUnacked() : 0;
     const escalated = await escalateToSms();
+    // Hygiene piggyback: expired one-time email tokens older than a week go.
+    const { purgeExpiredEmailTokens } = await import('../auth/email-flows.js');
+    await purgeExpiredEmailTokens().catch(() => 0);
     return { retried, escalated };
   } finally {
     running = false;

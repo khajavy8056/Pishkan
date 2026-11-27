@@ -16,5 +16,6 @@ export async function notifyPaymentStatus(paymentId: string, statusLabel: string
     link: payment.purpose === 'wallet_topup' ? '/app/wallet' : '/app/invoices',
     idempotencyKey: `payment:${payment.id}:${payment.status}`,
     sms: { eventCode: 'payment_status', variables: { invoice_number: payment.invoice_number ?? 'بدون شماره فاکتور', payment_status: statusLabel } },
+    email: { template: 'notification', category: 'payments', variables: { link: payment.purpose === 'wallet_topup' ? '/app/wallet' : '/app/invoices' } },
   });
 }

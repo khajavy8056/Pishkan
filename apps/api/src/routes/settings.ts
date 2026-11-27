@@ -121,6 +121,51 @@ settingsRouter.get('/sms/credentials', requirePermission('settings.view'), async
   });
 }));
 
+/* --------------------------------- email ---------------------------------- */
+
+settingsRouter.post('/email/test-connection', requirePermission('settings.edit'), asyncRoute(async (req, res) => {
+  const { verifySmtp } = await import('../modules/email/provider.js');
+  const result = await verifySmtp();
+  await writeAudit({
+    actorId: req.auth!.user.id, actorName: req.auth!.user.fullName, action: 'email.test_connection',
+    entityType: 'settings', entityId: 'email', after: { ok: result.ok }, ip: req.ip,
+  });
+  ok(res, { ok: result.ok, message: result.ok ? 'اتصال SMTP برقرار است.' : (result.error ?? 'اتصال برقرار نشد.') });
+}));
+
+settingsRouter.post('/email/test-send', requirePermission('settings.edit'), asyncRoute(async (req, res) => {
+  const body = z.object({ to: z.string().email().optional() }).parse(req.body ?? {});
+  // Explicit destination, or the configured test recipient — never a silent default.
+  const to = (body.to ?? (await getString('email.test_recipient'))).trim();
+  if (!to) throw badRequest('نشانی مقصد را وارد کنید یا «ایمیل مقصد آزمایشی» را در تنظیمات ذخیره کنید.');
+  const { sendTemplateEmail } = await import('../modules/email/provider.js');
+  const result = await sendTemplateEmail({ to, template: 'test', userId: req.auth!.user.id, transactional: true });
+  await writeAudit({
+    actorId: req.auth!.user.id, actorName: req.auth!.user.fullName, action: 'email.test_send',
+    entityType: 'settings', entityId: 'email', after: { ok: result.ok, provider: result.provider }, ip: req.ip,
+  });
+  ok(res, {
+    ok: result.ok,
+    message: result.ok
+      ? (result.provider === 'console' ? 'در حالت شبیه‌ساز توسعه رندر شد (ارسال واقعی انجام نشد)؛ هاست SMTP تنظیم کنید تا واقعاً ارسال شود.' : 'ایمیل آزمایشی ارسال شد.')
+      : (result.error ?? 'ارسال ناموفق بود.'),
+    provider: result.provider,
+    devPreview: result.devPreview,
+  });
+}));
+
+settingsRouter.get('/email/logs', requirePermission('settings.view'), asyncRoute(async (req, res) => {
+  const limit = Math.min(200, Math.max(1, Number(req.query.limit ?? 50) || 50));
+  const rows = await q<any>('SELECT id, user_id, to_email, purpose, subject, provider, status, error, created_at, sent_at FROM email_logs ORDER BY created_at DESC LIMIT ?', [limit]);
+  const total = await one<{ c: number }>('SELECT COUNT(*) AS c FROM email_logs');
+  // Bodies are never returned here even when log_body is on — the list is for
+  // delivery diagnostics, and bodies may contain one-time links.
+  ok(res, rows.map((r) => ({
+    id: r.id, userId: r.user_id, to: r.to_email, purpose: r.purpose, subject: r.subject,
+    provider: r.provider, status: r.status, error: r.error, createdAt: r.created_at, sentAt: r.sent_at,
+  })), { total: Number(total?.c ?? 0) });
+}));
+
 /* --------------------------------- domain --------------------------------- */
 
 /**

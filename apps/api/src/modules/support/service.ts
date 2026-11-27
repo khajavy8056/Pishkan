@@ -143,6 +143,7 @@ export async function createTicket(input: {
         link: `chat:${ticketId}`,
         push: true,
         idempotencyKey: `support-new:${ticketId}`,
+        email: { template: 'ticket_created', variables: { ticket_number: number, ticket_title: subject, link: '/admin/support' } },
       }).catch(() => undefined);
       return getTicket(ticketId, actor);
     } catch (error) {
@@ -272,12 +273,14 @@ export async function replyToTicket(ticketId: string, input: { body: string; fil
           title: 'پاسخ جدید در تیکت پشتیبانی',
           body: `${ticket.number} — ${ticket.subject}`,
           kind: 'info', link: `chat:${ticketId}`, push: true,
+          email: { template: 'ticket_reply', variables: { ticket_number: ticket.number, ticket_title: ticket.subject, preview: body.slice(0, 150), link: '/staff/support' } },
         }).catch(() => undefined);
       } else {
         await notifyRole(['super_admin', 'manager'], {
           title: 'پاسخ جدید در تیکت بدون مسئول',
           body: `${ticket.number} — ${ticket.subject}`,
           kind: 'info', link: `chat:${ticketId}`, push: true,
+          email: { template: 'ticket_reply', variables: { ticket_number: ticket.number, ticket_title: ticket.subject, preview: body.slice(0, 150), link: '/admin/support' } },
         }).catch(() => undefined);
       }
     } else {
@@ -285,6 +288,7 @@ export async function replyToTicket(ticketId: string, input: { body: string; fil
         title: 'پاسخ پشتیبانی دریافت شد',
         body: `تیکت ${ticket.number} پاسخ داده شد: ${ticket.subject}`,
         kind: 'success', link: `chat:${ticketId}`, push: true,
+        email: { template: 'ticket_reply', variables: { ticket_number: ticket.number, ticket_title: ticket.subject, preview: body.slice(0, 150), link: '/app/support' } },
       }).catch(() => undefined);
     }
   }
@@ -348,6 +352,7 @@ export async function updateTicket(ticketId: string, input: {
       body: `${ticket.number} — ${ticket.subject}`,
       kind: 'success', link: `chat:${ticketId}`, push: true,
       idempotencyKey: `support-${input.status}:${ticketId}:${ts}`,
+      email: { template: 'notification', category: 'tickets', variables: { link: '/app/support' } },
     }).catch(() => undefined);
   }
   if (input.assignedTo && input.assignedTo !== actor.id) {
@@ -356,6 +361,7 @@ export async function updateTicket(ticketId: string, input: {
       body: `${ticket.number} — ${ticket.subject}`,
       kind: 'info', link: `chat:${ticketId}`, push: true,
       idempotencyKey: `support-assign:${ticketId}:${input.assignedTo}`,
+      email: { template: 'notification', category: 'tickets', variables: { link: '/staff/support' } },
     }).catch(() => undefined);
   }
   return getTicket(ticketId, actor);

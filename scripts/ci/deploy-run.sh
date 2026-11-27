@@ -15,6 +15,7 @@
 set -Eeuo pipefail
 
 ACTION="${ACTION:-doctor}"
+REQUEST_ID="${REQUEST_ID:-}"
 DOMAIN="${DOMAIN:-}"
 ACME_EMAIL="${ACME_EMAIL:-}"
 FORCE_RAW="${FORCE:-false}"
@@ -65,7 +66,11 @@ REMOTE_PATH="/tmp/pishkan-remote-deploy-${RUN_ID}.sh"
 
 # printf %q makes every input shell-safe for the remote command; the remote
 # script additionally validates each value against a strict pattern.
-REMOTE_ARGS="$(printf '%q ' "$ACTION" "$DOMAIN" "$ACME_EMAIL" "$FORCE" "$REF" "$BRANCH")"
+if [ -n "$REQUEST_ID" ]; then
+  REMOTE_ARGS="$(printf '%q ' "$ACTION" "$DOMAIN" "$ACME_EMAIL" "$FORCE" "$REF" "$BRANCH" "$REQUEST_ID")"
+else
+  REMOTE_ARGS="$(printf '%q ' "$ACTION" "$DOMAIN" "$ACME_EMAIL" "$FORCE" "$REF" "$BRANCH")"
+fi
 REMOTE_CMD="bash ${REMOTE_PATH} ${REMOTE_ARGS}"
 
 # Dry run is fully offline: it must never touch the network (no keyscan, no SSH).

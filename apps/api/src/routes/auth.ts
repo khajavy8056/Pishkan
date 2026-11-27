@@ -19,6 +19,7 @@ import { ok } from '../http/respond.js';
 
 import { profileState, validNationalId } from '../modules/profiles/service.js';
 import { profileAutofill, validIban } from '../modules/profiles/autofill.js';
+import { requestPasswordResetByEmail, confirmPasswordResetByEmail, requestEmailVerification, confirmEmailVerification } from '../modules/auth/email-flows.js';
 
 export const authRouter = Router();
 
@@ -182,6 +183,42 @@ authRouter.post('/password/reset',
     res.json({ ok: true, data: { message: 'رمز عبور با موفقیت تغییر کرد.', ...(await sessionPayload(result.context, result.token, result.expiresAt)) } });
   }));
 
+/* ------------------------- email reset / verification --------------------- */
+
+// Password reset by a one-time emailed link — for staff AND customers. The
+// request endpoint answers identically whether or not the account exists.
+authRouter.post('/password/reset-email/request',
+  rateLimit({ windowMs: 600_000, max: 10 }),
+  asyncRoute(async (req, res) => {
+    const body = z.object({ identifier: z.string().min(3).max(120) }).parse(req.body);
+    const result = await requestPasswordResetByEmail(body.identifier, { ip: req.ip, userAgent: req.header('user-agent') });
+    res.json({ ok: true, data: { ...result, message: 'اگر حسابی با این مشخصات و ایمیل ثبت‌شده وجود داشته باشد، لینک بازیابی ارسال شد.' } });
+  }));
+
+authRouter.post('/password/reset-email/confirm',
+  rateLimit({ windowMs: 600_000, max: 10 }),
+  asyncRoute(async (req, res) => {
+    const body = z.object({
+      token: z.string().min(20).max(200),
+      newPassword: z.string().min(8).max(200),
+    }).parse(req.body);
+    await confirmPasswordResetByEmail(body.token, body.newPassword, { ip: req.ip, userAgent: req.header('user-agent') });
+    res.json({ ok: true, data: { message: 'رمز عبور با موفقیت تعیین شد. اکنون می‌توانید وارد شوید.' } });
+  }));
+
+authRouter.post('/email/verify/request', requireAuth, asyncRoute(async (req, res) => {
+  const result = await requestEmailVerification(req.auth!.user.id, { ip: req.ip, userAgent: req.header('user-agent') });
+  res.json({ ok: true, data: { ...result, message: 'کد و لینک تأیید به ایمیل شما ارسال شد.' } });
+}));
+
+authRouter.post('/email/verify/confirm', requireAuth,
+  rateLimit({ windowMs: 600_000, max: 15 }),
+  asyncRoute(async (req, res) => {
+    const body = z.object({ proof: z.string().min(6).max(200) }).parse(req.body);
+    const result = await confirmEmailVerification(req.auth!.user.id, body.proof, { ip: req.ip, userAgent: req.header('user-agent') });
+    res.json({ ok: true, data: result });
+  }));
+
 /* --------------------------------- session -------------------------------- */
 
 authRouter.get('/me', requireAuth, asyncRoute(async (req, res) => {
@@ -274,12 +311,22 @@ authRouter.patch('/profile', requireAuth, asyncRoute(async (req, res) => {
   if (body.cityId && !city) throw badRequest('شهر را از فهرست انتخاب کنید.');
   if (body.firstName && body.lastName) body.fullName = `${body.firstName} ${body.lastName}`;
 
+  const nextEmail = body.email !== undefined ? (body.email || null) : user.email;
+  const emailChanged = String(nextEmail ?? '').toLowerCase() !== String(user.email ?? '').toLowerCase();
+  if (nextEmail && emailChanged) {
+    const dupe = await one('SELECT id FROM users WHERE LOWER(email) = ? AND id <> ?', [String(nextEmail).toLowerCase(), user.id]);
+    if (dupe) throw badRequest('این ایمیل قبلاً برای کاربر دیگری ثبت شده است.');
+  }
+
+  // A changed address is unverified until proven again; computed in JS so the
+  // statement stays identical on SQLite and PostgreSQL.
   await run(
-    `UPDATE users SET full_name = ?, email = ?, national_id = ?, updated_at = ? WHERE id = ?`,
+    `UPDATE users SET full_name = ?, email = ?, national_id = ?, email_verified = ?, updated_at = ? WHERE id = ?`,
     [
       body.fullName ?? user.full_name,
-      body.email !== undefined ? (body.email || null) : user.email,
+      nextEmail,
       body.nationalId !== undefined ? (body.nationalId || null) : user.national_id,
+      emailChanged ? 0 : Number((user as any).email_verified ?? 0),
       nowIso(), user.id,
     ],
   );

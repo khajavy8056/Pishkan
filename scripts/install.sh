@@ -635,6 +635,9 @@ install -m 0755 "${CURRENT_LINK}/scripts/pishkan" /usr/local/bin/pishkan
 # Dedicated terminal management panel + auto-launch on interactive SSH login.
 # The hook is guarded so it never affects non-interactive sessions (the deploy
 # workflow's SSH commands, scp, cron) and can be skipped with PISHKAN_NO_PANEL=1.
+if [ -f "${CURRENT_LINK}/scripts/pishkan-agent-requests" ]; then
+  install -m 0755 "${CURRENT_LINK}/scripts/pishkan-agent-requests" /usr/local/bin/pishkan-agent-requests
+fi
 if [ -f "${CURRENT_LINK}/scripts/pishkan-panel" ]; then
   install -m 0755 "${CURRENT_LINK}/scripts/pishkan-panel" /usr/local/bin/pishkan-panel
   PANEL_HOOK='# Pishkan management panel (auto-launch on interactive SSH login)

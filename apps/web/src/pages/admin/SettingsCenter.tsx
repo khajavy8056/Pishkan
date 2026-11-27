@@ -42,6 +42,9 @@ export function SettingsCenter() {
   const [smsTestMobile, setSmsTestMobile] = useState('');
   const [smsState, setSmsState] = useState<any>(null);
   const [smsLogs, setSmsLogs] = useState<any[]>([]);
+  const [emailLogs, setEmailLogs] = useState<any[]>([]);
+  const [emailTestTo, setEmailTestTo] = useState('');
+  const [emailTesting, setEmailTesting] = useState<'connection' | 'send' | null>(null);
   const [testing, setTesting] = useState<'connection' | 'send' | null>(null);
   const [domainCheck, setDomainCheck] = useState<any>(null);
   // Native push (FCM). Kept separate from the SMS test above because they fail
@@ -70,6 +73,7 @@ export function SettingsCenter() {
     load();
     api.get<{ data: any }>('/api/settings/sms/credentials').then((res) => setSmsState(res.data)).catch(() => undefined);
     api.list<any>('/api/settings/sms/logs', { limit: 10 }).then((res) => setSmsLogs(res.data)).catch(() => undefined);
+    api.list<any>('/api/settings/email/logs', { limit: 10 }).then((res) => setEmailLogs(res.data)).catch(() => undefined);
     // Push diagnostics share the SMS tab; loading them here means the card has
     // an answer the moment the operator opens it, instead of a "press to load".
     api.get<{ data: any }>('/api/push/diagnostics?limit=8').then((res) => setPushState(res.data)).catch(() => undefined);
@@ -168,6 +172,32 @@ export function SettingsCenter() {
     } catch (err) {
       notify(err instanceof ApiFailure ? err.message : 'خطا در ارسال پیامک', 'error');
     } finally { setTesting(null); }
+  };
+
+  const testEmailConnection = async () => {
+    setEmailTesting('connection');
+    try {
+      const res = await api.post<{ data: any }>('/api/settings/email/test-connection');
+      notify(res.data.message ?? (res.data.ok ? 'اتصال SMTP برقرار است.' : 'اتصال برقرار نشد.'), res.data.ok ? 'success' : 'error');
+    } catch (err) {
+      notify(err instanceof ApiFailure ? err.message : 'خطا در بررسی اتصال', 'error');
+    } finally { setEmailTesting(null); }
+  };
+
+  const sendEmailTest = async () => {
+    if (!emailTestTo) {
+      notify('ایمیل مقصد را وارد کنید (یا «ایمیل مقصد آزمایشی» را در تنظیمات ذخیره کنید).', 'error');
+      return;
+    }
+    if (!window.confirm(`ایمیل آزمایشی به ${emailTestTo} ارسال شود؟`)) return;
+    setEmailTesting('send');
+    try {
+      const res = await api.post<{ data: any }>('/api/settings/email/test-send', { to: emailTestTo });
+      notify(res.data.message ?? (res.data.ok ? 'ایمیل ارسال شد.' : 'ارسال ناموفق بود.'), res.data.ok ? 'success' : 'error');
+      api.list<any>('/api/settings/email/logs', { limit: 10 }).then((r) => setEmailLogs(r.data)).catch(() => undefined);
+    } catch (err) {
+      notify(err instanceof ApiFailure ? err.message : 'خطا در ارسال ایمیل', 'error');
+    } finally { setEmailTesting(null); }
   };
 
   const checkDomain = async () => {
@@ -383,6 +413,47 @@ export function SettingsCenter() {
                             <td className="text-[11px]">{log.kind ?? log.template ?? '—'}</td>
                             <td className="text-[11px]">
                               {log.status === 'sent' || log.success ? <span className="text-emerald-700">ارسال شد</span>
+                                : <span className="text-rose-700">{log.error ?? 'ناموفق'}</span>}
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              )}
+            </Card>
+          )}
+
+          {activeGroup === 'email' && (
+            <Card>
+              <h2 className="mb-1 flex items-center gap-2 font-bold text-navy-900"><TestTube2 className="size-4 text-accent" /> آزمون سرویس ایمیل</h2>
+              <p className="mb-3 text-[11px] leading-5 text-navy-500">
+                ارسال فقط با مقصد مشخص انجام می‌شود. رمز SMTP در سرور رمزنگاری می‌شود. بدون هاست SMTP، حالت شبیه‌ساز توسعه فعال است و ارسال واقعی انجام نمی‌شود.
+                برای Gmail از «App Password» استفاده کنید، نه رمز اصلی حساب.
+              </p>
+              <div className="flex flex-col gap-2 sm:flex-row">
+                <Button size="sm" variant="ghost" loading={emailTesting === 'connection'} onClick={testEmailConnection}>
+                  <TestTube2 className="size-4" /> بررسی اتصال SMTP
+                </Button>
+                <Input value={emailTestTo} onChange={(e) => setEmailTestTo(e.target.value)} placeholder="inbox@example.com" dir="ltr" className="text-left sm:w-56" />
+                <Button size="sm" loading={emailTesting === 'send'} onClick={sendEmailTest}>ارسال ایمیل آزمایشی</Button>
+              </div>
+              {emailLogs.length > 0 && (
+                <div className="mt-4">
+                  <p className="mb-1 text-xs font-semibold text-navy-800">آخرین ارسال‌ها</p>
+                  <div className="table-wrap">
+                    <table className="table">
+                      <thead><tr><th>زمان</th><th>مقصد</th><th>نوع</th><th>وضعیت</th></tr></thead>
+                      <tbody>
+                        {emailLogs.map((log) => (
+                          <tr key={log.id}>
+                            <td className="text-[11px]">{faDateTime(log.createdAt)}</td>
+                            <td dir="ltr" className="text-left text-[11px]">{log.to}</td>
+                            <td className="text-[11px]">{log.purpose}</td>
+                            <td className="text-[11px]">
+                              {log.status === 'sent' ? <span className="text-emerald-700">ارسال شد</span>
+                                : log.status === 'skipped' ? <span className="text-amber-700">{log.error ?? 'رد شد'}</span>
                                 : <span className="text-rose-700">{log.error ?? 'ناموفق'}</span>}
                             </td>
                           </tr>

@@ -331,8 +331,9 @@ export async function evaluateAlerts(options: { notify?: boolean } = {}) {
     // (guard.sms_events with the alert key), one hourly budget. Only on the
     // FIRST occurrence of an alert, not every re-evaluation.
     if ((options.notify ?? true) && detection.severity !== 'info') {
-      const { sendGuardSms } = await import('../guard/response.js');
+      const { sendGuardSms, sendGuardEmail } = await import('../guard/response.js');
       await sendGuardSms(detection.key, detection.severity, `${detection.title}: ${detection.message}`, alertId).catch(() => false);
+      await sendGuardEmail(detection.key, detection.severity, `${detection.title}: ${detection.message}`, alertId).catch(() => false);
     }
   }
 
