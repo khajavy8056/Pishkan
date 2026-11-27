@@ -1,0 +1,85 @@
+name: Deploy to VPS
+
+# Manual, audited deployment to the production VPS over SSH.
+# - Credentials live ONLY in encrypted repository secrets (never in the repo,
+#   never in chat). GitHub masks secret values in the public log.
+# - The server-side script validates every input, escalates with sudo -n when
+#   needed, and never prints secrets. The install report is sanitized.
+# - The installer is idempotent: it never deletes customer data. Updates go
+#   through `pishkan update --ref <full SHA>` with automatic backup + rollback.
+#
+# Required secrets: VPS_HOST, VPS_USER, VPS_SSH_KEY
+# Optional secrets: VPS_PORT (default 22), VPS_HOST_KEY (pinned known_hosts line)
+# Guide: docs/DEPLOY-GITHUB-ACTIONS-FA.md
+#
+# NOTE: workflow_dispatch only registers once this file exists on the default
+# branch (main). After merge, "Run workflow" appears in the Actions tab and the
+# workflow can also be dispatched against any branch that contains it.
+
+on:
+  workflow_dispatch:
+    inputs:
+      action:
+        description: 'Operation to run on the server'
+        type: choice
+        required: true
+        default: doctor
+        options:
+          - install
+          - update
+          - doctor
+          - status
+          - provision-tls
+          - backup
+          - report
+      domain:
+        description: 'Public domain, e.g. office.example.ir (blank = IP-only install / keep existing config)'
+        type: string
+        required: false
+        default: ''
+      acme_email:
+        description: "Email for Let's Encrypt expiry warnings (required when domain is set)"
+        type: string
+        required: false
+        default: ''
+      force:
+        description: 'Re-run the installer even if already installed (data preserved; use update for new code)'
+        type: boolean
+        default: false
+      ref:
+        description: 'Full 40-char commit SHA to install/update (blank = the commit this workflow runs on)'
+        type: string
+        required: false
+        default: ''
+
+permissions:
+  contents: read
+
+concurrency:
+  group: pishkan-vps-deploy
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - name: Checkout deployment scripts
+        uses: actions/checkout@v4
+
+      - name: Deploy over SSH
+        env:
+          VPS_HOST: ${{ secrets.VPS_HOST }}
+          VPS_USER: ${{ secrets.VPS_USER }}
+          VPS_PORT: ${{ secrets.VPS_PORT }}
+          VPS_SSH_KEY: ${{ secrets.VPS_SSH_KEY }}
+          VPS_HOST_KEY: ${{ secrets.VPS_HOST_KEY }}
+          ACTION: ${{ inputs.action }}
+          DOMAIN: ${{ inputs.domain }}
+          ACME_EMAIL: ${{ inputs.acme_email }}
+          FORCE: ${{ inputs.force }}
+          REF_INPUT: ${{ inputs.ref }}
+          GITHUB_SHA: ${{ github.sha }}
+          BRANCH: ${{ github.ref_name }}
+          RUN_ID: ${{ github.run_id }}
+        run: bash scripts/ci/deploy-run.sh
