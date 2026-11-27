@@ -44,8 +44,8 @@ die() { printf '✖ %s\n' "$*" >&2; exit 1; }
 validate_inputs() {
   local action="$1" domain="$2" email="$3" force="$4" ref="$5" branch="$6"
   case "$action" in
-    install|update|doctor|status|provision-tls|backup|report) ;;
-    *) die "unknown action '$action' (allowed: install update doctor status provision-tls backup report)" ;;
+    install|update|doctor|status|provision-tls|backup|report|logs|reset) ;;
+    *) die "unknown action '$action' (allowed: install update doctor status provision-tls backup report logs reset)" ;;
   esac
   if [ -n "$domain" ] && ! [[ "$domain" =~ ^[A-Za-z0-9][A-Za-z0-9.-]*\.[A-Za-z]{2,}$ ]]; then
     die "invalid domain '$domain' — expected e.g. office.example.ir, without scheme or path"
@@ -194,6 +194,63 @@ action_provision_tls() {
   pishkan provision --tls
 }
 
+# --- logs (precise, secret-safe diagnostics) ----------------------------------
+# Stream redaction: strip anything that looks like a credential assignment or a
+# password inside a connection URL before it can reach the (public) CI log.
+redact_stream() {
+  sed -E \
+    -e 's/(DB_PASSWORD|APP_ENCRYPTION_KEY|BOOTSTRAP_ADMIN_PASSWORD|DATABASE_URL|PASSWORD|PASSWD|SECRET|TOKEN|API_KEY|APIKEY)([[:space:]]*[:=][[:space:]]*)[^[:space:]]+/\1\2[redacted]/Ig' \
+    -e 's#(postgres(ql)?://[^:/[:space:]]+:)[^@[:space:]]+@#\1[redacted]@#Ig'
+}
+
+action_logs() {
+  say "===== install.log (last 150 lines) ====="
+  if [ -f "$LOG_DIR/install.log" ]; then tail -n 150 "$LOG_DIR/install.log" | redact_stream; else say "(no install.log yet)"; fi
+  say ""
+  say "===== install-journal.jsonl (last 40 steps) ====="
+  if [ -f "$LOG_DIR/install-journal.jsonl" ]; then tail -n 40 "$LOG_DIR/install-journal.jsonl"; else say "(no journal yet)"; fi
+  say ""
+  say "===== pishkan-api service journal (last 150 lines) ====="
+  if command -v journalctl >/dev/null 2>&1; then journalctl -u pishkan-api -n 150 --no-pager 2>/dev/null | redact_stream || say "(no service journal)"; else say "(journalctl unavailable)"; fi
+  say ""
+  say "===== nginx error log (last 80 lines) ====="
+  if [ -f /var/log/nginx/error.log ]; then tail -n 80 /var/log/nginx/error.log | redact_stream; else say "(no nginx error log)"; fi
+}
+
+# --- reset (clean a broken/half install; NEVER deletes customer data) ----------
+# Removes code releases, the service + timer, the CLI, the nginx vhosts and the
+# install lock so the installer can run again from a clean slate. The database,
+# uploads, /etc/pishkan config and /var/backups/pishkan are ALWAYS preserved.
+# Requires force=1 because it stops the running service.
+action_reset() {
+  local force="$1"
+  [ "$force" = "1" ] || die "reset requires force=true (it stops the service). Customer data, uploads, config and backups are never deleted."
+  say "Resetting install state — preserving database, uploads, config and backups…"
+
+  systemctl stop pishkan-api 2>/dev/null || true
+  systemctl disable pishkan-api 2>/dev/null || true
+  systemctl stop pishkan-backup.timer 2>/dev/null || true
+  systemctl disable pishkan-backup.timer 2>/dev/null || true
+
+  rm -f /etc/systemd/system/pishkan-api.service \
+        /etc/systemd/system/pishkan-backup.service \
+        /etc/systemd/system/pishkan-backup.timer
+  systemctl daemon-reload 2>/dev/null || true
+
+  # Code releases only — never the data directories.
+  rm -rf /opt/pishkan/releases /opt/pishkan/current /opt/pishkan/previous
+  rm -f /usr/local/bin/pishkan
+
+  rm -f /etc/nginx/sites-enabled/pishkan.conf /etc/nginx/sites-enabled/pishkan-tls.conf \
+        /etc/nginx/sites-available/pishkan.conf /etc/nginx/sites-available/pishkan-tls.conf
+  if command -v nginx >/dev/null 2>&1 && nginx -t >/dev/null 2>&1; then systemctl reload nginx 2>/dev/null || true; fi
+
+  rm -f "$INSTALL_LOCK"
+
+  say "✔ Reset complete. Preserved: PostgreSQL database, /var/lib/pishkan/uploads, /etc/pishkan, /var/backups/pishkan."
+  say "  Re-run action=install to install fresh; it reuses the preserved config and data."
+}
+
 # --- main ----------------------------------------------------------------------
 main() {
   [ "$#" -eq 6 ] || die "usage: remote-deploy.sh <action> <domain> <acme_email> <force> <ref> <branch>"
@@ -214,6 +271,8 @@ main() {
     provision-tls) action_provision_tls "$domain" "$email" ;;
     backup)        require_cli; pishkan backup ;;
     report)        print_report ;;
+    logs)          action_logs ;;
+    reset)         action_reset "$force" ;;
   esac
 }
 
