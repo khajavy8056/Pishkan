@@ -61,7 +61,17 @@ export async function createBackup(actor: { id: string; name: string }, note?: s
 
   try {
     if (env.dbDriver === 'postgres') {
-      await exec('pg_dump', ['--format=custom', `--file=${target}`, env.databaseUrl], { timeout: 10 * 60_000 });
+      try {
+        await exec(env.pgDumpBin, ['--format=custom', `--file=${target}`, env.databaseUrl], { timeout: 10 * 60_000 });
+      } catch (error: any) {
+        if (error?.code === 'ENOENT') {
+          throw new Error('ابزار pg_dump روی سرور پیدا نشد. بسته postgresql-client هم‌نسخه با سرور را نصب کنید یا مسیر آن را در PG_DUMP_BIN تنظیم کنید.');
+        }
+        if (/server version mismatch|aborting because of server version/i.test(String(error?.stderr ?? error?.message ?? ''))) {
+          throw new Error('نسخه pg_dump از نسخه سرور PostgreSQL قدیمی‌تر است. postgresql-client هم‌نسخه (یا جدیدتر) نصب کنید یا PG_DUMP_BIN را به باینری مناسب اشاره دهید.');
+        }
+        throw error;
+      }
     } else {
       if (!fs.existsSync(env.sqliteFile)) throw new Error('فایل پایگاه داده پیدا نشد.');
       const { sqliteSnapshot } = await import('../../db/index.js');
@@ -148,7 +158,7 @@ with tarfile.open(archive, 'r:gz') as bundle:
 async function verifyDatabaseDump(filename: string, file: string): Promise<{ ok: boolean; message: string }> {
   if (filename.endsWith('.dump')) {
     try {
-      await exec('pg_restore', ['--list', file], { timeout: 120_000 });
+      await exec(env.pgRestoreBin, ['--list', file], { timeout: 120_000 });
       return { ok: true, message: 'ساختار dump پایگاه داده قابل خواندن است.' };
     } catch {
       return { ok: false, message: 'فایل pg_dump قابل خواندن نیست.' };

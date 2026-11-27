@@ -203,6 +203,58 @@ export async function detectConditions(): Promise<{ detections: Detection[]; che
     });
   }
 
+  // 11. backup freshness — only when automatic backups are enabled. A stale
+  // or missing successful backup means the office is effectively unprotected.
+  const backupEnabled = await getBool('backup.enabled').catch(() => false);
+  if (backupEnabled) {
+    const lastOk = await one<{ created_at: string }>("SELECT created_at FROM backups WHERE status='ok' ORDER BY created_at DESC LIMIT 1");
+    const maxAgeHours = await getNumber('monitoring.alert_backup_age_hours').catch(() => 36);
+    const ageHours = lastOk ? Math.round(((Date.now() - Date.parse(lastOk.created_at)) / 3_600_000) * 10) / 10 : null;
+    checks.backup = { enabled: true, lastOkAt: lastOk?.created_at ?? null, ageHours, maxAgeHours };
+    if (ageHours === null) {
+      detections.push({
+        key: 'backup.missing', severity: 'critical', category: 'backup',
+        title: 'هیچ پشتیبان موفق وجود ندارد',
+        message: 'پشتیبان‌گیری خودکار فعال است اما هنوز هیچ نسخهٔ موفقی ثبت نشده؛ داده‌ها بدون نسخهٔ نجات هستند.',
+        metadata: { maxAgeHours },
+      });
+    } else if (ageHours > maxAgeHours) {
+      detections.push({
+        key: 'backup.stale', severity: ageHours > maxAgeHours * 2 ? 'critical' : 'warning', category: 'backup',
+        title: 'پشتیبان‌گیری به‌روز نیست',
+        message: `آخرین پشتیبان موفق ${ageHours} ساعت پیش ساخته شده است (حد مجاز ${maxAgeHours} ساعت). زمان‌بند یا مقصد بکاپ را بررسی کنید.`,
+        metadata: { lastOkAt: lastOk!.created_at, ageHours, maxAgeHours },
+      });
+    }
+  } else {
+    checks.backup = { enabled: false };
+  }
+
+  // 12. SSL certificate expiry — real TLS probe, honestly "not checkable"
+  // on local/http deployments instead of a fake green status.
+  const { checkSslCertificate } = await import('./ssl.js');
+  const ssl = await checkSslCertificate().catch((error) => ({ checked: false as const, error: String(error?.message ?? error), checkedAt: new Date().toISOString() }));
+  checks.ssl = ssl;
+  if (ssl.checked && typeof (ssl as any).daysLeft === 'number') {
+    const daysLeft = (ssl as any).daysLeft as number;
+    const sslThreshold = await getNumber('monitoring.alert_ssl_days').catch(() => 14);
+    if ((ssl as any).expired) {
+      detections.push({
+        key: 'ssl.expired', severity: 'critical', category: 'ssl',
+        title: 'گواهی SSL منقضی شده است',
+        message: `گواهی ${(ssl as any).host} در ${(ssl as any).validTo} منقضی شده؛ مرورگرها اتصال امن را رد می‌کنند. فوراً تمدید کنید (certbot renew یا گواهی Origin کلودفلر).`,
+        metadata: ssl as any,
+      });
+    } else if (daysLeft <= sslThreshold) {
+      detections.push({
+        key: 'ssl.expiring', severity: daysLeft <= 3 ? 'critical' : 'warning', category: 'ssl',
+        title: 'گواهی SSL رو به انقضاست',
+        message: `تنها ${daysLeft} روز تا انقضای گواهی ${(ssl as any).host} مانده است (آستانه ${sslThreshold} روز). تمدید خودکار را بررسی کنید.`,
+        metadata: ssl as any,
+      });
+    }
+  }
+
   return { detections, checks };
 }
 
@@ -273,6 +325,14 @@ export async function evaluateAlerts(options: { notify?: boolean } = {}) {
         link: '/admin/monitoring?tab=alerts',
         idempotencyKey: `alert:${detection.key}:${hour}`,
       }).catch(() => undefined);
+    }
+    // Operational SMS (backup failure/staleness, SSL expiry, DB down…) goes
+    // through the Guard SMS pipeline: one admin number, per-event toggles
+    // (guard.sms_events with the alert key), one hourly budget. Only on the
+    // FIRST occurrence of an alert, not every re-evaluation.
+    if ((options.notify ?? true) && detection.severity !== 'info') {
+      const { sendGuardSms } = await import('../guard/response.js');
+      await sendGuardSms(detection.key, detection.severity, `${detection.title}: ${detection.message}`, alertId).catch(() => false);
     }
   }
 

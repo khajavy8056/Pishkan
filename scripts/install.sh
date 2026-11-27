@@ -46,14 +46,40 @@ NODE_MAJOR="${NODE_MAJOR:-22}"
 
 on_error() {
   local exit_code=$?
+  journal_step "install" "failed" "خط $1 با کد $exit_code"
+  render_install_report "${LOG_DIR}/install-report.md" "ناموفق" "${PUBLIC_URL:-}" "${VERSION:-}" 2>/dev/null || true
   err "نصب در خط $1 با کد $exit_code متوقف شد."
   err "هیچ داده‌ای حذف نشده است. برای بررسی، فایل /var/log/pishkan/install.log را ببینید."
+  err "گزارش مراحل: ${LOG_DIR}/install-report.md"
   exit "$exit_code"
 }
 trap 'on_error $LINENO' ERR
 
 require_root
 mkdir -p "$LOG_DIR"
+
+# ---------------------------------------------------------------------------
+# Post-success lock (installer v2): once an install has completed, re-running
+# the installer is refused unless the operator explicitly unlocks it. Updates
+# and re-provisioning go through `pishkan update` / `pishkan provision`, which
+# are designed for live systems. This prevents an accidental double-install
+# from touching a production box.
+# ---------------------------------------------------------------------------
+INSTALL_LOCK="${STATE_DIR}/.install-complete"
+if [ -f "$INSTALL_LOCK" ] && [ "${PISHKAN_FORCE_INSTALL:-0}" != "1" ]; then
+  err "این سرور قبلاً با موفقیت نصب شده است ($(cat "$INSTALL_LOCK" 2>/dev/null))."
+  err "برای به‌روزرسانی: sudo pishkan update — برای اعمال دوباره تنظیمات: sudo pishkan provision"
+  err "اگر واقعاً قصد اجرای دوباره نصب‌کننده را دارید: PISHKAN_FORCE_INSTALL=1 sudo bash scripts/install.sh"
+  exit 0
+fi
+
+# Fresh journal for this run (the previous one is kept as .prev for audit).
+if [ -f "${LOG_DIR}/install-journal.jsonl" ]; then
+  mv "${LOG_DIR}/install-journal.jsonl" "${LOG_DIR}/install-journal.prev.jsonl" 2>/dev/null || true
+fi
+: >"${LOG_DIR}/install-journal.jsonl"
+journal_step "install" "started" "نصب‌کننده v2"
+
 exec > >(tee -a "${LOG_DIR}/install.log") 2>&1
 
 # ---------------------------------------------------------------------------
@@ -88,6 +114,7 @@ if [ "$AVAILABLE_KB" -lt 4000000 ]; then
   die "فضای دیسک کافی نیست ($((AVAILABLE_KB / 1024))MB آزاد). حداقل 4GB لازم است."
 fi
 ok "فضای دیسک: $((AVAILABLE_KB / 1024))MB آزاد"
+journal_step "preflight" "ok" "RAM=${RAM_MB}MB disk=$((AVAILABLE_KB / 1024))MB arch=${ARCH}"
 
 if [ -f /etc/pishkan/pishkan.env ] && is_installed; then
   warn "یک نصب قبلی پیدا شد. نصب‌کننده فقط موارد ناقص را تکمیل می‌کند و داده‌ها را تغییر نمی‌دهد."
@@ -246,6 +273,7 @@ apt-get install -y -qq \
   curl ca-certificates gnupg lsb-release git rsync build-essential \
   postgresql postgresql-contrib nginx certbot python3-certbot-nginx ufw jq >/dev/null
 ok "بسته‌های پایه نصب شدند."
+journal_step "prerequisites" "ok" "apt packages installed"
 
 node_version_supported() {
   command -v node >/dev/null 2>&1 && node -e 'const [major,minor,patch]=process.versions.node.split(".").map(Number); process.exit(major>22 || (major===22 && (minor>22 || (minor===22 && patch>=2))) ? 0 : 1)' >/dev/null 2>&1
@@ -277,6 +305,7 @@ install -d -o "$APP_USER" -g "$APP_GROUP" "$APP_ROOT" "$RELEASES_DIR" "$STATE_DI
 install -d -o "$APP_USER" -g "$APP_GROUP" -m 0750 "$UPLOAD_DIR"
 install -d -o root -g "$APP_GROUP" -m 0750 "$BACKUP_DIR" "$CONFIG_DIR"
 ok "مسیرها آماده هستند."
+journal_step "paths" "ok" "user=${APP_USER} dirs ready"
 
 # ---------------------------------------------------------------------------
 # 2. Database. CREATE ... IF NOT EXISTS semantics; existing data is kept.
@@ -305,6 +334,7 @@ else
   ok "پایگاه داده ${DB_NAME} از قبل وجود دارد (داده‌ها حفظ شدند)."
 fi
 runuser -u postgres -- psql -v ON_ERROR_STOP=1 -d "$DB_NAME" -c "GRANT ALL ON SCHEMA public TO ${DB_USER};" >/dev/null
+journal_step "database" "ok" "PostgreSQL db=${DB_NAME} user=${DB_USER} (data preserved)"
 
 # ---------------------------------------------------------------------------
 # 3. Application release
@@ -408,6 +438,7 @@ else
   run_as_app "$RELEASE_DIR" npm run build --workspace apps/api
   run_as_app "$RELEASE_DIR" npm run build --workspace apps/web
   ok "بسته تولیدی ساخته شد."
+  journal_step "build" "ok" "api+web production build"
 fi
 
 # ---------------------------------------------------------------------------
@@ -417,6 +448,7 @@ heading "اجرای مهاجرت‌های پایگاه داده"
 # Migrations are versioned and additive; they never drop customer data.
 run_cli_script "$RELEASE_DIR" migrate
 ok "مهاجرت‌ها اعمال شدند."
+journal_step "migrations" "ok" "additive migrations applied"
 
 BOOTSTRAP_PASSWORD="$(read_env_value BOOTSTRAP_ADMIN_PASSWORD)"
 GENERATED_PASSWORD=""
@@ -435,8 +467,10 @@ if [ "${ADMIN_COUNT:-0}" = "0" ]; then
   fi
   run_cli_script "$RELEASE_DIR" create-admin
   ok "حساب مدیر کل ساخته شد."
+  journal_step "admin" "ok" "bootstrap admin created (secret not logged)"
 else
   ok "حساب مدیر کل از قبل وجود دارد (تغییر نکرد)."
+  journal_step "admin" "skipped" "admin already exists"
 fi
 
 # Seed only fills an empty catalogue; it never overwrites admin edits.
@@ -465,6 +499,7 @@ systemctl restart "$SERVICE_NAME"
 
 if wait_for_health 90; then
   ok "سرویس API پاسخ سالم داد."
+  journal_step "service" "ok" "systemd ${SERVICE_NAME} healthy"
 else
   err "سرویس API در زمان مورد انتظار پاسخ نداد."
   err "برای بررسی: journalctl -u ${SERVICE_NAME} -n 100 --no-pager"
@@ -519,6 +554,7 @@ if ! nginx -t >/dev/null 2>&1; then
 fi
 systemctl reload nginx
 ok "Nginx پیکربندی و بارگذاری شد (${NGINX_SERVER_NAME})."
+journal_step "nginx" "ok" "vhost ${NGINX_SERVER_NAME}"
 
 if command -v ufw >/dev/null 2>&1 && ufw status | grep -q "Status: active"; then
   ufw allow 'Nginx Full' >/dev/null 2>&1 || true
@@ -548,6 +584,7 @@ else
        --non-interactive --agree-tos --email "$CONFIG_EMAIL" \
        --keep-until-expiring --expand >/dev/null 2>&1; then
     ok "گواهی Let's Encrypt صادر شد: ${CERT_HOSTS}"
+    journal_step "tls" "ok" "Let's Encrypt cert: ${CERT_HOSTS}"
 
     render_site "$(nginx_fragment_listen_tls)" \
       "$(nginx_fragment_ssl "$CERT_PRIMARY")" "" \
@@ -628,6 +665,7 @@ systemctl daemon-reload
 if [ "$(config_get BACKUP_ENABLED true)" = "true" ]; then
   systemctl enable --now pishkan-backup.timer >/dev/null 2>&1 || true
   ok "پشتیبان‌گیری روزانه ساعت ۰۲:۳۰ (${CONFIG_TIMEZONE}) فعال شد."
+  journal_step "backup-timer" "ok" "daily 02:30 ${CONFIG_TIMEZONE}"
 else
   warn "BACKUP_ENABLED=false است؛ پشتیبان‌گیری خودکار نصب نشد."
   warn "  فعال‌سازی: sudo systemctl enable --now pishkan-backup.timer"
@@ -676,6 +714,7 @@ if [ "$VERIFY_PROBLEMS" -gt 0 ]; then
   warn "  بعد از اصلاح: sudo pishkan doctor"
 else
   ok "همهٔ بررسی‌های نهایی موفق بودند."
+  journal_step "verification" "ok" "all final checks passed"
 fi
 
 # ---------------------------------------------------------------------------
@@ -716,16 +755,79 @@ cat <<EOF
 EOF
 
 if [ -n "$GENERATED_PASSWORD" ]; then
-  cat <<EOF
-  ⚠ رمز عبور اولیه مدیر کل (فقط یک بار نمایش داده می‌شود):
-      نام کاربری: admin
-      رمز عبور:   ${GENERATED_PASSWORD}
-
-  این رمز را همین حالا در جای امن ذخیره کنید و پس از اولین ورود آن را تغییر دهید.
-  برای بازیابی از پنل، از مسیر «تنظیمات → امنیت» یا دستور pishkan reset-admin استفاده کنید.
-
-EOF
+  # SECURITY (installer v2): the initial admin password must NEVER reach
+  # install.log or the downloadable report. It goes only to the controlling
+  # terminal, or to a root-only 0600 file when there is no tty.
+  print_secret_once "رمز عبور اولیه مدیر کل (نام کاربری: admin)" "$GENERATED_PASSWORD" "${CONFIG_DIR}/initial-admin-secret.txt"
+  unset GENERATED_PASSWORD BOOTSTRAP_PASSWORD
+  log "این رمز را همین حالا در جای امن ذخیره کنید و پس از اولین ورود آن را تغییر دهید."
+  log "بازیابی بعدی: «تنظیمات → امنیت» یا دستور pishkan reset-admin"
 fi
+
+# ---------------------------------------------------------------------------
+# Android connection package (installer v2, §8 prep)
+#
+# The Flutter app work is deferred, but the installer must still emit the
+# connection facts the app will need: final API URL, domain, base URL, the
+# essential API paths, API version, auth configuration and live health. No
+# secrets are included — the app authenticates per-user at runtime.
+# ---------------------------------------------------------------------------
+heading "بسته اطلاعات اتصال اندروید"
+ANDROID_PKG="${CONFIG_DIR}/android-connection.json"
+API_BASE="${PUBLIC_URL}/api"
+# Embed the live health response as valid JSON; fall back to an empty object
+# if the probe fails or jq is unavailable, so the package is always parseable.
+HEALTH_RAW="$(curl -fsS --max-time 5 "$(health_url)" 2>/dev/null || true)"
+if command -v jq >/dev/null 2>&1 && printf '%s' "$HEALTH_RAW" | jq -e . >/dev/null 2>&1; then
+  HEALTH_JSON="$(printf '%s' "$HEALTH_RAW" | jq -c .)"
+else
+  HEALTH_JSON='{"status":"unknown","note":"health probe at install time did not return valid JSON"}'
+fi
+cat >"$ANDROID_PKG" <<EOF
+{
+  "generatedAt": "$(date -u +%Y-%m-%dT%H:%M:%SZ)",
+  "appVersion": "${VERSION}",
+  "publicUrl": "${PUBLIC_URL}",
+  "domain": "${CONFIG_DOMAIN:-}",
+  "apiBaseUrl": "${API_BASE}",
+  "apiVersion": "v1",
+  "tlsMode": "${CONFIG_TLS_MODE}",
+  "essentialPaths": {
+    "health": "/api/health",
+    "bootstrap": "/api/public/bootstrap",
+    "login": "/api/auth/login",
+    "loginOtp": "/api/auth/otp/request",
+    "me": "/api/auth/me",
+    "services": "/api/public/services",
+    "requests": "/api/requests",
+    "files": "/api/files",
+    "notifications": "/api/notifications"
+  },
+  "auth": {
+    "sessionCookie": "pishkan_session",
+    "cookieSecure": ${COOKIE_SECURE:-true},
+    "otpAudience": "customer",
+    "note": "هیچ رمز یا کلیدی در این بسته نیست؛ احراز هویت در زمان اجرا انجام می‌شود."
+  },
+  "healthAtInstall": ${HEALTH_JSON}
+}
+EOF
+chmod 0644 "$ANDROID_PKG"
+journal_step "android-package" "ok" "${ANDROID_PKG}"
+ok "بسته اتصال اندروید ساخته شد: ${ANDROID_PKG} (بدون هیچ محرمانه‌ای)"
+
+# ---------------------------------------------------------------------------
+# Final report + post-success lock (installer v2)
+# ---------------------------------------------------------------------------
+journal_step "install" "success" "نصب کامل شد"
+render_install_report "${LOG_DIR}/install-report.md" "موفق" "$PUBLIC_URL" "$VERSION"
+ok "گزارش نصب (بدون محرمانه): ${LOG_DIR}/install-report.md"
+
+mkdir -p "$STATE_DIR"
+printf '%s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ) version=${VERSION}" >"$INSTALL_LOCK"
+chmod 0644 "$INSTALL_LOCK"
+log "نصب‌کننده قفل شد؛ اجرای دوباره آن بدون PISHKAN_FORCE_INSTALL=1 ممکن نیست."
+log "به‌روزرسانی‌های بعدی با sudo pishkan update انجام می‌شود."
 
 warn "اگر دامنه یا Cloudflare را خارج از این نصب تنظیم می‌کنید، راهنمای docs/DOMAIN-CLOUDFLARE.md را بخوانید."
 warn "ارسال پیامک تا زمانی که اعتبارنامه ملی پیامک را در تنظیمات وارد نکنید غیرفعال است."

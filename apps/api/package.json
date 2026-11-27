@@ -15,7 +15,8 @@
     "media:benchmark": "tsx --experimental-sqlite scripts/media-benchmark.ts"
   },
   "dependencies": {
-    "adm-zip": "^0.5.16",
+    "adm-zip": "^0.6.1",
+    "basic-ftp": "^6.2.6",
     "bcryptjs": "^3.0.3",
     "cookie-parser": "^1.4.7",
     "dotenv": "^18.0.9",
@@ -26,6 +27,7 @@
     "pino": "^10.4.0",
     "pino-http": "^11.0.0",
     "sharp": "^0.35.5",
+    "ssh2": "^1.17.0",
     "web-push": "^3.6.7",
     "zod": "^4.6.7"
   },
@@ -36,6 +38,7 @@
     "@types/multer": "^2.3.0",
     "@types/node": "^26.6.5",
     "@types/pg": "^8.23.1",
+    "@types/ssh2": "^1.15.6",
     "@types/supertest": "^7.2.1",
     "@types/web-push": "^3.6.4",
     "supertest": "^7.3.1",

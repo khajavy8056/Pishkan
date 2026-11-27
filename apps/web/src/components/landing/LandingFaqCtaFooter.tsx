@@ -16,6 +16,7 @@ import { useAuth } from '../../lib/auth';
 import { useBrand } from '../../lib/brand';
 import { faNum } from '../../lib/format';
 import { parseListSetting, useSite } from '../../lib/site';
+import { PublicSeoExtras, EnamadBadge } from '../../lib/trust-seo';
 import { useRevealOnScroll } from '../landing-motion';
 import { CustomHtml } from '../visual';
 
@@ -201,6 +202,7 @@ export function LandingFooter() {
 
   return (
     <footer className="footer-shell mt-12">
+      <PublicSeoExtras />
       <div className="lp-container pb-24 pt-12 lg:py-16">
         <div className="grid gap-10 lg:grid-cols-12">
           <div className="space-y-4 lg:col-span-5">
@@ -336,6 +338,7 @@ export function LandingFooter() {
           <p>
             © {footerText} – {brand.name}
           </p>
+          <EnamadBadge />
           <p>طراحی‌شده برای خدمات شفاف و سریع شهروندی</p>
         </div>
       </div>

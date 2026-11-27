@@ -63,7 +63,13 @@ async function multerMiddleware() {
 filesRouter.post('/upload', requireAuth, asyncRoute(async (req, res, next) => {
   const middleware = await multerMiddleware();
   middleware(req, res, (err: any) => {
-    if (err) return next(err);
+    if (err) {
+      // Guard: rejected extension/size is an upload-abuse signal.
+      void import('../modules/guard/detectors.js')
+        .then(({ observeUploadRejection }) => observeUploadRejection(req.ip, err?.message ?? 'rejected', (req as any).file?.originalname ?? ''))
+        .catch(() => undefined);
+      return next(err);
+    }
     (async () => {
       const file = (req as any).file as Express.Multer.File | undefined;
       if (!file) throw badRequest('فایلی انتخاب نشده است.');
@@ -119,7 +125,12 @@ filesRouter.post('/upload', requireAuth, asyncRoute(async (req, res, next) => {
         });
       } catch (error: any) {
         cleanup();
-        if (error?.statusCode === 400) throw badRequest(error.message);
+        if (error?.statusCode === 400) {
+          void import('../modules/guard/detectors.js')
+            .then(({ observeUploadRejection }) => observeUploadRejection(req.ip, error.message, file.originalname))
+            .catch(() => undefined);
+          throw badRequest(error.message);
+        }
         throw error;
       }
     })().catch(next);

@@ -78,6 +78,7 @@ const AdminSystem = lazyPage(() => import('./pages/admin/Operations'), 'AdminSys
 const SettingsCenter = lazyPage(() => import('./pages/admin/SettingsCenter'), 'SettingsCenter');
 const AdminWallet = lazyPage(() => import('./pages/admin/WalletAdmin'), 'AdminWallet');
 const AdminMonitoring = lazyPage(() => import('./pages/admin/Monitoring'), 'AdminMonitoring');
+const AdminGuard = lazyPage(() => import('./pages/admin/Guard'), 'AdminGuard');
 const AdminReferrals = lazyPage(() => import('./pages/admin/Referrals'), 'AdminReferrals');
 const AdminDiscountsPage = lazyPage(() => import('./pages/admin/Discounts'), 'AdminDiscountsPage');
 const AdminAndroidApp = lazyPage(() => import('./pages/admin/AndroidApp'), 'AdminAndroidApp');
@@ -214,6 +215,7 @@ function App() {
               <Route path="/admin/reports" element={adminOnly(<AdminReports />,'reports.view')} />
               <Route path="/admin/wallet" element={adminOnly(<AdminWallet />,'wallet.view')} />
               <Route path="/admin/monitoring" element={adminOnly(<AdminMonitoring />,'monitoring.view')} />
+              <Route path="/admin/guard" element={adminOnly(<AdminGuard />,'guard.view')} />
               <Route path="/admin/android-app" element={adminOnly(<AdminAndroidApp />,'app.manage')} />
               <Route path="/admin/update" element={adminOnly(<AdminSystemUpdate />,'system.view')} />
               <Route path="/admin/settings" element={adminOnly(<SettingsCenter />,'settings.view')} />

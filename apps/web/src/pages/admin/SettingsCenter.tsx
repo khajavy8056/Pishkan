@@ -25,6 +25,7 @@ const GROUP_ICONS: Record<string, string> = {
   general: '🏢', landing: '🎨', domain: '🌐', auth: '🔑', sms: '📩', email: '✉️', security: '🛡️', services: '🧾',
   accounting: '💳', wallet: '👛', workforce: '🗓️', payroll: '💰', assistant: '🤖', files: '📁', backup: '💾',
   maintenance: '📊', monitoring: '📈', multibranch: '🏬', support: '🎧', android_app: '📱',
+  guard: '🛡️', seo: '🔎',
 };
 
 export function SettingsCenter() {

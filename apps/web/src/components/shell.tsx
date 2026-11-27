@@ -5,7 +5,7 @@ import {
   Building2, Users, CalendarClock, FileText, Receipt, BarChart3, Settings, Database, ShieldCheck,
   LifeBuoy, Shapes, Sparkles, Compass, ChevronDown, Plus, BadgeCheck, ServerCog, ClipboardCheck, ArrowLeft, Smartphone,
   Moon, Sun, Monitor, Headset, TicketPercent, ListChecks, BotMessageSquare, CirclePlus, Clock3, CalendarDays, Newspaper,
-  RefreshCw,
+  RefreshCw, ShieldAlert,
 } from 'lucide-react';
 import clsx from 'clsx';
 import { useAuth, homeFor } from '../lib/auth';
@@ -96,6 +96,7 @@ const adminNav: NavItem[] = [
   { to: '/admin/referrals', label: 'کمپین‌های دعوت', icon: <Users className="size-5" />, permission: 'discounts.view', section: SECTION_SYSTEM },
   { to: '/admin/discounts', label: 'کدهای تخفیف', short: 'تخفیف', icon: <TicketPercent className="size-5" />, permission: 'discounts.view', section: SECTION_SYSTEM },
   { to: '/admin/monitoring', label: 'مرکز پایش', short: 'پایش', icon: <Activity className="size-5" />, permission: 'monitoring.view', section: SECTION_SYSTEM },
+  { to: '/admin/guard', label: 'گارد تک پیشخوان', short: 'گارد', icon: <ShieldAlert className="size-5" />, permission: 'guard.view', section: SECTION_SYSTEM },
   { to: '/admin/update', label: 'به‌روزرسانی سامانه', short: 'به‌روزرسانی', icon: <RefreshCw className="size-5" />, permission: 'system.view', section: SECTION_SYSTEM },
   { to: '/admin/payroll', label: 'حقوق و تسویه کارکنان', short: 'حقوق', icon: <Users className="size-5" />, permission: 'payroll.view', section: SECTION_SYSTEM },
   { to: '/admin/reports', label: 'گزارش‌ها', icon: <BarChart3 className="size-5" />, permission: 'reports.view', section: SECTION_SYSTEM },
@@ -156,6 +157,21 @@ export function AppShell({ children, variant }: { children: ReactNode; variant: 
   // than on the first page that wants it) is what lets a step point at the
   // shell's own navigation and lets auto-start decide before the first paint.
   useEffect(() => { void loadTours(); }, []);
+  // Panels are private surfaces: search engines must never index them. The
+  // server robots.txt also disallows these paths; this meta tag is the second
+  // layer for crawlers that reach the URL anyway (e.g. via an external link).
+  useEffect(() => {
+    let el = document.head.querySelector('meta[name="robots"]') as HTMLMetaElement | null;
+    const previous = el?.getAttribute('content') ?? null;
+    if (!el) { el = document.createElement('meta'); el.name = 'robots'; el.dataset.panelNoindex = '1'; document.head.appendChild(el); }
+    el.content = 'noindex, nofollow';
+    return () => {
+      const current = document.head.querySelector('meta[name="robots"]') as HTMLMetaElement | null;
+      if (!current) return;
+      if (previous === null && current.dataset.panelNoindex) current.remove();
+      else if (previous !== null) current.content = previous;
+    };
+  }, []);
   const knownNotificationIds = useRef<Set<string> | null>(null);
   /** The first load seeds the set instead of announcing — history is not news. */
   const bellSeeded = useRef(false);

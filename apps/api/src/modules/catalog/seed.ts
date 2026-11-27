@@ -350,7 +350,7 @@ export { upsertRolesOnly, adminRoleId, syncSystemRolePermissions };
  * explanation. The permission belongs with the role that already runs
  * services, content and reports.
  */
-const PERMISSIONS_VERSION = 5;
+const PERMISSIONS_VERSION = 6;
 async function syncSystemRolePermissions() {
   const marker = await one<{ value: string }>('SELECT value FROM settings WHERE key = ?', ['system.permissions_version']);
   const current = Number(marker?.value ?? 1);

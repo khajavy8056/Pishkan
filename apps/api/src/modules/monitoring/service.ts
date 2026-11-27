@@ -67,7 +67,7 @@ export async function healthSnapshot() {
   const alerts = await alertSummary();
   const metrics = await latestMetrics(['cpu_percent_x100', 'api_p95_ms', 'disk_used_percent_x100', 'db_latency_ms', 'memory_heap_percent_x100']);
   const integrity = await walletIntegrity();
-  const { detections } = await detectConditions();
+  const { detections, checks } = await detectConditions();
 
   const [sessions, online, migrations, reqCounts, pendingDocs] = await Promise.all([
     one<{ c: number }>('SELECT COUNT(*) AS c FROM sessions WHERE revoked_at IS NULL AND expires_at > ?', [now]),
@@ -134,6 +134,29 @@ export async function healthSnapshot() {
     { key: 'notifications', label: 'سرویس اعلان و پیامک', status: smsConfigured ? 'ok' : 'warning', value: smsConfigured ? 'متصل' : 'کنسول/آزمایشی', detail: `${Number(sms?.sent ?? 0)} موفق، ${Number(sms?.failed ?? 0)} ناموفق (۲۴ ساعت)`, updatedAt: now },
     { key: 'queue', label: 'صف پردازش پس‌زمینه', status: Number(media?.failed ?? 0) > 0 ? 'warning' : 'ok', value: `${Number(media?.pending ?? 0)} در انتظار`, detail: `${Number(media?.failed ?? 0)} ناموفق`, updatedAt: now },
     { key: 'alerts', label: 'هشدارها', status: alerts.criticalActive ? 'critical' : alerts.warningActive ? 'warning' : 'ok', value: `${alerts.active} فعال`, detail: `${alerts.criticalActive} بحرانی`, updatedAt: now },
+    {
+      key: 'backup', label: 'پشتیبان‌گیری',
+      status: (() => {
+        const b = checks.backup as any;
+        if (!b?.enabled) return 'unknown' as const;
+        if (b.ageHours === null || b.ageHours === undefined) return 'critical' as const;
+        return b.ageHours > b.maxAgeHours * 2 ? 'critical' as const : b.ageHours > b.maxAgeHours ? 'warning' as const : 'ok' as const;
+      })(),
+      value: (() => { const b = checks.backup as any; return !b?.enabled ? 'خودکار غیرفعال' : b.ageHours === null || b.ageHours === undefined ? 'بدون نسخهٔ موفق' : `${b.ageHours} ساعت پیش`; })(),
+      detail: (() => { const b = checks.backup as any; return b?.enabled ? `حد مجاز ${b.maxAgeHours} ساعت` : 'فعال‌سازی در تنظیمات پشتیبان'; })(),
+      updatedAt: now,
+    },
+    {
+      key: 'ssl', label: 'گواهی SSL',
+      status: (() => {
+        const s = checks.ssl as any;
+        if (!s?.checked) return 'unknown' as const;
+        return s.daysLeft <= 0 ? 'critical' as const : s.daysLeft <= 3 ? 'critical' as const : s.daysLeft <= 14 ? 'warning' as const : 'ok' as const;
+      })(),
+      value: (() => { const s = checks.ssl as any; return s?.checked ? `${s.daysLeft} روز مانده` : 'قابل بررسی نیست'; })(),
+      detail: (() => { const s = checks.ssl as any; return s?.checked ? `${s.host} • صادرکننده: ${s.issuer || 'نامشخص'}` : (s?.reason ?? s?.error ?? 'دامنهٔ عمومی متصل نشده'); })(),
+      updatedAt: now,
+    },
   ];
 
   const critical = components.filter((c) => c.status === 'critical' || (!db.ok)).length;

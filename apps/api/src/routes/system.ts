@@ -140,7 +140,40 @@ systemRouter.post('/backups', requirePermission('backup.create'), asyncRoute(asy
     actorId: req.auth!.user.id, actorName: req.auth!.user.fullName, action: 'backup.create',
     entityType: 'backup', entityId: backup.id, after: { filename: backup.filename, size: backup.size }, ip: req.ip,
   });
-  ok(res, { ...backupDto(backup), message: 'نسخه پشتیبان با موفقیت ایجاد شد.' });
+  const { maybeTransferBackup } = await import('../modules/system/backup-external.js');
+  const transfer = await maybeTransferBackup(backup.id);
+  ok(res, {
+    ...backupDto(backup),
+    transfer,
+    message: transfer && transfer.failed > 0
+      ? 'نسخه پشتیبان ساخته شد اما انتقال به مقصد خارجی ناقص ماند؛ جزئیات در تاریخچهٔ انتقال‌ها.'
+      : 'نسخه پشتیبان با موفقیت ایجاد شد.',
+  });
+}));
+
+/** External-transfer history (all backups, or one with ?backupId=). */
+systemRouter.get('/backups/transfers', requirePermission('backup.view'), asyncRoute(async (req, res) => {
+  const { listTransfers } = await import('../modules/system/backup-external.js');
+  const backupId = typeof req.query.backupId === 'string' ? req.query.backupId : undefined;
+  ok(res, await listTransfers(backupId));
+}));
+
+/** Test the configured external destination without writing anything. */
+systemRouter.post('/backups/external/test', requirePermission('backup.create'), asyncRoute(async (_req, res) => {
+  const { testExternalTarget } = await import('../modules/system/backup-external.js');
+  ok(res, await testExternalTarget());
+}));
+
+/** Manually (re)send one existing successful backup to the external target. */
+systemRouter.post('/backups/:id/transfer', requirePermission('backup.create'), asyncRoute(async (req, res) => {
+  const { transferBackup } = await import('../modules/system/backup-external.js');
+  const summary = await transferBackup(param(req, 'id'));
+  await writeAudit({
+    actorId: req.auth!.user.id, actorName: req.auth!.user.fullName, action: 'backup.external_transfer',
+    entityType: 'backup', entityId: param(req, 'id'),
+    after: { target: summary.target, uploaded: summary.uploaded, failed: summary.failed }, ip: req.ip,
+  });
+  ok(res, summary);
 }));
 
 /**

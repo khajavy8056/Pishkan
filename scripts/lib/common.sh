@@ -228,3 +228,73 @@ confirm_phrase() {
   read -r answer || true
   [ "$answer" = "$phrase" ]
 }
+
+# ---------------------------------------------------------------------------
+# Install journal + sanitized report (installer v2)
+#
+# Every step appends one JSON line to install-journal.jsonl: name, status,
+# timestamp, optional detail. The journal NEVER receives secrets — callers
+# pass only non-sensitive detail strings. A human-readable Markdown report is
+# rendered from the journal at the end (success or failure) so the operator
+# gets one downloadable file describing exactly what happened.
+# ---------------------------------------------------------------------------
+JOURNAL_FILE="${LOG_DIR}/install-journal.jsonl"
+
+journal_step() {
+  local name="$1" status="$2" detail="${3:-}"
+  local ts
+  ts="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+  # Escape backslashes and double quotes for a valid JSON string.
+  local esc_detail
+  esc_detail="$(printf '%s' "$detail" | sed -e 's/\\/\\\\/g' -e 's/"/\\"/g')"
+  printf '{"step":"%s","status":"%s","at":"%s","detail":"%s"}\n' \
+    "$name" "$status" "$ts" "$esc_detail" >>"$JOURNAL_FILE" 2>/dev/null || true
+}
+
+# Print a secret ONLY to the controlling terminal, never to the tee'd log.
+# Falls back to a root-only file when there is no tty (piped/CI installs).
+print_secret_once() {
+  local label="$1" value="$2" fallback_file="$3"
+  if [ -t 1 ] || [ -e /dev/tty ]; then
+    {
+      printf '\n  ⚠ %s (فقط یک بار نمایش داده می‌شود؛ در لاگ نصب ذخیره نمی‌شود):\n' "$label"
+      printf '      %s\n\n' "$value"
+    } >/dev/tty 2>/dev/null && return 0
+  fi
+  printf '%s\n' "$value" >"$fallback_file"
+  chmod 0600 "$fallback_file"
+  warn "رمز اولیه در فایل محرمانه ${fallback_file} ذخیره شد (فقط root). پس از اولین ورود آن را تغییر دهید و فایل را حذف کنید."
+}
+
+# Render the Markdown install report from the journal. No secrets are ever
+# read from the environment here — only journal lines and public facts.
+render_install_report() {
+  local out="$1" final_status="$2" public_url="$3" version="$4"
+  {
+    printf '# گزارش نصب تک پیشخوان\n\n'
+    printf -- '- تاریخ (UTC): %s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+    printf -- '- نتیجهٔ نهایی: %s\n' "$final_status"
+    printf -- '- نسخه: %s\n' "${version:-نامشخص}"
+    printf -- '- نشانی سامانه: %s\n' "${public_url:-نامشخص}"
+    printf -- '- سیستم‌عامل: %s\n' "$(grep PRETTY_NAME /etc/os-release 2>/dev/null | cut -d= -f2 | tr -d '"')"
+    printf '\n> این گزارش هیچ رمز، کلید یا اعتبارنامه‌ای ندارد و برای دانلود/اشتراک امن است.\n\n'
+    printf '## مراحل\n\n| مرحله | وضعیت | زمان (UTC) | توضیح |\n| --- | --- | --- | --- |\n'
+    if [ -f "$JOURNAL_FILE" ]; then
+      # Parse the flat JSON lines with sed/grep — no jq dependency on a fresh box.
+      while IFS= read -r line; do
+        local step status at detail
+        step="$(printf '%s' "$line" | sed -n 's/.*"step":"\([^"]*\)".*/\1/p')"
+        status="$(printf '%s' "$line" | sed -n 's/.*"status":"\([^"]*\)".*/\1/p')"
+        at="$(printf '%s' "$line" | sed -n 's/.*"at":"\([^"]*\)".*/\1/p')"
+        detail="$(printf '%s' "$line" | sed -n 's/.*"detail":"\([^"]*\)".*/\1/p')"
+        printf '| %s | %s | %s | %s |\n' "$step" "$status" "$at" "$detail"
+      done <"$JOURNAL_FILE"
+    fi
+    printf '\n## راهنمای پس از نصب\n\n'
+    printf -- '- وضعیت: `pishkan status` — سلامت: `pishkan health` — بررسی کامل: `pishkan doctor`\n'
+    printf -- '- به‌روزرسانی امن: `pishkan update` — بازگشت: `pishkan rollback`\n'
+    printf -- '- پشتیبان‌گیری: `pishkan backup` — بازیابی: `pishkan restore FILE`\n'
+    printf -- '- گواهی HTTPS پس از اصلاح DNS: `sudo pishkan provision --tls`\n'
+  } >"$out"
+  chmod 0644 "$out"
+}

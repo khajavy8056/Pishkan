@@ -235,6 +235,13 @@ async function logLogin(input: { userId?: string | null; identifier: string; met
       (input.client.userAgent ?? '').slice(0, 400), nowIso(),
     ],
   );
+  // Guard: failed credential attempts feed the brute-force detector. An
+  // otp-request failure is an SMS delivery problem, not an attack signal.
+  if (!input.success && input.method !== 'otp-request') {
+    void import('../guard/detectors.js')
+      .then(({ observeAuthFailure }) => observeAuthFailure(input.client.ip, input.identifier, input.method))
+      .catch(() => undefined);
+  }
 }
 
 async function registerFailure(user: UserRow | null) {
